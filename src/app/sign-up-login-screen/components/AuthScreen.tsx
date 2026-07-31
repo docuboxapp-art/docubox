@@ -1,12 +1,161 @@
 'use client';
 
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import LoginForm from './LoginForm';
 
 import AppLogo from '@/components/ui/AppLogo';
-import { Shield, FileText, Clock, CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, Clock, FileText, Shield } from 'lucide-react';
+
+const heroVariants = [
+  {
+    title: 'Firma tus documentos de forma fácil, segura y confiable',
+    description:
+      'Agiliza acuerdos, contratos y autorizaciones desde cualquier lugar, con una experiencia simple para ti y tus clientes.',
+    features: [
+      {
+        icon: Shield,
+        title: 'Firma desde cualquier lugar',
+        desc: 'Envía y firma documentos en minutos desde computadora, tablet o celular.',
+      },
+      {
+        icon: FileText,
+        title: 'Invita a todas las personas necesarias',
+        desc: 'Organiza fácilmente quién firma, en qué orden y cuándo debe hacerlo.',
+      },
+      {
+        icon: Clock,
+        title: 'Protege cada acuerdo',
+        desc: 'Tus documentos quedan respaldados para brindarte mayor tranquilidad.',
+      },
+      {
+        icon: CheckCircle2,
+        title: 'Mantén todo bajo control',
+        desc: 'Consulta el avance de cada firma y recibe notificaciones en tiempo real.',
+      },
+    ],
+    badges: ['Firma en minutos', 'Fácil para todos', 'Respaldo confiable'],
+  },
+  {
+    title: 'Cierra acuerdos más rápido y sin complicaciones',
+    description:
+      'Envía documentos, reúne firmas y da seguimiento a todo el proceso desde una sola plataforma.',
+    features: [
+      {
+        icon: Shield,
+        title: 'Envía documentos en segundos',
+        desc: 'Prepara e invita a tus clientes, proveedores o colaboradores fácilmente.',
+      },
+      {
+        icon: FileText,
+        title: 'Firma simple y rápida',
+        desc: 'Cada participante puede revisar y firmar desde cualquier dispositivo.',
+      },
+      {
+        icon: Clock,
+        title: 'Recordatorios automáticos',
+        desc: 'Reduce retrasos con avisos para las personas que aún no han firmado.',
+      },
+      {
+        icon: CheckCircle2,
+        title: 'Seguimiento en tiempo real',
+        desc: 'Conoce el estado de tus documentos sin llamadas ni mensajes adicionales.',
+      },
+    ],
+    badges: ['Menos tiempo de espera', 'Más acuerdos cerrados', 'Todo en un solo lugar'],
+  },
+  {
+    title: 'La forma más simple de formalizar tus acuerdos',
+    description:
+      'Transforma cualquier documento en una experiencia de firma ágil, profesional y confiable.',
+    features: [
+      {
+        icon: Shield,
+        title: 'Una experiencia sencilla',
+        desc: 'Tus clientes podrán revisar y firmar sin procesos complicados.',
+      },
+      {
+        icon: FileText,
+        title: 'Flujos a tu medida',
+        desc: 'Define quién participa y organiza cada firma según tus necesidades.',
+      },
+      {
+        icon: Clock,
+        title: 'Mayor confianza',
+        desc: 'Cada documento conserva la información necesaria para respaldar el acuerdo.',
+      },
+      {
+        icon: CheckCircle2,
+        title: 'Visibilidad completa',
+        desc: 'Consulta avances, pendientes y documentos finalizados desde un mismo lugar.',
+      },
+    ],
+    badges: ['Experiencia profesional', 'Procesos más ágiles', 'Acuerdos protegidos'],
+  },
+  {
+    title: 'Firma, envía y avanza',
+    description:
+      'Olvídate de imprimir, escanear y perseguir firmas. Gestiona tus documentos de principio a fin de forma digital.',
+    features: [
+      {
+        icon: Shield,
+        title: 'Envía fácilmente',
+        desc: 'Carga tu documento y compártelo con las personas que deben firmar.',
+      },
+      {
+        icon: FileText,
+        title: 'Firma desde cualquier dispositivo',
+        desc: 'Sin instalaciones ni procesos difíciles para tus clientes.',
+      },
+      {
+        icon: Clock,
+        title: 'Recibe avisos automáticos',
+        desc: 'Mantente informado cada vez que alguien revise o firme.',
+      },
+      {
+        icon: CheckCircle2,
+        title: 'Encuentra todo rápidamente',
+        desc: 'Tus documentos y avances siempre organizados y disponibles.',
+      },
+    ],
+    badges: ['Sin papel', 'Sin complicaciones', 'Sin perder tiempo'],
+  },
+  {
+    title: 'Tus acuerdos, más simples y seguros',
+    description:
+      'Firma documentos importantes con una experiencia clara, rápida y diseñada para generar confianza entre todas las partes.',
+    features: [
+      {
+        icon: Shield,
+        title: 'Identifica a cada participante',
+        desc: 'Conoce quién revisó y firmó cada documento.',
+      },
+      {
+        icon: FileText,
+        title: 'Facilita la firma',
+        desc: 'Ofrece un proceso sencillo para clientes, proveedores y colaboradores.',
+      },
+      {
+        icon: Clock,
+        title: 'Respalda tus documentos',
+        desc: 'Conserva cada acuerdo firmado junto con su historial.',
+      },
+      {
+        icon: CheckCircle2,
+        title: 'Consulta todo en un solo lugar',
+        desc: 'Accede a documentos pendientes, enviados y completados.',
+      },
+    ],
+    badges: ['Firmas confiables', 'Historial completo', 'Documentos protegidos'],
+  },
+];
 
 export default function AuthScreen() {
+  const [heroContent, setHeroContent] = useState(heroVariants[0]);
+
+  useEffect(() => {
+    setHeroContent(heroVariants[Math.floor(Math.random() * heroVariants.length)]);
+  }, []);
+
   return (
     <div className="min-h-screen flex bg-background">
       {/* Left brand panel */}
@@ -22,58 +171,36 @@ export default function AuthScreen() {
         {/* Hero content */}
         <div className="relative z-10">
           <h1 className="text-[calc(2.25rem-11px)] xl:text-[calc(3rem-11px)] font-800 text-white leading-tight mb-4">
-            Firma electrónica avanzada con validez legal en México
+            {heroContent.title}
           </h1>
           <p className="text-lg text-white/75 mb-10 leading-relaxed max-w-lg">
-            Integra tu e.firma del SAT, gestiona flujos multiusuario y genera evidencia digital con cumplimiento NOM-151.
+            {heroContent.description}
           </p>
 
           {/* Feature list */}
           <div className="space-y-4 mb-10">
-            {[
-              {
-                icon: <Shield size={18} className="text-accent" />,
-                title: 'e.firma SAT (FIEL)',
-                desc: 'Firma con tu certificado del SAT — RFC, CURP y datos extraídos automáticamente',
-              },
-              {
-                icon: <FileText size={18} className="text-accent" />,
-                title: 'Flujos multiusuario',
-                desc: 'Firma secuencial o paralela con notificaciones automáticas por email y OTP',
-              },
-              {
-                icon: <Clock size={18} className="text-accent" />,
-                title: 'Sellado NOM-151',
-                desc: 'Timestamp de PSC autorizado para constancia de integridad y fecha cierta',
-              },
-              {
-                icon: <CheckCircle2 size={18} className="text-accent" />,
-                title: 'Audit trail completo',
-                desc: 'Registro inmutable de eventos: IP, geolocalización, timestamp y hash del documento',
-              },
-            ]?.map((feature) => (
-              <div key={`feature-${feature?.title}`} className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  {feature?.icon}
+            {heroContent.features.map((feature) => {
+              const Icon = feature.icon;
+
+              return (
+                <div key={`feature-${feature.title}`} className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Icon size={18} className="text-accent" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-600 text-white">{feature.title}</p>
+                    <p className="text-xs text-white/65 mt-0.5 leading-relaxed">{feature.desc}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-600 text-white">{feature?.title}</p>
-                  <p className="text-xs text-white/65 mt-0.5 leading-relaxed">{feature?.desc}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Trust badges */}
-          <div className="flex items-center gap-4 relative z-10">
-            {[
-              { label: '+12,000', sub: 'documentos firmados' },
-              { label: '99.9%', sub: 'uptime garantizado' },
-              { label: 'NOM-151', sub: 'cumplimiento legal' },
-            ]?.map((badge) => (
-              <div key={`badge-${badge?.label}`} className="text-center">
-                <p className="text-lg font-800 text-white tabular-nums">{badge?.label}</p>
-                <p className="text-[10px] text-white/60 font-500">{badge?.sub}</p>
+          <div className="flex items-start gap-4 relative z-10">
+            {heroContent.badges.map((badge) => (
+              <div key={`badge-${badge}`} className="text-center max-w-32">
+                <p className="text-base xl:text-lg font-800 text-white leading-tight">{badge}</p>
               </div>
             ))}
           </div>
