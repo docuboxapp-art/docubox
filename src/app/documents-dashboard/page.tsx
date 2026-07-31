@@ -451,7 +451,7 @@ export default function DocumentsDashboardPage() {
           >
             <CustomizeOverlay />
             <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.65)] transition-all duration-200 p-5 flex flex-col">
-              <h3 className="text-sm font-800 text-slate-950 mb-4">Documentos Disponibles</h3>
+              <h3 className="text-[13px] font-700 text-slate-900 mb-4">Documentos disponibles</h3>
               <div className="flex-1 flex flex-col items-center justify-center">
                 <DonutChart used={metrics.docsUsed} total={metrics.docsTotal} />
               </div>
@@ -503,9 +503,8 @@ export default function DocumentsDashboardPage() {
             onDrop={() => handleDrop(w.id)}
           >
             <CustomizeOverlay />
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.65)] transition-all duration-200 flex flex-col [&>h3:first-child]:hidden">
-              <h3 className="text-sm font-800 text-slate-950 mb-3">Acciones Rápidas</h3>
-              <h3 className="text-sm font-700 text-white mb-3">Acciones Rápidas</h3>
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.65)] transition-all duration-200 flex flex-col">
+              <h3 className="text-[13px] font-700 text-slate-900 mb-3">Acciones rápidas</h3>
               <div className="space-y-2 flex-1">
                 {quickActions.map((action) => (
                   <Link
@@ -677,7 +676,7 @@ export default function DocumentsDashboardPage() {
             {/* Add widget panel */}
             {customizing && showAddPanel && (
               <div className="bg-white border border-border rounded-xl p-4 shadow-card">
-                <h3 className="text-sm font-700 text-foreground mb-3">Widgets eliminados</h3>
+                <h3 className="text-[13px] font-700 text-slate-900 mb-3">Widgets eliminados</h3>
                 {removedWidgets.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No hay widgets eliminados.</p>
                 ) : (

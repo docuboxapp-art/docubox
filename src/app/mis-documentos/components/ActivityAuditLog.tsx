@@ -411,9 +411,7 @@ export default function ActivityAuditLog() {
       {/* Header */}
       <div className="px-5 py-4 border-b border-slate-200">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h2 className="text-base font-semibold text-foreground">
-            Bitácora de Actividad y Auditoría
-          </h2>
+          <h2 className="text-[13px] font-700 text-slate-900">Bitácora de actividad y auditoría</h2>
           <button
             onClick={loadData}
             disabled={loading}

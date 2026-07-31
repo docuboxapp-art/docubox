@@ -257,8 +257,7 @@ function FirmantesProgress({ firmantes }: { firmantes: Firmante[] }) {
             key={`firmante-dot-${i}`}
             title={`${f.nombre} — ${f.firmado ? 'Firmado' : 'Pendiente'}`}
             className={`w-2.5 h-2.5 rounded-full border ${
-              f.firmado
-                ? 'bg-emerald-500 border-emerald-600' :'bg-gray-200 border-gray-300'
+              f.firmado ? 'bg-emerald-500 border-emerald-600' : 'bg-gray-200 border-gray-300'
             }`}
           />
         ))}
@@ -273,7 +272,10 @@ function FirmantesProgress({ firmantes }: { firmantes: Firmante[] }) {
 function MetodoBadge({ metodo }: { metodo: 'efirma' | 'autografa' | 'mixto' }) {
   const config = {
     efirma: { label: 'e.firma', className: 'bg-primary/10 text-primary border border-primary/20' },
-    autografa: { label: 'Autógrafa', className: 'bg-purple-50 text-purple-700 border border-purple-200' },
+    autografa: {
+      label: 'Autógrafa',
+      className: 'bg-purple-50 text-purple-700 border border-purple-200',
+    },
     mixto: { label: 'Mixto', className: 'bg-teal-50 text-teal-700 border border-teal-200' },
   };
   const c = config[metodo];
@@ -307,9 +309,7 @@ export default function DocumentsTable() {
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   const toggleRow = (id: string) => {
-    setSelectedRows((prev) =>
-      prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]
-    );
+    setSelectedRows((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
   };
 
   const toggleAll = () => {
@@ -330,7 +330,8 @@ export default function DocumentsTable() {
   };
 
   const SortIcon = ({ field }: { field: string }) => {
-    if (sortField !== field) return <ChevronUp size={12} className="text-muted-foreground opacity-30" />;
+    if (sortField !== field)
+      return <ChevronUp size={12} className="text-muted-foreground opacity-30" />;
     return sortDir === 'asc' ? (
       <ChevronUp size={12} className="text-primary" />
     ) : (
@@ -343,15 +344,23 @@ export default function DocumentsTable() {
       {/* Table header */}
       <div className="px-5 py-4 border-b border-border">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-600 text-foreground whitespace-nowrap">Documentos Recientes</h2>
+          <h2 className="text-[13px] font-700 text-slate-900 whitespace-nowrap">
+            Documentos recientes
+          </h2>
           <div className="flex items-center gap-2 flex-1 justify-end">
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
               <input
                 type="text"
                 placeholder="Buscar por nombre, RFC, tipo…"
                 value={search}
-                onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
                 className="pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 w-56 placeholder:text-muted-foreground"
               />
             </div>
@@ -367,10 +376,14 @@ export default function DocumentsTable() {
           {filterOptions.map((opt) => (
             <button
               key={`filter-${opt.value}`}
-              onClick={() => { setActiveFilter(opt.value); setCurrentPage(1); }}
+              onClick={() => {
+                setActiveFilter(opt.value);
+                setCurrentPage(1);
+              }}
               className={`px-3 py-1 rounded-full text-xs font-500 transition-all duration-150 ${
                 activeFilter === opt.value
-                  ? 'bg-primary text-white' :'bg-muted text-muted-foreground hover:bg-muted/80'
+                  ? 'bg-primary text-white'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
               }`}
             >
               {opt.label}
@@ -438,7 +451,9 @@ export default function DocumentsTable() {
                 </th>
               ))}
               <th className="px-3 py-3 text-right">
-                <span className="text-[11px] font-600 uppercase tracking-wide text-muted-foreground">Acciones</span>
+                <span className="text-[11px] font-600 uppercase tracking-wide text-muted-foreground">
+                  Acciones
+                </span>
               </th>
             </tr>
           </thead>
@@ -513,7 +528,9 @@ export default function DocumentsTable() {
                     )}
                   </td>
                   <td className="px-3 py-3">
-                    <span className="text-xs text-muted-foreground tabular-nums">{doc.fechaEnvio}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {doc.fechaEnvio}
+                    </span>
                   </td>
                   <td className="px-3 py-3">
                     <span
@@ -542,7 +559,9 @@ export default function DocumentsTable() {
                         <div className="relative">
                           <button
                             title="Más opciones"
-                            onClick={() => setOpenActionRow(openActionRow === doc.id ? null : doc.id)}
+                            onClick={() =>
+                              setOpenActionRow(openActionRow === doc.id ? null : doc.id)
+                            }
                             className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-all duration-150"
                           >
                             <MoreHorizontal size={14} />
@@ -599,7 +618,8 @@ export default function DocumentsTable() {
               onClick={() => setCurrentPage(page)}
               className={`w-8 h-7 rounded-lg text-xs font-500 transition-all duration-150 ${
                 currentPage === page
-                  ? 'bg-primary text-white' :'border border-border text-muted-foreground hover:bg-muted'
+                  ? 'bg-primary text-white'
+                  : 'border border-border text-muted-foreground hover:bg-muted'
               }`}
             >
               {page}

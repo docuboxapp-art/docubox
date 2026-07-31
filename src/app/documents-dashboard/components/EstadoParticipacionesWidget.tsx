@@ -363,7 +363,7 @@ export default function EstadoParticipacionesWidget() {
     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-[0_18px_45px_-35px_rgba(15,23,42,0.55)] transition-all duration-200">
       <div className="px-5 pt-4 pb-0 border-b border-slate-200">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-800 text-slate-950">Estado de participaciones</h2>
+          <h2 className="text-[13px] font-700 text-slate-900">Estado de participaciones</h2>
           <PeriodFilter value={period} onChange={setPeriod} />
         </div>
         <div className="flex items-center gap-0">

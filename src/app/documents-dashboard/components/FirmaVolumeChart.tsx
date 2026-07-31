@@ -1,7 +1,15 @@
 'use client';
 
 import React from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,  } from 'recharts';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
 
 // Backend integration: fetch from /api/analytics/firma-volume?range=30d
 const firmaData = [
@@ -23,13 +31,24 @@ const firmaData = [
   { fecha: '21 Mar', efirma: 24, autografa: 15, total: 39 },
 ];
 
-const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => {
+const CustomTooltip = ({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number; color: string }>;
+  label?: string;
+}) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white border border-border rounded-xl shadow-dropdown p-3 min-w-[160px]">
         <p className="text-xs font-600 text-foreground mb-2">{label}</p>
         {payload.map((entry) => (
-          <div key={`tooltip-${entry.name}`} className="flex items-center justify-between gap-4 mb-1">
+          <div
+            key={`tooltip-${entry.name}`}
+            className="flex items-center justify-between gap-4 mb-1"
+          >
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
               <span className="text-xs text-muted-foreground">{entry.name}</span>
@@ -48,8 +67,10 @@ export default function FirmaVolumeChart() {
     <div className="bg-white rounded-xl border border-border shadow-card p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-base font-600 text-foreground">Volumen de Firmas</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Últimos 30 días — e.firma vs Autógrafa</p>
+          <h2 className="text-[13px] font-700 text-slate-900">Volumen de firmas</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Últimos 30 días — e.firma vs Autógrafa
+          </p>
         </div>
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
@@ -57,7 +78,10 @@ export default function FirmaVolumeChart() {
             e.firma SAT
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-1.5 rounded-full" style={{ backgroundColor: 'hsl(199, 89%, 48%)' }} />
+            <div
+              className="w-3 h-1.5 rounded-full"
+              style={{ backgroundColor: 'hsl(199, 89%, 48%)' }}
+            />
             Autógrafa
           </div>
         </div>

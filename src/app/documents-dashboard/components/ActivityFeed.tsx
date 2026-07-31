@@ -38,8 +38,14 @@ function timeAgo(iso: string): string {
 
 function getConfig(accion: string): { icon: React.ReactNode; iconBg: string } {
   const a = accion.toLowerCase();
-  if (a.includes('firma') && (a.includes('complet') || a.includes('exitosa') || a.includes('aprobad'))) {
-    return { icon: <CheckCircle2 size={14} className="text-emerald-600" />, iconBg: 'bg-emerald-50' };
+  if (
+    a.includes('firma') &&
+    (a.includes('complet') || a.includes('exitosa') || a.includes('aprobad'))
+  ) {
+    return {
+      icon: <CheckCircle2 size={14} className="text-emerald-600" />,
+      iconBg: 'bg-emerald-50',
+    };
   }
   if (a.includes('rechaz') || a.includes('fallid') || a.includes('denegad')) {
     return { icon: <XCircle size={14} className="text-red-600" />, iconBg: 'bg-red-50' };
@@ -98,7 +104,7 @@ export default function ActivityFeed() {
   return (
     <div className="bg-white rounded-xl border border-border shadow-card">
       <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-        <h2 className="text-base font-600 text-foreground">Actividad Reciente</h2>
+        <h2 className="text-[13px] font-700 text-slate-900">Actividad reciente</h2>
         <span className="text-xs text-muted-foreground bg-gray-100 px-2 py-0.5 rounded-full">
           {items.length} eventos
         </span>
@@ -112,16 +118,23 @@ export default function ActivityFeed() {
         <div className="px-5 py-10 flex flex-col items-center justify-center text-center">
           <FileText size={28} className="text-muted-foreground/30 mb-3" />
           <p className="text-sm text-muted-foreground">Sin actividad reciente.</p>
-          <p className="text-xs text-muted-foreground/70 mt-0.5">Las acciones sobre documentos aparecerán aquí.</p>
+          <p className="text-xs text-muted-foreground/70 mt-0.5">
+            Las acciones sobre documentos aparecerán aquí.
+          </p>
         </div>
       ) : (
         <div className="divide-y divide-border">
           {items.map((item) => {
             const config = getConfig(item.accion);
             return (
-              <div key={item.id} className="px-5 py-3.5 hover:bg-muted/30 transition-colors duration-100">
+              <div
+                key={item.id}
+                className="px-5 py-3.5 hover:bg-muted/30 transition-colors duration-100"
+              >
                 <div className="flex items-start gap-3">
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${config.iconBg}`}>
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${config.iconBg}`}
+                  >
                     {config.icon}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -131,7 +144,9 @@ export default function ActivityFeed() {
                         {item.documento_nombre}
                       </p>
                     )}
-                    <p className="text-[10px] text-muted-foreground mt-1 font-mono">{timeAgo(item.created_at)}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1 font-mono">
+                      {timeAgo(item.created_at)}
+                    </p>
                   </div>
                 </div>
               </div>

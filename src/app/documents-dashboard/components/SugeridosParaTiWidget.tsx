@@ -93,7 +93,7 @@ export default function SugeridosParaTiWidget() {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.55)] transition-all duration-200">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-800 text-slate-950">Sugeridos para ti</h2>
+        <h2 className="text-[13px] font-700 text-slate-900">Sugeridos para ti</h2>
       </div>
       {loading ? (
         <div className="flex items-center gap-2 py-2">
