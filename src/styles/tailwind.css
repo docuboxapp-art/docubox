@@ -1,0 +1,238 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Docubox Primary — Blue-600 */
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    /* Docubox Secondary — Slate-100 */
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Docubox Accent — Slate-100 */
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Backgrounds & surfaces */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --success: 142 71% 42%;
+    --warning: 43 96% 52%;
+    --radius: 0.5rem;
+    /* Light mode extras */
+    --secondary-btn: 210 40% 94.1%;
+    --secondary-btn-foreground: 222.2 84% 4.9%;
+    --hover-secondary: 214.3 31.8% 88%;
+    --placeholder: 215 20.2% 65.1%;
+    --ring-focus: 221.2 83.2% 53.3%;
+  }
+
+  .dark {
+    /* Fondo Principal: #09090B → hsl(240 5.9% 4.1%) */
+    --background: 240 5.9% 4.1%;
+    --card: 240 5.9% 4.1%;
+    --card-foreground: 0 0% 98%;
+    /* Texto Principal: #FAFAFA → hsl(0 0% 98%) */
+    --foreground: 0 0% 98%;
+    /* Borde: #27272A → hsl(240 3.7% 15.9%) */
+    --border: 240 3.7% 15.9%;
+    /* Entrada: #18181B → hsl(240 5.3% 10.2%) */
+    --input: 240 5.3% 10.2%;
+    /* Anillo: #3F3F46 → hsl(240 3.8% 26.1%) */
+    --ring: 240 3.8% 26.1%;
+    /* Primario: #3B82F6 → hsl(217.2 91.2% 59.8%) */
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 0 0% 100%;
+    /* Secundario: #6366F1 → hsl(239 84% 67.1%) */
+    --secondary: 239 84% 67.1%;
+    --secondary-foreground: 0 0% 100%;
+    /* Accent: #A78BFA → hsl(258 89.5% 76.3%) */
+    --accent: 258 89.5% 76.3%;
+    --accent-foreground: 0 0% 100%;
+    /* Muted: #71717A → hsl(240 3.8% 46.1%) */
+    --muted: 240 5.3% 10.2%;
+    --muted-foreground: 240 3.8% 46.1%;
+    /* Destructivo: #EF4444 → hsl(0 84.2% 60.2%) */
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    /* Éxito: #10B981 → hsl(160 84.1% 39.4%) */
+    --success: 160 84.1% 39.4%;
+    /* Advertencia: #F59E0B → hsl(38 92.1% 50.2%) */
+    --warning: 38 92.1% 50.2%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+    box-sizing: border-box;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: 'Google Sans Flex', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  select,
+  select option {
+    font-family: 'Google Sans Flex', sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'IBM Plex Mono', monospace;
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Primary — Blue-600 */
+  .text-primary {
+    color: hsl(var(--primary));
+  }
+
+  .bg-primary {
+    background-color: hsl(var(--primary));
+  }
+
+  .bg-primary\/10 {
+    background-color: hsl(var(--primary) / 0.1);
+  }
+
+  .bg-primary\/5 {
+    background-color: hsl(var(--primary) / 0.05);
+  }
+
+  .border-primary {
+    border-color: hsl(var(--primary));
+  }
+
+  /* Secondary — Slate-100 */
+  .text-secondary {
+    color: hsl(var(--secondary));
+  }
+
+  .bg-secondary {
+    background-color: hsl(var(--secondary));
+  }
+
+  .bg-secondary\/10 {
+    background-color: hsl(var(--secondary) / 0.1);
+  }
+
+  .border-secondary {
+    border-color: hsl(var(--secondary));
+  }
+
+  /* Accent — Slate-100 */
+  .text-accent {
+    color: hsl(var(--accent));
+  }
+
+  .bg-accent {
+    background-color: hsl(var(--accent));
+  }
+
+  .bg-accent\/10 {
+    background-color: hsl(var(--accent) / 0.1);
+  }
+
+  /* Docubox button variants */
+  .btn-primary {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+  .btn-primary:hover {
+    background-color: hsl(221.2 83.2% 44%);
+  }
+
+  .btn-secondary {
+    background-color: hsl(var(--secondary));
+    color: hsl(var(--secondary-foreground));
+  }
+  .btn-secondary:hover {
+    background-color: hsl(210 40% 90%);
+  }
+
+  /* Gradient accent — blue-600 to indigo-600 */
+  .gradient-accent {
+    background: linear-gradient(135deg, #2563EB, #4F46E5);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 2px;
+  }
+
+  .fade-in {
+    animation: fadeIn 0.2s ease-in-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .slide-up {
+    animation: slideUp 0.25s ease-out;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .pulse-highlight {
+    animation: pulseHighlight 0.6s ease-out;
+  }
+
+  @keyframes pulseHighlight {
+    0% { background-color: hsl(221.2 83.2% 93%); }
+    100% { background-color: transparent; }
+  }
+}
+
+/* ── Page break marker in TipTap editor ── */
+hr.page-break {
+  border: none;
+  border-top: 2px dashed #3b82f6;
+  margin: 16px 0;
+  position: relative;
+}
+
+hr.page-break::after {
+  content: '— Salto de página —';
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #eff6ff;
+  color: #3b82f6;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+}

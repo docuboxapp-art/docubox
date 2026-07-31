@@ -1,0 +1,5 @@
+# pyHanko con soporte para fuentes OpenType, imágenes y HTTP async
+pyHanko[opentype,image-support,async-http]
+pyhanko-certvalidator
+cryptography
+httpx
