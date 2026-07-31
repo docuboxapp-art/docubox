@@ -621,10 +621,10 @@ export default function DocumentsDashboardPage() {
             {/* Greeting + actions */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <p className="text-lg text-slate-500">{greeting},</p>
-                <h1 className="mt-1 text-4xl font-800 text-slate-950 flex items-center gap-2 tracking-normal">
+                <p className="text-base text-slate-500">{greeting},</p>
+                <h1 className="mt-1 text-2xl sm:text-3xl font-800 text-slate-950 flex items-center gap-2 tracking-normal leading-tight">
                   {loadingData ? (
-                    <span className="inline-block w-32 h-9 bg-slate-200 rounded animate-pulse" />
+                    <span className="inline-block w-28 h-7 bg-slate-200 rounded animate-pulse" />
                   ) : (
                     userName || 'Usuario'
                   )}
