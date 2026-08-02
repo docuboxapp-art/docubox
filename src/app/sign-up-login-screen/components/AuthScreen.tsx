@@ -33,7 +33,6 @@ const heroVariants = [
         desc: 'Consulta el avance de cada firma y recibe notificaciones en tiempo real.',
       },
     ],
-    badges: ['Firma en minutos', 'Fácil para todos', 'Respaldo confiable'],
   },
   {
     title: 'Cierra acuerdos más rápido y sin complicaciones',
@@ -61,7 +60,6 @@ const heroVariants = [
         desc: 'Conoce el estado de tus documentos sin llamadas ni mensajes adicionales.',
       },
     ],
-    badges: ['Menos tiempo de espera', 'Más acuerdos cerrados', 'Todo en un solo lugar'],
   },
   {
     title: 'La forma más simple de formalizar tus acuerdos',
@@ -89,7 +87,6 @@ const heroVariants = [
         desc: 'Consulta avances, pendientes y documentos finalizados desde un mismo lugar.',
       },
     ],
-    badges: ['Experiencia profesional', 'Procesos más ágiles', 'Acuerdos protegidos'],
   },
   {
     title: 'Firma, envía y avanza',
@@ -117,7 +114,6 @@ const heroVariants = [
         desc: 'Tus documentos y avances siempre organizados y disponibles.',
       },
     ],
-    badges: ['Sin papel', 'Sin complicaciones', 'Sin perder tiempo'],
   },
   {
     title: 'Tus acuerdos, más simples y seguros',
@@ -145,7 +141,6 @@ const heroVariants = [
         desc: 'Accede a documentos pendientes, enviados y completados.',
       },
     ],
-    badges: ['Firmas confiables', 'Historial completo', 'Documentos protegidos'],
   },
 ];
 
@@ -194,15 +189,6 @@ export default function AuthScreen() {
                 </div>
               );
             })}
-          </div>
-
-          {/* Trust badges */}
-          <div className="flex items-start gap-4 relative z-10">
-            {heroContent.badges.map((badge) => (
-              <div key={`badge-${badge}`} className="text-center max-w-32">
-                <p className="text-base xl:text-lg font-800 text-white leading-tight">{badge}</p>
-              </div>
-            ))}
           </div>
         </div>
       </div>

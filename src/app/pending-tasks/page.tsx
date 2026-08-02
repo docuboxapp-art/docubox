@@ -100,7 +100,7 @@ const PRIORITY_CONFIG: Record<Priority, { label: string; className: string; dot:
 const STATUS_CONFIG: Record<TaskStatus, { label: string; className: string; dot: string }> = {
   nueva:       { label: 'Nueva',       className: 'text-blue-700 bg-blue-50 border border-blue-200',       dot: 'bg-blue-500' },
   pendiente:   { label: 'Pendiente',   className: 'text-amber-700 bg-amber-50 border border-amber-200',    dot: 'bg-amber-400' },
-  en_proceso:  { label: 'En proceso',  className: 'text-cyan-700 bg-cyan-50 border border-cyan-200',       dot: 'bg-cyan-500' },
+  en_proceso:  { label: 'En progreso', className: 'text-cyan-700 bg-cyan-50 border border-cyan-200',       dot: 'bg-cyan-500' },
   bloqueada:   { label: 'Bloqueada',   className: 'text-red-700 bg-red-50 border border-red-200',          dot: 'bg-red-500' },
   en_revision: { label: 'En revisión', className: 'text-purple-700 bg-purple-50 border border-purple-200', dot: 'bg-purple-500' },
   vencida:     { label: 'Vencida',     className: 'text-red-800 bg-red-100 border border-red-300',         dot: 'bg-red-600' },
@@ -195,7 +195,7 @@ function Avatar({ initials, size = 'sm' }: { initials: string; size?: 'xs' | 'sm
   const colors = ['bg-blue-500','bg-purple-500','bg-green-500','bg-amber-500','bg-cyan-500','bg-pink-500','bg-indigo-500','bg-teal-500'];
   const idx = (initials?.charCodeAt(0) || 0) % colors.length;
   const sz = size === 'xs' ? 'w-5 h-5 text-[9px]' : size === 'sm' ? 'w-7 h-7 text-[11px]' : 'w-9 h-9 text-sm';
-  return <div className={`${sz} ${colors[idx]} rounded-full flex items-center justify-center text-white font-bold flex-shrink-0`}>{initials || '?'}</div>;
+  return <div className={`${sz} ${colors[idx]} flex flex-shrink-0 items-center justify-center rounded-lg font-bold text-white`}>{initials || '?'}</div>;
 }
 
 // ─── Metrics Dashboard ────────────────────────────────────────────────────────
@@ -219,16 +219,18 @@ function TaskMetrics({ tasks }: { tasks: Task[] }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+    <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
       {metrics.map((m) => {
         const MIcon = m.icon;
         return (
-          <div key={m.label} className={`${m.bg} border ${m.border} rounded-xl p-3 flex flex-col gap-1.5`}>
+          <div key={m.label} className={`flex min-h-[96px] flex-col justify-between rounded-lg border ${m.border} bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300`}>
             <div className="flex items-center justify-between">
-              <MIcon size={15} className={m.color} />
-              <span className={`text-2xl font-bold ${m.color} tabular-nums leading-none`}>{m.value}</span>
+              <span className={`flex h-8 w-8 items-center justify-center rounded-md ${m.bg}`}>
+                <MIcon size={15} className={m.color} />
+              </span>
+              <span className={`text-2xl font-700 ${m.color} tabular-nums leading-none`}>{m.value}</span>
             </div>
-            <p className="text-[11px] text-muted-foreground font-medium leading-tight">{m.label}</p>
+            <p className="text-[11px] font-600 leading-tight text-slate-500">{m.label}</p>
           </div>
         );
       })}
@@ -449,7 +451,7 @@ function NewTaskDrawer({ onClose, onCreated, workspaceId, userId, userName }: Ne
               >
                 <option value="nueva">Nueva</option>
                 <option value="pendiente">Pendiente</option>
-                <option value="en_proceso">En proceso</option>
+                <option value="en_proceso">En progreso</option>
                 <option value="en_revision">En revisión</option>
               </select>
             </div>
@@ -855,16 +857,16 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   return (
     <div
       onClick={onClick}
-      className={`bg-white rounded-xl border shadow-sm hover:shadow-md transition-all duration-150 cursor-pointer group ${
-        task.isOverdue ? 'border-red-200 hover:border-red-300' : task.isBlocked ? 'border-orange-200 hover:border-orange-300' : 'border-border hover:border-primary/30'
+      className={`group cursor-pointer rounded-lg border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors ${
+        task.isOverdue ? 'border-red-200 hover:border-red-300' : task.isBlocked ? 'border-orange-200 hover:border-orange-300' : 'border-slate-200/90 hover:border-primary/30'
       }`}
     >
       {(task.isCritical || task.isOverdue || task.isBlocked) && (
-        <div className={`h-0.5 rounded-t-xl ${task.isOverdue ? 'bg-red-500' : task.isBlocked ? 'bg-orange-500' : 'bg-amber-400'}`} />
+        <div className={`h-0.5 rounded-t-lg ${task.isOverdue ? 'bg-red-500' : task.isBlocked ? 'bg-orange-500' : 'bg-amber-400'}`} />
       )}
       <div className="p-4">
         <div className="flex items-start gap-3">
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${typeInfo.bg} border ${typeInfo.border}`}>
+          <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${typeInfo.bg} border ${typeInfo.border}`}>
             <TypeIcon size={15} className={typeInfo.color} />
           </div>
           <div className="flex-1 min-w-0">
@@ -875,9 +877,9 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
                   {task.isCritical && <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">CRÍTICA</span>}
                   {task.isBlocked && <span className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><Lock size={8}/>BLOQUEADA</span>}
                 </div>
-                <h3 className="text-sm font-bold text-foreground group-hover:text-primary transition-colors leading-tight line-clamp-2">{task.title}</h3>
+                <h3 className="line-clamp-2 text-sm font-700 leading-tight text-slate-900 transition-colors group-hover:text-primary">{task.title}</h3>
               </div>
-              <button onClick={e => e.stopPropagation()} className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
+              <button onClick={e => e.stopPropagation()} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" title="Mas opciones">
                 <MoreHorizontal size={14} />
               </button>
             </div>
@@ -899,7 +901,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
           </span>
         </div>
 
-        <div className="mt-2.5 space-y-1">
+        <div className="mt-3 space-y-1.5 rounded-md bg-slate-50/70 px-3 py-2">
           {task.documentName && (
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <FileText size={10} className="flex-shrink-0" />
@@ -926,7 +928,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
               <span className="text-[10px] text-muted-foreground">Checklist</span>
               <span className="text-[10px] font-semibold text-foreground">{done}/{total}</span>
             </div>
-            <div className="h-1 bg-muted rounded-full overflow-hidden">
+            <div className="h-1 overflow-hidden rounded-full bg-slate-100">
               <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${total > 0 ? (done/total)*100 : 0}%` }} />
             </div>
           </div>
@@ -940,7 +942,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
           </div>
         )}
 
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/60">
+        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
           <div className={`flex items-center gap-1 text-[11px] font-semibold ${dueInfo.urgent ? 'text-red-600' : 'text-muted-foreground'}`}>
             <Calendar size={10} />
             <span>{dueInfo.text}</span>
@@ -948,7 +950,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
           </div>
           <button
             onClick={e => e.stopPropagation()}
-            className="flex items-center gap-1 text-[11px] font-bold text-primary bg-primary/5 hover:bg-primary hover:text-white border border-primary/20 hover:border-primary px-2.5 py-1 rounded-lg transition-all duration-150"
+            className="flex h-8 items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2.5 text-[11px] font-700 text-primary transition-colors hover:border-primary hover:bg-primary hover:text-white"
           >
             {task.mainAction}<ArrowRight size={10} />
           </button>
@@ -1676,7 +1678,7 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
   const columns: { id: TaskStatus; label: string; color: string; bg: string }[] = [
     { id: 'nueva',       label: 'Nueva',       color: 'border-t-blue-500',   bg: 'bg-blue-50/40' },
     { id: 'pendiente',   label: 'Pendiente',   color: 'border-t-amber-400',  bg: 'bg-amber-50/30' },
-    { id: 'en_proceso',  label: 'En proceso',  color: 'border-t-cyan-500',   bg: 'bg-cyan-50/30' },
+    { id: 'en_proceso',  label: 'En progreso', color: 'border-t-cyan-500',   bg: 'bg-cyan-50/30' },
     { id: 'bloqueada',   label: 'Bloqueada',   color: 'border-t-red-500',    bg: 'bg-red-50/20' },
     { id: 'en_revision', label: 'En revisión', color: 'border-t-purple-500', bg: 'bg-purple-50/20' },
     { id: 'escalada',    label: 'Escalada',    color: 'border-t-orange-500', bg: 'bg-orange-50/20' },
@@ -1687,12 +1689,12 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
       {columns.map(col => {
         const colTasks = tasks.filter(t => t.status === col.id);
         return (
-          <div key={col.id} className={`flex-shrink-0 w-72 rounded-xl border border-border border-t-4 ${col.color} ${col.bg} flex flex-col`} style={{ minHeight: 480 }}>
+          <div key={col.id} className={`flex w-72 flex-shrink-0 flex-col rounded-lg border border-slate-200/90 border-t-4 bg-white ${col.color} shadow-[0_1px_2px_rgba(15,23,42,0.03)]`} style={{ minHeight: 480 }}>
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm font-bold text-foreground">{col.label}</span>
-              <span className="text-xs font-semibold text-muted-foreground bg-white border border-border rounded-full w-6 h-6 flex items-center justify-center">{colTasks.length}</span>
+              <span className="text-sm font-700 text-slate-900">{col.label}</span>
+              <span className="flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-xs font-600 text-slate-500">{colTasks.length}</span>
             </div>
-            <div className="mx-3 border-t border-dashed border-border/60 mb-2" />
+            <div className="mx-3 mb-2 border-t border-dashed border-slate-200" />
             <div className="flex-1 px-3 pb-3 space-y-2 overflow-y-auto">
               {colTasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-muted-foreground/40">
@@ -1703,7 +1705,7 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
                 const TypeIcon = typeInfo.icon;
                 const dueInfo = getDueBadge(task);
                 return (
-                  <div key={task.id} onClick={() => onTaskClick(task)} className="bg-white rounded-lg border border-border p-3 cursor-pointer hover:border-primary/30 hover:shadow-sm transition-all">
+                  <div key={task.id} onClick={() => onTaskClick(task)} className="cursor-pointer rounded-md border border-slate-200 bg-white p-3 transition-colors hover:border-primary/30 hover:bg-primary/[0.03]">
                     <div className="flex items-start gap-2 mb-2">
                       <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${typeInfo.bg}`}>
                         <TypeIcon size={11} className={typeInfo.color} />
@@ -1753,24 +1755,24 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
   const next = () => { if (month === 11) { setMonth(0); setYear(y => y + 1); } else setMonth(m => m + 1); };
 
   return (
-    <div className="bg-white rounded-xl border border-border overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-        <h3 className="text-sm font-bold text-foreground">{MONTHS_ES[month]} {year}</h3>
+    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+        <h3 className="text-sm font-700 text-slate-900">{MONTHS_ES[month]} {year}</h3>
         <div className="flex items-center gap-1">
-          <button onClick={prev} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"><ChevronLeft size={15} /></button>
-          <button onClick={next} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"><ChevronRight size={15} /></button>
+          <button onClick={prev} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronLeft size={15} /></button>
+          <button onClick={next} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronRight size={15} /></button>
         </div>
       </div>
-      <div className="grid grid-cols-7 border-b border-border">
-        {DAYS_SHORT.map(d => <div key={d} className="py-2 text-center text-[11px] font-bold text-muted-foreground">{d}</div>)}
+      <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/70">
+        {DAYS_SHORT.map(d => <div key={d} className="py-2 text-center text-[11px] font-700 text-slate-500">{d}</div>)}
       </div>
       {rows.map((row, ri) => (
-        <div key={ri} className="grid grid-cols-7 border-b border-border last:border-b-0">
+        <div key={ri} className="grid grid-cols-7 border-b border-slate-100 last:border-b-0">
           {row.map((cell, ci) => {
             const isToday = isSameDay(cell.date, today);
             const dayTasks = tasks.filter(t => isSameDay(new Date(t.dueDate), cell.date));
             return (
-              <div key={ci} className={`min-h-[80px] p-1.5 border-r border-border last:border-r-0 ${!cell.current ? 'bg-muted/20' : ''} ${isToday ? 'bg-primary/5' : ''}`}>
+              <div key={ci} className={`min-h-[80px] border-r border-slate-100 p-1.5 last:border-r-0 ${!cell.current ? 'bg-slate-50/70' : ''} ${isToday ? 'bg-primary/5' : ''}`}>
                 <div className="flex justify-start mb-1">
                   {isToday
                     ? <span className="w-6 h-6 rounded-full bg-primary text-white text-[11px] font-bold flex items-center justify-center">{cell.date.getDate()}</span>
@@ -1807,21 +1809,21 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
       {Object.entries(groups).map(([docId, docTasks]) => {
         const name = docTasks[0]?.documentName || 'Sin documento';
         return (
-          <div key={docId} className="bg-white border border-border rounded-xl overflow-hidden">
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/10">
+          <div key={docId} className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3">
               <FileText size={15} className="text-primary flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-foreground truncate">{name}</p>
-                <p className="text-[11px] text-muted-foreground">{docTasks.length} tarea{docTasks.length !== 1 ? 's' : ''}</p>
+                <p className="truncate text-sm font-700 text-slate-900">{name}</p>
+                <p className="text-[11px] text-slate-500">{docTasks.length} tarea{docTasks.length !== 1 ? 's' : ''}</p>
               </div>
             </div>
-            <div className="divide-y divide-border">
+            <div className="divide-y divide-slate-100">
               {docTasks.map(task => {
                 const typeInfo = TASK_TYPE_CONFIG[task.type];
                 const statusInfo = STATUS_CONFIG[task.status];
                 const TypeIcon = typeInfo.icon;
                 return (
-                  <div key={task.id} onClick={() => onTaskClick(task)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 cursor-pointer transition-colors">
+                  <div key={task.id} onClick={() => onTaskClick(task)} className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50/80">
                     <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${typeInfo.bg}`}>
                       <TypeIcon size={11} className={typeInfo.color} />
                     </div>
@@ -1909,6 +1911,14 @@ export default function PendingTasksPage() {
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || selectedTask || tasks.length === 0) return;
+    const taskId = new URLSearchParams(window.location.search).get('task');
+    if (!taskId) return;
+    const matchingTask = tasks.find((task) => task.id === taskId);
+    if (matchingTask) setSelectedTask(matchingTask);
+  }, [selectedTask, tasks]);
+
   const handleTaskUpdated = useCallback((taskId: string) => {
     // Refresh the specific task
     supabase.from('tareas').select('*').eq('id', taskId).single().then(({ data }) => {
@@ -1957,31 +1967,31 @@ export default function PendingTasksPage() {
 
   return (
     <AppLayout noPadding>
-      <div className="w-full max-w-none px-4 sm:px-6 lg:px-8 pt-2 pb-4 md:pb-6 min-h-[calc(100vh-8rem)]">
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
+        <div className="mx-auto w-full max-w-[1600px]">
 
-        {/* Page Header — matches mis-participaciones style exactly */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        {/* Page Header */}
+        <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <CheckSquare size={24} className="text-primary" />
-              Tareas Pendientes
+            <h1 className="text-2xl font-700 leading-tight text-slate-950">
+              Tareas pendientes
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Acciones que requieren tu atención · Plataforma de firma digital
+            <p className="mt-1 text-sm text-slate-500">
+              Acciones que requieren tu atención dentro del flujo documental.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowAutomations(v => !v)}
-              className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-lg border transition-colors ${
-                showAutomations ? 'bg-primary text-white border-primary' : 'bg-white border-border text-foreground hover:bg-muted'
+              className={`flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-600 shadow-sm transition-colors ${
+                showAutomations ? 'border-primary bg-primary text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
               }`}
             >
               <Cpu size={15} />Automatizaciones
             </button>
             <button
               onClick={() => setShowNewTask(true)}
-              className="flex items-center gap-1.5 text-sm font-semibold bg-primary text-white px-3 py-2 rounded-lg hover:bg-primary/90 transition-colors"
+              className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-600 text-white shadow-sm transition-colors hover:bg-primary/90"
             >
               <Plus size={15} />Nueva tarea
             </button>
@@ -1996,18 +2006,19 @@ export default function PendingTasksPage() {
           <AutomationRulesPanel workspaceId={activeWorkspaceId} userId={user?.id ?? null} />
         )}
 
-        {/* View Tabs + Search — matching mis-participaciones style */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
-          {/* View mode buttons — same style as mis-participaciones */}
-          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-xl border border-border">
+        {/* View Tabs + Search */}
+        <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+          {/* View mode buttons */}
+          <div className="flex h-9 w-fit items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
             {views.map(v => {
               const VIcon = v.icon;
               return (
                 <button
                   key={v.id}
                   onClick={() => setViewMode(v.id)}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-150 ${
-                    viewMode === v.id ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  className={`flex h-7 items-center gap-1.5 rounded px-3 text-sm font-600 transition-colors ${
+                    viewMode === v.id ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:text-slate-700'
                   }`}
                 >
                   <VIcon size={15} />{v.label}
@@ -2015,33 +2026,31 @@ export default function PendingTasksPage() {
               );
             })}
           </div>
-          <div className="relative flex-1 max-w-xs">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <div className="relative min-w-[240px] flex-1">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               placeholder="Buscar tareas, documentos..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
             />
           </div>
           {!loading && filtered.length !== tasks.length && (
-            <span className="text-xs text-muted-foreground">{filtered.length} de {tasks.length}</span>
+            <span className="inline-flex h-7 w-fit items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-500">{filtered.length} de {tasks.length}</span>
           )}
         </div>
+        </section>
 
-        {/* Divider — matches mis-participaciones */}
-        <div className="border-t border-border mb-4" />
-
-        {/* Quick Filters — pill style matching mis-participaciones: px-4 py-1.5 text-sm */}
-        <div className="flex flex-wrap items-center gap-2 mb-5">
+        {/* Quick Filters */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           {QUICK_FILTERS.map(f => (
             <button
               key={f.id}
               onClick={() => toggleFilter(f.id)}
-              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+              className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-sm font-500 transition-colors ${
                 activeFilters.includes(f.id)
-                  ? 'bg-primary text-white border-primary' :'bg-white text-foreground border-border hover:border-primary/50 hover:text-primary'
+                  ? 'border-primary bg-primary text-white' :'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'
               }`}
             >
               {activeFilters.includes(f.id) && <X size={11} />}
@@ -2051,7 +2060,7 @@ export default function PendingTasksPage() {
           {activeFilters.length > 0 && (
             <button
               onClick={() => setActiveFilters([])}
-              className="px-4 py-1.5 rounded-full text-sm font-medium text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-foreground/30 transition-colors"
+              className="inline-flex h-8 items-center rounded-md border border-dashed border-slate-300 px-3 text-sm font-500 text-slate-500 transition-colors hover:border-slate-500 hover:text-slate-800"
             >
               Limpiar filtros
             </button>
@@ -2060,15 +2069,15 @@ export default function PendingTasksPage() {
 
         {/* Loading */}
         {loading && (
-          <div className="flex flex-col items-center justify-center py-20">
+          <div className="flex flex-col items-center justify-center rounded-lg border border-slate-200/90 bg-white py-20 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3" />
-            <p className="text-sm text-muted-foreground">Cargando tareas...</p>
+            <p className="text-sm text-slate-500">Cargando tareas...</p>
           </div>
         )}
 
         {/* Error */}
         {!loading && error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-5 flex items-start gap-3">
+          <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-5">
             <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-semibold text-red-700">Error al cargar las tareas</p>
@@ -2082,19 +2091,19 @@ export default function PendingTasksPage() {
           <>
             {viewMode === 'lista' && (
               filtered.length === 0 ? (
-                <div className="bg-white rounded-xl border border-dashed border-border flex flex-col items-center justify-center py-16">
-                  <CheckSquare size={32} className="text-muted-foreground/30 mb-3" />
-                  <p className="text-sm font-semibold text-foreground">Sin tareas que coincidan</p>
-                  <p className="text-xs text-muted-foreground mt-1">Ajusta los filtros o la búsqueda</p>
+                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white py-16">
+                  <CheckSquare size={32} className="mb-3 text-slate-300" />
+                  <p className="text-sm font-600 text-slate-900">Sin tareas que coincidan</p>
+                  <p className="mt-1 text-xs text-slate-500">Ajusta los filtros o la búsqueda</p>
                   <button
                     onClick={() => setShowNewTask(true)}
-                    className="mt-4 flex items-center gap-1.5 text-xs font-semibold bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors"
+                    className="mt-4 flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-xs font-600 text-white shadow-sm transition-colors hover:bg-primary/90"
                   >
                     <Plus size={13} />Crear primera tarea
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
                   {filtered.map(task => (
                     <TaskCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
                   ))}
@@ -2108,17 +2117,21 @@ export default function PendingTasksPage() {
         )}
 
         {!loading && !error && (
-          <p className="text-xs text-muted-foreground mt-3 text-right">
+          <p className="mt-3 text-right text-xs text-slate-500">
             Mostrando {filtered.length} de {tasks.length} tareas
           </p>
         )}
+        </div>
       </div>
 
       {/* Task Detail Drawer — 45% lateral */}
       {selectedTask && (
         <TaskDetailDrawer
           task={selectedTask}
-          onClose={() => setSelectedTask(null)}
+          onClose={() => {
+            setSelectedTask(null);
+            window.history.replaceState(null, '', '/pending-tasks');
+          }}
           onTaskUpdated={handleTaskUpdated}
           workspaceId={activeWorkspaceId}
           userId={user?.id ?? null}

@@ -37,7 +37,7 @@ function PeriodFilter({ value, onChange }: { value: string; onChange: (v: string
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white hover:bg-slate-50 transition-colors text-slate-700 font-700"
+        className="flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
       >
         <svg
           width="14"
@@ -67,7 +67,7 @@ function PeriodFilter({ value, onChange }: { value: string; onChange: (v: string
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-border rounded-xl shadow-lg min-w-[160px] py-1">
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[168px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
           {PERIOD_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -360,16 +360,16 @@ export default function EstadoParticipacionesWidget() {
     activeTab === 'mis_participaciones' ? misParticipacionesItems : participantesEnMisDocsItems;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-[0_18px_45px_-35px_rgba(15,23,42,0.55)] transition-all duration-200">
-      <div className="px-5 pt-4 pb-0 border-b border-slate-200">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-[13px] font-700 text-slate-900">Estado de participaciones</h2>
-          <PeriodFilter value={period} onChange={setPeriod} />
-        </div>
-        <div className="flex items-center gap-0">
+    <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <h2 className="text-sm font-700 text-slate-950">Estado de participaciones</h2>
+        <PeriodFilter value={period} onChange={setPeriod} />
+      </div>
+      <div className="px-5">
+        <div className="flex items-center gap-5">
           <button
             onClick={() => setActiveTab('mis_participaciones')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`flex items-center gap-1.5 border-b-2 px-0 py-2.5 text-sm font-600 transition-colors -mb-px ${
               activeTab === 'mis_participaciones'
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -379,7 +379,7 @@ export default function EstadoParticipacionesWidget() {
           </button>
           <button
             onClick={() => setActiveTab('participantes_en_mis_docs')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`flex items-center gap-1.5 border-b-2 px-0 py-2.5 text-sm font-600 transition-colors -mb-px ${
               activeTab === 'participantes_en_mis_docs'
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -389,7 +389,7 @@ export default function EstadoParticipacionesWidget() {
           </button>
         </div>
       </div>
-      <div className="p-5">
+      <div className="p-4">
         {loading ? (
           <div className="flex items-center gap-2 py-2">
             <svg
@@ -415,23 +415,23 @@ export default function EstadoParticipacionesWidget() {
             <span className="text-sm text-muted-foreground">Cargando...</span>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {items.map((s) => (
               <div
                 key={s.label}
-                className={`${s.bg} border ${s.border} rounded-2xl p-3.5 flex flex-col gap-1.5 relative overflow-hidden min-h-[92px] justify-between shadow-sm hover:shadow-md transition-all`}
+                className="relative flex min-h-[96px] flex-col justify-between gap-2 overflow-hidden border-b border-r border-slate-200 bg-white p-3.5 transition-colors hover:bg-slate-50/80"
               >
                 <div className="flex items-center gap-1.5 mb-0.5">
-                  <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${s.dot}`} />
+                  <span className={`h-2 w-2 flex-shrink-0 rounded-full ${s.dot}`} />
                   <span className={`text-xs font-semibold ${s.color}`}>{s.label}</span>
                 </div>
-                <span className={`text-2xl font-bold ${s.color}`}>{s.count}</span>
+                <span className={`text-2xl font-800 tabular-nums ${s.color}`}>{s.count}</span>
                 <span className="text-[10px] text-muted-foreground leading-tight">{s.desc}</span>
               </div>
             ))}
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

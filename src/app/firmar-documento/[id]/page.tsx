@@ -2,9 +2,11 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, X, PenLine, RotateCcw, Save, FileText, User, Shield, ShieldCheck, AlertTriangle, ChevronDown, Loader2, Check, Eye, Plus, Trash2, Type, Hash, Calendar, ToggleLeft, List, Circle, Maximize2, Minimize2, Mail, Phone, UserCheck, MapPin, Tag, Settings, Moon, Sun, Clock, DollarSign, Image as ImageIcon, CheckSquare, Download, EyeOff } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, X, PenLine, RotateCcw, Save, FileText, User, Shield, ShieldCheck, AlertTriangle, ChevronDown, Loader2, Check, Eye, Plus, Trash2, Type, Hash, Calendar, ToggleLeft, List, Circle, Maximize2, Minimize2, Mail, Phone, UserCheck, MapPin, Tag, Settings, Clock, DollarSign, Image as ImageIcon, CheckSquare, Download, EyeOff } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import AppLogo from '@/components/ui/AppLogo';
 import { createNotification } from '@/lib/notificationsInApp';
 import { sendParticipationCompletionEmail, sendOwnerParticipantActionEmail } from '@/lib/emailNotifications';
@@ -1142,7 +1144,7 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages }: {
         </div>
       )}
       {error ? (
-        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 bg-[#e8e8e8]">
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 bg-gray-100">
           <FileText size={48} className="text-slate-300" strokeWidth={1} />
           <p className="text-sm text-slate-400">Vista previa no disponible</p>
         </div>
@@ -3395,6 +3397,7 @@ export default function FirmarDocumentoPage() {
   const params = useParams();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { activeWorkspace } = useWorkspace();
   const docId = params?.id as string;
   const [sessionToken, setSessionToken] = useState<string | null>(null);
 
@@ -3470,7 +3473,7 @@ export default function FirmarDocumentoPage() {
   const [zoom, setZoom] = useState(100);
   const [showPdf, setShowPdf] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isDark, setIsDark] = useState(false);
+  const { isDark } = useTheme();
   const [showDocModal, setShowDocModal] = useState(false);
   const [docModalPage, setDocModalPage] = useState(1);
   const [docModalZoom, setDocModalZoom] = useState(100);
@@ -5210,6 +5213,21 @@ export default function FirmarDocumentoPage() {
       ];
 
   const currentStepIndex = steps.findIndex((s) => s.id === step);
+  const signingStepIcons: Record<string, React.ElementType> = {
+    terminos: Shield,
+    campos: Type,
+    firma: PenLine,
+    aprobacion: CheckCircle2,
+  };
+  const currentStepData = steps[currentStepIndex] || steps[0];
+  const CurrentSigningStepIcon = signingStepIcons[currentStepData?.id || 'terminos'] || FileText;
+  const currentStepDescription = ({
+    terminos: 'Revisa las condiciones y confirma tu consentimiento para participar.',
+    campos: 'Completa la informacion solicitada y ubica los campos necesarios.',
+    firma: 'Selecciona tu metodo y confirma la firma del documento.',
+    aprobacion: 'Revisa la informacion y registra tu decision sobre el documento.',
+  } as Record<string, string>)[currentStepData?.id || 'terminos'];
+  const completionPercent = Math.round((Math.max(currentStepIndex, 0) / Math.max(steps.length - 1, 1)) * 100);
 
   // ── Fullscreen handler ─────────────────────────────────────────────────────
   const handleToggleFullscreen = useCallback(() => {
@@ -5498,20 +5516,13 @@ export default function FirmarDocumentoPage() {
           </div>
           {/* Step bar intentionally hidden on success state */}
           <div className="flex-1 flex items-center justify-end gap-1">
-            <button
-              onClick={() => setIsDark((v) => !v)}
-              title={isDark ? 'Vista clara' : 'Vista oscura'}
-              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${isDark ? 'text-yellow-400 bg-yellow-900/30 hover:bg-yellow-900/50' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'}`}
-            >
-              {isDark ? <Sun size={17} /> : <Moon size={17} />}
-            </button>
           </div>
         </header>
 
-        {/* ── Body ─────────────────────────────────────────────────────────── */}
-        <div className="flex flex-1 overflow-hidden">
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
           {/* PDF Viewer (left) */}
-          <div className={`hidden lg:flex flex-col border-r transition-all duration-300 w-[70%] ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-[#e8e8e8] border-border'}`}>
+          <div className={`hidden lg:flex flex-col border-r transition-all duration-300 w-[70%] ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-border'}`}>
             {document.file_url ? (
               <div className="flex-1 relative overflow-hidden">
                 <div className="absolute inset-0 overflow-auto p-4 flex justify-center">
@@ -5569,7 +5580,7 @@ export default function FirmarDocumentoPage() {
           </div>
 
           {/* Right Panel — Success animation */}
-          <div className={`lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : ''}`}>
+          <div className={`lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
             <div className="flex-1 overflow-y-auto">
               {/* ── RESUMEN TAB ── */}
               {activeCompletadoTab === 'resumen' && (
@@ -6123,78 +6134,91 @@ export default function FirmarDocumentoPage() {
 
   // ── Main layout ────────────────────────────────────────────────────────────
   return (
-    <div className={`min-h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-background'}`}>
+    <div className={`flex h-screen flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-slate-50 text-slate-950'}`}>
       {/* ── Top Bar ─────────────────────────────────────────────────────────── */}
-      <header className={`h-16 border-b flex items-center px-6 shrink-0 z-10 transition-colors duration-300 ${isDark ? 'bg-gray-800 border-gray-700' : 'border-gray-100 bg-white'}`}>
-        <div className="flex-1">
-          <AppLogo size={36} />
+      <header className={`z-10 flex h-16 shrink-0 items-center border-b px-4 transition-colors duration-300 lg:px-6 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <AppLogo size={34} />
+          <div className={`hidden h-8 w-px lg:block ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`} />
+          <div className="hidden min-w-0 lg:block">
+            <p className={`truncate text-sm font-700 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}>
+              {myRole === 'aprobador' ? 'Revisar documento' : 'Firmar documento'}
+            </p>
+            <p className={`truncate text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+              {activeWorkspace?.name || 'Espacio personal'}
+            </p>
+          </div>
         </div>
 
-        {step !== 'completado' && (
-          <nav className="flex items-center gap-1 sm:gap-2">
-            {steps.map((s, idx) => {
-              const isActive = idx === currentStepIndex;
-              const isCompleted = idx < currentStepIndex;
-              const StepIconMap: Record<string, React.ElementType> = {
-                'Términos': Shield,
-                'Campos': Type,
-                'Firma': PenLine,
-                'Aprobación': CheckCircle2,
-              };
-              const StepIcon = StepIconMap[s.label] || FileText;
-              return (
-                <React.Fragment key={s.id}>
-                  <button
-                    disabled={!isCompleted}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                      isActive
-                        ? 'border-2 border-primary text-primary bg-transparent'
-                        : isCompleted
-                        ? 'text-primary hover:bg-primary/5 cursor-pointer' :`cursor-default ${isDark ? 'text-gray-500' : 'text-gray-400'}`
-                    }`}
-                  >
-                    <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-                      isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : isDark ? 'bg-gray-700 text-gray-500' : 'bg-gray-100 text-gray-400'
-                    }`}>
-                      {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
-                    </span>
-                    <span className="hidden sm:inline">{s.label}</span>
-                  </button>
-                  {idx < steps.length - 1 && (
-                    <div className={`w-8 h-px ${isCompleted ? 'bg-primary' : isDark ? 'bg-gray-600' : 'bg-gray-200'}`} />
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </nav>
-        )}
+        <nav className={`hidden items-center gap-1 rounded-lg border p-1 xl:flex ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-slate-200 bg-slate-50'}`}>
+          {steps.map((s, idx) => {
+            const isActive = idx === currentStepIndex;
+            const isCompleted = idx < currentStepIndex;
+            const StepIcon = signingStepIcons[s.id] || FileText;
+            return (
+              <React.Fragment key={s.id}>
+                <button
+                  onClick={() => isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')}
+                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-xs font-600 transition-colors ${
+                    isActive
+                      ? isDark ? 'bg-gray-700 text-blue-300 shadow-[0_1px_3px_rgba(0,0,0,0.25)]' : 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
+                      : isCompleted
+                      ? isDark ? 'cursor-pointer text-gray-200 hover:bg-gray-700' : 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary'
+                      : isDark ? 'cursor-default text-gray-500' : 'cursor-default text-slate-400'
+                  }`}
+                >
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
+                    isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : isDark ? 'bg-gray-700 text-gray-500' : 'bg-slate-200/70 text-slate-400'
+                  }`}>
+                    {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
+                  </span>
+                  <span>{s.label}</span>
+                </button>
+                {idx < steps.length - 1 && <div className={`h-px w-3 ${isCompleted ? 'bg-primary/50' : isDark ? 'bg-gray-700' : 'bg-slate-200'}`} />}
+              </React.Fragment>
+            );
+          })}
+        </nav>
 
-        <div className="flex-1 flex items-center justify-end gap-1">
-          {/* Dark mode toggle */}
-          <button
-            onClick={() => setIsDark((v) => !v)}
-            title={isDark ? 'Vista clara' : 'Vista oscura'}
-            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${isDark ? 'text-yellow-400 bg-yellow-900/30 hover:bg-yellow-900/50' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'}`}
-          >
-            {isDark ? <Sun size={17} /> : <Moon size={17} />}
-          </button>
+        <div className="flex flex-1 items-center justify-end gap-1.5">
           <button
             onClick={handleToggleFullscreen}
-            title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
-            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${isDark ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'}`}
+            title={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'}
+            className={`flex h-9 w-9 items-center justify-center rounded-lg border border-transparent transition-colors ${isDark ? 'text-gray-400 hover:border-gray-600 hover:bg-gray-700 hover:text-gray-200' : 'text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950'}`}
           >
             {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
           </button>
           <button
             onClick={() => setShowExitModal(true)}
             title="Salir"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ml-1 text-sm font-medium ${isDark ? 'text-gray-400 hover:text-red-400 hover:bg-red-900/20' : 'text-gray-500 hover:text-red-600 hover:bg-red-50'}`}
+            className={`ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-600 transition-colors ${isDark ? 'border-gray-600 bg-gray-800 text-gray-300 hover:border-red-800 hover:bg-red-900/20 hover:text-red-400' : 'border-slate-200 bg-white text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600'}`}
           >
-            <X size={16} />
-            <span className="hidden sm:inline">Salir</span>
+            <X size={16} /><span className="hidden sm:inline">Salir</span>
           </button>
         </div>
       </header>
+
+      <div className={`shrink-0 overflow-x-auto border-b px-4 py-2 xl:hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+        <nav className="mx-auto flex min-w-max items-center gap-1">
+          {steps.map((s, idx) => {
+            const isActive = idx === currentStepIndex;
+            const isCompleted = idx < currentStepIndex;
+            const StepIcon = signingStepIcons[s.id] || FileText;
+            return (
+              <button
+                key={s.id}
+                onClick={() => isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')}
+                className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-600 transition-colors ${
+                  isActive ? 'bg-primary/10 text-primary' : isCompleted ? isDark ? 'text-gray-200' : 'text-slate-700' : isDark ? 'text-gray-500' : 'text-slate-400'
+                }`}
+              >
+                {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
+                {s.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
       {/* Exit confirmation modal */}
       {showExitModal && (
@@ -6217,7 +6241,7 @@ export default function FirmarDocumentoPage() {
 
       {/* Full-screen document modal — matches visor-documento style */}
       {showDocModal && document?.file_url && (
-        <div className="fixed inset-0 z-50 bg-[#f0f0f0] flex flex-col">
+        <div className="fixed inset-0 z-50 bg-gray-100 flex flex-col">
           {/* Top bar: close button */}
           <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
             <span className="text-sm font-medium text-foreground bg-white border border-border rounded-full px-3 py-1.5 shadow-sm truncate max-w-xs">
@@ -6300,10 +6324,38 @@ export default function FirmarDocumentoPage() {
       )}
 
       {/* ── Body ─────────────────────────────────────────────────────────────── */}
+      <section className={`shrink-0 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-slate-50'}`}>
+        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:flex-row sm:items-end sm:justify-between lg:px-6">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <CurrentSigningStepIcon size={19} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className={`text-xl font-700 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}>{currentStepData?.label}</h1>
+                <span className={`rounded-md px-2 py-0.5 text-xs font-600 ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-200/70 text-slate-600'}`}>
+                  Paso {currentStepIndex + 1} de {steps.length}
+                </span>
+              </div>
+              <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>{currentStepDescription}</p>
+            </div>
+          </div>
+          <div className="w-full sm:w-60">
+            <div className={`flex items-center justify-between text-xs font-600 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+              <span>Progreso</span>
+              <span>{completionPercent}%</span>
+            </div>
+            <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`}>
+              <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${completionPercent}%` }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="flex flex-1 overflow-hidden">
 
         {/* PDF Viewer (left) */}
-        <div className={`hidden lg:flex flex-col border-r transition-all duration-300 ${showPdf ? 'w-[70%]' : 'w-0 overflow-hidden'} ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-[#e8e8e8] border-border'}`}>
+        <div className={`hidden lg:flex flex-col border-r transition-all duration-300 ${showPdf ? 'w-[70%]' : 'w-0 overflow-hidden'} ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-border'}`}>
           {document.file_url && (
             <>
               <div className="flex-1 relative overflow-hidden">
@@ -6432,7 +6484,7 @@ export default function FirmarDocumentoPage() {
         </div>
 
         {/* Right Panel */}
-        <div className={`lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : ''}`}>
+        <div className={`lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 

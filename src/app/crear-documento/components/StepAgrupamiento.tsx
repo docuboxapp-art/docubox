@@ -142,14 +142,9 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Agrupamiento de Participantes</h1>
-        <p className="text-gray-500 mt-1 text-sm">Organiza a los participantes en grupos y define el orden de firma.</p>
-      </div>
-
-      <div className="flex gap-6 items-start">
+      <div className="flex flex-col items-start gap-5 lg:flex-row">
         {/* Left panel: unassigned participants */}
-        <div className="w-64 shrink-0 bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+        <div className="w-full shrink-0 rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] lg:w-64">
           <div className="flex items-center gap-2 mb-4">
             <Users size={16} className="text-gray-500" />
             <span className="text-sm font-semibold text-gray-800">
@@ -185,10 +180,10 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
         {/* Right panel: groups */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-gray-900">Grupos de Firma</h2>
+            <h2 className="text-base font-700 text-slate-950">Grupos de firma</h2>
             <button
               onClick={handleAddGrupo}
-              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm"
+              className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-700 text-white transition-colors hover:bg-primary/90"
             >
               <Plus size={15} />
               Nuevo Grupo
@@ -196,7 +191,7 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
           </div>
 
           {grupos.length === 0 ? (
-            <div className="border-2 border-dashed border-gray-200 rounded-xl py-12 text-center">
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white py-12 text-center">
               <p className="text-sm text-gray-400">No hay grupos creados. Haz clic en "+ Nuevo Grupo" para comenzar.</p>
             </div>
           ) : (
@@ -209,7 +204,7 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
                   onDragOver={(e) => handleGrupoDragOver(e, index)}
                   onDrop={(e) => handleGrupoDrop(e, index)}
                   onDragEnd={handleGrupoDragEnd}
-                  className={`bg-white border border-gray-200 rounded-xl shadow-sm transition-all ${dragOverGrupoIndex === index ? 'border-primary/50 bg-blue-50/30' : ''}`}
+                  className={`rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all ${dragOverGrupoIndex === index ? 'border-primary/50 bg-blue-50/30' : ''}`}
                 >
                   {/* Group header */}
                   <div className="flex items-center gap-2 px-4 pt-4 pb-3 border-b border-gray-100">
@@ -349,7 +344,7 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
           )}
 
           {/* Info footer */}
-          <div className="mt-4 flex items-start gap-2 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
             <Info size={16} className="shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold">Orden de Grupos</span>

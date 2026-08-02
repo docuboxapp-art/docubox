@@ -46,7 +46,14 @@ const ACTION_OPTIONS: { value: ActionType; label: string }[] = [
   { value: 'detener_flujo', label: 'Detener flujo' },
 ];
 
-const DOCUMENT_STATES = ['Borrador', 'Enviado', 'En proceso', 'Completado', 'Rechazado', 'Vencido'];
+const DOCUMENT_STATES = [
+  { value: 'borrador', label: 'Borrador' },
+  { value: 'enviado', label: 'Enviado' },
+  { value: 'en_proceso', label: 'En progreso' },
+  { value: 'completado', label: 'Completado' },
+  { value: 'rechazado', label: 'Rechazado' },
+  { value: 'vencido', label: 'Vencido' },
+];
 
 const BASADO_EN_OPTIONS = [
   { value: '', label: 'Seleccionar base...' },
@@ -98,7 +105,7 @@ const CAMPO_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: '', label: 'Seleccionar estado...' },
     { value: 'borrador', label: 'Borrador' },
     { value: 'enviado', label: 'Enviado' },
-    { value: 'en_proceso', label: 'En proceso de firma' },
+    { value: 'en_proceso', label: 'Firma en progreso' },
     { value: 'completado', label: 'Completado' },
     { value: 'rechazado', label: 'Rechazado' },
     { value: 'vencido', label: 'Vencido' },
@@ -345,8 +352,8 @@ function ActionExtraConfig({
             className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-primary/30"
           >
             <option value="">Seleccionar estado...</option>
-            {DOCUMENT_STATES.map((s) => (
-              <option key={s} value={s.toLowerCase()}>{s}</option>
+            {DOCUMENT_STATES.map((state) => (
+              <option key={state.value} value={state.value}>{state.label}</option>
             ))}
           </select>
         </div>

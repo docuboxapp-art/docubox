@@ -240,7 +240,7 @@ const documentos: Documento[] = [
 const filterOptions: { label: string; value: string }[] = [
   { label: 'Todos', value: 'todos' },
   { label: 'Pendientes', value: 'pendiente' },
-  { label: 'En proceso', value: 'en_proceso' },
+  { label: 'En progreso', value: 'en_proceso' },
   { label: 'Completados', value: 'completado' },
   { label: 'Rechazados', value: 'rechazado' },
   { label: 'Vencidos', value: 'vencido' },

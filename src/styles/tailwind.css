@@ -37,37 +37,32 @@
   }
 
   .dark {
-    /* Fondo Principal: #09090B → hsl(240 5.9% 4.1%) */
-    --background: 240 5.9% 4.1%;
-    --card: 240 5.9% 4.1%;
+    color-scheme: dark;
+    /* Neutral dark surfaces with enough separation for dense workspace views. */
+    --background: 240 6% 7%;
+    --card: 240 5% 10%;
     --card-foreground: 0 0% 98%;
-    /* Texto Principal: #FAFAFA → hsl(0 0% 98%) */
     --foreground: 0 0% 98%;
-    /* Borde: #27272A → hsl(240 3.7% 15.9%) */
-    --border: 240 3.7% 15.9%;
-    /* Entrada: #18181B → hsl(240 5.3% 10.2%) */
-    --input: 240 5.3% 10.2%;
-    /* Anillo: #3F3F46 → hsl(240 3.8% 26.1%) */
-    --ring: 240 3.8% 26.1%;
-    /* Primario: #3B82F6 → hsl(217.2 91.2% 59.8%) */
+    --border: 240 4% 22%;
+    --input: 240 5% 13%;
+    --ring: 217.2 91.2% 59.8%;
     --primary: 217.2 91.2% 59.8%;
     --primary-foreground: 0 0% 100%;
-    /* Secundario: #6366F1 → hsl(239 84% 67.1%) */
-    --secondary: 239 84% 67.1%;
-    --secondary-foreground: 0 0% 100%;
-    /* Accent: #A78BFA → hsl(258 89.5% 76.3%) */
-    --accent: 258 89.5% 76.3%;
-    --accent-foreground: 0 0% 100%;
-    /* Muted: #71717A → hsl(240 3.8% 46.1%) */
-    --muted: 240 5.3% 10.2%;
-    --muted-foreground: 240 3.8% 46.1%;
-    /* Destructivo: #EF4444 → hsl(0 84.2% 60.2%) */
+    --secondary: 240 5% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --accent: 240 5% 17%;
+    --accent-foreground: 0 0% 98%;
+    --muted: 240 5% 15%;
+    --muted-foreground: 240 5% 65%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
-    /* Éxito: #10B981 → hsl(160 84.1% 39.4%) */
     --success: 160 84.1% 39.4%;
-    /* Advertencia: #F59E0B → hsl(38 92.1% 50.2%) */
     --warning: 38 92.1% 50.2%;
+    --secondary-btn: 240 5% 15%;
+    --secondary-btn-foreground: 0 0% 96%;
+    --hover-secondary: 240 4% 22%;
+    --placeholder: 240 5% 55%;
+    --ring-focus: 217.2 91.2% 59.8%;
   }
 
   * {
@@ -235,4 +230,232 @@ hr.page-break::after {
   border-radius: 4px;
   white-space: nowrap;
   pointer-events: none;
+}
+
+/* Document viewer: keep dense information panels aligned with the workspace UI. */
+.document-viewer-panel > div:first-child {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.96);
+  border-color: #e2e8f0;
+}
+
+.document-viewer-panel .rounded-xl {
+  border-radius: 8px;
+}
+
+.document-viewer-panel .shadow-sm {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
+}
+
+/* Theme bridge for legacy and workflow screens that still use fixed light utilities. */
+.dark .bg-white,
+.dark [class~="bg-white/95"],
+.dark [class~="bg-white/90"],
+.dark [class~="bg-white/80"] {
+  background-color: hsl(var(--card));
+}
+
+.dark .bg-slate-50,
+.dark .bg-gray-50,
+.dark [class~="bg-slate-50/80"],
+.dark [class~="bg-slate-50/70"],
+.dark [class~="bg-slate-50/50"],
+.dark [class~="bg-slate-50/40"],
+.dark [class~="bg-gray-50/50"],
+.dark [class~="bg-[#f6f8fb]"] {
+  background-color: hsl(var(--background));
+}
+
+.dark .bg-slate-100,
+.dark .bg-gray-100,
+.dark .bg-slate-200,
+.dark .bg-gray-200 {
+  background-color: hsl(var(--muted));
+}
+
+.dark .text-slate-950,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-gray-950,
+.dark .text-gray-900,
+.dark .text-gray-800,
+.dark .text-black {
+  color: hsl(var(--foreground));
+}
+
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-gray-700,
+.dark .text-gray-600 {
+  color: hsl(240 5% 78%);
+}
+
+.dark .text-slate-500,
+.dark .text-slate-400,
+.dark .text-gray-500,
+.dark .text-gray-400 {
+  color: hsl(var(--muted-foreground));
+}
+
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300,
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300 {
+  border-color: hsl(var(--border));
+}
+
+.dark [class~="hover:bg-white"]:hover,
+.dark [class~="hover:bg-slate-50"]:hover,
+.dark [class~="hover:bg-slate-100"]:hover,
+.dark [class~="hover:bg-gray-50"]:hover,
+.dark [class~="hover:bg-gray-100"]:hover,
+.dark [class~="focus:bg-white"]:focus {
+  background-color: hsl(var(--muted));
+}
+
+.dark [class~="hover:text-slate-950"]:hover,
+.dark [class~="hover:text-slate-900"]:hover,
+.dark [class~="hover:text-gray-900"]:hover,
+.dark [class~="hover:text-gray-800"]:hover {
+  color: hsl(var(--foreground));
+}
+
+.dark input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+.dark textarea,
+.dark select {
+  background-color: hsl(var(--input));
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: hsl(var(--placeholder));
+}
+
+.dark select option {
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.dark input:disabled,
+.dark textarea:disabled,
+.dark select:disabled,
+.dark button:disabled {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Semantic colors retain their meaning without glowing against dark surfaces. */
+.dark .bg-red-50,
+.dark .bg-red-100 { background-color: rgb(127 29 29 / 0.28); }
+.dark .bg-green-50,
+.dark .bg-green-100,
+.dark .bg-emerald-50,
+.dark .bg-emerald-100 { background-color: rgb(6 78 59 / 0.30); }
+.dark .bg-blue-50,
+.dark .bg-blue-100 { background-color: rgb(30 64 175 / 0.25); }
+.dark .bg-amber-50,
+.dark .bg-amber-100,
+.dark .bg-yellow-50,
+.dark .bg-yellow-100,
+.dark .bg-orange-50,
+.dark .bg-orange-100 { background-color: rgb(120 53 15 / 0.28); }
+.dark .bg-purple-50,
+.dark .bg-purple-100,
+.dark .bg-indigo-50,
+.dark .bg-indigo-100 { background-color: rgb(76 29 149 / 0.25); }
+.dark .bg-pink-50,
+.dark .bg-pink-100,
+.dark .bg-rose-50,
+.dark .bg-rose-100 { background-color: rgb(136 19 55 / 0.25); }
+.dark .bg-cyan-50,
+.dark .bg-cyan-100,
+.dark .bg-teal-50,
+.dark .bg-teal-100 { background-color: rgb(17 94 89 / 0.25); }
+
+.dark .text-red-600,
+.dark .text-red-700,
+.dark .text-red-800,
+.dark .text-red-900 { color: rgb(252 165 165); }
+.dark .text-green-600,
+.dark .text-green-700,
+.dark .text-green-800,
+.dark .text-emerald-600,
+.dark .text-emerald-700,
+.dark .text-emerald-800 { color: rgb(134 239 172); }
+.dark .text-blue-600,
+.dark .text-blue-700,
+.dark .text-blue-800 { color: rgb(147 197 253); }
+.dark .text-amber-600,
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-amber-900,
+.dark .text-yellow-600,
+.dark .text-yellow-700,
+.dark .text-orange-600,
+.dark .text-orange-700,
+.dark .text-orange-800 { color: rgb(253 186 116); }
+.dark .text-purple-600,
+.dark .text-purple-700,
+.dark .text-indigo-600,
+.dark .text-indigo-700 { color: rgb(196 181 253); }
+.dark .text-pink-600,
+.dark .text-pink-700,
+.dark .text-rose-600,
+.dark .text-rose-700 { color: rgb(251 182 206); }
+.dark .text-cyan-600,
+.dark .text-cyan-700,
+.dark .text-teal-600,
+.dark .text-teal-700 { color: rgb(103 232 249); }
+
+.dark .border-red-100,
+.dark .border-red-200,
+.dark .border-red-300 { border-color: rgb(185 28 28 / 0.65); }
+.dark .border-green-100,
+.dark .border-green-200,
+.dark .border-green-300,
+.dark .border-emerald-100,
+.dark .border-emerald-200,
+.dark .border-emerald-300 { border-color: rgb(5 150 105 / 0.55); }
+.dark .border-blue-100,
+.dark .border-blue-200,
+.dark .border-blue-300 { border-color: rgb(37 99 235 / 0.55); }
+.dark .border-amber-100,
+.dark .border-amber-200,
+.dark .border-amber-300,
+.dark .border-yellow-100,
+.dark .border-yellow-200,
+.dark .border-yellow-300,
+.dark .border-orange-100,
+.dark .border-orange-200,
+.dark .border-orange-300 { border-color: rgb(217 119 6 / 0.55); }
+.dark .border-purple-100,
+.dark .border-purple-200,
+.dark .border-purple-300,
+.dark .border-indigo-100,
+.dark .border-indigo-200 { border-color: rgb(124 58 237 / 0.50); }
+.dark .border-pink-200,
+.dark .border-rose-200 { border-color: rgb(225 29 72 / 0.50); }
+
+.dark button[aria-pressed] .rounded-full.bg-white,
+.dark [role='switch'] .rounded-full.bg-white {
+  background-color: white;
+}
+
+.dark .recharts-cartesian-grid line { stroke: hsl(var(--border)); }
+.dark .recharts-text { fill: hsl(var(--muted-foreground)); }
+.dark .recharts-tooltip-wrapper { color: hsl(var(--foreground)); }
+
+.dark hr.page-break::after {
+  background: hsl(var(--muted));
+  color: rgb(147 197 253);
+}
+
+.dark .document-viewer-panel > div:first-child {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
 }

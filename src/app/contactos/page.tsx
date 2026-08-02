@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, Search, Plus, Mail, Phone, Trash2, Check, LayoutGrid, List, MoreVertical, Eye, Tag, FileText, ChevronDown, Activity, Edit2, Save, ArrowLeft, Hash, StickyNote, MapPin, X, Pencil, ExternalLink, Shield, ShieldOff, ShieldAlert, AlertTriangle, Bell, Send, PenLine, IdCard, Clock, Archive, Ban, BookOpen, Layers, CheckCircle2, XCircle, AlertCircle, Info, Calendar, User } from 'lucide-react';
+import { Users, Search, Plus, Mail, Phone, Trash2, Check, LayoutGrid, List, MoreVertical, Eye, Tag, FileText, ChevronDown, Activity, Edit2, Save, Hash, StickyNote, MapPin, X, Pencil, ExternalLink, Shield, ShieldOff, ShieldAlert, AlertTriangle, Clock, CheckCircle2, XCircle, AlertCircle, Info, Calendar, User, Copy } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -118,11 +118,22 @@ function getInitials(c: Contact) {
   return parts.map((p) => p![0].toUpperCase()).join('').slice(0, 2) || 'C';
 }
 
-function getFullName(c: Contact) {
-  return [c.nombre, c.apellido_paterno, c.apellido_materno].filter(Boolean).join(' ');
+function formatDisplayName(value: string | null | undefined) {
+  if (!value) return '';
+  return value
+    .toLocaleLowerCase('es-MX')
+    .replace(/(^|[\s'-])([a-záéíóúüñ])/g, (_, separator: string, letter: string) => (
+      `${separator}${letter.toLocaleUpperCase('es-MX')}`
+    ));
 }
 
-function Spinner({ size = 'sm' }: { size?: 'sm\' | \'md' }) {
+function getFullName(c: Contact) {
+  return formatDisplayName(
+    [c.nombre, c.apellido_paterno, c.apellido_materno].filter(Boolean).join(' '),
+  );
+}
+
+function Spinner({ size = 'sm' }: { size?: 'sm' | 'md' }) {
   const s = size === 'sm' ? 'h-3.5 w-3.5' : 'h-5 w-5';
   return (
     <svg className={`animate-spin ${s}`} fill="none" viewBox="0 0 24 24">
@@ -139,12 +150,12 @@ function ProfileField({
   label: string; value: string | null | undefined; mono?: boolean; fullWidth?: boolean; icon?: React.ReactNode;
 }) {
   return (
-    <div className={fullWidth ? 'col-span-2' : ''}>
-      <p className="text-[10px] text-gray-400 mb-0.5">{label}</p>
-      <div className="border border-gray-200 rounded-md px-3 py-2 bg-white min-h-[34px] flex items-center gap-1.5">
+    <div className={fullWidth ? 'sm:col-span-2 xl:col-span-3' : ''}>
+      <p className="mb-1 text-[11px] font-medium text-slate-400">{label}</p>
+      <div className="flex min-h-[42px] items-center gap-2 rounded-md bg-slate-50/80 px-3 py-2">
         {icon}
-        <span className={`text-sm text-gray-800 ${mono ? 'font-mono' : ''}`}>
-          {value || <span className="text-gray-300">—</span>}
+        <span className={`text-sm font-medium text-slate-700 ${mono ? 'font-mono' : ''}`}>
+          {value || <span className="font-normal text-slate-300">Sin información</span>}
         </span>
       </div>
     </div>
@@ -153,7 +164,7 @@ function ProfileField({
 
 // ─── Smart Alerts Widget ──────────────────────────────────────────────────────
 function SmartAlertsWidget({ contact, userProfile }: { contact: Contact; userProfile: UserProfile | null }) {
-  const alerts: { id: string; label: string; desc: string; level: 'error\' | \'warning\' | \'info' }[] = [];
+  const alerts: { id: string; label: string; desc: string; level: 'error' | 'warning' | 'info' }[] = [];
 
   if (!contact.email) {
     alerts.push({ id: 'no-email', label: 'Correo no verificado', desc: 'No se recomienda enviar documentos legales.', level: 'error' });
@@ -176,10 +187,10 @@ function SmartAlertsWidget({ contact, userProfile }: { contact: Contact; userPro
 
   if (alerts.length === 0) {
     return (
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+      <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
           <AlertTriangle size={13} className="text-amber-500" />
-          <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">Alertas inteligentes</span>
+          <span className="text-xs font-semibold text-slate-700">Alertas inteligentes</span>
         </div>
         <div className="px-4 py-4 flex items-center gap-2">
           <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
@@ -190,20 +201,20 @@ function SmartAlertsWidget({ contact, userProfile }: { contact: Contact; userPro
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div className="flex items-center gap-2">
           <AlertTriangle size={13} className="text-amber-500" />
-          <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">Alertas inteligentes</span>
+          <span className="text-xs font-semibold text-slate-700">Alertas inteligentes</span>
         </div>
         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{alerts.length}</span>
       </div>
-      <div className="px-3 py-3 space-y-2">
+      <div className="space-y-2 p-3">
         {alerts.map((alert) => {
           const cfg = levelConfig[alert.level];
           const Icon = cfg.icon;
           return (
-            <div key={alert.id} className={`flex items-start gap-2 px-3 py-2 rounded-lg border ${cfg.bg} ${cfg.border}`}>
+            <div key={alert.id} className={`flex items-start gap-2 rounded-md border px-3 py-2.5 ${cfg.bg} ${cfg.border}`}>
               <Icon size={13} className={`${cfg.iconColor} shrink-0 mt-0.5`} />
               <div>
                 <p className={`text-[11px] font-semibold ${cfg.text}`}>{alert.label}</p>
@@ -225,14 +236,14 @@ function IdentityVerificationWidget({ contact, userProfile }: { contact: Contact
   const isVerified = hasCurp && hasRfc;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
         <Shield size={13} className="text-blue-500" />
-        <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">Verificación de identidad</span>
+        <span className="text-xs font-semibold text-slate-700">Verificación de identidad</span>
       </div>
       <div className="px-4 py-3">
-        <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${isVerified ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'}`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isVerified ? 'bg-emerald-100' : 'bg-gray-200'}`}>
+        <div className={`flex items-center gap-3 rounded-md px-3 py-3 ${isVerified ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${isVerified ? 'bg-emerald-100' : 'bg-slate-200'}`}>
             {isVerified
               ? <ShieldAlert size={16} className="text-emerald-600" />
               : <ShieldOff size={16} className="text-gray-400" />}
@@ -252,9 +263,10 @@ function IdentityVerificationWidget({ contact, userProfile }: { contact: Contact
             { label: 'RFC', ok: hasRfc },
             { label: 'Teléfono', ok: hasPhone },
           ].map(({ label, ok }) => (
-            <div key={label} className="flex items-center justify-between">
+            <div key={label} className="flex items-center justify-between border-b border-slate-100 py-1.5 last:border-0">
               <span className="text-[11px] text-gray-500">{label}</span>
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${ok ? 'text-emerald-600 bg-emerald-50 border-emerald-200' : 'text-gray-400 bg-gray-50 border-gray-200'}`}>
+              <span className={`flex items-center gap-1 text-[10px] font-semibold ${ok ? 'text-emerald-600' : 'text-slate-400'}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                 {ok ? 'Disponible' : 'No cargado'}
               </span>
             </div>
@@ -285,10 +297,10 @@ function RecentDocumentsWidget({ docs, loading }: { docs: SharedDocument[]; load
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
         <Clock size={13} className="text-gray-400" />
-        <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">Recientes</span>
+        <span className="text-xs font-semibold text-slate-700">Documentos recientes</span>
       </div>
       <div className="px-3 py-3">
         {loading ? (
@@ -314,35 +326,51 @@ function RecentDocumentsWidget({ docs, loading }: { docs: SharedDocument[]; load
 }
 
 // ─── Quick Actions Panel ───────────────────────────────────────────────────────
-function QuickActionsPanel({ contact }: { contact: Contact }) {
+function QuickActionsPanel({
+  contact,
+  onEdit,
+  onShowDocuments,
+  onAddNote,
+}: {
+  contact: Contact;
+  onEdit: () => void;
+  onShowDocuments: () => void;
+  onAddNote: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copyEmail = async () => {
+    if (!contact.email) return;
+    await navigator.clipboard.writeText(contact.email);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  };
+
   const actions = [
-    { icon: Send, label: 'Enviar documento', desc: 'Iniciar flujo de firma', color: 'text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100' },
-    { icon: PenLine, label: 'Solicitar firma', desc: 'Agregar como firmante', color: 'text-violet-600 bg-violet-50 border-violet-200 hover:bg-violet-100' },
-    { icon: IdCard, label: 'Solicitar validación', desc: 'INE, CURP, RFC, selfie', color: 'text-emerald-600 bg-emerald-50 border-emerald-200 hover:bg-emerald-100' },
-    { icon: Bell, label: 'Enviar recordatorio', desc: 'Documentos pendientes', color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' },
-    { icon: BookOpen, label: 'Ver expediente', desc: 'Información completa', color: 'text-gray-600 bg-gray-50 border-gray-200 hover:bg-gray-100' },
-    { icon: FileText, label: 'Ver documentos', desc: 'Historial de documentos', color: 'text-gray-600 bg-gray-50 border-gray-200 hover:bg-gray-100' },
-    { icon: Layers, label: 'Agregar a plantilla', desc: 'Firmante predeterminado', color: 'text-gray-600 bg-gray-50 border-gray-200 hover:bg-gray-100' },
-    { icon: Ban, label: 'Bloquear contacto', desc: 'Evitar envío de docs', color: 'text-orange-600 bg-orange-50 border-orange-200 hover:bg-orange-100' },
-    { icon: Archive, label: 'Archivar contacto', desc: 'Con auditoría', color: 'text-gray-500 bg-gray-50 border-gray-200 hover:bg-gray-100' },
+    { icon: Edit2, label: 'Editar contacto', desc: 'Actualizar información', onClick: onEdit, disabled: false },
+    { icon: FileText, label: 'Ver documentos', desc: 'Revisar historial', onClick: onShowDocuments, disabled: false },
+    { icon: StickyNote, label: 'Agregar nota', desc: 'Registrar seguimiento', onClick: onAddNote, disabled: false },
+    { icon: copied ? Check : Copy, label: copied ? 'Correo copiado' : 'Copiar correo', desc: contact.email || 'Correo no disponible', onClick: copyEmail, disabled: !contact.email },
   ];
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
         <Activity size={13} className="text-primary" />
-        <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">Acciones rápidas</span>
+        <span className="text-xs font-semibold text-slate-700">Acciones rápidas</span>
       </div>
-      <div className="px-3 py-3 space-y-1.5">
-        {actions.map(({ icon: Icon, label, desc, color }) => (
+      <div className="grid grid-cols-2 gap-2 p-3">
+        {actions.map(({ icon: Icon, label, desc, onClick, disabled }) => (
           <button
             key={label}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left transition-colors ${color}`}
+            onClick={onClick}
+            disabled={disabled}
+            className="group flex min-h-[76px] flex-col items-start justify-between rounded-md border border-slate-200 bg-white p-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
           >
-            <Icon size={13} className="shrink-0" />
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold leading-tight">{label}</p>
-              <p className="text-[10px] opacity-70 leading-tight">{desc}</p>
+            <Icon size={15} className={copied && label === 'Correo copiado' ? 'text-emerald-600' : 'text-primary'} />
+            <div className="mt-2 min-w-0">
+              <p className="text-xs font-semibold leading-tight text-slate-700">{label}</p>
+              <p className="mt-0.5 truncate text-[10px] leading-tight text-slate-400">{desc}</p>
             </div>
           </button>
         ))}
@@ -719,106 +747,98 @@ function ContactDetailView({
     historial: null,
   };
 
+  const hasVerifiedIdentity = !!(
+    (userProfile?.curp || contact.curp) &&
+    (userProfile?.rfc || contact.rfc)
+  );
+
   return (
-    <div className="bg-[#f0f4f8] min-h-screen">
-      {/* ── Top Bar (gradient like reference image) ── */}
-      <div
-        className="sticky top-0 z-20"
-        style={{ background: 'linear-gradient(135deg, #dce8f5 0%, #e8eef7 50%, #d8e6f3 100%)' }}
-      >
-        <div className="px-4 py-3 flex items-center justify-between">
-          {/* Left: back + contact info */}
-          <div className="flex items-center gap-4">
-            <button
-              onClick={onClose}
-              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors font-medium"
-            >
-              <ArrowLeft size={15} />
-              Contactos
-            </button>
-            <div className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white text-lg font-bold shrink-0 shadow-md ${avatarColors[idx % avatarColors.length]}`}>
+    <div className="-mx-4 -mb-4 -mt-2 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] md:-mb-6 md:-mt-[9px]">
+      <div className="border-b border-slate-200/90 bg-white">
+        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-2 sm:px-5 lg:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm ${avatarColors[idx % avatarColors.length]}`}>
                 {getInitials(contact)}
               </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-base font-bold text-gray-900">{getFullName(contact)}</h1>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="truncate text-lg font-700 leading-tight text-slate-950">{getFullName(contact)}</h1>
+                  <span className={`inline-flex h-6 items-center gap-1 rounded-md px-2 text-[10px] font-semibold ${hasVerifiedIdentity ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {hasVerifiedIdentity ? <Shield size={11} /> : <ShieldOff size={11} />}
+                    {hasVerifiedIdentity ? 'Identidad verificada' : 'Sin verificar'}
+                  </span>
                 </div>
-                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
                   {contact.email && (
-                    <span className="flex items-center gap-1 text-xs text-gray-500">
-                      <Mail size={10} />{contact.email}
+                    <span className="flex items-center gap-1.5">
+                      <Mail size={11} />{contact.email}
                     </span>
                   )}
-                  {/* Status badges */}
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/70 border border-gray-300 text-gray-600">
-                    <ShieldOff size={9} className="text-gray-400" />
-                    No verificado
-                  </span>
-                  {contact.email && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 border border-blue-200 text-blue-700">
-                      <Mail size={9} />
-                      Correo
+                  {(userProfile?.telefono || contact.telefono) && (
+                    <span className="flex items-center gap-1.5">
+                      <Phone size={11} />{userProfile?.telefono || contact.telefono}
                     </span>
                   )}
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 border border-purple-200 text-purple-700">
-                    Invitación
-                  </span>
+                  <span>Agregado {formatRelative(contact.created_at)}</span>
                 </div>
               </div>
-            </div>
           </div>
 
-          {/* Right: Edit + Delete buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {editMode ? (
               <>
                 <button
                   onClick={handleSaveEdit}
                   disabled={savingEdit || !editData.nombre.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
+                  className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
                 >
                   {savingEdit ? <Spinner /> : <Save size={13} />}
                   Guardar
                 </button>
                 <button
                   onClick={() => setEditMode(false)}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-white/80 border border-gray-300 text-gray-600 rounded-lg text-sm font-medium hover:bg-white transition-colors"
+                  className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
                 >
                   <X size={13} />
                   Cancelar
                 </button>
               </>
             ) : (
-              <>
-                <button
-                  onClick={() => setEditMode(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-white/80 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-white transition-colors shadow-sm"
-                >
-                  <Edit2 size={13} />
-                  Editar
-                </button>
-                <button
-                    onClick={onClose}
-                    className="w-9 h-9 flex items-center justify-center bg-white/80 border border-gray-300 text-gray-600 rounded-lg hover:bg-white hover:text-gray-900 transition-colors shadow-sm"
-                    title="Cerrar"
-                  >
-                    <X size={15} />
-                  </button>
-              </>
+              <button
+                onClick={() => setEditMode(true)}
+                className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+              >
+                <Edit2 size={13} />
+                <span className="hidden sm:inline">Editar</span>
+              </button>
             )}
+            <button
+              onClick={onClose}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
+              title="Cerrar"
+              aria-label="Cerrar ficha de contacto"
+            >
+              <X size={15} />
+            </button>
           </div>
         </div>
       </div>
 
-      {/* ── Main Content: 30/70 layout ── */}
-      <div className="px-4 py-4">
-        <div className="grid gap-4" style={{ gridTemplateColumns: '30% 1fr' }}>
+      <div className="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-5 lg:px-6">
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
 
           {/* ── LEFT PANEL (30%) ── */}
           <div className="space-y-3">
             {/* Identity Verification */}
             <IdentityVerificationWidget contact={contact} userProfile={userProfile} />
+
+            {/* Quick Actions */}
+            <QuickActionsPanel
+              contact={contact}
+              onEdit={() => setEditMode(true)}
+              onShowDocuments={() => setActiveTab('documentos')}
+              onAddNote={() => setActiveTab('notas')}
+            />
 
             {/* Smart Alerts */}
             <SmartAlertsWidget contact={contact} userProfile={userProfile} />
@@ -826,14 +846,11 @@ function ContactDetailView({
             {/* Recent Documents */}
             <RecentDocumentsWidget docs={sharedDocs} loading={loadingDocs} />
 
-            {/* Quick Actions */}
-            <QuickActionsPanel contact={contact} />
-
             {/* Tags */}
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+            <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
                 <Tag size={12} className="text-gray-400" />
-                <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Tags</span>
+                <span className="text-xs font-semibold text-slate-700">Etiquetas</span>
               </div>
               <div className="px-4 py-3">
                 <div className="flex flex-wrap gap-1.5 mb-2">
@@ -874,11 +891,11 @@ function ContactDetailView({
             </div>
 
             {/* Custom Fields */}
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+            <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <Hash size={12} className="text-gray-400" />
-                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Campos personalizados</span>
+                  <span className="text-xs font-semibold text-slate-700">Campos personalizados</span>
                 </div>
                 <button onClick={() => setAddingField(true)} className="text-[11px] text-primary hover:underline flex items-center gap-0.5">
                   <Plus size={10} /> Agregar
@@ -960,9 +977,9 @@ function ContactDetailView({
           </div>
 
           {/* ── RIGHT PANEL (70%) ── */}
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             {/* Tabs */}
-            <div className="border-b border-gray-200 flex items-center overflow-x-auto bg-white">
+            <div className="flex items-center overflow-x-auto border-b border-slate-200 bg-slate-50/60 px-2">
               {([
                 { key: 'destacada', label: 'Información destacada' },
                 { key: 'actividades', label: 'Actividades' },
@@ -973,8 +990,8 @@ function ContactDetailView({
                 <button
                   key={key}
                   onClick={() => setActiveTab(key)}
-                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap flex items-center gap-1.5 ${
-                    activeTab === key ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'
+                  className={`flex h-11 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/20 ${
+                    activeTab === key ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   {label}
@@ -989,14 +1006,14 @@ function ContactDetailView({
 
             {/* ── Tab: Información destacada ── */}
             {activeTab === 'destacada' && (
-              <div className="p-5">
+              <div className="p-4 sm:p-5">
                 {editMode ? (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                  <div className="space-y-5">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
                       <Edit2 size={14} className="text-primary" />
                       Editar información del contacto
                     </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                       {[
                         { label: 'Nombre *', key: 'nombre' },
                         { label: 'Apellido Paterno', key: 'apellido_paterno' },
@@ -1011,7 +1028,7 @@ function ContactDetailView({
                             type="text"
                             value={editData[key as keyof ContactFormData]}
                             onChange={(e) => setEditData({ ...editData, [key]: e.target.value })}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                            className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
                           />
                         </div>
                       ))}
@@ -1021,7 +1038,7 @@ function ContactDetailView({
                           type="text"
                           value={editData.curp}
                           onChange={(e) => setEditData({ ...editData, curp: e.target.value })}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
                         />
                       </div>
                       <div>
@@ -1029,7 +1046,7 @@ function ContactDetailView({
                         <select
                           value={editData.tipo_persona}
                           onChange={(e) => setEditData({ ...editData, tipo_persona: e.target.value })}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
                         >
                           <option>Persona física</option>
                           <option>Persona moral</option>
@@ -1041,7 +1058,7 @@ function ContactDetailView({
                           type="text"
                           value={editData.empresa}
                           onChange={(e) => setEditData({ ...editData, empresa: e.target.value })}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
                         />
                       </div>
                       <div>
@@ -1050,7 +1067,7 @@ function ContactDetailView({
                           type="text"
                           value={editData.cargo}
                           onChange={(e) => setEditData({ ...editData, cargo: e.target.value })}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
                         />
                       </div>
                       <div className="sm:col-span-3">
@@ -1059,7 +1076,7 @@ function ContactDetailView({
                           type="text"
                           value={editData.direccion}
                           onChange={(e) => setEditData({ ...editData, direccion: e.target.value })}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
                         />
                       </div>
                       <div>
@@ -1067,7 +1084,7 @@ function ContactDetailView({
                         <select
                           value={editData.canal_preferido}
                           onChange={(e) => setEditData({ ...editData, canal_preferido: e.target.value })}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
                         >
                           <option>WhatsApp</option>
                           <option>Email</option>
@@ -1077,46 +1094,58 @@ function ContactDetailView({
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-6">
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                      {[
+                        { label: 'Documentos', value: sharedDocs.length, color: 'text-primary' },
+                        { label: 'Firmados', value: firmadosCount, color: 'text-emerald-600' },
+                        { label: 'Notas', value: notes.length, color: 'text-amber-600' },
+                      ].map((item) => (
+                        <div key={item.label} className="rounded-md bg-slate-50 px-3 py-3">
+                          <p className={`text-xl font-700 leading-none ${item.color}`}>{item.value}</p>
+                          <p className="mt-1 text-[11px] font-medium text-slate-500">{item.label}</p>
+                        </div>
+                      ))}
+                    </div>
                     {loadingProfile ? (
                       <div className="flex justify-center py-8"><Spinner size="md" /></div>
                     ) : (
                       <>
-                        <div>
-                          <h4 className="text-xs font-semibold text-blue-600 flex items-center gap-1.5 mb-3">
+                        <section>
+                          <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
                             <Users size={13} />
-                            Datos de Identidad
+                            Identidad y contacto
                           </h4>
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          <div className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
                             <ProfileField label="Tipo de Persona" value={userProfile?.personalidad_juridica || contact.tipo_persona} />
                             <ProfileField label="CURP" value={userProfile?.curp || contact.curp} mono />
-                            <ProfileField label="Nombre" value={userProfile?.nombre || contact.nombre} />
-                            <ProfileField label="Apellido Paterno" value={userProfile?.apellido_paterno || contact.apellido_paterno} />
-                            <ProfileField label="Apellido Materno" value={userProfile?.apellido_materno || contact.apellido_materno} />
+                            <ProfileField label="Nombre" value={formatDisplayName(userProfile?.nombre || contact.nombre)} />
+                            <ProfileField label="Apellido Paterno" value={formatDisplayName(userProfile?.apellido_paterno || contact.apellido_paterno)} />
+                            <ProfileField label="Apellido Materno" value={formatDisplayName(userProfile?.apellido_materno || contact.apellido_materno)} />
                             <ProfileField
                               label="Nombre Completo / Razón Social"
-                              value={userProfile ? [userProfile.nombre, userProfile.apellido_paterno, userProfile.apellido_materno].filter(Boolean).join(' ') : getFullName(contact)}
+                              value={userProfile ? formatDisplayName([userProfile.nombre, userProfile.apellido_paterno, userProfile.apellido_materno].filter(Boolean).join(' ')) : getFullName(contact)}
                             />
                             <ProfileField label="Correo Electrónico" value={userProfile?.email || contact.email} icon={<Mail size={11} className="text-gray-400" />} />
                             <ProfileField label="Número de Teléfono" value={userProfile?.telefono || contact.telefono} icon={<Phone size={11} className="text-gray-400" />} />
                           </div>
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-semibold text-blue-600 flex items-center gap-1.5 mb-3">
+                        </section>
+                        <section className="border-t border-slate-100 pt-5">
+                          <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
                             <FileText size={13} />
                             Datos Fiscales
                           </h4>
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          <div className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2">
                             <ProfileField label="RFC" value={userProfile?.rfc || contact.rfc} mono />
                             <ProfileField label="Régimen Fiscal" value={userProfile?.regimen_fiscal} />
                           </div>
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-semibold text-blue-600 flex items-center gap-1.5 mb-3">
+                        </section>
+                        <section className="border-t border-slate-100 pt-5">
+                          <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
                             <MapPin size={13} />
                             Domicilio Fiscal
                           </h4>
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          <div className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
                             <ProfileField label="Código Postal" value={userProfile?.codigo_postal} fullWidth />
                             <ProfileField label="Estado" value={userProfile?.estado} />
                             <ProfileField label="Municipio o Alcaldía" value={userProfile?.municipio} />
@@ -1126,7 +1155,7 @@ function ContactDetailView({
                             <ProfileField label="Número Exterior" value={userProfile?.num_exterior} />
                             <ProfileField label="Número Interior (Opcional)" value={userProfile?.num_interior} />
                           </div>
-                        </div>
+                        </section>
                       </>
                     )}
                   </div>
@@ -1152,7 +1181,7 @@ function ContactDetailView({
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-gray-800 font-medium leading-tight">{doc.nombre}</p>
                           <p className="text-xs text-gray-400 mt-0.5">
-                            {doc.estado === 'completado' ? 'Documento firmado' : 'Documento en proceso'} · {formatDate(doc.created_at)}
+                            {doc.estado === 'completado' ? 'Documento firmado' : 'Documento en progreso'} · {formatDate(doc.created_at)}
                           </p>
                         </div>
                         {estadoBadge(doc.estado)}
@@ -1218,7 +1247,7 @@ function ContactDetailView({
                 ) : notes.length > 0 ? (
                   <div className="space-y-3">
                     {notes.map((n) => (
-                      <div key={n.id} className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+                      <div key={n.id} className="rounded-lg border border-amber-100 bg-amber-50/70 p-4">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-xs font-semibold text-gray-600">Nota interna</span>
                           <span className="text-[10px] text-gray-400">{formatRelative(n.created_at)}</span>
@@ -1233,8 +1262,8 @@ function ContactDetailView({
                     <p className="text-sm text-gray-400">Sin notas registradas para este contacto.</p>
                   </div>
                 )}
-                <div className="border border-gray-200 rounded-xl overflow-hidden">
-                  <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
                     <span className="text-xs font-semibold text-gray-600">Agregar nota</span>
                   </div>
                   <div className="p-4">
@@ -1243,13 +1272,13 @@ function ContactDetailView({
                       onChange={(e) => setNewNote(e.target.value)}
                       placeholder="Escribe una nota sobre este contacto..."
                       rows={4}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none bg-white"
+                      className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
                     />
                     <div className="flex justify-end mt-2">
                       <button
                         onClick={handleSaveNote}
                         disabled={!newNote.trim() || savingNote}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                        className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
                       >
                         {savingNote ? <Spinner /> : <Check size={13} />}
                         Guardar nota
@@ -1343,7 +1372,7 @@ function SearchUserModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col" style={{ maxHeight: '90vh' }}>
+      <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl" style={{ maxHeight: '90vh' }}>
         <div className="px-6 py-5 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-900">Nuevo Contacto</h2>
           <p className="text-sm text-gray-400 mt-1">Busca un usuario registrado en la plataforma para agregarlo a tus contactos.</p>
@@ -1397,7 +1426,7 @@ function SearchUserModal({
                 const isAlreadyContact = existingEmails.includes(u.email);
                 const isSaving = saving === u.id;
                 return (
-                  <div key={u.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors">
+                  <div key={u.id} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 transition-colors hover:bg-slate-50">
                     <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${userAvatarColors[idx % userAvatarColors.length]}`}>
                       {getInitialsFromUser(u.full_name || u.email)}
                     </div>
@@ -1438,13 +1467,13 @@ function ContactCard({ contact, idx, onView, onDelete, deleting }: {
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition-shadow relative group">
-      <div className="flex items-start justify-between mb-4">
-        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white text-base font-bold shrink-0 ${avatarColors[idx % avatarColors.length]}`}>
+    <div className="group relative rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300">
+      <div className="mb-3 flex items-start justify-between">
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${avatarColors[idx % avatarColors.length]}`}>
           {getInitials(contact)}
         </div>
         <div className="relative">
-          <button onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100">
+          <button onClick={() => setMenuOpen(!menuOpen)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 opacity-0 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 group-hover:opacity-100" aria-label={`Acciones de ${getFullName(contact)}`} title="Acciones">
             <MoreVertical size={15} />
           </button>
           {menuOpen && (
@@ -1513,6 +1542,14 @@ export default function ContactosPage() {
 
   useEffect(() => { loadContacts(); }, [loadContacts]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || viewingContact || contacts.length === 0) return;
+    const contactId = new URLSearchParams(window.location.search).get('contact');
+    if (!contactId) return;
+    const index = contacts.findIndex((contact) => contact.id === contactId);
+    if (index >= 0) setViewingContact({ contact: contacts[index], idx: index });
+  }, [contacts, viewingContact]);
+
   const handleDelete = async (id: string) => {
     setDeletingId(id);
     try {
@@ -1538,7 +1575,10 @@ export default function ContactosPage() {
         <ContactDetailView
           contact={viewingContact.contact}
           idx={viewingContact.idx}
-          onClose={() => setViewingContact(null)}
+          onClose={() => {
+            setViewingContact(null);
+            window.history.replaceState(null, '', '/contactos');
+          }}
           onUpdated={loadContacts}
           onDelete={() => handleDelete(viewingContact.contact.id)}
         />
@@ -1548,54 +1588,58 @@ export default function ContactosPage() {
 
   return (
     <AppLayout noPadding>
-      <div className="px-4 sm:px-6 lg:px-8 pt-2 pb-4 md:pb-6 w-full min-h-[calc(100vh-8rem)]">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
+        <div className="mx-auto w-full max-w-[1600px]">
+        <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Users size={24} className="text-primary" />
-              Contactos
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">Gestiona tu agenda de contactos y su historial de documentos.</p>
+            <h1 className="text-2xl font-700 leading-tight text-slate-950">Contactos</h1>
+            <p className="mt-1 text-sm text-slate-500">Gestiona tu agenda y consulta el historial compartido.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center border border-border rounded-lg overflow-hidden bg-white shadow-sm">
-              <button onClick={() => setViewMode('grid')} className={`w-9 h-9 flex items-center justify-center transition-colors ${viewMode === 'grid' ? 'bg-muted/60 text-foreground' : 'text-muted-foreground hover:text-foreground'}`} title="Vista cuadrícula">
+          <span className="inline-flex h-7 w-fit items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-500">
+            {contacts.length} {contacts.length === 1 ? 'contacto' : 'contactos'}
+          </span>
+        </div>
+
+        <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5 sm:order-2">
+              <button onClick={() => setViewMode('grid')} className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:text-slate-700'}`} title="Vista cuadrícula">
                 <LayoutGrid size={16} />
               </button>
-              <button onClick={() => setViewMode('list')} className={`w-9 h-9 flex items-center justify-center transition-colors ${viewMode === 'list' ? 'bg-muted/60 text-foreground' : 'text-muted-foreground hover:text-foreground'}`} title="Vista lista">
+              <button onClick={() => setViewMode('list')} className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:text-slate-700'}`} title="Vista lista">
                 <List size={16} />
               </button>
             </div>
-            <div className="relative w-64">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <div className="relative min-w-[220px] flex-1 sm:order-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por nombre, email o RFC..."
-                className="w-full border border-border rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white shadow-sm"
+                placeholder="Buscar por nombre, correo, teléfono o RFC..."
+                className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
               />
             </div>
             <button
               onClick={() => setShowSearchModal(true)}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+              className="flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 sm:order-3"
             >
               <Plus size={14} />
               Agregar Contacto
             </button>
           </div>
-        </div>
+        </section>
 
         {loading ? (
-          <div className="flex items-center justify-center py-32">
+          <div className="flex items-center justify-center rounded-lg border border-slate-200/90 bg-white py-32">
             <svg className="animate-spin h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
             </svg>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-32 gap-4">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+          <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-slate-200/90 bg-white py-24">
+            <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
               <Users size={28} className="text-muted-foreground" />
             </div>
             <div className="text-center">
@@ -1605,49 +1649,49 @@ export default function ContactosPage() {
               </p>
             </div>
             {!search && (
-              <button onClick={() => setShowSearchModal(true)} className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">
+              <button onClick={() => setShowSearchModal(true)} className="flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90">
                 <Plus size={15} /> Agregar Contacto
               </button>
             )}
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {filtered.map((c, idx) => (
               <ContactCard key={c.id} contact={c} idx={idx} onView={() => setViewingContact({ contact: c, idx })} onDelete={() => handleDelete(c.id)} deleting={deletingId === c.id} />
             ))}
           </div>
         ) : (
-          <div className="bg-white border border-border rounded-xl overflow-hidden shadow-sm">
+          <div className="overflow-x-auto rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contacto</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Etiqueta</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Correo</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Teléfono</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">RFC</th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Acciones</th>
+                <tr className="border-b border-slate-200 bg-slate-50/80">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Contacto</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Etiqueta</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Correo</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Teléfono</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">RFC</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((c, idx) => (
-                  <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
-                    <td className="px-5 py-3.5">
+                  <tr key={c.id} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/60">
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${avatarColors[idx % avatarColors.length]}`}>
+                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white ${avatarColors[idx % avatarColors.length]}`}>
                           {getInitials(c)}
                         </div>
                         <p className="font-semibold text-foreground">{getFullName(c)}</p>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3">
                       {c.etiqueta_rol ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
                           <Tag size={10} />{c.etiqueta_rol}
                         </span>
                       ) : <span className="text-muted-foreground text-sm">—</span>}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3">
                       {c.email ? (
                         <div className="flex items-center gap-1.5 text-foreground">
                           <Mail size={13} className="text-muted-foreground shrink-0" />
@@ -1655,7 +1699,7 @@ export default function ContactosPage() {
                         </div>
                       ) : <span className="text-muted-foreground text-sm">—</span>}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3">
                       {c.telefono ? (
                         <div className="flex items-center gap-1.5 text-foreground">
                           <Phone size={13} className="text-muted-foreground shrink-0" />
@@ -1663,10 +1707,10 @@ export default function ContactosPage() {
                         </div>
                       ) : <span className="text-muted-foreground text-sm">—</span>}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3">
                       <span className="text-sm text-foreground">{c.rfc || <span className="text-muted-foreground">—</span>}</span>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => setViewingContact({ contact: c, idx })} className="w-8 h-8 flex items-center justify-center rounded-lg text-primary bg-primary/5 hover:bg-primary/10 transition-colors border border-primary/20" title="Ver contacto">
                           <Eye size={14} />
@@ -1690,6 +1734,7 @@ export default function ContactosPage() {
             existingEmails={existingEmails}
           />
         )}
+        </div>
       </div>
     </AppLayout>
   );

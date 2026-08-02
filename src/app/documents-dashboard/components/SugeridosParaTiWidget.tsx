@@ -91,9 +91,9 @@ export default function SugeridosParaTiWidget() {
   useDocumentRealtime(user?.id, loadDocs, 'sugeridos-widget');
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.55)] transition-all duration-200">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[13px] font-700 text-slate-900">Sugeridos para ti</h2>
+    <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <h2 className="text-sm font-700 text-slate-950">Sugeridos para ti</h2>
       </div>
       {loading ? (
         <div className="flex items-center gap-2 py-2">
@@ -124,11 +124,11 @@ export default function SugeridosParaTiWidget() {
           No hay documentos sugeridos en este momento.
         </p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="divide-y divide-slate-100 px-4 py-1">
           {docs.map((doc) => (
             <div
               key={doc.id}
-              className="flex items-center gap-3 px-3 py-3 rounded-xl border border-slate-200 hover:border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer group"
+              className="group flex cursor-pointer items-center gap-3 px-1 py-3 transition-colors hover:bg-slate-50"
               onClick={() => router.push(`/visor-documento/${doc.id}`)}
             >
               <FileText size={16} className="text-blue-500 flex-shrink-0" />
@@ -144,6 +144,6 @@ export default function SugeridosParaTiWidget() {
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }

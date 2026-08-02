@@ -1,13 +1,51 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
 
-import { Star, AlertTriangle, AlertCircle, Trash2, FilePlus, FolderPlus, FileText, Search, ArrowUpDown, LayoutList, LayoutGrid, SlidersHorizontal, X, Folder, Share2, Lock, Move, Eye, ChevronRight, ChevronLeft, Plus, Filter, Pencil, Check, Maximize2, Minimize2, Download, Home } from 'lucide-react';
+import {
+  Star,
+  AlertTriangle,
+  AlertCircle,
+  Trash2,
+  FilePlus,
+  FolderPlus,
+  FileText,
+  Search,
+  ArrowUpDown,
+  LayoutList,
+  LayoutGrid,
+  SlidersHorizontal,
+  X,
+  Folder,
+  FolderOpen,
+  Share2,
+  Lock,
+  Move,
+  Eye,
+  ChevronRight,
+  ChevronLeft,
+  Plus,
+  Filter,
+  Pencil,
+  Check,
+  Maximize2,
+  Minimize2,
+  Download,
+  Home,
+} from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import PersonalizarVistaModal, { DEFAULT_COLUMNS, DEFAULT_FILTERS, ColumnConfig, FilterVisibilityConfig, GridColumnConfig, DEFAULT_GRID_COLUMNS, DEFAULT_CF_COLUMNS } from './components/PersonalizarVistaModal';
+import PersonalizarVistaModal, {
+  DEFAULT_COLUMNS,
+  DEFAULT_FILTERS,
+  ColumnConfig,
+  FilterVisibilityConfig,
+  GridColumnConfig,
+  DEFAULT_GRID_COLUMNS,
+  DEFAULT_CF_COLUMNS,
+} from './components/PersonalizarVistaModal';
 import AppLayout from '@/components/AppLayout';
 
 // ─── ResizableTh Component ├───────────────────────────────────────────────────
@@ -21,30 +59,41 @@ interface ResizableThProps {
   children?: React.ReactNode;
 }
 
-function ResizableTh({ colKey, width, minWidth = 60, onResize, className = '', style = {}, children }: ResizableThProps) {
+function ResizableTh({
+  colKey,
+  width,
+  minWidth = 60,
+  onResize,
+  className = '',
+  style = {},
+  children,
+}: ResizableThProps) {
   const startX = useRef<number>(0);
   const startWidth = useRef<number>(0);
   const thRef = useRef<HTMLTableCellElement>(null);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    startX.current = e.clientX;
-    startWidth.current = thRef.current ? thRef.current.offsetWidth : (width || 120);
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      startX.current = e.clientX;
+      startWidth.current = thRef.current ? thRef.current.offsetWidth : width || 120;
 
-    const onMouseMove = (ev: MouseEvent) => {
-      const delta = ev.clientX - startX.current;
-      const newWidth = Math.max(minWidth, startWidth.current + delta);
-      onResize(colKey, newWidth);
-    };
+      const onMouseMove = (ev: MouseEvent) => {
+        const delta = ev.clientX - startX.current;
+        const newWidth = Math.max(minWidth, startWidth.current + delta);
+        onResize(colKey, newWidth);
+      };
 
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
 
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [colKey, minWidth, onResize, width]);
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+    [colKey, minWidth, onResize, width]
+  );
 
   return (
     <th
@@ -70,7 +119,11 @@ function ResizableTh({ colKey, width, minWidth = 60, onResize, className = '', s
 // Falls back to localStorage for instant hydration while Supabase loads.
 const COL_WIDTHS_VIEW_KEY = 'col_widths_config';
 
-function useColumnWidths(tableKey: string, defaults: Record<string, number>, userId?: string | null) {
+function useColumnWidths(
+  tableKey: string,
+  defaults: Record<string, number>,
+  userId?: string | null
+) {
   const storageKey = `docubox_col_widths_${tableKey}`;
   const [widths, setWidths] = useState<Record<string, number>>(() => {
     if (typeof window === 'undefined') return defaults;
@@ -93,56 +146,62 @@ function useColumnWidths(tableKey: string, defaults: Record<string, number>, use
       .single()
       .then(({ data, error }) => {
         if (!error && data?.column_widths_config) {
-          const tableWidths = (data.column_widths_config as Record<string, Record<string, number>>)[tableKey];
+          const tableWidths = (data.column_widths_config as Record<string, Record<string, number>>)[
+            tableKey
+          ];
           if (tableWidths && typeof tableWidths === 'object') {
             const merged = { ...defaults, ...tableWidths };
             setWidths(merged);
-            try { localStorage.setItem(storageKey, JSON.stringify(merged)); } catch {}
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(merged));
+            } catch {}
           }
         }
       });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, tableKey]);
 
   // Debounce ref for Supabase saves
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleResize = useCallback((colKey: string, newWidth: number) => {
-    setWidths((prev) => {
-      const updated = { ...prev, [colKey]: newWidth };
-      // Persist to localStorage immediately
-      try { localStorage.setItem(storageKey, JSON.stringify(updated)); } catch {}
-      // Debounce Supabase save (500ms)
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(async () => {
-        if (!userId) return;
-        const supabase = createClient();
-        // Read current config first to merge all table widths
-        const { data } = await supabase
-          .from('user_view_preferences')
-          .select('column_widths_config')
-          .eq('user_id', userId)
-          .eq('view_key', COL_WIDTHS_VIEW_KEY)
-          .single();
-        const existing = (data?.column_widths_config as Record<string, Record<string, number>>) || {};
-        const merged = { ...existing, [tableKey]: updated };
-        await supabase
-          .from('user_view_preferences')
-          .upsert(
-            { user_id: userId, view_key: COL_WIDTHS_VIEW_KEY, column_widths_config: merged },
-            { onConflict: 'user_id,view_key' }
-          );
-      }, 500);
-      return updated;
-    });
-  }, [storageKey, tableKey, userId]);
+  const handleResize = useCallback(
+    (colKey: string, newWidth: number) => {
+      setWidths((prev) => {
+        const updated = { ...prev, [colKey]: newWidth };
+        // Persist to localStorage immediately
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(updated));
+        } catch {}
+        // Debounce Supabase save (500ms)
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(async () => {
+          if (!userId) return;
+          const supabase = createClient();
+          // Read current config first to merge all table widths
+          const { data } = await supabase
+            .from('user_view_preferences')
+            .select('column_widths_config')
+            .eq('user_id', userId)
+            .eq('view_key', COL_WIDTHS_VIEW_KEY)
+            .single();
+          const existing =
+            (data?.column_widths_config as Record<string, Record<string, number>>) || {};
+          const merged = { ...existing, [tableKey]: updated };
+          await supabase
+            .from('user_view_preferences')
+            .upsert(
+              { user_id: userId, view_key: COL_WIDTHS_VIEW_KEY, column_widths_config: merged },
+              { onConflict: 'user_id,view_key' }
+            );
+        }, 500);
+        return updated;
+      });
+    },
+    [storageKey, tableKey, userId]
+  );
 
   return { widths, handleResize };
 }
-
-
-
-
 
 interface Document {
   id: string;
@@ -308,57 +367,109 @@ const sidebarItems = [
   { id: 'papelera', label: 'Papelera', icon: Trash2 },
 ];
 
-const filterOptions = ['Tipo', 'Propietario', 'Modificado', 'Estado', 'Creado', 'Cerrado', 'Etiquetas'];
+const filterOptions = [
+  'Tipo',
+  'Propietario',
+  'Modificado',
+  'Estado',
+  'Creado',
+  'Cerrado',
+  'Etiquetas',
+];
+
+const selectionCheckboxClass =
+  'h-[13px] w-[13px] shrink-0 rounded border-slate-300 accent-primary cursor-pointer align-middle';
+const selectionCheckboxCellClass = 'w-12 px-0 py-3 text-center align-middle';
 
 function getDocIconColor(estado: string): string {
   switch (estado) {
-    case 'Borrador': return 'text-gray-400';
-    case 'En proceso': return 'text-blue-500';
-    case 'En espera': return 'text-orange-500';
-    case 'Completado': return 'text-green-500';
-    case 'Rechazado': return 'text-red-500';
-    case 'Cancelado': return 'text-slate-400';
-    default: return 'text-blue-400';
+    case 'Borrador':
+      return 'text-gray-400';
+    case 'En progreso':
+      return 'text-blue-500';
+    case 'En espera':
+      return 'text-orange-500';
+    case 'Completado':
+      return 'text-green-500';
+    case 'Rechazado':
+      return 'text-red-500';
+    case 'Cancelado':
+      return 'text-slate-400';
+    default:
+      return 'text-blue-400';
   }
 }
 
 function getStatusDot(estado: string): string {
   switch (estado) {
-    case 'Borrador': return 'bg-gray-400';
-    case 'En proceso': return 'bg-blue-500';
-    case 'En espera': return 'bg-orange-500';
-    case 'Completado': return 'bg-green-500';
-    case 'Rechazado': return 'bg-red-500';
-    case 'Cancelado': return 'bg-slate-400';
-    default: return 'bg-gray-400';
+    case 'Borrador':
+      return 'bg-gray-400';
+    case 'En progreso':
+      return 'bg-blue-500';
+    case 'En espera':
+      return 'bg-orange-500';
+    case 'Completado':
+      return 'bg-green-500';
+    case 'Rechazado':
+      return 'bg-red-500';
+    case 'Cancelado':
+      return 'bg-slate-400';
+    default:
+      return 'bg-gray-400';
   }
 }
 
 function getParticipacionDot(sub: string): string {
   switch (sub) {
-    case 'sin_revisar': return 'bg-amber-400';
-    case 'en_revision': return 'bg-cyan-500';
-    case 'firmo': case 'firmado': return 'bg-green-500';
-    case 'rechazo': case 'rechazado': return 'bg-red-500';
-    case 'aprobo': case 'aprobado': return 'bg-blue-500';
-    case 'cancelo': case 'cancelado': return 'bg-slate-400';
-    case 'urgente_atencion': return 'bg-orange-500';
-    case 'participacion_vencida': return 'bg-red-800';
-    default: return 'bg-gray-300';
+    case 'sin_revisar':
+      return 'bg-amber-400';
+    case 'en_revision':
+      return 'bg-cyan-500';
+    case 'firmo':
+    case 'firmado':
+      return 'bg-green-500';
+    case 'rechazo':
+    case 'rechazado':
+      return 'bg-red-500';
+    case 'aprobo':
+    case 'aprobado':
+      return 'bg-blue-500';
+    case 'cancelo':
+    case 'cancelado':
+      return 'bg-slate-400';
+    case 'urgente_atencion':
+      return 'bg-orange-500';
+    case 'participacion_vencida':
+      return 'bg-red-800';
+    default:
+      return 'bg-gray-300';
   }
 }
 
 function getParticipacionLabel(sub: string): string {
   switch (sub) {
-    case 'sin_revisar': return 'Sin revisar';
-    case 'en_revision': return 'En revisión';
-    case 'firmo': case 'firmado': return 'Firmado';
-    case 'rechazo': case 'rechazado': return 'Rechazado';
-    case 'aprobo': case 'aprobado': return 'Aprobado';
-    case 'cancelo': case 'cancelado': return 'Cancelado';
-    case 'urgente_atencion': return 'Urgente atención';
-    case 'participacion_vencida': return 'Participación vencida';
-    default: return sub;
+    case 'sin_revisar':
+      return 'Sin revisar';
+    case 'en_revision':
+      return 'En revisión';
+    case 'firmo':
+    case 'firmado':
+      return 'Firmado';
+    case 'rechazo':
+    case 'rechazado':
+      return 'Rechazado';
+    case 'aprobo':
+    case 'aprobado':
+      return 'Aprobado';
+    case 'cancelo':
+    case 'cancelado':
+      return 'Cancelado';
+    case 'urgente_atencion':
+      return 'Urgente atención';
+    case 'participacion_vencida':
+      return 'Participación vencida';
+    default:
+      return sub;
   }
 }
 
@@ -396,14 +507,21 @@ function mapDocRow(d: any): Document {
     name: d.nombre || 'Sin nombre',
     descripcion: d.descripcion || null,
     estado:
-      d.estado === 'borrador' ? 'Borrador'
-      : d.estado === 'en_proceso' ? 'En proceso'
-      : d.estado === 'en_progreso' ? 'En proceso'
-      : d.estado === 'en_espera' ? 'En espera'
-      : d.estado === 'completado' ? 'Completado'
-      : d.estado === 'rechazado' ? 'Rechazado'
-      : d.estado === 'cancelado' ? 'Cancelado'
-      : d.estado || 'Borrador',
+      d.estado === 'borrador'
+        ? 'Borrador'
+        : d.estado === 'en_proceso'
+          ? 'En progreso'
+          : d.estado === 'en_progreso'
+            ? 'En progreso'
+            : d.estado === 'en_espera'
+              ? 'En espera'
+              : d.estado === 'completado'
+                ? 'Completado'
+                : d.estado === 'rechazado'
+                  ? 'Rechazado'
+                  : d.estado === 'cancelado'
+                    ? 'Cancelado'
+                    : d.estado || 'Borrador',
     etiquetas: d.etiquetas_ids || [],
     tamano: d.file_size ? `${Math.round(d.file_size / 1024)} KB` : '—',
     ultimaModificacion: d.updated_at ? formatDateTime(d.updated_at) : '—',
@@ -435,6 +553,7 @@ function FolderTreeNode({
   currentFolderId,
   activeSection,
   depth,
+  isLast,
   onNavigate,
 }: {
   carpeta: Carpeta;
@@ -442,6 +561,7 @@ function FolderTreeNode({
   currentFolderId: string | null;
   activeSection: string;
   depth: number;
+  isLast: boolean;
   onNavigate: (carpeta: Carpeta) => void;
 }) {
   const children = allCarpetas.filter((c) => c.parentId === carpeta.id);
@@ -454,38 +574,61 @@ function FolderTreeNode({
     if (currentFolderId && isDescendant(carpeta.id, currentFolderId, allCarpetas)) {
       setExpanded(true);
     }
-  }, [currentFolderId]);
+  }, [allCarpetas, carpeta.id, currentFolderId]);
+
+  const FolderIcon = expanded && hasChildren ? FolderOpen : Folder;
 
   return (
-    <div>
+    <div
+      className={`relative before:absolute before:-left-2.5 before:top-4 before:w-2.5 before:border-t before:border-slate-200 ${
+        isLast
+          ? 'after:absolute after:-left-[11px] after:bottom-0 after:top-4 after:w-px after:bg-white dark:after:bg-[#18181b]'
+          : ''
+      }`}
+    >
       <div
-        className={`flex items-center gap-1 rounded-lg text-sm font-medium transition-colors w-full group cursor-pointer ${
-          isActive ? 'bg-yellow-50 text-yellow-700' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+        data-depth={depth}
+        className={`group flex h-8 w-full items-center gap-1 rounded-md px-1.5 text-sm transition-colors ${
+          isActive
+            ? 'bg-primary/10 font-700 text-primary'
+            : 'font-500 text-slate-600 hover:bg-slate-50 hover:text-slate-950'
         }`}
-        style={{ paddingLeft: `${8 + depth * 12}px`, paddingRight: '4px', paddingTop: '5px', paddingBottom: '5px' }}
       >
         {hasChildren ? (
           <button
-            onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
-            className="flex-shrink-0 p-0.5 rounded hover:bg-black/5 transition-colors"
+            type="button"
+            aria-label={expanded ? `Contraer ${carpeta.name}` : `Expandir ${carpeta.name}`}
+            aria-expanded={expanded}
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }}
+            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-slate-400 outline-none transition-colors hover:bg-slate-200/70 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-primary/30"
           >
-            <ChevronRight size={11} className={`transition-transform ${expanded ? 'rotate-90' : ''} text-muted-foreground/60`} />
+            <ChevronRight
+              size={13}
+              className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
+            />
           </button>
         ) : (
-          <span className="w-4 flex-shrink-0" />
+          <span className="h-5 w-5 flex-shrink-0" />
         )}
         <button
+          type="button"
           onClick={() => onNavigate(carpeta)}
-          className="flex items-center gap-1.5 flex-1 min-w-0 text-left text-sm font-medium"
+          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
           title={carpeta.name}
         >
-          <Folder size={13} className={`flex-shrink-0 ${isActive ? 'text-yellow-500' : 'text-yellow-400 group-hover:text-yellow-500'}`} />
+          <FolderIcon
+            size={15}
+            className={`flex-shrink-0 ${isActive ? 'text-primary' : expanded ? 'text-amber-500' : 'text-amber-400'}`}
+          />
           <span className="truncate">{carpeta.name}</span>
         </button>
       </div>
       {expanded && hasChildren && (
-        <div>
-          {children.map((child) => (
+        <div className="ml-3.5 border-l border-slate-200 pl-2.5">
+          {children.map((child, index) => (
             <FolderTreeNode
               key={child.id}
               carpeta={child}
@@ -493,6 +636,7 @@ function FolderTreeNode({
               currentFolderId={currentFolderId}
               activeSection={activeSection}
               depth={depth + 1}
+              isLast={index === children.length - 1}
               onNavigate={onNavigate}
             />
           ))}
@@ -510,9 +654,42 @@ function isDescendant(ancestorId: string, targetId: string, allCarpetas: Carpeta
   return false;
 }
 
+function LibraryEmptyState({
+  title,
+  description,
+  icon: Icon = FileText,
+}: {
+  title: string;
+  description: string;
+  icon?: React.ComponentType<{ size?: number; className?: string }>;
+}) {
+  return (
+    <div className="flex min-h-[144px] flex-col items-center justify-center px-6 py-8 text-center">
+      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 text-slate-400">
+        <Icon size={17} />
+      </div>
+      <p className="text-sm font-600 text-slate-700">{title}</p>
+      <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">{description}</p>
+    </div>
+  );
+}
+
 // ─── DateRangePicker Component ├──────────────────────────────────────────────
-const MONTHS_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-const DAYS_ES = ['lu','ma','mi','ju','vi','sá','do'];
+const MONTHS_ES = [
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
+];
+const DAYS_ES = ['lu', 'ma', 'mi', 'ju', 'vi', 'sá', 'do'];
 
 interface DateRange {
   start: Date | null;
@@ -538,12 +715,16 @@ function DateRangePicker({
   const rightYear = leftMonth === 11 ? leftYear + 1 : leftYear;
 
   const prevMonth = () => {
-    if (leftMonth === 0) { setLeftMonth(11); setLeftYear((y) => y - 1); }
-    else setLeftMonth((m) => m - 1);
+    if (leftMonth === 0) {
+      setLeftMonth(11);
+      setLeftYear((y) => y - 1);
+    } else setLeftMonth((m) => m - 1);
   };
   const nextMonth = () => {
-    if (leftMonth === 11) { setLeftMonth(0); setLeftYear((y) => y + 1); }
-    else setLeftMonth((m) => m + 1);
+    if (leftMonth === 11) {
+      setLeftMonth(0);
+      setLeftYear((y) => y + 1);
+    } else setLeftMonth((m) => m + 1);
   };
 
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
@@ -553,7 +734,9 @@ function DateRangePicker({
   };
 
   const isSameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
 
   const isInRange = (date: Date) => {
     const start = selecting.start;
@@ -596,7 +779,10 @@ function DateRangePicker({
     }
     const remaining = 42 - cells.length;
     for (let d = 1; d <= remaining; d++) {
-      cells.push({ date: new Date(month === 11 ? year + 1 : year, month === 11 ? 0 : month + 1, d), current: false });
+      cells.push({
+        date: new Date(month === 11 ? year + 1 : year, month === 11 ? 0 : month + 1, d),
+        current: false,
+      });
     }
 
     return (
@@ -606,7 +792,9 @@ function DateRangePicker({
         </p>
         <div className="grid grid-cols-7 mb-1">
           {DAYS_ES.map((d) => (
-            <div key={d} className="text-center text-xs text-muted-foreground font-medium py-1">{d}</div>
+            <div key={d} className="text-center text-xs text-muted-foreground font-medium py-1">
+              {d}
+            </div>
           ))}
         </div>
         <div className="grid grid-cols-7">
@@ -615,7 +803,8 @@ function DateRangePicker({
             const start = isStart(cell.date);
             const end = isEnd(cell.date);
             const isToday = isSameDay(cell.date, today);
-            const isHovered = hovered && !selecting.end && selecting.start && isSameDay(cell.date, hovered);
+            const isHovered =
+              hovered && !selecting.end && selecting.start && isSameDay(cell.date, hovered);
             return (
               <div
                 key={i}
@@ -631,9 +820,11 @@ function DateRangePicker({
                 onMouseEnter={() => cell.current && setHovered(cell.date)}
                 onMouseLeave={() => setHovered(null)}
               >
-                <span className={`text-xs w-7 h-7 flex items-center justify-center rounded-full
+                <span
+                  className={`text-xs w-7 h-7 flex items-center justify-center rounded-full
                   ${start || end ? 'bg-primary text-white' : ''}
-                `}>
+                `}
+                >
                   {cell.date.getDate()}
                 </span>
               </div>
@@ -649,27 +840,34 @@ function DateRangePicker({
       {/* Header row */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-border">
         <span className="text-sm font-semibold text-foreground">Seleccionar rango</span>
-        <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground font-medium transition-colors">Volver</button>
+        <button
+          onClick={onBack}
+          className="text-sm text-muted-foreground hover:text-foreground font-medium transition-colors"
+        >
+          Volver
+        </button>
       </div>
       {/* Two calendars side by side */}
       <div className="flex items-start gap-0">
         {/* Left calendar with prev arrow */}
         <div className="flex items-start gap-1 flex-1">
-          <button onClick={prevMonth} className="mt-1 p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground flex-shrink-0">
+          <button
+            onClick={prevMonth}
+            className="mt-1 p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground flex-shrink-0"
+          >
             <ChevronLeft size={16} />
           </button>
-          <div className="flex-1">
-            {renderCalendar(leftYear, leftMonth)}
-          </div>
+          <div className="flex-1">{renderCalendar(leftYear, leftMonth)}</div>
         </div>
         {/* Divider */}
         <div className="w-px bg-border mx-3 self-stretch" />
         {/* Right calendar with next arrow */}
         <div className="flex items-start gap-1 flex-1">
-          <div className="flex-1">
-            {renderCalendar(rightYear, rightMonth)}
-          </div>
-          <button onClick={nextMonth} className="mt-1 p-1 rounded hover:bg-muted transition-colors text-muted-foreground flex-shrink-0">
+          <div className="flex-1">{renderCalendar(rightYear, rightMonth)}</div>
+          <button
+            onClick={nextMonth}
+            className="mt-1 p-1 rounded hover:bg-muted transition-colors text-muted-foreground flex-shrink-0"
+          >
             <ChevronRight size={16} />
           </button>
         </div>
@@ -680,8 +878,8 @@ function DateRangePicker({
           {selecting.start && selecting.end
             ? `${selecting.start.toLocaleDateString('es-MX')} – ${selecting.end.toLocaleDateString('es-MX')}`
             : selecting.start
-            ? `Desde: ${selecting.start.toLocaleDateString('es-MX')}`
-            : 'Selecciona el rango'}
+              ? `Desde: ${selecting.start.toLocaleDateString('es-MX')}`
+              : 'Selecciona el rango'}
         </span>
         <button
           onClick={handleApply}
@@ -707,7 +905,11 @@ const PERIOD_OPTIONS = [
 
 function getPeriodStartDate(period: string): Date | null {
   const now = new Date();
-  if (period === 'today') { let d = new Date(now); d.setHours(0,0,0,0); return d; }
+  if (period === 'today') {
+    let d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
   if (period === '7d') return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   if (period === '30d') return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   if (period === '90d') return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
@@ -733,16 +935,42 @@ function PeriodFilter({ value, onChange }: { value: string; onChange: (v: string
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg bg-white hover:bg-muted transition-colors text-foreground font-medium"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground flex-shrink-0"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-muted-foreground flex-shrink-0"
+        >
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
         <span>{selected.label}</span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground"><polyline points="6 9 12 15 18 9"/></svg>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-muted-foreground"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-border rounded-xl shadow-lg min-w-[160px] py-1">
           {PERIOD_OPTIONS.map((opt) => (
             <button
               key={opt.value}
-              onClick={() => { onChange(opt.value); setOpen(false); }}
+              onClick={() => {
+                onChange(opt.value);
+                setOpen(false);
+              }}
               className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-muted ${value === opt.value ? 'text-primary font-semibold' : 'text-foreground'}`}
             >
               {opt.label}
@@ -774,7 +1002,15 @@ function EstadoDocumentosSection({
     : rawDocumentsData;
 
   const now = new Date();
-  const counts = { borrador: 0, en_proceso: 0, en_espera: 0, completado: 0, rechazado: 0, cancelado: 0, vencido: 0 };
+  const counts = {
+    borrador: 0,
+    en_proceso: 0,
+    en_espera: 0,
+    completado: 0,
+    rechazado: 0,
+    cancelado: 0,
+    vencido: 0,
+  };
   filteredDocs.forEach((d: any) => {
     const s = d.estado || 'borrador';
     if (s === 'borrador') counts.borrador++;
@@ -789,32 +1025,185 @@ function EstadoDocumentosSection({
   });
 
   const items = [
-    { label: 'Borrador', count: counts.borrador, color: 'text-gray-600', bg: 'bg-white', border: 'border-gray-300', iconBg: 'bg-gray-100', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-500"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
-    { label: 'En progreso', count: counts.en_proceso, color: 'text-blue-700', bg: 'bg-white', border: 'border-blue-300', iconBg: 'bg-blue-100', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-600"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
-    { label: 'En espera', count: counts.en_espera, color: 'text-orange-700', bg: 'bg-white', border: 'border-orange-300', iconBg: 'bg-orange-100', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-orange-600"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> },
-    { label: 'Completado', count: counts.completado, color: 'text-green-700', bg: 'bg-white', border: 'border-green-300', iconBg: 'bg-green-100', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-600"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
-    { label: 'Rechazado', count: counts.rechazado, color: 'text-red-700', bg: 'bg-white', border: 'border-red-300', iconBg: 'bg-red-100', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-600"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> },
-    { label: 'Cancelado', count: counts.cancelado, color: 'text-slate-600', bg: 'bg-white', border: 'border-slate-300', iconBg: 'bg-slate-100', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-500"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> },
-    { label: 'Vencido', count: counts.vencido, color: 'text-rose-700', bg: 'bg-white', border: 'border-rose-400', iconBg: 'bg-rose-100', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-rose-600"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> },
+    {
+      label: 'Borrador',
+      count: counts.borrador,
+      color: 'text-gray-600',
+      bg: 'bg-white',
+      border: 'border-gray-300',
+      iconBg: 'bg-gray-100',
+      icon: (
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-gray-500"
+        >
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+      ),
+    },
+    {
+      label: 'En progreso',
+      count: counts.en_proceso,
+      color: 'text-blue-700',
+      bg: 'bg-white',
+      border: 'border-blue-300',
+      iconBg: 'bg-blue-100',
+      icon: (
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-blue-600"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="12 6 12 12 16 14" />
+        </svg>
+      ),
+    },
+    {
+      label: 'En espera',
+      count: counts.en_espera,
+      color: 'text-orange-700',
+      bg: 'bg-white',
+      border: 'border-orange-300',
+      iconBg: 'bg-orange-100',
+      icon: (
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-orange-600"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+      ),
+    },
+    {
+      label: 'Completado',
+      count: counts.completado,
+      color: 'text-green-700',
+      bg: 'bg-white',
+      border: 'border-green-300',
+      iconBg: 'bg-green-100',
+      icon: (
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-green-600"
+        >
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+          <polyline points="22 4 12 14.01 9 11.01" />
+        </svg>
+      ),
+    },
+    {
+      label: 'Rechazado',
+      count: counts.rechazado,
+      color: 'text-red-700',
+      bg: 'bg-white',
+      border: 'border-red-300',
+      iconBg: 'bg-red-100',
+      icon: (
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-red-600"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="15" y1="9" x2="9" y2="15" />
+          <line x1="9" y1="9" x2="15" y2="15" />
+        </svg>
+      ),
+    },
+    {
+      label: 'Cancelado',
+      count: counts.cancelado,
+      color: 'text-slate-600',
+      bg: 'bg-white',
+      border: 'border-slate-300',
+      iconBg: 'bg-slate-100',
+      icon: (
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-slate-500"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+        </svg>
+      ),
+    },
+    {
+      label: 'Vencido',
+      count: counts.vencido,
+      color: 'text-rose-700',
+      bg: 'bg-white',
+      border: 'border-rose-400',
+      iconBg: 'bg-rose-100',
+      icon: (
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-rose-600"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+      ),
+    },
   ];
 
   return (
-    <div className="bg-white border border-border rounded-xl p-5 mb-6 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base font-semibold text-foreground">Estado de los documentos</h2>
+    <div className="mb-6 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <h2 className="text-sm font-700 text-slate-950">Estado de los documentos</h2>
         <PeriodFilter value={period} onChange={setPeriod} />
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="m-4 grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid-cols-4 lg:grid-cols-7">
         {items.map((s) => (
-          <div key={s.label} className={`${s.bg} border-2 ${s.border} rounded-xl p-4 flex flex-col gap-2 min-h-[100px] justify-between shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5`}>
+          <div
+            key={s.label}
+            className="flex min-h-[108px] flex-col justify-between gap-3 border-b border-r border-slate-200 bg-white p-4 transition-colors hover:bg-slate-50/80"
+          >
             <div className="flex items-center justify-between">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${s.iconBg}`}>
+              <div className={`flex h-8 w-8 items-center justify-center rounded-md ${s.iconBg}`}>
                 {s.icon}
               </div>
             </div>
             <div>
-              <span className={`text-3xl font-extrabold ${s.color}`}>{s.count}</span>
-              <p className="text-xs text-muted-foreground font-medium mt-0.5">{s.label}</p>
+              <span className={`text-2xl font-800 tabular-nums ${s.color}`}>{s.count}</span>
+              <p className="mt-0.5 text-[11px] font-600 text-slate-500">{s.label}</p>
             </div>
           </div>
         ))}
@@ -832,7 +1221,9 @@ function ParticipacionEstadosSection({
   userId: string | undefined;
   userEmail: string | undefined;
 }) {
-  const [activeTab, setActiveTab] = useState<'mis_participaciones' | 'participantes_en_mis_docs'>('mis_participaciones');
+  const [activeTab, setActiveTab] = useState<'mis_participaciones' | 'participantes_en_mis_docs'>(
+    'mis_participaciones'
+  );
   const [period, setPeriod] = useState('30d');
 
   // Filter documents by period based on created_at
@@ -872,8 +1263,14 @@ function ParticipacionEstadosSection({
     const isVencido = fechaVenc && fechaVenc < now;
     const isUrgente = fechaVenc && fechaVenc >= now && fechaVenc <= in72h;
 
-    if (isVencido) { vencidaCount++; return; }
-    if (isUrgente) { urgenteCount++; return; }
+    if (isVencido) {
+      vencidaCount++;
+      return;
+    }
+    if (isUrgente) {
+      urgenteCount++;
+      return;
+    }
 
     if (sub === 'sin_revisar') sinRevisarCount++;
     else if (sub === 'en_revision') enRevisionCount++;
@@ -908,48 +1305,176 @@ function ParticipacionEstadosSection({
       if (pId === userId || pEmail === userEmail) return;
       const sub = p.sub_estado || 'sin_revisar';
 
-      if (isVencido) { partVencidaCount++; return; }
-      if (isUrgente) { partUrgenteCount++; return; }
+      if (isVencido) {
+        partVencidaCount++;
+        return;
+      }
+      if (isUrgente) {
+        partUrgenteCount++;
+        return;
+      }
 
       if (sub === 'sin_revisar') partSinRevisarCount++;
       else if (sub === 'en_revision') partEnRevisionCount++;
       else if (sub === 'firmo' || sub === 'firmado') partFirmadoCount++;
       else if (sub === 'rechazo' || sub === 'rechazado') partRechazadoCount++;
       else if (sub === 'aprobo' || sub === 'aprobado') partAprobadoCount++;
-      else if (sub === 'cancelo' || sub === 'cancelado') partSinRevisarCount++; // fallback
+      else if (sub === 'cancelo' || sub === 'cancelado')
+        partSinRevisarCount++; // fallback
       else partSinRevisarCount++; // unknown sub_estado defaults to sin_revisar
     });
   });
 
   const misParticipacionesItems = [
-    { label: 'Sin revisar', count: sinRevisarCount, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', dot: 'bg-amber-400', desc: 'Documentos que no has abierto' },
-    { label: 'En revisión', count: enRevisionCount, color: 'text-cyan-700', bg: 'bg-cyan-50', border: 'border-cyan-200', dot: 'bg-cyan-500', desc: 'Documentos abiertos pero sin participación' },
-    { label: 'Firmé', count: firmadoCount, color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500', desc: 'Documentos firmados' },
-    { label: 'Rechacé', count: rechazadoCount, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', desc: 'Documentos con participación rechazada' },
-    { label: 'Aprobé', count: aprobadoCount, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', dot: 'bg-blue-500', desc: 'Documentos aprobados' },
-    { label: 'Cancelé', count: canceladoCount, color: 'text-slate-600', bg: 'bg-slate-100', border: 'border-slate-300', dot: 'bg-slate-400', desc: 'Documentos que he cancelado' },
-    { label: 'Urgente atención', count: urgenteCount, color: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-300', dot: 'bg-rose-500', desc: 'Documentos próximos a vencer (menos de 72 horas)' },
-    { label: 'Participación vencida', count: vencidaCount, color: 'text-gray-600', bg: 'bg-gray-100', border: 'border-gray-300', dot: 'bg-gray-500', desc: 'Documentos cuya participación ha expirado' },
+    {
+      label: 'Sin revisar',
+      count: sinRevisarCount,
+      color: 'text-amber-700',
+      bg: 'bg-amber-50',
+      border: 'border-amber-200',
+      dot: 'bg-amber-400',
+      desc: 'Documentos que no has abierto',
+    },
+    {
+      label: 'En revisión',
+      count: enRevisionCount,
+      color: 'text-cyan-700',
+      bg: 'bg-cyan-50',
+      border: 'border-cyan-200',
+      dot: 'bg-cyan-500',
+      desc: 'Documentos abiertos pero sin participación',
+    },
+    {
+      label: 'Firmé',
+      count: firmadoCount,
+      color: 'text-green-700',
+      bg: 'bg-green-50',
+      border: 'border-green-200',
+      dot: 'bg-green-500',
+      desc: 'Documentos firmados',
+    },
+    {
+      label: 'Rechacé',
+      count: rechazadoCount,
+      color: 'text-red-700',
+      bg: 'bg-red-50',
+      border: 'border-red-200',
+      dot: 'bg-red-500',
+      desc: 'Documentos con participación rechazada',
+    },
+    {
+      label: 'Aprobé',
+      count: aprobadoCount,
+      color: 'text-blue-700',
+      bg: 'bg-blue-50',
+      border: 'border-blue-200',
+      dot: 'bg-blue-500',
+      desc: 'Documentos aprobados',
+    },
+    {
+      label: 'Cancelé',
+      count: canceladoCount,
+      color: 'text-slate-600',
+      bg: 'bg-slate-100',
+      border: 'border-slate-300',
+      dot: 'bg-slate-400',
+      desc: 'Documentos que he cancelado',
+    },
+    {
+      label: 'Urgente atención',
+      count: urgenteCount,
+      color: 'text-rose-700',
+      bg: 'bg-rose-50',
+      border: 'border-rose-300',
+      dot: 'bg-rose-500',
+      desc: 'Documentos próximos a vencer (menos de 72 horas)',
+    },
+    {
+      label: 'Participación vencida',
+      count: vencidaCount,
+      color: 'text-gray-600',
+      bg: 'bg-gray-100',
+      border: 'border-gray-300',
+      dot: 'bg-gray-500',
+      desc: 'Documentos cuya participación ha expirado',
+    },
   ];
 
   const participantesEnMisDocsItems = [
-    { label: 'Sin revisar', count: partSinRevisarCount, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', dot: 'bg-amber-400', desc: 'Participantes que no han abierto el documento' },
-    { label: 'En revisión', count: partEnRevisionCount, color: 'text-cyan-700', bg: 'bg-cyan-50', border: 'border-cyan-200', dot: 'bg-cyan-500', desc: 'Participantes que han abierto el documento pero no participado' },
-    { label: 'Han firmado', count: partFirmadoCount, color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500', desc: 'Participantes que han firmado el documento' },
-    { label: 'Han rechazado', count: partRechazadoCount, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', desc: 'Participantes que han rechazado el documento' },
-    { label: 'Han aprobado', count: partAprobadoCount, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', dot: 'bg-blue-500', desc: 'Participantes que han aprobado el documento' },
-    { label: 'Con urgente atención', count: partUrgenteCount, color: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-300', dot: 'bg-rose-500', desc: 'Con participaciones próximas a vencer (menos de 72 horas)' },
-    { label: 'Con participación vencida', count: partVencidaCount, color: 'text-gray-600', bg: 'bg-gray-100', border: 'border-gray-300', dot: 'bg-gray-500', desc: 'El plazo de participación ha expirado' },
+    {
+      label: 'Sin revisar',
+      count: partSinRevisarCount,
+      color: 'text-amber-700',
+      bg: 'bg-amber-50',
+      border: 'border-amber-200',
+      dot: 'bg-amber-400',
+      desc: 'Participantes que no han abierto el documento',
+    },
+    {
+      label: 'En revisión',
+      count: partEnRevisionCount,
+      color: 'text-cyan-700',
+      bg: 'bg-cyan-50',
+      border: 'border-cyan-200',
+      dot: 'bg-cyan-500',
+      desc: 'Participantes que han abierto el documento pero no participado',
+    },
+    {
+      label: 'Han firmado',
+      count: partFirmadoCount,
+      color: 'text-green-700',
+      bg: 'bg-green-50',
+      border: 'border-green-200',
+      dot: 'bg-green-500',
+      desc: 'Participantes que han firmado el documento',
+    },
+    {
+      label: 'Han rechazado',
+      count: partRechazadoCount,
+      color: 'text-red-700',
+      bg: 'bg-red-50',
+      border: 'border-red-200',
+      dot: 'bg-red-500',
+      desc: 'Participantes que han rechazado el documento',
+    },
+    {
+      label: 'Han aprobado',
+      count: partAprobadoCount,
+      color: 'text-blue-700',
+      bg: 'bg-blue-50',
+      border: 'border-blue-200',
+      dot: 'bg-blue-500',
+      desc: 'Participantes que han aprobado el documento',
+    },
+    {
+      label: 'Con urgente atención',
+      count: partUrgenteCount,
+      color: 'text-rose-700',
+      bg: 'bg-rose-50',
+      border: 'border-rose-300',
+      dot: 'bg-rose-500',
+      desc: 'Con participaciones próximas a vencer (menos de 72 horas)',
+    },
+    {
+      label: 'Con participación vencida',
+      count: partVencidaCount,
+      color: 'text-gray-600',
+      bg: 'bg-gray-100',
+      border: 'border-gray-300',
+      dot: 'bg-gray-500',
+      desc: 'El plazo de participación ha expirado',
+    },
   ];
 
-  const items = activeTab === 'mis_participaciones' ? misParticipacionesItems : participantesEnMisDocsItems;
+  const items =
+    activeTab === 'mis_participaciones' ? misParticipacionesItems : participantesEnMisDocsItems;
 
   return (
-    <div className="bg-white border border-border rounded-xl overflow-hidden mb-6 shadow-sm">
+    <div className="mb-6 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       {/* Header with tabs */}
-      <div className="px-5 pt-4 pb-0 border-b border-border">
+      <div className="border-b border-slate-100 px-5 pt-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-foreground">Estado de participaciones</h2>
+          <h2 className="text-sm font-700 text-slate-950">Estado de participaciones</h2>
           <PeriodFilter value={period} onChange={setPeriod} />
         </div>
         {/* Tabs */}
@@ -957,7 +1482,9 @@ function ParticipacionEstadosSection({
           <button
             onClick={() => setActiveTab('mis_participaciones')}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === 'mis_participaciones' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+              activeTab === 'mis_participaciones'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             Estado de mis participaciones en documentos
@@ -965,7 +1492,9 @@ function ParticipacionEstadosSection({
           <button
             onClick={() => setActiveTab('participantes_en_mis_docs')}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === 'participantes_en_mis_docs' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+              activeTab === 'participantes_en_mis_docs'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             Estado de participantes en mis documentos
@@ -973,10 +1502,13 @@ function ParticipacionEstadosSection({
         </div>
       </div>
       {/* Content */}
-      <div className="p-5">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      <div className="p-4">
+        <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {items.map((s) => (
-            <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3 flex flex-col gap-1.5 relative overflow-hidden min-h-[90px] justify-between shadow-sm hover:shadow-md transition-all`}>
+            <div
+              key={s.label}
+              className="relative flex min-h-[96px] flex-col justify-between gap-2 overflow-hidden border-b border-r border-slate-200 bg-white p-3.5 transition-colors hover:bg-slate-50/80"
+            >
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${s.dot}`} />
                 <span className={`text-xs font-semibold ${s.color}`}>{s.label}</span>
@@ -1008,9 +1540,12 @@ function DocumentosSinRevisionSection({
   onOpenContextMenu: (e: React.MouseEvent, doc: Document) => void;
   onRefresh: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'no_revisados_por_mi' | 'no_revisados_por_participantes'>('no_revisados_por_mi');
+  const [activeTab, setActiveTab] = useState<
+    'no_revisados_por_mi' | 'no_revisados_por_participantes'
+  >('no_revisados_por_mi');
 
-  let docs = activeTab === 'no_revisados_por_mi' ? sinRevisarPropiosDocs : sinRevisarParticipantesDocs;
+  let docs =
+    activeTab === 'no_revisados_por_mi' ? sinRevisarPropiosDocs : sinRevisarParticipantesDocs;
 
   return (
     <div className="bg-white border border-border rounded-xl overflow-hidden mb-6 shadow-sm">
@@ -1023,7 +1558,19 @@ function DocumentosSinRevisionSection({
             disabled={loadingDocs}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg bg-white hover:bg-muted transition-colors text-foreground font-medium disabled:opacity-50"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${loadingDocs ? 'animate-spin' : ''} flex-shrink-0`}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className={`${loadingDocs ? 'animate-spin' : ''} flex-shrink-0`}
+            >
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
             Actualizar
           </button>
         </div>
@@ -1032,22 +1579,30 @@ function DocumentosSinRevisionSection({
           <button
             onClick={() => setActiveTab('no_revisados_por_mi')}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === 'no_revisados_por_mi' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+              activeTab === 'no_revisados_por_mi'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             No revisados por mí
-            <span className={`ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${activeTab === 'no_revisados_por_mi' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+            <span
+              className={`ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${activeTab === 'no_revisados_por_mi' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}
+            >
               {sinRevisarPropiosDocs.length}
             </span>
           </button>
           <button
             onClick={() => setActiveTab('no_revisados_por_participantes')}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === 'no_revisados_por_participantes' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+              activeTab === 'no_revisados_por_participantes'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             No revisados por participantes
-            <span className={`ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${activeTab === 'no_revisados_por_participantes' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+            <span
+              className={`ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${activeTab === 'no_revisados_por_participantes' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}
+            >
               {sinRevisarParticipantesDocs.length}
             </span>
           </button>
@@ -1057,16 +1612,33 @@ function DocumentosSinRevisionSection({
       <div className="p-5">
         {loadingDocs ? (
           <div className="flex items-center gap-2 py-2">
-            <svg className="animate-spin h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            <svg
+              className="animate-spin h-4 w-4 text-primary"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
             </svg>
             <span className="text-sm text-muted-foreground">Cargando...</span>
           </div>
         ) : docs.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2">
             {activeTab === 'no_revisados_por_mi'
-              ? 'No tienes documentos pendientes de revisión.' :'Todos los participantes han revisado los documentos.'}
+              ? 'No tienes documentos pendientes de revisión.'
+              : 'Todos los participantes han revisado los documentos.'}
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1076,12 +1648,21 @@ function DocumentosSinRevisionSection({
                 className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-border hover:bg-muted/40 transition-colors cursor-pointer group"
                 onClick={() => onNavigate(doc.id)}
               >
-                <input type="checkbox" className="rounded border-border accent-primary flex-shrink-0" onClick={(e) => e.stopPropagation()} readOnly />
+                <input
+                  type="checkbox"
+                  className="rounded border-border accent-primary flex-shrink-0"
+                  onClick={(e) => e.stopPropagation()}
+                  readOnly
+                />
                 <FileText size={16} className="text-amber-500 flex-shrink-0" />
                 <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-sm text-foreground font-medium truncate group-hover:text-primary transition-colors">{doc.name}</span>
+                  <span className="text-sm text-foreground font-medium truncate group-hover:text-primary transition-colors">
+                    {doc.name}
+                  </span>
                   {doc.descripcion && (
-                    <span className="text-xs text-muted-foreground truncate">{doc.descripcion}</span>
+                    <span className="text-xs text-muted-foreground truncate">
+                      {doc.descripcion}
+                    </span>
                   )}
                 </div>
                 <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full flex-shrink-0">
@@ -1089,13 +1670,22 @@ function DocumentosSinRevisionSection({
                   Sin revisar
                 </span>
                 {doc.esUrgente && (
-                  <span className="text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full flex-shrink-0">Urgente</span>
+                  <span className="text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                    Urgente
+                  </span>
                 )}
                 <button
-                  onClick={(e) => { e.stopPropagation(); onOpenContextMenu(e, doc); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenContextMenu(e, doc);
+                  }}
                   className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground opacity-0 group-hover:opacity-100 flex-shrink-0"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="5" r="1.5" />
+                    <circle cx="12" cy="12" r="1.5" />
+                    <circle cx="12" cy="19" r="1.5" />
+                  </svg>
                 </button>
               </div>
             ))}
@@ -1107,7 +1697,7 @@ function DocumentosSinRevisionSection({
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function MisDocumentosPage() {
+function MisDocumentosContent() {
   const [activeSection, setActiveSection] = useState('mi-espacio');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -1125,37 +1715,106 @@ export default function MisDocumentosPage() {
   const { activeWorkspace } = useWorkspace();
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // ─── Column widths for resizable tables ───────────────────────────────────
-  const { widths: mainColWidths, handleResize: resizeMainCol } = useColumnWidths('main', {
-    checkbox: 40, nombre: 220, propietario: 130, ultimaModificacion: 170, tamano: 90,
-    estado: 130, estadoParticipacion: 190, etiquetas: 130, tipoDocumento: 110,
-    numeroDocumento: 130, folioInterno: 100, fechaCreacion: 150, fechaCompletado: 150,
-    fechaVencimiento: 130, prioridad: 100, rutaGuardado: 150,
-  }, user?.id);
-  const { widths: favColWidths, handleResize: resizeFavCol } = useColumnWidths('favoritos', {
-    checkbox: 40, nombre: 220, propietario: 130, estado: 130, fechaCreacion: 150,
-    numeroDocumento: 130, ultimaModificacion: 170, tamano: 90, etiquetas: 130,
-    tipoDocumento: 110, fechaVencimiento: 130, prioridad: 100,
-  }, user?.id);
-  const { widths: porVencerColWidths, handleResize: resizePorVencerCol } = useColumnWidths('por-vencer', {
-    checkbox: 40, nombre: 220, propietario: 130, estado: 130, fechaCreacion: 150,
-    numeroDocumento: 130, ultimaModificacion: 170, tamano: 90, vence: 130,
-    etiquetas: 130, tipoDocumento: 110, prioridad: 100,
-  }, user?.id);
-  const { widths: papeleraColWidths, handleResize: resizePapeleraCol } = useColumnWidths('papelera', {
-    nombre: 260, tipo: 100, eliminadoPor: 140, fechaEliminacion: 150, tamano: 90, retencion: 100, acciones: 200,
-  }, user?.id);
-  const { widths: cfColWidths, handleResize: resizeCfCol } = useColumnWidths('filtros-personalizados', {
-    checkbox: 40, nombre: 220, propietario: 130, estado: 130, fechaCreacion: 150,
-    numeroDocumento: 130, ultimaModificacion: 170, tamano: 90, etiquetas: 130,
-    tipoDocumento: 110, folioInterno: 100, fechaCompletado: 150, fechaVencimiento: 130,
-    prioridad: 100, rutaGuardado: 150,
-  }, user?.id);
+  const { widths: mainColWidths, handleResize: resizeMainCol } = useColumnWidths(
+    'main',
+    {
+      checkbox: 40,
+      nombre: 220,
+      propietario: 130,
+      ultimaModificacion: 170,
+      tamano: 90,
+      estado: 130,
+      estadoParticipacion: 190,
+      etiquetas: 130,
+      tipoDocumento: 110,
+      numeroDocumento: 130,
+      folioInterno: 100,
+      fechaCreacion: 150,
+      fechaCompletado: 150,
+      fechaVencimiento: 130,
+      prioridad: 100,
+      rutaGuardado: 150,
+    },
+    user?.id
+  );
+  const { widths: favColWidths, handleResize: resizeFavCol } = useColumnWidths(
+    'favoritos',
+    {
+      checkbox: 40,
+      nombre: 220,
+      propietario: 130,
+      estado: 130,
+      fechaCreacion: 150,
+      numeroDocumento: 130,
+      ultimaModificacion: 170,
+      tamano: 90,
+      etiquetas: 130,
+      tipoDocumento: 110,
+      fechaVencimiento: 130,
+      prioridad: 100,
+    },
+    user?.id
+  );
+  const { widths: porVencerColWidths, handleResize: resizePorVencerCol } = useColumnWidths(
+    'por-vencer',
+    {
+      checkbox: 40,
+      nombre: 220,
+      propietario: 130,
+      estado: 130,
+      fechaCreacion: 150,
+      numeroDocumento: 130,
+      ultimaModificacion: 170,
+      tamano: 90,
+      vence: 130,
+      etiquetas: 130,
+      tipoDocumento: 110,
+      prioridad: 100,
+    },
+    user?.id
+  );
+  const { widths: papeleraColWidths, handleResize: resizePapeleraCol } = useColumnWidths(
+    'papelera',
+    {
+      nombre: 260,
+      tipo: 100,
+      eliminadoPor: 140,
+      fechaEliminacion: 150,
+      tamano: 90,
+      retencion: 100,
+      acciones: 200,
+    },
+    user?.id
+  );
+  const { widths: cfColWidths, handleResize: resizeCfCol } = useColumnWidths(
+    'filtros-personalizados',
+    {
+      checkbox: 40,
+      nombre: 220,
+      propietario: 130,
+      estado: 130,
+      fechaCreacion: 150,
+      numeroDocumento: 130,
+      ultimaModificacion: 170,
+      tamano: 90,
+      etiquetas: 130,
+      tipoDocumento: 110,
+      folioInterno: 100,
+      fechaCompletado: 150,
+      fechaVencimiento: 130,
+      prioridad: 100,
+      rutaGuardado: 150,
+    },
+    user?.id
+  );
 
   // Folder navigation state
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [folderBreadcrumb, setFolderBreadcrumb] = useState<{ id: string; name: string }[]>([]);
+  const openedSearchFolderRef = useRef<string | null>(null);
 
   const [realDocuments, setRealDocuments] = useState<Document[]>([]);
   const [rawDocumentsData, setRawDocumentsData] = useState<any[]>([]);
@@ -1169,15 +1828,33 @@ export default function MisDocumentosPage() {
   const [loadingPapelera, setLoadingPapelera] = useState(false);
 
   const [statusCounts, setStatusCounts] = useState<StatusCounts>({
-    borrador: 0, en_proceso: 0, en_espera: 0, completado: 0, rechazado: 0, cancelado: 0, vencido: 0,
+    borrador: 0,
+    en_proceso: 0,
+    en_espera: 0,
+    completado: 0,
+    rechazado: 0,
+    cancelado: 0,
+    vencido: 0,
   });
   const [subEstadoCounts, setSubEstadoCounts] = useState<SubEstadoCounts>({
-    sin_revisar: 0, en_revision: 0, firmo: 0, rechazo: 0, aprobo: 0, cancelo: 0,
-    urgente_atencion: 0, participacion_vencida: 0,
-    participantes_sin_revisar: 0, participantes_en_revision: 0,
-    participantes_firmo: 0, participantes_rechazo: 0, participantes_aprobo: 0, participantes_cancelo: 0,
-    participantes_urgente_atencion: 0, participantes_participacion_vencida: 0,
-    sin_revisar_propios: 0, sin_revisar_participantes: 0,
+    sin_revisar: 0,
+    en_revision: 0,
+    firmo: 0,
+    rechazo: 0,
+    aprobo: 0,
+    cancelo: 0,
+    urgente_atencion: 0,
+    participacion_vencida: 0,
+    participantes_sin_revisar: 0,
+    participantes_en_revision: 0,
+    participantes_firmo: 0,
+    participantes_rechazo: 0,
+    participantes_aprobo: 0,
+    participantes_cancelo: 0,
+    participantes_urgente_atencion: 0,
+    participantes_participacion_vencida: 0,
+    sin_revisar_propios: 0,
+    sin_revisar_participantes: 0,
     no_inicializados: 0,
   });
   const [sugeridosDocuments, setSugeridosDocuments] = useState<Document[]>([]);
@@ -1197,33 +1874,101 @@ export default function MisDocumentosPage() {
   const [crearCarpetaLoading, setCrearCarpetaLoading] = useState(false);
 
   const [papeleraSearch, setPapeleraSearch] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; docId: string | null; docName: string; isEmptyAll: boolean }>({
-    open: false, docId: null, docName: '', isEmptyAll: false,
+  const [confirmDelete, setConfirmDelete] = useState<{
+    open: boolean;
+    docId: string | null;
+    docName: string;
+    isEmptyAll: boolean;
+  }>({
+    open: false,
+    docId: null,
+    docName: '',
+    isEmptyAll: false,
   });
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
-    open: false, docId: null, docName: '', isDraft: false, isFavorite: false, fileUrl: null, x: 0, y: 0,
+    open: false,
+    docId: null,
+    docName: '',
+    isDraft: false,
+    isFavorite: false,
+    fileUrl: null,
+    x: 0,
+    y: 0,
   });
 
   // Folder context menu state
   const [folderContextMenu, setFolderContextMenu] = useState<FolderContextMenuState>({
-    open: false, carpetaId: null, carpetaName: '', x: 0, y: 0,
+    open: false,
+    carpetaId: null,
+    carpetaName: '',
+    x: 0,
+    y: 0,
   });
-  const [renameFolderModal, setRenameFolderModal] = useState({ open: false, carpetaId: null as string | null, currentName: '', newName: '' });
-  const [moveFolderModal, setMoveFolderModal] = useState({ open: false, carpetaId: null as string | null, carpetaName: '' });
+  const [renameFolderModal, setRenameFolderModal] = useState({
+    open: false,
+    carpetaId: null as string | null,
+    currentName: '',
+    newName: '',
+  });
+  const [moveFolderModal, setMoveFolderModal] = useState({
+    open: false,
+    carpetaId: null as string | null,
+    carpetaName: '',
+  });
 
   // Confirmation for mover a papelera (docs and folders)
-  const [confirmPapelera, setConfirmPapelera] = useState<{ open: boolean; type: 'doc' | 'folder'; id: string | null; name: string }>({
-    open: false, type: 'doc', id: null, name: '',
+  const [confirmPapelera, setConfirmPapelera] = useState<{
+    open: boolean;
+    type: 'doc' | 'folder';
+    id: string | null;
+    name: string;
+  }>({
+    open: false,
+    type: 'doc',
+    id: null,
+    name: '',
   });
 
-  const [renameModal, setRenameModal] = useState({ open: false, docId: null as string | null, currentName: '', newName: '' });
-  const [moveModal, setMoveModal] = useState({ open: false, docId: null as string | null, docName: '', isBulk: false });
-  const [tagModal, setTagModal] = useState({ open: false, docId: null as string | null, docName: '', tag: '' });
-  const [reminderModal, setReminderModal] = useState({ open: false, docId: null as string | null, docName: '', date: '', note: '' });
-  const [shareModal, setShareModal] = useState({ open: false, docId: null as string | null, docName: '', email: '' });
+  const [renameModal, setRenameModal] = useState({
+    open: false,
+    docId: null as string | null,
+    currentName: '',
+    newName: '',
+  });
+  const [moveModal, setMoveModal] = useState({
+    open: false,
+    docId: null as string | null,
+    docName: '',
+    isBulk: false,
+  });
+  const [tagModal, setTagModal] = useState({
+    open: false,
+    docId: null as string | null,
+    docName: '',
+    tag: '',
+  });
+  const [reminderModal, setReminderModal] = useState({
+    open: false,
+    docId: null as string | null,
+    docName: '',
+    date: '',
+    note: '',
+  });
+  const [shareModal, setShareModal] = useState({
+    open: false,
+    docId: null as string | null,
+    docName: '',
+    email: '',
+  });
   const [confidentialModal, setConfidentialModal] = useState<ConfidentialModalState>({
-    open: false, docId: null, docName: '', password: '', confirmPassword: '', saving: false, error: '',
+    open: false,
+    docId: null,
+    docName: '',
+    password: '',
+    confirmPassword: '',
+    saving: false,
+    error: '',
   });
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
@@ -1231,7 +1976,8 @@ export default function MisDocumentosPage() {
   const [personalizarOpen, setPersonalizarOpen] = useState(false);
   const [columnConfig, setColumnConfig] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [filterConfig, setFilterConfig] = useState<FilterVisibilityConfig[]>(DEFAULT_FILTERS);
-  const [gridColumnConfig, setGridColumnConfig] = useState<GridColumnConfig[]>(DEFAULT_GRID_COLUMNS);
+  const [gridColumnConfig, setGridColumnConfig] =
+    useState<GridColumnConfig[]>(DEFAULT_GRID_COLUMNS);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
 
   // Custom filters state
@@ -1270,7 +2016,8 @@ export default function MisDocumentosPage() {
   // Por vencer toolbar state
   const [porVencerSortOrder, setPorVencerSortOrder] = useState('fechaVencimiento_asc');
   const [porVencerColumnConfigOpen, setPorVencerColumnConfigOpen] = useState(false);
-  const [porVencerColumnConfig, setPorVencerColumnConfig] = useState<ColumnConfig[]>(DEFAULT_CF_COLUMNS);
+  const [porVencerColumnConfig, setPorVencerColumnConfig] =
+    useState<ColumnConfig[]>(DEFAULT_CF_COLUMNS);
   const porVencerColumnConfigRef = React.useRef<HTMLDivElement>(null);
 
   // Active filter values
@@ -1353,9 +2100,14 @@ export default function MisDocumentosPage() {
     }
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setContextMenu({
-      open: true, docId: doc.id, docName: doc.name, isDraft: !!doc.isDraft,
-      isFavorite: !!doc.isFavorite, fileUrl: doc.fileUrl || null,
-      x: rect.right, y: rect.bottom,
+      open: true,
+      docId: doc.id,
+      docName: doc.name,
+      isDraft: !!doc.isDraft,
+      isFavorite: !!doc.isFavorite,
+      fileUrl: doc.fileUrl || null,
+      x: rect.right,
+      y: rect.bottom,
     });
     setActiveContextMenuDocId(doc.id);
     // Close folder menu if open
@@ -1439,6 +2191,28 @@ export default function MisDocumentosPage() {
     setSelectedFolders([]);
   };
 
+  const requestedFolderId = searchParams.get('carpeta');
+  useEffect(() => {
+    if (!requestedFolderId || carpetas.length === 0 || openedSearchFolderRef.current === requestedFolderId) return;
+    const requestedFolder = carpetas.find((carpeta) => carpeta.id === requestedFolderId);
+    if (!requestedFolder) return;
+
+    const buildPath = (id: string): { id: string; name: string }[] => {
+      const folder = carpetas.find((carpeta) => carpeta.id === id);
+      if (!folder) return [];
+      if (folder.parentId) return [...buildPath(folder.parentId), { id: folder.id, name: folder.name }];
+      return [{ id: folder.id, name: folder.name }];
+    };
+
+    openedSearchFolderRef.current = requestedFolderId;
+    setActiveSection('mi-espacio');
+    setCurrentFolderId(requestedFolder.id);
+    setFolderBreadcrumb(buildPath(requestedFolder.id));
+    setSearchQuery('');
+    setSelectedRows([]);
+    setSelectedFolders([]);
+  }, [carpetas, requestedFolderId]);
+
   // Folder context menu actions
   const handleFolderMenuVer = () => {
     const carpeta = carpetas.find((c) => c.id === folderContextMenu.carpetaId);
@@ -1446,12 +2220,21 @@ export default function MisDocumentosPage() {
   };
 
   const handleFolderMenuMover = () => {
-    setMoveFolderModal({ open: true, carpetaId: folderContextMenu.carpetaId, carpetaName: folderContextMenu.carpetaName });
+    setMoveFolderModal({
+      open: true,
+      carpetaId: folderContextMenu.carpetaId,
+      carpetaName: folderContextMenu.carpetaName,
+    });
     closeFolderContextMenu();
   };
 
   const handleFolderMenuRenombrar = () => {
-    setRenameFolderModal({ open: true, carpetaId: folderContextMenu.carpetaId, currentName: folderContextMenu.carpetaName, newName: folderContextMenu.carpetaName });
+    setRenameFolderModal({
+      open: true,
+      carpetaId: folderContextMenu.carpetaId,
+      currentName: folderContextMenu.carpetaName,
+      newName: folderContextMenu.carpetaName,
+    });
     closeFolderContextMenu();
   };
 
@@ -1471,10 +2254,21 @@ export default function MisDocumentosPage() {
     const supabase = createClient();
     if (type === 'folder') {
       // Move all documents in this folder back to root (no folder)
-      await supabase.from('documentos').update({ carpeta_id: null }).eq('carpeta_id', id).eq('owner_id', user.id);
+      await supabase
+        .from('documentos')
+        .update({ carpeta_id: null })
+        .eq('carpeta_id', id)
+        .eq('owner_id', user.id);
       // Delete the folder
-      const { error } = await supabase.from('carpetas').delete().eq('id', id).eq('owner_id', user.id);
-      if (error) { showToast('Error al mover la carpeta a papelera'); return; }
+      const { error } = await supabase
+        .from('carpetas')
+        .delete()
+        .eq('id', id)
+        .eq('owner_id', user.id);
+      if (error) {
+        showToast('Error al mover la carpeta a papelera');
+        return;
+      }
       setCarpetas((prev) => prev.filter((c) => c.id !== id));
       if (currentFolderId === id) {
         setCurrentFolderId(null);
@@ -1483,8 +2277,15 @@ export default function MisDocumentosPage() {
       showToast(`Carpeta "${name}" movida a papelera`);
       loadDocuments();
     } else {
-      const { error } = await supabase.from('documentos').update({ deleted_at: new Date().toISOString() }).eq('id', id).eq('owner_id', user.id);
-      if (error) { showToast('Error al mover a papelera'); return; }
+      const { error } = await supabase
+        .from('documentos')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('owner_id', user.id);
+      if (error) {
+        showToast('Error al mover a papelera');
+        return;
+      }
       setRealDocuments((prev) => prev.filter((d) => d.id !== id));
       showToast(`"${name}" movido a papelera`);
       if (activeSection === 'papelera') loadPapelera();
@@ -1497,7 +2298,10 @@ export default function MisDocumentosPage() {
       open: true,
       docId: folderContextMenu.carpetaId, // reuse docId field to store carpetaId
       docName: `carpeta "${folderContextMenu.carpetaName}"`,
-      password: '', confirmPassword: '', saving: false, error: '',
+      password: '',
+      confirmPassword: '',
+      saving: false,
+      error: '',
     });
     closeFolderContextMenu();
   };
@@ -1506,11 +2310,22 @@ export default function MisDocumentosPage() {
     const nombre = renameFolderModal.newName.trim();
     if (!nombre || !renameFolderModal.carpetaId || !user) return;
     const supabase = createClient();
-    const { error } = await supabase.from('carpetas').update({ nombre }).eq('id', renameFolderModal.carpetaId).eq('owner_id', user.id);
-    if (error) { showToast('Error al renombrar la carpeta'); return; }
-    setCarpetas((prev) => prev.map((c) => c.id === renameFolderModal.carpetaId ? { ...c, name: nombre } : c));
+    const { error } = await supabase
+      .from('carpetas')
+      .update({ nombre })
+      .eq('id', renameFolderModal.carpetaId)
+      .eq('owner_id', user.id);
+    if (error) {
+      showToast('Error al renombrar la carpeta');
+      return;
+    }
+    setCarpetas((prev) =>
+      prev.map((c) => (c.id === renameFolderModal.carpetaId ? { ...c, name: nombre } : c))
+    );
     // Update breadcrumb if needed
-    setFolderBreadcrumb((prev) => prev.map((b) => b.id === renameFolderModal.carpetaId ? { ...b, name: nombre } : b));
+    setFolderBreadcrumb((prev) =>
+      prev.map((b) => (b.id === renameFolderModal.carpetaId ? { ...b, name: nombre } : b))
+    );
     setRenameFolderModal({ open: false, carpetaId: null, currentName: '', newName: '' });
     showToast(`Carpeta renombrada a "${nombre}"`);
   };
@@ -1518,11 +2333,23 @@ export default function MisDocumentosPage() {
   const handleSaveMoveFolder = async (targetParentId: string | null, targetName: string) => {
     if (!moveFolderModal.carpetaId || !user) return;
     // Prevent moving a folder into itself
-    if (targetParentId === moveFolderModal.carpetaId) { showToast('No puedes mover una carpeta dentro de sí misma'); return; }
+    if (targetParentId === moveFolderModal.carpetaId) {
+      showToast('No puedes mover una carpeta dentro de sí misma');
+      return;
+    }
     const supabase = createClient();
-    const { error } = await supabase.from('carpetas').update({ parent_id: targetParentId }).eq('id', moveFolderModal.carpetaId).eq('owner_id', user.id);
-    if (error) { showToast('Error al mover la carpeta'); return; }
-    setCarpetas((prev) => prev.map((c) => c.id === moveFolderModal.carpetaId ? { ...c, parentId: targetParentId } : c));
+    const { error } = await supabase
+      .from('carpetas')
+      .update({ parent_id: targetParentId })
+      .eq('id', moveFolderModal.carpetaId)
+      .eq('owner_id', user.id);
+    if (error) {
+      showToast('Error al mover la carpeta');
+      return;
+    }
+    setCarpetas((prev) =>
+      prev.map((c) => (c.id === moveFolderModal.carpetaId ? { ...c, parentId: targetParentId } : c))
+    );
     setMoveFolderModal({ open: false, carpetaId: null, carpetaName: '' });
     showToast(`Carpeta movida a "${targetName || 'Raíz'}"`);
   };
@@ -1537,12 +2364,22 @@ export default function MisDocumentosPage() {
   };
 
   const handleMenuMover = () => {
-    setMoveModal({ open: true, docId: contextMenu.docId, docName: contextMenu.docName, isBulk: false });
+    setMoveModal({
+      open: true,
+      docId: contextMenu.docId,
+      docName: contextMenu.docName,
+      isBulk: false,
+    });
     closeContextMenu();
   };
 
   const handleMenuRenombrar = () => {
-    setRenameModal({ open: true, docId: contextMenu.docId, currentName: contextMenu.docName, newName: contextMenu.docName });
+    setRenameModal({
+      open: true,
+      docId: contextMenu.docId,
+      currentName: contextMenu.docName,
+      newName: contextMenu.docName,
+    });
     closeContextMenu();
   };
 
@@ -1553,27 +2390,69 @@ export default function MisDocumentosPage() {
     closeContextMenu();
     if (!docId || !user) return;
     const supabase = createClient();
-    const { error } = await supabase.from('documentos').update({ is_favorite: !isFav }).eq('id', docId).eq('owner_id', user.id);
-    if (error) { showToast('Error al actualizar favoritos'); return; }
-    setRealDocuments((prev) => prev.map((d) => d.id === docId ? { ...d, isFavorite: !isFav } : d));
+    const { error } = await supabase
+      .from('documentos')
+      .update({ is_favorite: !isFav })
+      .eq('id', docId)
+      .eq('owner_id', user.id);
+    if (error) {
+      showToast('Error al actualizar favoritos');
+      return;
+    }
+    setRealDocuments((prev) =>
+      prev.map((d) => (d.id === docId ? { ...d, isFavorite: !isFav } : d))
+    );
     showToast(isFav ? `"${docName}" eliminado de Favoritos` : `"${docName}" Añadido a Favoritos`);
     if (activeSection === 'favoritos') loadFavorites();
   };
 
   const handleMenuConfidencial = () => {
-    setConfidentialModal({ open: true, docId: contextMenu.docId, docName: contextMenu.docName, password: '', confirmPassword: '', saving: false, error: '' });
+    setConfidentialModal({
+      open: true,
+      docId: contextMenu.docId,
+      docName: contextMenu.docName,
+      password: '',
+      confirmPassword: '',
+      saving: false,
+      error: '',
+    });
     closeContextMenu();
   };
 
   const handleSaveConfidential = async () => {
     if (!confidentialModal.docId || !user) return;
-    if (!confidentialModal.password) { setConfidentialModal((prev) => ({ ...prev, error: 'La contraseña es obligatoria.' })); return; }
-    if (confidentialModal.password !== confidentialModal.confirmPassword) { setConfidentialModal((prev) => ({ ...prev, error: 'Las contraseñas no coinciden.' })); return; }
+    if (!confidentialModal.password) {
+      setConfidentialModal((prev) => ({ ...prev, error: 'La contraseña es obligatoria.' }));
+      return;
+    }
+    if (confidentialModal.password !== confidentialModal.confirmPassword) {
+      setConfidentialModal((prev) => ({ ...prev, error: 'Las contraseñas no coinciden.' }));
+      return;
+    }
     setConfidentialModal((prev) => ({ ...prev, saving: true, error: '' }));
     const supabase = createClient();
-    const { error } = await supabase.from('documentos').update({ tiene_codigo_acceso: true, codigo_acceso_hash: confidentialModal.password }).eq('id', confidentialModal.docId).eq('owner_id', user.id);
-    if (error) { setConfidentialModal((prev) => ({ ...prev, saving: false, error: 'Error al guardar. Intenta de nuevo.' })); return; }
-    setConfidentialModal({ open: false, docId: null, docName: '', password: '', confirmPassword: '', saving: false, error: '' });
+    const { error } = await supabase
+      .from('documentos')
+      .update({ tiene_codigo_acceso: true, codigo_acceso_hash: confidentialModal.password })
+      .eq('id', confidentialModal.docId)
+      .eq('owner_id', user.id);
+    if (error) {
+      setConfidentialModal((prev) => ({
+        ...prev,
+        saving: false,
+        error: 'Error al guardar. Intenta de nuevo.',
+      }));
+      return;
+    }
+    setConfidentialModal({
+      open: false,
+      docId: null,
+      docName: '',
+      password: '',
+      confirmPassword: '',
+      saving: false,
+      error: '',
+    });
     showToast(`Modo Confidencial Activado para "${confidentialModal.docName}"`);
   };
 
@@ -1585,8 +2464,12 @@ export default function MisDocumentosPage() {
     if (!docId || !user) return;
     if (fileUrl) {
       const a = document.createElement('a');
-      a.href = fileUrl; a.download = docName; a.target = '_blank';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      a.href = fileUrl;
+      a.download = docName;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
       showToast(`Descargando "${docName}"...`);
     } else {
       showToast(`No hay archivo disponible para descargar`);
@@ -1594,7 +2477,12 @@ export default function MisDocumentosPage() {
   };
 
   const handleMenuCompartir = () => {
-    setShareModal({ open: true, docId: contextMenu.docId, docName: contextMenu.docName, email: '' });
+    setShareModal({
+      open: true,
+      docId: contextMenu.docId,
+      docName: contextMenu.docName,
+      email: '',
+    });
     closeContextMenu();
   };
 
@@ -1610,8 +2498,15 @@ export default function MisDocumentosPage() {
   const handleBulkPapelera = async () => {
     if (!user || selectedRows.length === 0) return;
     const supabase = createClient();
-    const { error } = await supabase.from('documentos').update({ deleted_at: new Date().toISOString() }).in('id', selectedRows).eq('owner_id', user.id);
-    if (error) { showToast('Error al mover a papelera'); return; }
+    const { error } = await supabase
+      .from('documentos')
+      .update({ deleted_at: new Date().toISOString() })
+      .in('id', selectedRows)
+      .eq('owner_id', user.id);
+    if (error) {
+      showToast('Error al mover a papelera');
+      return;
+    }
     setRealDocuments((prev) => prev.filter((d) => !selectedRows.includes(d.id)));
     showToast(`${selectedRows.length} documento(s) movido(s) a papelera`);
     setSelectedRows([]);
@@ -1620,17 +2515,29 @@ export default function MisDocumentosPage() {
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) closeContextMenu();
-      if (folderContextMenuRef.current && !folderContextMenuRef.current.contains(e.target as Node)) closeFolderContextMenu();
-      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node)) setOpenFilterDropdown(null);
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node))
+        closeContextMenu();
+      if (folderContextMenuRef.current && !folderContextMenuRef.current.contains(e.target as Node))
+        closeFolderContextMenu();
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node))
+        setOpenFilterDropdown(null);
       // Check cfColumnConfig refs - only close if click is outside the ref container
       if (cfColumnConfigOpen !== null) {
         const cfRef = cfColumnConfigRefs.current[cfColumnConfigOpen];
         if (cfRef && !cfRef.contains(e.target as Node)) setCfColumnConfigOpen(null);
       }
-      if (favColumnConfigRef.current && !favColumnConfigRef.current.contains(e.target as Node)) setFavColumnConfigOpen(false);
-      if (porVencerColumnConfigRef.current && !porVencerColumnConfigRef.current.contains(e.target as Node)) setPorVencerColumnConfigOpen(false);
-      if (miEspacioSortDropdownRef.current && !miEspacioSortDropdownRef.current.contains(e.target as Node)) setMiEspacioSortDropdownOpen(false);
+      if (favColumnConfigRef.current && !favColumnConfigRef.current.contains(e.target as Node))
+        setFavColumnConfigOpen(false);
+      if (
+        porVencerColumnConfigRef.current &&
+        !porVencerColumnConfigRef.current.contains(e.target as Node)
+      )
+        setPorVencerColumnConfigOpen(false);
+      if (
+        miEspacioSortDropdownRef.current &&
+        !miEspacioSortDropdownRef.current.contains(e.target as Node)
+      )
+        setMiEspacioSortDropdownOpen(false);
     };
     // Note: scroll should NOT close context menus — menus are fixed positioned and stay open
     const handleScroll = () => {
@@ -1638,7 +2545,15 @@ export default function MisDocumentosPage() {
       setOpenFilterDropdown(null);
       setMiEspacioSortDropdownOpen(false);
     };
-    if (contextMenu.open || folderContextMenu.open || openFilterDropdown !== null || cfColumnConfigOpen !== null || favColumnConfigOpen || porVencerColumnConfigOpen || miEspacioSortDropdownOpen) {
+    if (
+      contextMenu.open ||
+      folderContextMenu.open ||
+      openFilterDropdown !== null ||
+      cfColumnConfigOpen !== null ||
+      favColumnConfigOpen ||
+      porVencerColumnConfigOpen ||
+      miEspacioSortDropdownOpen
+    ) {
       document.addEventListener('mousedown', handleClickOutside);
       document.addEventListener('scroll', handleScroll, true);
     }
@@ -1646,7 +2561,15 @@ export default function MisDocumentosPage() {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('scroll', handleScroll, true);
     };
-  }, [contextMenu.open, folderContextMenu.open, openFilterDropdown, cfColumnConfigOpen, favColumnConfigOpen, porVencerColumnConfigOpen, miEspacioSortDropdownOpen]);
+  }, [
+    contextMenu.open,
+    folderContextMenu.open,
+    openFilterDropdown,
+    cfColumnConfigOpen,
+    favColumnConfigOpen,
+    porVencerColumnConfigOpen,
+    miEspacioSortDropdownOpen,
+  ]);
 
   // Load tipos de documento for filter
   const loadTiposDocumento = useCallback(async () => {
@@ -1655,8 +2578,11 @@ export default function MisDocumentosPage() {
       const res = await fetch('/api/documentos/tipos');
       const json = await res.json();
       if (json.data) setTiposDocumento(json.data);
-    } catch (_) { /* ignore */ }
-    finally { setLoadingTipos(false); }
+    } catch (_) {
+      /* ignore */
+    } finally {
+      setLoadingTipos(false);
+    }
   }, []);
 
   const loadGruposDocumento = useCallback(async () => {
@@ -1665,8 +2591,11 @@ export default function MisDocumentosPage() {
       const res = await fetch('/api/documentos/grupos');
       const json = await res.json();
       if (json.data) setGruposDocumento(json.data);
-    } catch (_) { /* ignore */ }
-    finally { setLoadingGrupos(false); }
+    } catch (_) {
+      /* ignore */
+    } finally {
+      setLoadingGrupos(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -1779,9 +2708,14 @@ export default function MisDocumentosPage() {
     setLoadingDocs(true);
     const supabase = createClient();
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token;
-      if (!token) { setLoadingDocs(false); return; }
+      if (!token) {
+        setLoadingDocs(false);
+        return;
+      }
 
       // Fetch own documents
       const res = await fetch('/api/documentos/listar?tipo=todos', {
@@ -1811,12 +2745,18 @@ export default function MisDocumentosPage() {
               id: p.supabaseId,
               nombre: p.documentName,
               descripcion: p.description || null,
-              estado: p.status === 'en-progreso' ? 'en_proceso'
-                : p.status === 'en-espera' ? 'en_espera'
-                : p.status === 'completado' ? 'completado'
-                : p.status === 'cancelado' ? 'cancelado'
-                : p.status === 'rechazado' ? 'rechazado'
-                : 'en_proceso',
+              estado:
+                p.status === 'en-progreso'
+                  ? 'en_proceso'
+                  : p.status === 'en-espera'
+                    ? 'en_espera'
+                    : p.status === 'completado'
+                      ? 'completado'
+                      : p.status === 'cancelado'
+                        ? 'cancelado'
+                        : p.status === 'rechazado'
+                          ? 'rechazado'
+                          : 'en_proceso',
               etiquetas_ids: [],
               file_size: null,
               updated_at: null,
@@ -1833,13 +2773,14 @@ export default function MisDocumentosPage() {
               folio_interno: null,
               ruta_guardado: null,
               es_urgente: p.priority === 'Urgente',
-              participantes: p.participantList?.map((pl: any) => ({
-                email: pl.email,
-                nombre: pl.name,
-                sub_estado: pl.subEstado || pl.status,
-                acto: pl.acto,
-                rol: pl.rol,
-              })) || [],
+              participantes:
+                p.participantList?.map((pl: any) => ({
+                  email: pl.email,
+                  nombre: pl.name,
+                  sub_estado: pl.subEstado || pl.status,
+                  acto: pl.acto,
+                  rol: pl.rol,
+                })) || [],
               tipo_documento_id: null,
               tipo_documento: p.documentType ? { nombre: p.documentType } : null,
               owner_id: null, // not the current user
@@ -1870,7 +2811,7 @@ export default function MisDocumentosPage() {
           const pEmail = p.email || '';
           return pId === user?.id || pEmail === user?.email;
         });
-        mapped.miSubEstado = userPart ? (userPart.sub_estado || 'en_revision') : null;
+        mapped.miSubEstado = userPart ? userPart.sub_estado || 'en_revision' : null;
         return mapped;
       });
 
@@ -1884,7 +2825,15 @@ export default function MisDocumentosPage() {
       setParticipantDocuments(mappedParticipant);
       setRealDocuments([...mappedOwn, ...mappedParticipant]);
 
-      const counts: StatusCounts = { borrador: 0, en_proceso: 0, en_espera: 0, completado: 0, rechazado: 0, cancelado: 0, vencido: 0 };
+      const counts: StatusCounts = {
+        borrador: 0,
+        en_proceso: 0,
+        en_espera: 0,
+        completado: 0,
+        rechazado: 0,
+        cancelado: 0,
+        vencido: 0,
+      };
       const now72 = new Date();
       allData.forEach((d: any) => {
         const s = d.estado || 'borrador';
@@ -1955,8 +2904,8 @@ export default function MisDocumentosPage() {
 
           // For participant docs, use the _mySubEstado directly
           const effectiveSubEstado = d._isParticipantDoc
-            ? (d._mySubEstado || 'en_revision')
-            : (userParticipation?.sub_estado || null);
+            ? d._mySubEstado || 'en_revision'
+            : userParticipation?.sub_estado || null;
 
           if (effectiveSubEstado !== null && (!isOwner || d._isParticipantDoc)) {
             const sub = effectiveSubEstado;
@@ -2008,11 +2957,16 @@ export default function MisDocumentosPage() {
 
           // No revisados por mí
           const isParticipantSinRevisar = d._isParticipantDoc
-            ? (!d._mySubEstado || d._mySubEstado === 'sin_revisar' || d._mySubEstado === 'Sin revisión')
+            ? !d._mySubEstado ||
+              d._mySubEstado === 'sin_revisar' ||
+              d._mySubEstado === 'Sin revisión'
             : parts.some((p: any) => {
                 const pId = p.id || p.user_id || p.userId;
                 const pEmail = p.email || '';
-                return (pId === user?.id || pEmail === user?.email) && (!p.sub_estado || p.sub_estado === 'sin_revisar');
+                return (
+                  (pId === user?.id || pEmail === user?.email) &&
+                  (!p.sub_estado || p.sub_estado === 'sin_revisar')
+                );
               });
 
           if (isParticipantSinRevisar) {
@@ -2035,7 +2989,9 @@ export default function MisDocumentosPage() {
 
           const esUrgente = !!d.es_urgente;
           const tieneSinRevisar = d._isParticipantDoc
-            ? (!d._mySubEstado || d._mySubEstado === 'sin_revisar' || d._mySubEstado === 'Sin revisión')
+            ? !d._mySubEstado ||
+              d._mySubEstado === 'sin_revisar' ||
+              d._mySubEstado === 'Sin revisión'
             : parts.some((p: any) => !p.sub_estado || p.sub_estado === 'sin_revisar');
           if (esUrgente || tieneSinRevisar) {
             sugeridos.push({ ...mapped, esUrgente });
@@ -2074,8 +3030,11 @@ export default function MisDocumentosPage() {
       setNoInicializadosDocuments(noInicializados.slice(0, 10));
       setSinRevisarPropiosDocs(sinRevisarPropiosDocs.slice(0, 10));
       setSinRevisarParticipantesDocs(sinRevisarParticipantesDocs.slice(0, 10));
-    } catch (err) { console.error('Error loading documents:', err); }
-    finally { setLoadingDocs(false); }
+    } catch (err) {
+      console.error('Error loading documents:', err);
+    } finally {
+      setLoadingDocs(false);
+    }
   }, [user]);
 
   const loadFavorites = useCallback(async () => {
@@ -2083,9 +3042,14 @@ export default function MisDocumentosPage() {
     setLoadingFavorites(true);
     const supabase = createClient();
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token;
-      if (!token) { setLoadingFavorites(false); return; }
+      if (!token) {
+        setLoadingFavorites(false);
+        return;
+      }
 
       const res = await fetch('/api/documentos/listar?tipo=favoritos', {
         headers: { Authorization: `Bearer ${token}` },
@@ -2093,8 +3057,11 @@ export default function MisDocumentosPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al cargar favoritos');
       setFavoriteDocuments((json.data || []).map(mapDocRow));
-    } catch (err) { console.error('Error loading favorites:', err); }
-    finally { setLoadingFavorites(false); }
+    } catch (err) {
+      console.error('Error loading favorites:', err);
+    } finally {
+      setLoadingFavorites(false);
+    }
   }, [user]);
 
   const loadPorVencer = useCallback(async () => {
@@ -2102,9 +3069,14 @@ export default function MisDocumentosPage() {
     setLoadingPorVencer(true);
     const supabase = createClient();
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token;
-      if (!token) { setLoadingPorVencer(false); return; }
+      if (!token) {
+        setLoadingPorVencer(false);
+        return;
+      }
 
       const res = await fetch('/api/documentos/listar?tipo=por_vencer', {
         headers: { Authorization: `Bearer ${token}` },
@@ -2112,8 +3084,11 @@ export default function MisDocumentosPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al cargar por vencer');
       setPorVencerDocuments((json.data || []).map(mapDocRow));
-    } catch (err) { console.error('Error loading por vencer:', err); }
-    finally { setLoadingPorVencer(false); }
+    } catch (err) {
+      console.error('Error loading por vencer:', err);
+    } finally {
+      setLoadingPorVencer(false);
+    }
   }, [user]);
 
   const loadPapelera = useCallback(async () => {
@@ -2121,27 +3096,37 @@ export default function MisDocumentosPage() {
     setLoadingPapelera(true);
     const supabase = createClient();
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token;
-      if (!token) { setLoadingPapelera(false); return; }
+      if (!token) {
+        setLoadingPapelera(false);
+        return;
+      }
 
       const res = await fetch('/api/documentos/listar?tipo=papelera', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al cargar papelera');
-      setDeletedDocuments((json.data || []).map((d: any) => ({
-        id: d.id,
-        name: d.nombre || 'Sin nombre',
-        descripcion: d.descripcion || null,
-        tipo: 'Documento',
-        eliminadoPor: user.user_metadata?.full_name || user.email || 'Usuario',
-        fechaEliminacion: d.deleted_at ? formatDate(d.deleted_at) : '—',
-        tamano: d.file_size ? `${Math.round(d.file_size / 1024)} KB` : '—',
-        retencion: d.retencion || null,
-      })));
-    } catch (err) { console.error('Error loading papelera:', err); }
-    finally { setLoadingPapelera(false); }
+      setDeletedDocuments(
+        (json.data || []).map((d: any) => ({
+          id: d.id,
+          name: d.nombre || 'Sin nombre',
+          descripcion: d.descripcion || null,
+          tipo: 'Documento',
+          eliminadoPor: user.user_metadata?.full_name || user.email || 'Usuario',
+          fechaEliminacion: d.deleted_at ? formatDate(d.deleted_at) : '—',
+          tamano: d.file_size ? `${Math.round(d.file_size / 1024)} KB` : '—',
+          retencion: d.retencion || null,
+        }))
+      );
+    } catch (err) {
+      console.error('Error loading papelera:', err);
+    } finally {
+      setLoadingPapelera(false);
+    }
   }, [user]);
 
   useEffect(() => {
@@ -2151,11 +3136,21 @@ export default function MisDocumentosPage() {
     const channel = supabase
       .channel(`mis-documentos-${user.id}`)
       // Owned documents changes
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'documentos', filter: `owner_id=eq.${user.id}` }, () => loadDocuments())
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'documentos', filter: `owner_id=eq.${user.id}` },
+        () => loadDocuments()
+      )
       // Participant rows for this user (status/sub_estado changes from other screens)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'participantes', filter: `user_id=eq.${user.id}` }, () => loadDocuments())
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'participantes', filter: `user_id=eq.${user.id}` },
+        () => loadDocuments()
+      )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user, loadDocuments]);
 
   useEffect(() => {
@@ -2163,6 +3158,11 @@ export default function MisDocumentosPage() {
     if (activeSection === 'por-vencer') loadPorVencer();
     if (activeSection === 'papelera') loadPapelera();
   }, [activeSection, loadFavorites, loadPorVencer, loadPapelera]);
+
+  useEffect(() => {
+    setSelectedRows([]);
+    setSelectedFolders([]);
+  }, [activeSection]);
 
   useEffect(() => {
     if (!user) return;
@@ -2213,33 +3213,29 @@ export default function MisDocumentosPage() {
     if (!user) return;
     const supabase = createClient();
     const VIEW_KEY = 'mi_espacio_v1';
-    await supabase
-      .from('user_view_preferences')
-      .upsert(
-        {
-          user_id: user.id,
-          view_key: VIEW_KEY,
-          columns_config: cols,
-          filters_config: fils,
-        },
-        { onConflict: 'user_id,view_key' }
-      );
+    await supabase.from('user_view_preferences').upsert(
+      {
+        user_id: user.id,
+        view_key: VIEW_KEY,
+        columns_config: cols,
+        filters_config: fils,
+      },
+      { onConflict: 'user_id,view_key' }
+    );
   };
 
   const saveGridColumnPreferences = async (gridCols: GridColumnConfig[]) => {
     if (!user) return;
     const supabase = createClient();
     const VIEW_KEY = 'mi_espacio_v1';
-    await supabase
-      .from('user_view_preferences')
-      .upsert(
-        {
-          user_id: user.id,
-          view_key: VIEW_KEY,
-          grid_columns_config: gridCols,
-        },
-        { onConflict: 'user_id,view_key' }
-      );
+    await supabase.from('user_view_preferences').upsert(
+      {
+        user_id: user.id,
+        view_key: VIEW_KEY,
+        grid_columns_config: gridCols,
+      },
+      { onConflict: 'user_id,view_key' }
+    );
   };
 
   // NOTE: saveActiveFilters removed — active filter values are not persisted (only filter visibility is)
@@ -2250,40 +3246,68 @@ export default function MisDocumentosPage() {
     const loadActivity = async () => {
       setLoadingActivity(true);
       try {
-        const { data, error } = await supabase.from('audit_trail').select('id, accion, documento_nombre, documento_id, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5);
+        const { data, error } = await supabase
+          .from('audit_trail')
+          .select('id, accion, documento_nombre, documento_id, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5);
         if (!error && data) setRecentActivity(data);
-      } catch (_) { /* ignore */ }
-      finally { setLoadingActivity(false); }
+      } catch (_) {
+        /* ignore */
+      } finally {
+        setLoadingActivity(false);
+      }
     };
     loadActivity();
-    const actChannel = supabase.channel(`activity-${user.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'audit_trail', filter: `user_id=eq.${user.id}` }, (payload) => {
-        setRecentActivity((prev) => [payload.new as ActivityItem, ...prev].slice(0, 5));
-      }).subscribe();
-    return () => { supabase.removeChannel(actChannel); };
+    const actChannel = supabase
+      .channel(`activity-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'audit_trail',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          setRecentActivity((prev) => [payload.new as ActivityItem, ...prev].slice(0, 5));
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(actChannel);
+    };
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
     const supabase = createClient();
     const loadCarpetas = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) return;
       try {
-        const res = await fetch('/api/documentos/carpetas', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch('/api/documentos/carpetas', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const json = await res.json();
-        if (json.data) setCarpetas(json.data.map((c: any) => ({
-          id: c.id,
-          name: c.nombre,
-          creadoEn: c.created_at ? formatDate(c.created_at) : '',
-          parentId: c.parent_id || null,
-          descripcion: c.descripcion || null,
-          tipoDocumentoId: c.tipo_documento_id || null,
-          tipoDocumentoNombre: c.tipo_documento?.nombre || null,
-          grupoTipoDocumentoId: c.grupo_tipo_documento_id || null,
-          grupoTipoDocumentoNombre: c.grupo_tipo_documento?.nombre || null,
-        })));
+        if (json.data)
+          setCarpetas(
+            json.data.map((c: any) => ({
+              id: c.id,
+              name: c.nombre,
+              creadoEn: c.created_at ? formatDate(c.created_at) : '',
+              parentId: c.parent_id || null,
+              descripcion: c.descripcion || null,
+              tipoDocumentoId: c.tipo_documento_id || null,
+              tipoDocumentoNombre: c.tipo_documento?.nombre || null,
+              grupoTipoDocumentoId: c.grupo_tipo_documento_id || null,
+              grupoTipoDocumentoNombre: c.grupo_tipo_documento?.nombre || null,
+            }))
+          );
       } catch (err) {
         console.error('Error loading carpetas:', err);
       }
@@ -2291,20 +3315,29 @@ export default function MisDocumentosPage() {
     loadCarpetas();
   }, [user]);
 
-  const workspaceDisplayName = activeWorkspace?.name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Mi Espacio';
+  const workspaceDisplayName =
+    activeWorkspace?.name ||
+    user?.user_metadata?.full_name ||
+    user?.email?.split('@')[0] ||
+    'Mi Espacio';
   const isPersonalWorkspace = !activeWorkspace || activeWorkspace.workspaceType === 'personal';
-  const personalUserFullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Mi Espacio';
+  const personalUserFullName =
+    user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Mi Espacio';
   const workspaceLabel = isPersonalWorkspace ? 'Espacio personal de' : 'Espacio de';
 
   // Derived: carpetas visible in current folder view
   const visibleCarpetas = carpetas.filter((c) => {
-    const matchesFolder = currentFolderId === null ? c.parentId === null : c.parentId === currentFolderId;
+    const matchesFolder =
+      currentFolderId === null ? c.parentId === null : c.parentId === currentFolderId;
     return matchesFolder && c.name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
   // Derived: documents visible in current folder view
   const visibleDocuments = realDocuments.filter((doc) => {
-    const matchesFolder = currentFolderId === null ? (doc.carpetaId === null || doc.carpetaId === undefined) : doc.carpetaId === currentFolderId;
+    const matchesFolder =
+      currentFolderId === null
+        ? doc.carpetaId === null || doc.carpetaId === undefined
+        : doc.carpetaId === currentFolderId;
     if (!matchesFolder) return false;
     if (!doc.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
 
@@ -2316,21 +3349,35 @@ export default function MisDocumentosPage() {
     }
 
     // tipoDocumento: array of selected IDs
-    if (activeFilters['tipoDocumento'] && Array.isArray(activeFilters['tipoDocumento']) && activeFilters['tipoDocumento'].length > 0) {
+    if (
+      activeFilters['tipoDocumento'] &&
+      Array.isArray(activeFilters['tipoDocumento']) &&
+      activeFilters['tipoDocumento'].length > 0
+    ) {
       const selectedIds: string[] = activeFilters['tipoDocumento'];
       const hasOtro = selectedIds.includes('__otros__');
       const regularIds = selectedIds.filter((id) => id !== '__otros__');
       const matchesOtro = hasOtro && doc.tipoDocumentoId === '__otros__';
-      const matchesRegular = regularIds.length > 0 && doc.tipoDocumentoId != null && regularIds.includes(doc.tipoDocumentoId);
+      const matchesRegular =
+        regularIds.length > 0 &&
+        doc.tipoDocumentoId != null &&
+        regularIds.includes(doc.tipoDocumentoId);
       if (!matchesOtro && !matchesRegular) return false;
     }
 
     // propietario: all docs belong to current user — filter by name match
-    if (activeFilters['propietario'] && activeFilters['propietario'] !== '' && activeFilters['propietario'] !== 'todos') {
+    if (
+      activeFilters['propietario'] &&
+      activeFilters['propietario'] !== '' &&
+      activeFilters['propietario'] !== 'todos'
+    ) {
       if (activeFilters['propietario'] === 'mios') {
         // Only show docs owned by current user — already the case since we query by owner_id
         // no-op: all docs are already the current user's
-      } else if (Array.isArray(activeFilters['propietario']) && activeFilters['propietario'].length > 0) {
+      } else if (
+        Array.isArray(activeFilters['propietario']) &&
+        activeFilters['propietario'].length > 0
+      ) {
         // filter by selected user IDs — since docs are owner_id = user.id, only show if user.id is in list
         if (!activeFilters['propietario'].includes(user?.id || '')) return false;
       }
@@ -2354,7 +3401,8 @@ export default function MisDocumentosPage() {
         const now = new Date();
         const range = activeFilters['ultimaModificacion'];
         if (range === 'today') {
-          const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+          const todayDate = new Date();
+          todayDate.setHours(0, 0, 0, 0);
           if (docDate < todayDate) return false;
         } else if (range === 'week') {
           const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -2368,8 +3416,10 @@ export default function MisDocumentosPage() {
         } else if (range === 'custom') {
           const cr = customDateRanges['ultimaModificacion'];
           if (cr?.start && cr?.end) {
-            const start = new Date(cr.start); start.setHours(0,0,0,0);
-            const end = new Date(cr.end); end.setHours(23,59,59,999);
+            const start = new Date(cr.start);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(cr.end);
+            end.setHours(23, 59, 59, 999);
             if (docDate < start || docDate > end) return false;
           }
         }
@@ -2382,7 +3432,8 @@ export default function MisDocumentosPage() {
         // Vencido: doc has a past expiry date and is not completed/cancelled/rejected
         const fv = doc.fechaVencimiento ? new Date(doc.fechaVencimiento) : null;
         const now = new Date();
-        const isVencido = fv && fv < now && !['Completado', 'Cancelado', 'Rechazado'].includes(doc.estado);
+        const isVencido =
+          fv && fv < now && !['Completado', 'Cancelado', 'Rechazado'].includes(doc.estado);
         if (!isVencido) return false;
       } else {
         if (doc.estado !== activeFilters['estado']) return false;
@@ -2397,14 +3448,23 @@ export default function MisDocumentosPage() {
         if (!doc.fechaVencimiento || new Date(doc.fechaVencimiento) >= now) return false;
       } else if (fv === 'proximos') {
         const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
-        if (!doc.fechaVencimiento || new Date(doc.fechaVencimiento) < now || new Date(doc.fechaVencimiento) > in72h) return false;
+        if (
+          !doc.fechaVencimiento ||
+          new Date(doc.fechaVencimiento) < now ||
+          new Date(doc.fechaVencimiento) > in72h
+        )
+          return false;
       } else if (fv === 'sin_vencimiento') {
         if (doc.fechaVencimiento) return false;
       }
     }
 
     // etiquetas: filter by tag text match
-    if (activeFilters['etiquetas'] && Array.isArray(activeFilters['etiquetas']) && activeFilters['etiquetas'].length > 0) {
+    if (
+      activeFilters['etiquetas'] &&
+      Array.isArray(activeFilters['etiquetas']) &&
+      activeFilters['etiquetas'].length > 0
+    ) {
       const selectedNames: string[] = activeFilters['etiquetas'];
       const hasMatch = doc.etiquetas.some((t) => selectedNames.includes(String(t)));
       if (!hasMatch) return false;
@@ -2421,12 +3481,13 @@ export default function MisDocumentosPage() {
           if (range === 'sin_completado') {
             if (doc.fechaCompletado) return false;
           } else if (range === 'today') {
-            const t = new Date(); t.setHours(0,0,0,0);
+            const t = new Date();
+            t.setHours(0, 0, 0, 0);
             if (d < t) return false;
           } else if (range === 'week') {
-            if (d < new Date(now.getTime() - 7*24*60*60*1000)) return false;
+            if (d < new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) return false;
           } else if (range === 'month') {
-            if (d < new Date(now.getTime() - 30*24*60*60*1000)) return false;
+            if (d < new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)) return false;
           }
         }
       } else {
@@ -2444,19 +3505,22 @@ export default function MisDocumentosPage() {
         let d = parts.length === 3 ? new Date(`${parts[2]}-${parts[1]}-${parts[0]}`) : null;
         if (d && !isNaN(d.getTime())) {
           if (range === 'today') {
-            const t = new Date(); t.setHours(0,0,0,0);
+            const t = new Date();
+            t.setHours(0, 0, 0, 0);
             if (d < t) return false;
           } else if (range === 'week') {
-            if (d < new Date(now.getTime() - 7*24*60*60*1000)) return false;
+            if (d < new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) return false;
           } else if (range === 'month') {
-            if (d < new Date(now.getTime() - 30*24*60*60*1000)) return false;
+            if (d < new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)) return false;
           } else if (range === 'year') {
-            if (d < new Date(now.getTime() - 365*24*60*60*1000)) return false;
+            if (d < new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)) return false;
           } else if (range === 'custom') {
             const cr = customDateRanges['fechaCreacion'];
             if (cr?.start && cr?.end) {
-              const start = new Date(cr.start); start.setHours(0,0,0,0);
-              const end = new Date(cr.end); end.setHours(23,59,59,999);
+              const start = new Date(cr.start);
+              start.setHours(0, 0, 0, 0);
+              const end = new Date(cr.end);
+              end.setHours(23, 59, 59, 999);
               if (d < start || d > end) return false;
             }
           }
@@ -2465,7 +3529,11 @@ export default function MisDocumentosPage() {
     }
 
     // participantes: text match on participant name/email
-    if (activeFilters['participantes'] && activeFilters['participantes'] !== '' && activeFilters['participantes'] !== 'todos') {
+    if (
+      activeFilters['participantes'] &&
+      activeFilters['participantes'] !== '' &&
+      activeFilters['participantes'] !== 'todos'
+    ) {
       const parts: any[] = doc.participantes || [];
       if (activeFilters['participantes'] === 'yo') {
         // Show docs where current user is a participant
@@ -2475,7 +3543,10 @@ export default function MisDocumentosPage() {
           return pid === user?.id || pemail === user?.email;
         });
         if (!isParticipant) return false;
-      } else if (Array.isArray(activeFilters['participantes']) && activeFilters['participantes'].length > 0) {
+      } else if (
+        Array.isArray(activeFilters['participantes']) &&
+        activeFilters['participantes'].length > 0
+      ) {
         const selectedIds: string[] = activeFilters['participantes'];
         const hasMatch = parts.some((p) => {
           const pid = p.id || p.user_id || p.userId || p.email;
@@ -2521,13 +3592,17 @@ export default function MisDocumentosPage() {
     if (miEspacioSortOrder === 'nombre_asc') return a.name.localeCompare(b.name);
     if (miEspacioSortOrder === 'nombre_desc') return b.name.localeCompare(a.name);
     if (miEspacioSortOrder === 'estado_asc') return a.estado.localeCompare(b.estado);
-    if (miEspacioSortOrder === 'ultimaModificacion_asc') return a.ultimaModificacion.localeCompare(b.ultimaModificacion);
+    if (miEspacioSortOrder === 'ultimaModificacion_asc')
+      return a.ultimaModificacion.localeCompare(b.ultimaModificacion);
     return b.ultimaModificacion.localeCompare(a.ultimaModificacion);
   });
 
   const toggleSelectAll = () => {
     const allFolderIds = visibleCarpetas.map((c) => c.id);
-    const allSelected = selectedRows.length === sortedDocuments.length && selectedFolders.length === visibleCarpetas.length && (sortedDocuments.length + visibleCarpetas.length) > 0;
+    const allSelected =
+      selectedRows.length === sortedDocuments.length &&
+      selectedFolders.length === visibleCarpetas.length &&
+      sortedDocuments.length + visibleCarpetas.length > 0;
     if (allSelected) {
       setSelectedRows([]);
       setSelectedFolders([]);
@@ -2538,49 +3613,95 @@ export default function MisDocumentosPage() {
   };
 
   const toggleSelectFolder = (id: string) => {
-    setSelectedFolders((prev) => prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]);
+    setSelectedFolders((prev) =>
+      prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]
+    );
   };
 
   const toggleSelectRow = (id: string) => {
-    setSelectedRows((prev) => prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]);
+    setSelectedRows((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
+  };
+
+  const toggleSelectDocumentSet = (ids: string[]) => {
+    const uniqueIds = Array.from(new Set(ids));
+    if (uniqueIds.length === 0) return;
+
+    setSelectedRows((prev) => {
+      const allSelected = uniqueIds.every((id) => prev.includes(id));
+      if (allSelected) {
+        return prev.filter((id) => !uniqueIds.includes(id));
+      }
+      return Array.from(new Set([...prev, ...uniqueIds]));
+    });
   };
 
   const handleRestore = async (docId: string) => {
     if (!user) return;
     const supabase = createClient();
-    const { error } = await supabase.from('documentos').update({ deleted_at: null }).eq('id', docId).eq('owner_id', user.id);
-    if (!error) { setDeletedDocuments((prev) => prev.filter((d) => d.id !== docId)); showToast('Documento restaurado correctamente'); loadDocuments(); }
-    else showToast('Error al restaurar el documento');
+    const { error } = await supabase
+      .from('documentos')
+      .update({ deleted_at: null })
+      .eq('id', docId)
+      .eq('owner_id', user.id);
+    if (!error) {
+      setDeletedDocuments((prev) => prev.filter((d) => d.id !== docId));
+      showToast('Documento restaurado correctamente');
+      loadDocuments();
+    } else showToast('Error al restaurar el documento');
   };
 
-  const openConfirmDelete = (docId: string, docName: string) => setConfirmDelete({ open: true, docId, docName, isEmptyAll: false });
-  const openConfirmEmptyAll = () => setConfirmDelete({ open: true, docId: null, docName: '', isEmptyAll: true });
+  const openConfirmDelete = (docId: string, docName: string) =>
+    setConfirmDelete({ open: true, docId, docName, isEmptyAll: false });
+  const openConfirmEmptyAll = () =>
+    setConfirmDelete({ open: true, docId: null, docName: '', isEmptyAll: true });
 
   const handleConfirmPermanentDelete = async () => {
     if (!user) return;
     const supabase = createClient();
     if (confirmDelete.isEmptyAll) {
-      const { error } = await supabase.from('documentos').delete().eq('owner_id', user.id).not('deleted_at', 'is', null);
+      const { error } = await supabase
+        .from('documentos')
+        .delete()
+        .eq('owner_id', user.id)
+        .not('deleted_at', 'is', null);
       if (!error) setDeletedDocuments([]);
     } else if (confirmDelete.docId) {
-      const { error } = await supabase.from('documentos').delete().eq('id', confirmDelete.docId).eq('owner_id', user.id);
+      const { error } = await supabase
+        .from('documentos')
+        .delete()
+        .eq('id', confirmDelete.docId)
+        .eq('owner_id', user.id);
       if (!error) setDeletedDocuments((prev) => prev.filter((d) => d.id !== confirmDelete.docId));
     }
     setConfirmDelete({ open: false, docId: null, docName: '', isEmptyAll: false });
   };
 
-  const filteredDeleted = deletedDocuments.filter((doc) => doc.name.toLowerCase().includes(papeleraSearch.toLowerCase()));
+  const filteredDeleted = deletedDocuments.filter((doc) =>
+    doc.name.toLowerCase().includes(papeleraSearch.toLowerCase())
+  );
 
   const handleCrearCarpeta = async () => {
     const nombre = nuevaCarpetaNombre.trim();
-    if (!nombre) { setCarpetaError('El nombre de la carpeta es obligatorio.'); return; }
-    if (!nuevaCarpetaGrupoId) { setCarpetaError('El grupo de tipo de documento es obligatorio.'); return; }
+    if (!nombre) {
+      setCarpetaError('El nombre de la carpeta es obligatorio.');
+      return;
+    }
+    if (!nuevaCarpetaGrupoId) {
+      setCarpetaError('El grupo de tipo de documento es obligatorio.');
+      return;
+    }
     if (!user) return;
     setCrearCarpetaLoading(true);
     const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     const token = session?.access_token;
-    if (!token) { setCarpetaError('No autenticado. Inicia sesión de nuevo.'); setCrearCarpetaLoading(false); return; }
+    if (!token) {
+      setCarpetaError('No autenticado. Inicia sesión de nuevo.');
+      setCrearCarpetaLoading(false);
+      return;
+    }
     try {
       const res = await fetch('/api/documentos/carpetas', {
         method: 'POST',
@@ -2593,18 +3714,26 @@ export default function MisDocumentosPage() {
         }),
       });
       const json = await res.json();
-      if (!res.ok || json.error) { setCarpetaError(json.error || 'Error al crear la carpeta. Intenta de nuevo.'); setCrearCarpetaLoading(false); return; }
-      if (json.data) setCarpetas((prev) => [...prev, {
-        id: json.data.id,
-        name: json.data.nombre,
-        creadoEn: json.data.created_at ? formatDate(json.data.created_at) : '',
-        parentId: json.data.parent_id || null,
-        descripcion: json.data.descripcion || null,
-        tipoDocumentoId: json.data.tipo_documento_id || null,
-        tipoDocumentoNombre: json.data.tipo_documento?.nombre || null,
-        grupoTipoDocumentoId: json.data.grupo_tipo_documento_id || null,
-        grupoTipoDocumentoNombre: json.data.grupo_tipo_documento?.nombre || null,
-      }]);
+      if (!res.ok || json.error) {
+        setCarpetaError(json.error || 'Error al crear la carpeta. Intenta de nuevo.');
+        setCrearCarpetaLoading(false);
+        return;
+      }
+      if (json.data)
+        setCarpetas((prev) => [
+          ...prev,
+          {
+            id: json.data.id,
+            name: json.data.nombre,
+            creadoEn: json.data.created_at ? formatDate(json.data.created_at) : '',
+            parentId: json.data.parent_id || null,
+            descripcion: json.data.descripcion || null,
+            tipoDocumentoId: json.data.tipo_documento_id || null,
+            tipoDocumentoNombre: json.data.tipo_documento?.nombre || null,
+            grupoTipoDocumentoId: json.data.grupo_tipo_documento_id || null,
+            grupoTipoDocumentoNombre: json.data.grupo_tipo_documento?.nombre || null,
+          },
+        ]);
       setNuevaCarpetaNombre('');
       setNuevaCarpetaDescripcion('');
       setNuevaCarpetaTipoDocumentoId('');
@@ -2630,13 +3759,19 @@ export default function MisDocumentosPage() {
   const handleMoverACarpeta = async (carpetaId: string | null, carpetaName: string) => {
     if (!user) return;
     const supabase = createClient();
-    const ids = moveModal.isBulk ? selectedRows : (moveModal.docId ? [moveModal.docId] : []);
+    const ids = moveModal.isBulk ? selectedRows : moveModal.docId ? [moveModal.docId] : [];
     if (ids.length === 0) return;
-    const { error } = await supabase.from('documentos').update({ carpeta_id: carpetaId }).in('id', ids).eq('owner_id', user.id);
+    const { error } = await supabase
+      .from('documentos')
+      .update({ carpeta_id: carpetaId })
+      .in('id', ids)
+      .eq('owner_id', user.id);
     setMoveModal({ open: false, docId: null, docName: '', isBulk: false });
     if (!error) {
       if (moveModal.isBulk) setSelectedRows([]);
-      showToast(carpetaId ? `Documento(s) movido(s) a "${carpetaName}"` : `Documento(s) movido(s) a la raíz`);
+      showToast(
+        carpetaId ? `Documento(s) movido(s) a "${carpetaName}"` : `Documento(s) movido(s) a la raíz`
+      );
       loadDocuments();
     } else {
       showToast('Error al mover el documento');
@@ -2687,7 +3822,11 @@ export default function MisDocumentosPage() {
     if (type === 'document' && (dragDocId || id)) {
       const docId = dragDocId || id;
       if (!docId) return;
-      const { error } = await supabase.from('documentos').update({ carpeta_id: carpeta.id }).eq('id', docId).eq('owner_id', user.id);
+      const { error } = await supabase
+        .from('documentos')
+        .update({ carpeta_id: carpeta.id })
+        .eq('id', docId)
+        .eq('owner_id', user.id);
       setDragDocId(null);
       if (!error) {
         showToast(`Documento movido a "${carpeta.name}"`);
@@ -2699,11 +3838,21 @@ export default function MisDocumentosPage() {
       const folderId = dragFolderId || id;
       if (!folderId || folderId === carpeta.id) return;
       // Prevent moving a folder into itself or its descendants
-      if (isDescendant(folderId, carpeta.id, carpetas)) { showToast('No puedes mover una carpeta dentro de sí misma'); setDragFolderId(null); return; }
-      const { error } = await supabase.from('carpetas').update({ parent_id: carpeta.id }).eq('id', folderId).eq('owner_id', user.id);
+      if (isDescendant(folderId, carpeta.id, carpetas)) {
+        showToast('No puedes mover una carpeta dentro de sí misma');
+        setDragFolderId(null);
+        return;
+      }
+      const { error } = await supabase
+        .from('carpetas')
+        .update({ parent_id: carpeta.id })
+        .eq('id', folderId)
+        .eq('owner_id', user.id);
       setDragFolderId(null);
       if (!error) {
-        setCarpetas((prev) => prev.map((c) => c.id === folderId ? { ...c, parentId: carpeta.id } : c));
+        setCarpetas((prev) =>
+          prev.map((c) => (c.id === folderId ? { ...c, parentId: carpeta.id } : c))
+        );
         showToast(`Carpeta movida a "${carpeta.name}"`);
       } else {
         showToast('Error al mover la carpeta');
@@ -2730,16 +3879,14 @@ export default function MisDocumentosPage() {
     if (!user) return;
     const supabase = createClient();
     const VIEW_KEY = 'mi_espacio_v1';
-    await supabase
-      .from('user_view_preferences')
-      .upsert(
-        {
-          user_id: user.id,
-          view_key: VIEW_KEY,
-          custom_filters: filters,
-        },
-        { onConflict: 'user_id,view_key' }
-      );
+    await supabase.from('user_view_preferences').upsert(
+      {
+        user_id: user.id,
+        view_key: VIEW_KEY,
+        custom_filters: filters,
+      },
+      { onConflict: 'user_id,view_key' }
+    );
   };
 
   // ─── Render helpers ────────────────────────────────────────────────────────
@@ -2762,8 +3909,8 @@ export default function MisDocumentosPage() {
         draggable
         onDragStart={(e) => handleFolderDragStart(e, carpeta.id)}
         onDragEnd={handleDragEnd}
-        className={`relative flex flex-col rounded-xl border cursor-pointer transition-all group overflow-hidden
-          ${dragOverFolderId === carpeta.id ? 'border-primary bg-primary/5 scale-105' : selectedFolders.includes(carpeta.id) ? 'border-primary bg-primary/5 shadow-sm' : 'border-border bg-white hover:border-primary/40 hover:shadow-md'}
+        className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border transition-all
+          ${dragOverFolderId === carpeta.id ? 'border-primary bg-primary/5' : selectedFolders.includes(carpeta.id) ? 'border-primary bg-primary/5' : 'border-slate-200 bg-white hover:border-primary/40 hover:bg-slate-50/50'}
           ${dragFolderId === carpeta.id ? 'opacity-50' : ''}
         `}
         onDragOver={(e) => handleFolderDragOver(e, carpeta.id)}
@@ -2775,24 +3922,39 @@ export default function MisDocumentosPage() {
           <input
             type="checkbox"
             checked={selectedFolders.includes(carpeta.id)}
-            onChange={(e) => { e.stopPropagation(); toggleSelectFolder(carpeta.id); }}
+            onChange={(e) => {
+              e.stopPropagation();
+              toggleSelectFolder(carpeta.id);
+            }}
             onClick={(e) => e.stopPropagation()}
-            className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
+            className={selectionCheckboxClass}
           />
         </div>
         {/* Actions button top-right */}
         <div className="absolute top-3 right-3 z-10">
           <button
-            onClick={(e) => { e.stopPropagation(); openFolderContextMenu(e, carpeta); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              openFolderContextMenu(e, carpeta);
+            }}
             className={`p-1 rounded hover:bg-muted/80 transition-colors bg-white/80 backdrop-blur-sm ${activeFolderContextMenuId === carpeta.id && folderContextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
             title="Opciones"
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
+            </svg>
           </button>
         </div>
         {/* Top section: icon + name + description — clicking name opens folder */}
-        <div className="flex flex-col items-center pt-5 pb-3 px-3 gap-1.5">
-          <Folder size={36} className={`${dragOverFolderId === carpeta.id ? 'text-primary' : 'text-yellow-400 group-hover:text-yellow-500'} transition-colors flex-shrink-0`} />
+        <div className="flex flex-col items-center gap-1.5 px-3 pb-3 pt-5">
+          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-amber-50">
+            <Folder
+              size={25}
+              className={`${dragOverFolderId === carpeta.id ? 'text-primary' : 'text-yellow-500'} flex-shrink-0 transition-colors`}
+            />
+          </div>
           <button
             onClick={() => handleOpenFolder(carpeta)}
             className="text-sm font-semibold text-foreground text-center line-clamp-2 leading-tight w-full hover:text-primary transition-colors"
@@ -2800,10 +3962,14 @@ export default function MisDocumentosPage() {
             {carpeta.name}
           </button>
           {carpeta.descripcion && (
-            <span className="text-xs text-muted-foreground text-center line-clamp-2 leading-tight w-full">{carpeta.descripcion}</span>
+            <span className="text-xs text-muted-foreground text-center line-clamp-2 leading-tight w-full">
+              {carpeta.descripcion}
+            </span>
           )}
           {carpeta.grupoTipoDocumentoNombre && (
-            <span className="px-2 py-0.5 text-[10px] font-medium bg-primary/10 text-primary rounded-full border border-primary/20 truncate max-w-full">{carpeta.grupoTipoDocumentoNombre}</span>
+            <span className="px-2 py-0.5 text-[10px] font-medium bg-primary/10 text-primary rounded-full border border-primary/20 truncate max-w-full">
+              {carpeta.grupoTipoDocumentoNombre}
+            </span>
           )}
         </div>
         {/* Divider */}
@@ -2845,7 +4011,9 @@ export default function MisDocumentosPage() {
         case 'estadoParticipacion':
           return doc.miSubEstado ? (
             <span className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getParticipacionDot(doc.miSubEstado)}`} />
+              <span
+                className={`w-2 h-2 rounded-full flex-shrink-0 ${getParticipacionDot(doc.miSubEstado)}`}
+              />
               {getParticipacionLabel(doc.miSubEstado)}
             </span>
           ) : (
@@ -2856,7 +4024,9 @@ export default function MisDocumentosPage() {
           return (
             <div className="flex flex-wrap justify-center gap-1">
               {doc.etiquetas.slice(0, 2).map((tagId, i) => {
-                const etiqueta = etiquetasList.find((e) => e.id === String(tagId) || e.nombre === String(tagId));
+                const etiqueta = etiquetasList.find(
+                  (e) => e.id === String(tagId) || e.nombre === String(tagId)
+                );
                 const label = etiqueta ? etiqueta.nombre : String(tagId);
                 const color = etiqueta?.color || '#6366f1';
                 return (
@@ -2877,30 +4047,55 @@ export default function MisDocumentosPage() {
             </div>
           );
         case 'ultimaModificacion':
-          return <span className="text-xs text-muted-foreground text-center">{doc.ultimaModificacion}</span>;
+          return (
+            <span className="text-xs text-muted-foreground text-center">
+              {doc.ultimaModificacion}
+            </span>
+          );
         case 'tamano':
           return <span className="text-xs text-muted-foreground">{doc.tamano}</span>;
         case 'propietario':
           return (
             <span className="text-xs text-muted-foreground text-center">
-              {doc.ownerName || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Yo'}
+              {doc.ownerName ||
+                user?.user_metadata?.full_name ||
+                user?.email?.split('@')[0] ||
+                'Yo'}
             </span>
           );
         case 'numeroDocumento':
-          return doc.numeroOficio ? <span className="text-xs text-muted-foreground text-center">{doc.numeroOficio}</span> : null;
+          return doc.numeroOficio ? (
+            <span className="text-xs text-muted-foreground text-center">{doc.numeroOficio}</span>
+          ) : null;
         case 'folioInterno':
-          return doc.folioInterno ? <span className="text-xs text-muted-foreground text-center">{doc.folioInterno}</span> : null;
+          return doc.folioInterno ? (
+            <span className="text-xs text-muted-foreground text-center">{doc.folioInterno}</span>
+          ) : null;
         case 'fechaCreacion':
-          return doc.fechaCreacion ? <span className="text-xs text-muted-foreground text-center">{doc.fechaCreacion}</span> : null;
+          return doc.fechaCreacion ? (
+            <span className="text-xs text-muted-foreground text-center">{doc.fechaCreacion}</span>
+          ) : null;
         case 'fechaCompletado':
-          return doc.fechaCompletado ? <span className="text-xs text-muted-foreground text-center">{doc.fechaCompletado}</span> : null;
+          return doc.fechaCompletado ? (
+            <span className="text-xs text-muted-foreground text-center">{doc.fechaCompletado}</span>
+          ) : null;
         case 'tipoDocumento':
-          return doc.tipoDocumentoNombre ? <span className="text-xs text-muted-foreground truncate max-w-full text-center">{doc.tipoDocumentoNombre}</span> : null;
+          return doc.tipoDocumentoNombre ? (
+            <span className="text-xs text-muted-foreground truncate max-w-full text-center">
+              {doc.tipoDocumentoNombre}
+            </span>
+          ) : null;
         case 'fechaVencimiento':
-          return doc.fechaVencimiento ? <span className="text-xs text-muted-foreground text-center">{formatDate(doc.fechaVencimiento)}</span> : null;
+          return doc.fechaVencimiento ? (
+            <span className="text-xs text-muted-foreground text-center">
+              {formatDate(doc.fechaVencimiento)}
+            </span>
+          ) : null;
         case 'prioridad':
           return doc.esUrgente ? (
-            <span className="px-2 py-0.5 text-xs font-semibold bg-red-100 text-red-600 rounded-full">Urgente</span>
+            <span className="px-2 py-0.5 text-xs font-semibold bg-red-100 text-red-600 rounded-full">
+              Urgente
+            </span>
           ) : (
             <span className="text-sm text-muted-foreground">Normal</span>
           );
@@ -2919,43 +4114,70 @@ export default function MisDocumentosPage() {
         draggable
         onDragStart={(e) => handleDragStart(e, doc.id)}
         onDragEnd={handleDragEnd}
-        className={`relative flex flex-col rounded-2xl border cursor-pointer transition-all group overflow-hidden
-          ${selectedRows.includes(doc.id) ? 'border-primary bg-primary/5 shadow-sm' : 'border-border bg-white hover:border-primary/30 hover:shadow-md'}
+        className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border transition-all
+          ${selectedRows.includes(doc.id) ? 'border-primary bg-primary/5' : 'border-slate-200 bg-white hover:border-primary/30 hover:bg-slate-50/50'}
           ${dragDocId === doc.id ? 'opacity-50' : ''}
         `}
-        onDoubleClick={() => doc.isDraft ? router.push(`/crear-documento?draft=${doc.id}`) : router.push(`/visor-documento/${doc.id}`)}
+        onDoubleClick={() =>
+          doc.isDraft
+            ? router.push(`/crear-documento?draft=${doc.id}`)
+            : router.push(`/visor-documento/${doc.id}`)
+        }
       >
         {/* Checkbox top-left */}
         <div className="absolute top-3 left-3 z-10">
           <input
             type="checkbox"
             checked={selectedRows.includes(doc.id)}
-            onChange={(e) => { e.stopPropagation(); toggleSelectRow(doc.id); }}
+            onChange={(e) => {
+              e.stopPropagation();
+              toggleSelectRow(doc.id);
+            }}
             onClick={(e) => e.stopPropagation()}
-            className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
+            className={selectionCheckboxClass}
           />
         </div>
 
         {/* Actions button top-right */}
         <div className="absolute top-3 right-3 z-10">
           <button
-            onClick={(e) => { e.stopPropagation(); openContextMenu(e, doc); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              openContextMenu(e, doc);
+            }}
             className={`p-1 rounded hover:bg-muted/80 transition-colors bg-white/80 backdrop-blur-sm ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
             title="Opciones"
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
+            </svg>
           </button>
         </div>
 
         {/* Icon area */}
-        <div className="flex flex-col items-center pt-8 pb-3 px-4 gap-2">
-          <FileText size={44} className={`${getDocIconColor(doc.estado)} transition-colors`} />
+        <div className="flex flex-col items-center gap-2 px-4 pb-3 pt-8">
+          <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-50">
+            <FileText size={27} className={`${getDocIconColor(doc.estado)} transition-colors`} />
+          </div>
           {/* Name with favorite icon before it — clicking name navigates */}
           <div className="flex items-center gap-1 w-full justify-center">
-            {doc.isFavorite && <Star size={11} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />}
-            {doc.esUrgente && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 inline-block" title="Urgente" />}
+            {doc.isFavorite && (
+              <Star size={11} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />
+            )}
+            {doc.esUrgente && (
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 inline-block"
+                title="Urgente"
+              />
+            )}
             <button
-              onClick={() => doc.isDraft ? router.push(`/crear-documento?draft=${doc.id}`) : router.push(`/visor-documento/${doc.id}`)}
+              onClick={() =>
+                doc.isDraft
+                  ? router.push(`/crear-documento?draft=${doc.id}`)
+                  : router.push(`/visor-documento/${doc.id}`)
+              }
               className="text-sm font-semibold text-foreground text-center line-clamp-2 leading-tight hover:text-primary transition-colors"
             >
               {doc.name}
@@ -2966,7 +4188,9 @@ export default function MisDocumentosPage() {
           {tagField && doc.etiquetas && doc.etiquetas.length > 0 && (
             <div className="flex flex-wrap justify-center gap-1 mt-0.5">
               {doc.etiquetas.slice(0, 2).map((tagId, i) => {
-                const etiqueta = etiquetasList.find((e) => e.id === String(tagId) || e.nombre === String(tagId));
+                const etiqueta = etiquetasList.find(
+                  (e) => e.id === String(tagId) || e.nombre === String(tagId)
+                );
                 const label = etiqueta ? etiqueta.nombre : String(tagId);
                 const color = etiqueta?.color || '#6366f1';
                 return (
@@ -3012,328 +4236,523 @@ export default function MisDocumentosPage() {
   const renderFolderTableRow = (carpeta: Carpeta) => {
     const visibleCols = columnConfig.filter((c) => c.visible);
     return (
-    <tr
-      key={carpeta.id}
-      draggable
-      onDragStart={(e) => handleFolderDragStart(e, carpeta.id)}
-      onDragEnd={handleDragEnd}
-      className={`border-b border-border hover:bg-muted/30 transition-colors group
+      <tr
+        key={carpeta.id}
+        draggable
+        onDragStart={(e) => handleFolderDragStart(e, carpeta.id)}
+        onDragEnd={handleDragEnd}
+        className={`border-b border-border hover:bg-muted/30 transition-colors group
         ${selectedFolders.includes(carpeta.id) ? 'bg-blue-50/60' : ''}
         ${dragOverFolderId === carpeta.id ? 'bg-primary/5' : ''}
         ${dragFolderId === carpeta.id ? 'opacity-50' : ''}
       `}
-      onDragOver={(e) => handleFolderDragOver(e, carpeta.id)}
-      onDragLeave={handleFolderDragLeave}
-      onDrop={(e) => handleFolderDrop(e, carpeta)}
-      onContextMenu={(e) => openFolderContextMenu(e, carpeta)}
-    >
-      <td className="px-4 py-3 w-10 flex-shrink-0">
-        <input
-          type="checkbox"
-          checked={selectedFolders.includes(carpeta.id)}
-          onChange={() => toggleSelectFolder(carpeta.id)}
-          className="rounded border-border accent-primary cursor-pointer w-4 h-4"
-        />
-      </td>
-      {/* Name column - spans all data columns */}
-      <td className="px-3 py-3 min-w-[200px]">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-yellow-50 border border-yellow-200 flex items-center justify-center flex-shrink-0">
-            <Folder size={16} className={`${dragOverFolderId === carpeta.id ? 'text-primary' : 'text-yellow-500'} flex-shrink-0`} />
+        onDragOver={(e) => handleFolderDragOver(e, carpeta.id)}
+        onDragLeave={handleFolderDragLeave}
+        onDrop={(e) => handleFolderDrop(e, carpeta)}
+        onContextMenu={(e) => openFolderContextMenu(e, carpeta)}
+      >
+        <td className={selectionCheckboxCellClass}>
+          <input
+            type="checkbox"
+            checked={selectedFolders.includes(carpeta.id)}
+            onChange={() => toggleSelectFolder(carpeta.id)}
+            className={selectionCheckboxClass}
+          />
+        </td>
+        {/* Name column - spans all data columns */}
+        <td className="px-3 py-3 min-w-[200px]">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-yellow-50 border border-yellow-200 flex items-center justify-center flex-shrink-0">
+              <Folder
+                size={16}
+                className={`${dragOverFolderId === carpeta.id ? 'text-primary' : 'text-yellow-500'} flex-shrink-0`}
+              />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <button
+                onClick={() => handleOpenFolder(carpeta)}
+                className="text-sm font-medium text-foreground hover:text-primary transition-colors text-left"
+              >
+                {carpeta.name}
+              </button>
+              {carpeta.descripcion && (
+                <span className="text-xs text-muted-foreground truncate max-w-[220px]">
+                  {carpeta.descripcion}
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">Carpeta · {carpeta.creadoEn}</span>
+            </div>
           </div>
-          <div className="flex flex-col min-w-0">
-            <button
-              onClick={() => handleOpenFolder(carpeta)}
-              className="text-sm font-medium text-foreground hover:text-primary transition-colors text-left"
-            >
-              {carpeta.name}
-            </button>
-            {carpeta.descripcion && (
-              <span className="text-xs text-muted-foreground truncate max-w-[220px]">{carpeta.descripcion}</span>
-            )}
-            <span className="text-xs text-muted-foreground">Carpeta · {carpeta.creadoEn}</span>
-          </div>
-        </div>
-      </td>
-      {/* Render "-" for all visible data columns */}
-      {visibleCols.find((c) => c.id === 'propietario')?.visible && (
-        <td className="px-3 py-3 min-w-[100px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'ultimaModificacion')?.visible && (
-        <td className="px-3 py-3 min-w-[160px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'tamano')?.visible && (
-        <td className="px-3 py-3 min-w-[80px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'estado')?.visible && (
-        <td className="px-3 py-3 min-w-[120px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'estadoParticipacion')?.visible && (
-        <td className="px-3 py-3 min-w-[180px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'etiquetas')?.visible && (
-        <td className="px-3 py-3 min-w-[120px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'numeroDocumento')?.visible && (
-        <td className="px-3 py-3 min-w-[100px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'folioInterno')?.visible && (
-        <td className="px-3 py-3 min-w-[90px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'fechaCreacion')?.visible && (
-        <td className="px-3 py-3 min-w-[130px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'fechaCompletado')?.visible && (
-        <td className="px-3 py-3 min-w-[130px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'fechaVencimiento')?.visible && (
-        <td className="px-3 py-3 min-w-[120px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'rutaGuardado')?.visible && (
-        <td className="px-3 py-3 min-w-[120px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'tipoDocumento')?.visible && (
-        <td className="px-3 py-3 min-w-[100px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      {visibleCols.find((c) => c.id === 'prioridad')?.visible && (
-        <td className="px-3 py-3 min-w-[90px]"><span className="text-sm text-muted-foreground">—</span></td>
-      )}
-      <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
-        <button
-          onClick={(e) => openFolderContextMenu(e, carpeta)}
-          className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-          title="Opciones"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-        </button>
-      </td>
-    </tr>
+        </td>
+        {/* Render "-" for all visible data columns */}
+        {visibleCols.find((c) => c.id === 'propietario')?.visible && (
+          <td className="px-3 py-3 min-w-[100px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'ultimaModificacion')?.visible && (
+          <td className="px-3 py-3 min-w-[160px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'tamano')?.visible && (
+          <td className="px-3 py-3 min-w-[80px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'estado')?.visible && (
+          <td className="px-3 py-3 min-w-[120px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'estadoParticipacion')?.visible && (
+          <td className="px-3 py-3 min-w-[180px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'etiquetas')?.visible && (
+          <td className="px-3 py-3 min-w-[120px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'numeroDocumento')?.visible && (
+          <td className="px-3 py-3 min-w-[100px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'folioInterno')?.visible && (
+          <td className="px-3 py-3 min-w-[90px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'fechaCreacion')?.visible && (
+          <td className="px-3 py-3 min-w-[130px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'fechaCompletado')?.visible && (
+          <td className="px-3 py-3 min-w-[130px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'fechaVencimiento')?.visible && (
+          <td className="px-3 py-3 min-w-[120px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'rutaGuardado')?.visible && (
+          <td className="px-3 py-3 min-w-[120px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'tipoDocumento')?.visible && (
+          <td className="px-3 py-3 min-w-[100px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        {visibleCols.find((c) => c.id === 'prioridad')?.visible && (
+          <td className="px-3 py-3 min-w-[90px]">
+            <span className="text-sm text-muted-foreground">—</span>
+          </td>
+        )}
+        <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
+          <button
+            onClick={(e) => openFolderContextMenu(e, carpeta)}
+            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            title="Opciones"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
+            </svg>
+          </button>
+        </td>
+      </tr>
     );
   };
 
   const renderDocRowWithColumns = (doc: Document, cols: ColumnConfig[]) => {
-    const ownerName = doc.ownerName || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Yo';
+    const ownerName =
+      doc.ownerName || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Yo';
     return (
-    <tr
-      key={doc.id}
-      draggable
-      onDragStart={(e) => handleDragStart(e, doc.id)}
-      onDragEnd={handleDragEnd}
-      className={`border-b border-border last:border-0 hover:bg-muted/30 transition-colors group
+      <tr
+        key={doc.id}
+        draggable
+        onDragStart={(e) => handleDragStart(e, doc.id)}
+        onDragEnd={handleDragEnd}
+        className={`group border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/70
         ${selectedRows.includes(doc.id) ? 'bg-blue-50/60' : ''}
         ${dragDocId === doc.id ? 'opacity-50' : ''}
       `}
-    >
-      <td className="px-4 py-3 w-10 flex-shrink-0">
-        <input
-          type="checkbox"
-          checked={selectedRows.includes(doc.id)}
-          onChange={() => toggleSelectRow(doc.id)}
-          className="rounded border-border accent-primary cursor-pointer w-4 h-4"
-        />
-      </td>
-      <td className="px-3 py-3 min-w-[200px]">
-        <div className="flex items-center gap-2.5">
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-            doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' :
-            doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' :
-            doc.estado === 'En proceso' ? 'bg-blue-50 border border-blue-200' :
-            doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' :
-            doc.estado === 'Cancelado'? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'
-          }`}>
-            <FileText size={16} className={getDocIconColor(doc.estado)} />
-          </div>
-          <div className="flex flex-col min-w-0">
-            <button
-              onClick={() => doc.isDraft ? router.push(`/crear-documento?draft=${doc.id}`) : router.push(`/visor-documento/${doc.id}`)}
-              className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left flex items-center gap-1"
-              title={doc.name}
+      >
+        <td className={selectionCheckboxCellClass}>
+          <input
+            type="checkbox"
+            checked={selectedRows.includes(doc.id)}
+            onChange={() => toggleSelectRow(doc.id)}
+            className={selectionCheckboxClass}
+          />
+        </td>
+        <td className="px-3 py-3 min-w-[200px]">
+          <div className="flex items-center gap-2.5">
+            <div
+              className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md ${
+                doc.estado === 'Rechazado'
+                  ? 'bg-red-50 border border-red-200'
+                  : doc.estado === 'Completado'
+                    ? 'bg-green-50 border border-green-200'
+                    : doc.estado === 'En progreso'
+                      ? 'bg-blue-50 border border-blue-200'
+                      : doc.estado === 'En espera'
+                        ? 'bg-orange-50 border border-orange-200'
+                        : doc.estado === 'Cancelado'
+                          ? 'bg-slate-50 border border-slate-200'
+                          : 'bg-gray-50 border border-gray-200'
+              }`}
             >
-              {doc.isFavorite && <Star size={11} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />}
-              {doc.esUrgente && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 inline-block" title="Urgente" />}
-              <span>{doc.name}</span>
-            </button>
-            {doc.descripcion ? (
-              <span className="text-xs text-muted-foreground">{doc.descripcion}</span>
-            ) : (
-              <div className="flex items-center gap-1.5 mt-0.5">
-                {doc.isDraft && <span className="text-xs text-muted-foreground">Borrador</span>}
-                {doc.esUrgente && <span className="text-xs text-red-500 font-medium">Urgente</span>}
-              </div>
-            )}
-          </div>
-        </div>
-      </td>
-      {cols.find((c) => c.id === 'propietario')?.visible && (
-        <td className="px-3 py-3 min-w-[100px]"><span className="text-xs text-muted-foreground" title={ownerName}>{ownerName}</span></td>
-      )}
-      {cols.find((c) => c.id === 'ultimaModificacion')?.visible && (
-        <td className="px-3 py-3 min-w-[160px]"><span className="text-xs text-muted-foreground">{doc.ultimaModificacion}</span></td>
-      )}
-      {cols.find((c) => c.id === 'tamano')?.visible && (
-        <td className="px-3 py-3 min-w-[80px]"><span className="text-xs text-muted-foreground">{doc.tamano}</span></td>
-      )}
-      {cols.find((c) => c.id === 'estado')?.visible && (
-        <td className="px-3 py-3 min-w-[120px]">
-          <div className="flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`} />
-            <span className="text-xs text-muted-foreground">{doc.estado}</span>
-          </div>
-        </td>
-      )}
-      {cols.find((c) => c.id === 'estadoParticipacion')?.visible && (
-        <td className="px-3 py-3 min-w-[180px]">
-          {doc.miSubEstado ? (
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getParticipacionDot(doc.miSubEstado)}`} />
-              <span className="text-xs text-muted-foreground">{getParticipacionLabel(doc.miSubEstado)}</span>
+              <FileText size={16} className={getDocIconColor(doc.estado)} />
             </div>
-          ) : (
-            <span className="text-xs text-muted-foreground italic">Ninguna</span>
-          )}
+            <div className="flex flex-col min-w-0">
+              <button
+                onClick={() =>
+                  doc.isDraft
+                    ? router.push(`/crear-documento?draft=${doc.id}`)
+                    : router.push(`/visor-documento/${doc.id}`)
+                }
+                className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left flex items-center gap-1"
+                title={doc.name}
+              >
+                {doc.isFavorite && (
+                  <Star size={11} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />
+                )}
+                {doc.esUrgente && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 inline-block"
+                    title="Urgente"
+                  />
+                )}
+                <span>{doc.name}</span>
+              </button>
+              {doc.descripcion ? (
+                <span className="text-xs text-muted-foreground">{doc.descripcion}</span>
+              ) : (
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  {doc.isDraft && <span className="text-xs text-muted-foreground">Borrador</span>}
+                  {doc.esUrgente && (
+                    <span className="text-xs text-red-500 font-medium">Urgente</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </td>
-      )}
-      {cols.find((c) => c.id === 'etiquetas')?.visible && (
-        <td className="px-3 py-3 min-w-[120px]">
-          <div className="flex flex-wrap gap-1">
-            {doc.etiquetas.length > 0
-              ? doc.etiquetas.slice(0, 2).map((tagId, i) => {
-                  const etiqueta = etiquetasList.find((e) => e.id === String(tagId) || e.nombre === String(tagId));
+        {cols.find((c) => c.id === 'propietario')?.visible && (
+          <td className="px-3 py-3 min-w-[100px]">
+            <span className="text-xs text-muted-foreground" title={ownerName}>
+              {ownerName}
+            </span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'ultimaModificacion')?.visible && (
+          <td className="px-3 py-3 min-w-[160px]">
+            <span className="text-xs text-muted-foreground">{doc.ultimaModificacion}</span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'tamano')?.visible && (
+          <td className="px-3 py-3 min-w-[80px]">
+            <span className="text-xs text-muted-foreground">{doc.tamano}</span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'estado')?.visible && (
+          <td className="px-3 py-3 min-w-[120px]">
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`} />
+              <span className="text-xs text-muted-foreground">{doc.estado}</span>
+            </div>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'estadoParticipacion')?.visible && (
+          <td className="px-3 py-3 min-w-[180px]">
+            {doc.miSubEstado ? (
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`w-2 h-2 rounded-full flex-shrink-0 ${getParticipacionDot(doc.miSubEstado)}`}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {getParticipacionLabel(doc.miSubEstado)}
+                </span>
+              </div>
+            ) : (
+              <span className="text-xs text-muted-foreground italic">Ninguna</span>
+            )}
+          </td>
+        )}
+        {cols.find((c) => c.id === 'etiquetas')?.visible && (
+          <td className="px-3 py-3 min-w-[120px]">
+            <div className="flex flex-wrap gap-1">
+              {doc.etiquetas.length > 0 ? (
+                doc.etiquetas.slice(0, 2).map((tagId, i) => {
+                  const etiqueta = etiquetasList.find(
+                    (e) => e.id === String(tagId) || e.nombre === String(tagId)
+                  );
                   const label = etiqueta ? etiqueta.nombre : String(tagId);
                   const color = etiqueta?.color || '#6366f1';
                   return (
                     <span
                       key={i}
                       className="px-1.5 py-0.5 text-xs rounded-full font-medium"
-                      style={{ backgroundColor: `${color}20`, color, border: `1px solid ${color}40` }}
+                      style={{
+                        backgroundColor: `${color}20`,
+                        color,
+                        border: `1px solid ${color}40`,
+                      }}
                     >
                       {label}
                     </span>
                   );
                 })
-              : <span className="text-sm text-muted-foreground">—</span>
-            }
-            {doc.etiquetas.length > 2 && <span className="text-xs text-muted-foreground">+{doc.etiquetas.length - 2}</span>}
-          </div>
+              ) : (
+                <span className="text-sm text-muted-foreground">—</span>
+              )}
+              {doc.etiquetas.length > 2 && (
+                <span className="text-xs text-muted-foreground">+{doc.etiquetas.length - 2}</span>
+              )}
+            </div>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'numeroDocumento')?.visible && (
+          <td className="px-3 py-3 min-w-[100px]">
+            <span className="text-xs text-muted-foreground">{doc.numeroOficio || '—'}</span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'folioInterno')?.visible && (
+          <td className="px-3 py-3 min-w-[90px]">
+            <span className="text-xs text-muted-foreground">{doc.folioInterno || '—'}</span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'fechaCreacion')?.visible && (
+          <td className="px-3 py-3 min-w-[130px]">
+            <span className="text-xs text-muted-foreground">{doc.fechaCreacion || '—'}</span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'fechaCompletado')?.visible && (
+          <td className="px-3 py-3 min-w-[130px]">
+            <span className="text-xs text-muted-foreground">{doc.fechaCompletado || '—'}</span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'fechaVencimiento')?.visible && (
+          <td className="px-3 py-3 min-w-[120px]">
+            <span
+              className={`text-xs ${doc.fechaVencimiento ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}
+            >
+              {doc.fechaVencimiento ? formatDate(doc.fechaVencimiento) : '—'}
+            </span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'rutaGuardado')?.visible && (
+          <td className="px-3 py-3 min-w-[120px]">
+            <span className="text-xs text-muted-foreground truncate max-w-[120px] block">
+              {doc.rutaGuardado || '—'}
+            </span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'tipoDocumento')?.visible && (
+          <td className="px-3 py-3 min-w-[100px]">
+            <span className="text-xs text-muted-foreground">{doc.tipoDocumentoNombre || '—'}</span>
+          </td>
+        )}
+        {cols.find((c) => c.id === 'prioridad')?.visible && (
+          <td className="px-3 py-3 min-w-[90px]">
+            {doc.esUrgente ? (
+              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">
+                Urgente
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">Normal</span>
+            )}
+          </td>
+        )}
+        <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
+          <button
+            onClick={(e) => openContextMenu(e, doc)}
+            className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+            title="Opciones"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
+            </svg>
+          </button>
         </td>
-      )}
-      {cols.find((c) => c.id === 'numeroDocumento')?.visible && (
-        <td className="px-3 py-3 min-w-[100px]"><span className="text-xs text-muted-foreground">{doc.numeroOficio || '—'}</span></td>
-      )}
-      {cols.find((c) => c.id === 'folioInterno')?.visible && (
-        <td className="px-3 py-3 min-w-[90px]"><span className="text-xs text-muted-foreground">{doc.folioInterno || '—'}</span></td>
-      )}
-      {cols.find((c) => c.id === 'fechaCreacion')?.visible && (
-        <td className="px-3 py-3 min-w-[130px]"><span className="text-xs text-muted-foreground">{doc.fechaCreacion || '—'}</span></td>
-      )}
-      {cols.find((c) => c.id === 'fechaCompletado')?.visible && (
-        <td className="px-3 py-3 min-w-[130px]"><span className="text-xs text-muted-foreground">{doc.fechaCompletado || '—'}</span></td>
-      )}
-      {cols.find((c) => c.id === 'fechaVencimiento')?.visible && (
-        <td className="px-3 py-3 min-w-[120px]">
-          <span className={`text-xs ${doc.fechaVencimiento ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}>
-            {doc.fechaVencimiento ? formatDate(doc.fechaVencimiento) : '—'}
-          </span>
-        </td>
-      )}
-      {cols.find((c) => c.id === 'rutaGuardado')?.visible && (
-        <td className="px-3 py-3 min-w-[120px]"><span className="text-xs text-muted-foreground truncate max-w-[120px] block">{doc.rutaGuardado || '—'}</span></td>
-      )}
-      {cols.find((c) => c.id === 'tipoDocumento')?.visible && (
-        <td className="px-3 py-3 min-w-[100px]"><span className="text-xs text-muted-foreground">{doc.tipoDocumentoNombre || '—'}</span></td>
-      )}
-      {cols.find((c) => c.id === 'prioridad')?.visible && (
-        <td className="px-3 py-3 min-w-[90px]">
-          {doc.esUrgente
-            ? <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">Urgente</span>
-            : <span className="text-xs text-muted-foreground">Normal</span>
-          }
-        </td>
-      )}
-      <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
-        <button
-          onClick={(e) => openContextMenu(e, doc)}
-          className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
-          title="Opciones"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-        </button>
-      </td>
-    </tr>
+      </tr>
     );
   };
 
   // ---- Folder context menu ----
-  const renderFolderContextMenu = () => folderContextMenu.open ? (
-    <div
-      ref={folderContextMenuRef}
-      className="fixed z-[300] bg-white border border-border rounded-xl shadow-xl py-1 min-w-[180px]"
-      style={{ top: Math.min(folderContextMenu.y + 4, window.innerHeight - 200), left: Math.max(folderContextMenu.x - 180, 8) }}
-    >
-      <button onClick={handleFolderMenuVer} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <Eye size={15} className="text-muted-foreground" />Ver carpeta
-      </button>
-      <button onClick={handleFolderMenuMover} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <Move size={15} className="text-muted-foreground" />Mover
-      </button>
-      <button onClick={handleFolderMenuRenombrar} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        Renombrar
-      </button>
-      <div className="border-t border-border my-1" />
-      <button onClick={handleFolderMenuPapelera} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left">
-        <Trash2 size={15} className="text-red-500" />Mover a papelera
-      </button>
-    </div>
-  ) : null;
+  const renderFolderContextMenu = () =>
+    folderContextMenu.open ? (
+      <div
+        ref={folderContextMenuRef}
+        className="fixed z-[300] bg-white border border-border rounded-xl shadow-xl py-1 min-w-[180px]"
+        style={{
+          top: Math.min(folderContextMenu.y + 4, window.innerHeight - 200),
+          left: Math.max(folderContextMenu.x - 180, 8),
+        }}
+      >
+        <button
+          onClick={handleFolderMenuVer}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <Eye size={15} className="text-muted-foreground" />
+          Ver carpeta
+        </button>
+        <button
+          onClick={handleFolderMenuMover}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <Move size={15} className="text-muted-foreground" />
+          Mover
+        </button>
+        <button
+          onClick={handleFolderMenuRenombrar}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-muted-foreground"
+          >
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+          Renombrar
+        </button>
+        <div className="border-t border-border my-1" />
+        <button
+          onClick={handleFolderMenuPapelera}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
+        >
+          <Trash2 size={15} className="text-red-500" />
+          Mover a papelera
+        </button>
+      </div>
+    ) : null;
 
   // ---- Document context menu (for documents) ----
-  const renderDocContextMenu = () => contextMenu.open ? (
-    <div
-      ref={contextMenuRef}
-      className="fixed z-[300] bg-white border border-border rounded-xl shadow-xl py-1 min-w-[180px]"
-      style={{ top: Math.min(contextMenu.y + 4, window.innerHeight - 320), left: Math.max(contextMenu.x - 180, 8) }}
-    >
-      <button onClick={handleMenuAbrir} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <Eye size={15} className="text-muted-foreground" />{contextMenu.isDraft ? 'Continuar borrador' : 'Ver documento'}
-      </button>
-      <button onClick={handleMenuMover} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <Move size={15} className="text-muted-foreground" />Mover
-      </button>
-      <button onClick={handleMenuRenombrar} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        Renombrar
-      </button>
-      <button onClick={handleMenuFavoritos} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <Star size={15} className={contextMenu.isFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'} />
-        {contextMenu.isFavorite ? 'Quitar de Favoritos' : 'Añadir a Favoritos'}
-      </button>
-      <button onClick={handleMenuDescargar} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <Download size={15} className="text-muted-foreground" />
-        Descargar
-      </button>
-      <button onClick={handleMenuCompartir} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <Share2 size={15} className="text-muted-foreground" />Compartir
-      </button>
-      <div className="border-t border-border my-1" />
-      <button onClick={handleMenuConfidencial} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left">
-        <Lock size={15} className="text-muted-foreground" />Modo Confidencial
-      </button>
-      <div className="border-t border-border my-1" />
-      <button onClick={handleMenuPapelera} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left">
-        <Trash2 size={15} className="text-red-500" />Mover a papelera
-      </button>
-    </div>
-  ) : null;
+  const renderDocContextMenu = () =>
+    contextMenu.open ? (
+      <div
+        ref={contextMenuRef}
+        className="fixed z-[300] bg-white border border-border rounded-xl shadow-xl py-1 min-w-[180px]"
+        style={{
+          top: Math.min(contextMenu.y + 4, window.innerHeight - 320),
+          left: Math.max(contextMenu.x - 180, 8),
+        }}
+      >
+        <button
+          onClick={handleMenuAbrir}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <Eye size={15} className="text-muted-foreground" />
+          {contextMenu.isDraft ? 'Continuar borrador' : 'Ver documento'}
+        </button>
+        <button
+          onClick={handleMenuMover}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <Move size={15} className="text-muted-foreground" />
+          Mover
+        </button>
+        <button
+          onClick={handleMenuRenombrar}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-muted-foreground"
+          >
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+          Renombrar
+        </button>
+        <button
+          onClick={handleMenuFavoritos}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <Star
+            size={15}
+            className={
+              contextMenu.isFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'
+            }
+          />
+          {contextMenu.isFavorite ? 'Quitar de Favoritos' : 'Añadir a Favoritos'}
+        </button>
+        <button
+          onClick={handleMenuDescargar}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <Download size={15} className="text-muted-foreground" />
+          Descargar
+        </button>
+        <button
+          onClick={handleMenuCompartir}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <Share2 size={15} className="text-muted-foreground" />
+          Compartir
+        </button>
+        <div className="border-t border-border my-1" />
+        <button
+          onClick={handleMenuConfidencial}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <Lock size={15} className="text-muted-foreground" />
+          Modo Confidencial
+        </button>
+        <div className="border-t border-border my-1" />
+        <button
+          onClick={handleMenuPapelera}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
+        >
+          <Trash2 size={15} className="text-red-500" />
+          Mover a papelera
+        </button>
+      </div>
+    ) : null;
 
   // Rename document handler
   const handleSaveRename = async () => {
     const nombre = renameModal.newName.trim();
     if (!nombre || !renameModal.docId || !user) return;
     const supabase = createClient();
-    const { error } = await supabase.from('documentos').update({ nombre }).eq('id', renameModal.docId).eq('owner_id', user.id);
-    if (error) { showToast('Error al renombrar el documento'); return; }
-    setRealDocuments((prev) => prev.map((d) => d.id === renameModal.docId ? { ...d, name: nombre } : d));
+    const { error } = await supabase
+      .from('documentos')
+      .update({ nombre })
+      .eq('id', renameModal.docId)
+      .eq('owner_id', user.id);
+    if (error) {
+      showToast('Error al renombrar el documento');
+      return;
+    }
+    setRealDocuments((prev) =>
+      prev.map((d) => (d.id === renameModal.docId ? { ...d, name: nombre } : d))
+    );
     setRenameModal({ open: false, docId: null, currentName: '', newName: '' });
     showToast(`Documento renombrado a "${nombre}"`);
   };
@@ -3342,10 +4761,19 @@ export default function MisDocumentosPage() {
     return realDocuments.filter((doc) => {
       const filtros = cf.filtros || {};
       if (filtros['estado'] && doc.estado !== filtros['estado']) return false;
-      if (filtros['tipoDocumento'] && Array.isArray(filtros['tipoDocumento']) && filtros['tipoDocumento'].length > 0) {
-        if (!doc.tipoDocumentoId || !filtros['tipoDocumento'].includes(doc.tipoDocumentoId)) return false;
+      if (
+        filtros['tipoDocumento'] &&
+        Array.isArray(filtros['tipoDocumento']) &&
+        filtros['tipoDocumento'].length > 0
+      ) {
+        if (!doc.tipoDocumentoId || !filtros['tipoDocumento'].includes(doc.tipoDocumentoId))
+          return false;
       }
-      if (filtros['etiquetas'] && Array.isArray(filtros['etiquetas']) && filtros['etiquetas'].length > 0) {
+      if (
+        filtros['etiquetas'] &&
+        Array.isArray(filtros['etiquetas']) &&
+        filtros['etiquetas'].length > 0
+      ) {
         const hasMatch = doc.etiquetas.some((t) => filtros['etiquetas'].includes(String(t)));
         if (!hasMatch) return false;
       }
@@ -3356,12 +4784,22 @@ export default function MisDocumentosPage() {
       if (filtros['fechaUltimaModificacion'] && filtros['fechaUltimaModificacion'] !== '') {
         const now = new Date();
         const range = filtros['fechaUltimaModificacion'];
-        const docDate = doc.ultimaModificacion !== '—' ? new Date(doc.ultimaModificacion.split('/').reverse().join('-')) : null;
+        const docDate =
+          doc.ultimaModificacion !== '—'
+            ? new Date(doc.ultimaModificacion.split('/').reverse().join('-'))
+            : null;
         if (docDate) {
-          if (range === 'today') { const t = new Date(); t.setHours(0,0,0,0); if (docDate < t) return false; }
-          else if (range === 'week') { if (docDate < new Date(now.getTime() - 7*24*60*60*1000)) return false; }
-          else if (range === 'month') { if (docDate < new Date(now.getTime() - 30*24*60*60*1000)) return false; }
-          else if (range === 'year') { if (docDate < new Date(now.getTime() - 365*24*60*60*1000)) return false; }
+          if (range === 'today') {
+            const t = new Date();
+            t.setHours(0, 0, 0, 0);
+            if (docDate < t) return false;
+          } else if (range === 'week') {
+            if (docDate < new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) return false;
+          } else if (range === 'month') {
+            if (docDate < new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)) return false;
+          } else if (range === 'year') {
+            if (docDate < new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)) return false;
+          }
         }
       }
       if (filtros['fechaCreacion'] && filtros['fechaCreacion'] !== '') {
@@ -3369,39 +4807,81 @@ export default function MisDocumentosPage() {
         const range = filtros['fechaCreacion'];
         if (doc.fechaCreacion) {
           let d = new Date(doc.fechaCreacion.split('/').reverse().join('-'));
-          if (range === 'today') { const t = new Date(); t.setHours(0,0,0,0); if (d < t) return false; }
-          else if (range === 'week') { if (d < new Date(now.getTime() - 7*24*60*60*1000)) return false; }
-          else if (range === 'month') { if (d < new Date(now.getTime() - 30*24*60*60*1000)) return false; }
-          else if (range === 'year') { if (d < new Date(now.getTime() - 365*24*60*60*1000)) return false; }
-        } else { return false; }
+          if (range === 'today') {
+            const t = new Date();
+            t.setHours(0, 0, 0, 0);
+            if (d < t) return false;
+          } else if (range === 'week') {
+            if (d < new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) return false;
+          } else if (range === 'month') {
+            if (d < new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)) return false;
+          } else if (range === 'year') {
+            if (d < new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)) return false;
+          }
+        } else {
+          return false;
+        }
       }
       if (filtros['fechaVencimiento'] && filtros['fechaVencimiento'] !== '') {
         const fv = filtros['fechaVencimiento'];
         const now = new Date();
-        if (fv === 'vencido') { if (!doc.fechaVencimiento || new Date(doc.fechaVencimiento) >= now) return false; }
-        else if (fv === 'proximos') { const in72h = new Date(now.getTime() + 72*60*60*1000); if (!doc.fechaVencimiento || new Date(doc.fechaVencimiento) < now || new Date(doc.fechaVencimiento) > in72h) return false; }
-        else if (fv === 'sin_vencimiento') { if (doc.fechaVencimiento) return false; }
+        if (fv === 'vencido') {
+          if (!doc.fechaVencimiento || new Date(doc.fechaVencimiento) >= now) return false;
+        } else if (fv === 'proximos') {
+          const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+          if (
+            !doc.fechaVencimiento ||
+            new Date(doc.fechaVencimiento) < now ||
+            new Date(doc.fechaVencimiento) > in72h
+          )
+            return false;
+        } else if (fv === 'sin_vencimiento') {
+          if (doc.fechaVencimiento) return false;
+        }
       }
       if (filtros['fechaCompletado'] && filtros['fechaCompletado'] !== '') {
         const range = filtros['fechaCompletado'];
         const now = new Date();
         if (doc.fechaCompletado) {
           let d = new Date(doc.fechaCompletado.split('/').reverse().join('-'));
-          if (range === 'sin_completado') { if (doc.fechaCompletado) return false; }
-          else if (range === 'today') { const t = new Date(); t.setHours(0,0,0,0); if (d < t) return false; }
-          else if (range === 'week') { if (d < new Date(now.getTime() - 7*24*60*60*1000)) return false; }
-          else if (range === 'month') { if (d < new Date(now.getTime() - 30*24*60*60*1000)) return false; }
-        } else { if (range !== 'sin_completado') return false; }
+          if (range === 'sin_completado') {
+            if (doc.fechaCompletado) return false;
+          } else if (range === 'today') {
+            const t = new Date();
+            t.setHours(0, 0, 0, 0);
+            if (d < t) return false;
+          } else if (range === 'week') {
+            if (d < new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) return false;
+          } else if (range === 'month') {
+            if (d < new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)) return false;
+          }
+        } else {
+          if (range !== 'sin_completado') return false;
+        }
       }
-      if (filtros['participantes'] && filtros['participantes'] !== '' && filtros['participantes'] !== 'todos') {
+      if (
+        filtros['participantes'] &&
+        filtros['participantes'] !== '' &&
+        filtros['participantes'] !== 'todos'
+      ) {
         const parts: any[] = doc.participantes || [];
         if (filtros['participantes'] === 'yo') {
-          const isParticipant = parts.some((p) => { const pid = p.id || p.user_id || p.userId; const pemail = p.email || ''; return pid === user?.id || pemail === user?.email; });
+          const isParticipant = parts.some((p) => {
+            const pid = p.id || p.user_id || p.userId;
+            const pemail = p.email || '';
+            return pid === user?.id || pemail === user?.email;
+          });
           if (!isParticipant) return false;
         }
       }
-      if (filtros['propietario'] && filtros['propietario'] !== '' && filtros['propietario'] !== 'todos') {
-        if (filtros['propietario'] === 'mios') { /* all docs are already owner's */ }
+      if (
+        filtros['propietario'] &&
+        filtros['propietario'] !== '' &&
+        filtros['propietario'] !== 'todos'
+      ) {
+        if (filtros['propietario'] === 'mios') {
+          /* all docs are already owner's */
+        }
       }
       return true;
     });
@@ -3415,8 +4895,10 @@ export default function MisDocumentosPage() {
     const getFilterLabel = (filterId: string, value: any): string => {
       if (!value || value === '') return '';
       switch (filterId) {
-        case 'estructura': return value === 'carpeta' ? 'Carpetas' : value === 'archivo' ? 'Archivos' : '';
-        case 'estado': return value;
+        case 'estructura':
+          return value === 'carpeta' ? 'Carpetas' : value === 'archivo' ? 'Archivos' : '';
+        case 'estado':
+          return value;
         case 'propietario':
           if (value === 'mios') return 'Míos';
           if (Array.isArray(value) && value.length > 0) {
@@ -3424,14 +4906,17 @@ export default function MisDocumentosPage() {
             return u ? u.full_name || u.email : `${value.length} propietario(s)`;
           }
           return '';
-        case 'ultimaModificacion': case'fechaCreacion': case'fechaCompletado':
+        case 'ultimaModificacion':
+        case 'fechaCreacion':
+        case 'fechaCompletado':
           if (value === 'today') return 'Hoy';
           if (value === 'week') return 'Últimos 7 días';
           if (value === 'month') return 'Últimos 30 días';
           if (value === 'year') return 'Último año';
           if (value === 'custom') {
             const cr = customDateRanges[filterId];
-            if (cr?.start && cr?.end) return `${cr.start.toLocaleDateString('es-MX')} – ${cr.end.toLocaleDateString('es-MX')}`;
+            if (cr?.start && cr?.end)
+              return `${cr.start.toLocaleDateString('es-MX')} – ${cr.end.toLocaleDateString('es-MX')}`;
             return 'Rango personalizado';
           }
           if (value === 'sin_completado') return 'Sin completar';
@@ -3466,7 +4951,8 @@ export default function MisDocumentosPage() {
           if (value === 'urgente') return 'Urgente';
           if (value === 'normal') return 'Normal';
           return value;
-        default: return String(value);
+        default:
+          return String(value);
       }
     };
 
@@ -3476,9 +4962,19 @@ export default function MisDocumentosPage() {
         case 'estructura':
           return (
             <div className="py-1 min-w-[160px]">
-              {[{ value: '', label: 'Todos' }, { value: 'archivo', label: 'Archivos' }, { value: 'carpeta', label: 'Carpetas' }].map((opt) => (
-                <button key={opt.value} onClick={() => { setActiveFilters((prev) => ({ ...prev, estructura: opt.value })); setOpenFilterDropdown(null); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['estructura'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}>
+              {[
+                { value: '', label: 'Todos' },
+                { value: 'archivo', label: 'Archivos' },
+                { value: 'carpeta', label: 'Carpetas' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setActiveFilters((prev) => ({ ...prev, estructura: opt.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['estructura'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                >
                   {opt.label}
                 </button>
               ))}
@@ -3487,10 +4983,29 @@ export default function MisDocumentosPage() {
         case 'estado':
           return (
             <div className="py-1 min-w-[160px]">
-              {[{ value: '', label: 'Todos' }, { value: 'Borrador', label: 'Borrador' }, { value: 'En proceso', label: 'En proceso' }, { value: 'En espera', label: 'En espera' }, { value: 'Completado', label: 'Completado' }, { value: 'Rechazado', label: 'Rechazado' }, { value: 'Cancelado', label: 'Cancelado' }, { value: 'Vencido', label: 'Vencido' }].map((opt) => (
-                <button key={opt.value} onClick={() => { setActiveFilters((prev) => ({ ...prev, estado: opt.value })); setOpenFilterDropdown(null); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${activeFilters['estado'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}>
-                  {opt.value && <span className={`w-2 h-2 rounded-full flex-shrink-0 ${opt.value === 'Vencido' ? 'bg-red-800' : getStatusDot(opt.value)}`} />}
+              {[
+                { value: '', label: 'Todos' },
+                { value: 'Borrador', label: 'Borrador' },
+                { value: 'En progreso', label: 'En progreso' },
+                { value: 'En espera', label: 'En espera' },
+                { value: 'Completado', label: 'Completado' },
+                { value: 'Rechazado', label: 'Rechazado' },
+                { value: 'Cancelado', label: 'Cancelado' },
+                { value: 'Vencido', label: 'Vencido' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setActiveFilters((prev) => ({ ...prev, estado: opt.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${activeFilters['estado'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                >
+                  {opt.value && (
+                    <span
+                      className={`w-2 h-2 rounded-full flex-shrink-0 ${opt.value === 'Vencido' ? 'bg-red-800' : getStatusDot(opt.value)}`}
+                    />
+                  )}
                   {opt.label}
                 </button>
               ))}
@@ -3500,26 +5015,57 @@ export default function MisDocumentosPage() {
           return (
             <div className="py-1 min-w-[200px]">
               <div className="px-3 py-2">
-                <input type="text" placeholder="Buscar propietario..." value={propietarioSearch} onChange={(e) => setPropietarioSearch(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                <input
+                  type="text"
+                  placeholder="Buscar propietario..."
+                  value={propietarioSearch}
+                  onChange={(e) => setPropietarioSearch(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
               </div>
-              <button onClick={() => { setActiveFilters((prev) => ({ ...prev, propietario: '' })); setOpenFilterDropdown(null); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${!activeFilters['propietario'] ? 'text-primary font-medium' : 'text-foreground'}`}>
+              <button
+                onClick={() => {
+                  setActiveFilters((prev) => ({ ...prev, propietario: '' }));
+                  setOpenFilterDropdown(null);
+                }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${!activeFilters['propietario'] ? 'text-primary font-medium' : 'text-foreground'}`}
+              >
                 Todos
               </button>
-              <button onClick={() => { setActiveFilters((prev) => ({ ...prev, propietario: 'mios' })); setOpenFilterDropdown(null); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['propietario'] === 'mios' ? 'text-primary font-medium' : 'text-foreground'}`}>
+              <button
+                onClick={() => {
+                  setActiveFilters((prev) => ({ ...prev, propietario: 'mios' }));
+                  setOpenFilterDropdown(null);
+                }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['propietario'] === 'mios' ? 'text-primary font-medium' : 'text-foreground'}`}
+              >
                 Míos
               </button>
               <div className="max-h-40 overflow-y-auto">
-                {loadingPropietarios ? <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div> :
-                  workspaceUsers.filter((u) => !propietarioSearch || (u.full_name || u.email || '').toLowerCase().includes(propietarioSearch.toLowerCase())).map((u) => (
-                    <button key={u.id} onClick={() => { setActiveFilters((prev) => ({ ...prev, propietario: [u.id] })); setOpenFilterDropdown(null); }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors truncate ${Array.isArray(activeFilters['propietario']) && activeFilters['propietario'].includes(u.id) ? 'text-primary font-medium' : 'text-foreground'}`}>
-                      {u.full_name || u.email}
-                    </button>
-                  ))
-                }
+                {loadingPropietarios ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div>
+                ) : (
+                  workspaceUsers
+                    .filter(
+                      (u) =>
+                        !propietarioSearch ||
+                        (u.full_name || u.email || '')
+                          .toLowerCase()
+                          .includes(propietarioSearch.toLowerCase())
+                    )
+                    .map((u) => (
+                      <button
+                        key={u.id}
+                        onClick={() => {
+                          setActiveFilters((prev) => ({ ...prev, propietario: [u.id] }));
+                          setOpenFilterDropdown(null);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors truncate ${Array.isArray(activeFilters['propietario']) && activeFilters['propietario'].includes(u.id) ? 'text-primary font-medium' : 'text-foreground'}`}
+                      >
+                        {u.full_name || u.email}
+                      </button>
+                    ))
+                )}
               </div>
             </div>
           );
@@ -3529,19 +5075,37 @@ export default function MisDocumentosPage() {
             <div className="p-3">
               <DateRangePicker
                 value={customDateRanges[filterId] || { start: null, end: null }}
-                onChange={(range) => { setCustomDateRanges((prev) => ({ ...prev, [filterId]: range })); setActiveFilters((prev) => ({ ...prev, [filterId]: 'custom' })); setShowDateRangePicker(null); setOpenFilterDropdown(null); }}
+                onChange={(range) => {
+                  setCustomDateRanges((prev) => ({ ...prev, [filterId]: range }));
+                  setActiveFilters((prev) => ({ ...prev, [filterId]: 'custom' }));
+                  setShowDateRangePicker(null);
+                  setOpenFilterDropdown(null);
+                }}
                 onBack={() => setShowDateRangePicker(null)}
               />
             </div>
           ) : (
             <div className="py-1 min-w-[180px]">
-              {[{ value: '', label: 'Cualquier fecha' }, { value: 'today', label: 'Hoy' }, { value: 'week', label: 'Últimos 7 días' }, { value: 'month', label: 'Últimos 30 días' }, { value: 'year', label: 'Último año' }, { value: 'custom', label: 'Rango personalizado...' }].map((opt) => (
-                <button key={opt.value} onClick={() => {
-                  if (opt.value === 'custom') { setShowDateRangePicker(filterId); return; }
-                  setActiveFilters((prev) => ({ ...prev, [filterId]: opt.value }));
-                  setOpenFilterDropdown(null);
-                }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters[filterId] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}>
+              {[
+                { value: '', label: 'Cualquier fecha' },
+                { value: 'today', label: 'Hoy' },
+                { value: 'week', label: 'Últimos 7 días' },
+                { value: 'month', label: 'Últimos 30 días' },
+                { value: 'year', label: 'Último año' },
+                { value: 'custom', label: 'Rango personalizado...' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    if (opt.value === 'custom') {
+                      setShowDateRangePicker(filterId);
+                      return;
+                    }
+                    setActiveFilters((prev) => ({ ...prev, [filterId]: opt.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters[filterId] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                >
                   {opt.label}
                 </button>
               ))}
@@ -3550,9 +5114,21 @@ export default function MisDocumentosPage() {
         case 'fechaCompletado':
           return (
             <div className="py-1 min-w-[180px]">
-              {[{ value: '', label: 'Cualquier fecha' }, { value: 'sin_completado', label: 'Sin completado' }, { value: 'today', label: 'Hoy' }, { value: 'week', label: 'Últimos 7 días' }, { value: 'month', label: 'Últimos 30 días' }].map((opt) => (
-                <button key={opt.value} onClick={() => { setActiveFilters((prev) => ({ ...prev, fechaCompletado: opt.value })); setOpenFilterDropdown(null); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['fechaCompletado'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}>
+              {[
+                { value: '', label: 'Cualquier fecha' },
+                { value: 'sin_completado', label: 'Sin completado' },
+                { value: 'today', label: 'Hoy' },
+                { value: 'week', label: 'Últimos 7 días' },
+                { value: 'month', label: 'Últimos 30 días' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setActiveFilters((prev) => ({ ...prev, fechaCompletado: opt.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['fechaCompletado'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                >
                   {opt.label}
                 </button>
               ))}
@@ -3561,9 +5137,20 @@ export default function MisDocumentosPage() {
         case 'fechaVencimiento':
           return (
             <div className="py-1 min-w-[180px]">
-              {[{ value: '', label: 'Todos' }, { value: 'vencido', label: 'Vencido' }, { value: 'proximos', label: 'Próximos 72h' }, { value: 'sin_vencimiento', label: 'Sin vencimiento' }].map((opt) => (
-                <button key={opt.value} onClick={() => { setActiveFilters((prev) => ({ ...prev, fechaVencimiento: opt.value })); setOpenFilterDropdown(null); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['fechaVencimiento'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}>
+              {[
+                { value: '', label: 'Todos' },
+                { value: 'vencido', label: 'Vencido' },
+                { value: 'proximos', label: 'Próximos 72h' },
+                { value: 'sin_vencimiento', label: 'Sin vencimiento' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setActiveFilters((prev) => ({ ...prev, fechaVencimiento: opt.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['fechaVencimiento'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                >
                   {opt.label}
                 </button>
               ))}
@@ -3573,88 +5160,185 @@ export default function MisDocumentosPage() {
           return (
             <div className="py-1 min-w-[200px]">
               <div className="px-3 py-2">
-                <input type="text" placeholder="Buscar tipo..." value={tipoDocSearch} onChange={(e) => setTipoDocSearch(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" />
+                <input
+                  type="text"
+                  placeholder="Buscar tipo..."
+                  value={tipoDocSearch}
+                  onChange={(e) => setTipoDocSearch(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                />
               </div>
-              <button onClick={() => { setActiveFilters((prev) => ({ ...prev, tipoDocumento: [] })); setOpenFilterDropdown(null); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${(!activeFilters['tipoDocumento'] || activeFilters['tipoDocumento'].length === 0) ? 'text-primary font-medium' : 'text-foreground'}`}>
+              <button
+                onClick={() => {
+                  setActiveFilters((prev) => ({ ...prev, tipoDocumento: [] }));
+                  setOpenFilterDropdown(null);
+                }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${!activeFilters['tipoDocumento'] || activeFilters['tipoDocumento'].length === 0 ? 'text-primary font-medium' : 'text-foreground'}`}
+              >
                 Todos
               </button>
               <div className="max-h-48 overflow-y-auto">
-                {loadingTipos ? <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div> :
+                {loadingTipos ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div>
+                ) : (
                   <>
-                    {tiposDocumento.filter((t) => !tipoDocSearch || t.nombre.toLowerCase().includes(tipoDocSearch.toLowerCase())).map((t) => {
-                      const selected: string[] = activeFilters['tipoDocumento'] || [];
-                      const isSelected = selected.includes(t.id);
-                      return (
-                        <button key={t.id} onClick={() => {
-                          const updated = isSelected ? selected.filter((x) => x !== t.id) : [...selected, t.id];
-                          setActiveFilters((prev) => ({ ...prev, tipoDocumento: updated }));
-                        }}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                          <span className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${isSelected ? 'bg-primary border-primary' : 'border-border'}`}>
-                            {isSelected && <svg width="8" height="8" viewBox="0 0 12 12" fill="white"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                          </span>
-                          {t.nombre}
-                        </button>
-                      );
-                    })}
-                    {(!tipoDocSearch || 'otro'.includes(tipoDocSearch.toLowerCase())) && (() => {
-                      const selected: string[] = activeFilters['tipoDocumento'] || [];
-                      const isSelected = selected.includes('__otros__');
-                      return (
-                        <button key="__otros__" onClick={() => {
-                          const updated = isSelected ? selected.filter((x) => x !== '__otros__') : [...selected, '__otros__'];
-                          setActiveFilters((prev) => ({ ...prev, tipoDocumento: updated }));
-                        }}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 italic ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                          <span className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${isSelected ? 'bg-primary border-primary' : 'border-border'}`}>
-                            {isSelected && <svg width="8" height="8" viewBox="0 0 12 12" fill="white"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                          </span>
-                          Otro
-                        </button>
-                      );
-                    })()}
+                    {tiposDocumento
+                      .filter(
+                        (t) =>
+                          !tipoDocSearch ||
+                          t.nombre.toLowerCase().includes(tipoDocSearch.toLowerCase())
+                      )
+                      .map((t) => {
+                        const selected: string[] = activeFilters['tipoDocumento'] || [];
+                        const isSelected = selected.includes(t.id);
+                        return (
+                          <button
+                            key={t.id}
+                            onClick={() => {
+                              const updated = isSelected
+                                ? selected.filter((x) => x !== t.id)
+                                : [...selected, t.id];
+                              setActiveFilters((prev) => ({ ...prev, tipoDocumento: updated }));
+                            }}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}
+                          >
+                            <span
+                              className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${isSelected ? 'bg-primary border-primary' : 'border-border'}`}
+                            >
+                              {isSelected && (
+                                <svg width="8" height="8" viewBox="0 0 12 12" fill="white">
+                                  <path
+                                    d="M2 6l3 3 5-5"
+                                    stroke="white"
+                                    strokeWidth="2"
+                                    fill="none"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              )}
+                            </span>
+                            {t.nombre}
+                          </button>
+                        );
+                      })}
+                    {(!tipoDocSearch || 'otro'.includes(tipoDocSearch.toLowerCase())) &&
+                      (() => {
+                        const selected: string[] = activeFilters['tipoDocumento'] || [];
+                        const isSelected = selected.includes('__otros__');
+                        return (
+                          <button
+                            key="__otros__"
+                            onClick={() => {
+                              const updated = isSelected
+                                ? selected.filter((x) => x !== '__otros__')
+                                : [...selected, '__otros__'];
+                              setActiveFilters((prev) => ({ ...prev, tipoDocumento: updated }));
+                            }}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 italic ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}
+                          >
+                            <span
+                              className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${isSelected ? 'bg-primary border-primary' : 'border-border'}`}
+                            >
+                              {isSelected && (
+                                <svg width="8" height="8" viewBox="0 0 12 12" fill="white">
+                                  <path
+                                    d="M2 6l3 3 5-5"
+                                    stroke="white"
+                                    strokeWidth="2"
+                                    fill="none"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              )}
+                            </span>
+                            Otro
+                          </button>
+                        );
+                      })()}
                   </>
-                }
+                )}
               </div>
-              {Array.isArray(activeFilters['tipoDocumento']) && activeFilters['tipoDocumento'].length > 0 && (
-                <div className="border-t border-border px-3 py-2">
-                  <button onClick={() => setOpenFilterDropdown(null)} className="w-full text-xs font-semibold text-primary text-center py-1 hover:underline">Aplicar</button>
-                </div>
-              )}
+              {Array.isArray(activeFilters['tipoDocumento']) &&
+                activeFilters['tipoDocumento'].length > 0 && (
+                  <div className="border-t border-border px-3 py-2">
+                    <button
+                      onClick={() => setOpenFilterDropdown(null)}
+                      className="w-full text-xs font-semibold text-primary text-center py-1 hover:underline"
+                    >
+                      Aplicar
+                    </button>
+                  </div>
+                )}
             </div>
           );
         case 'etiquetas':
           return (
             <div className="py-1 min-w-[200px]">
               <div className="px-3 py-2">
-                <input type="text" placeholder="Buscar etiqueta..." value={etiquetasSearch} onChange={(e) => setEtiquetasSearch(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                <input
+                  type="text"
+                  placeholder="Buscar etiqueta..."
+                  value={etiquetasSearch}
+                  onChange={(e) => setEtiquetasSearch(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
               </div>
-              <button onClick={() => { setActiveFilters((prev) => ({ ...prev, etiquetas: [] })); setOpenFilterDropdown(null); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${(!activeFilters['etiquetas'] || activeFilters['etiquetas'].length === 0) ? 'text-primary font-medium' : 'text-foreground'}`}>
+              <button
+                onClick={() => {
+                  setActiveFilters((prev) => ({ ...prev, etiquetas: [] }));
+                  setOpenFilterDropdown(null);
+                }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${!activeFilters['etiquetas'] || activeFilters['etiquetas'].length === 0 ? 'text-primary font-medium' : 'text-foreground'}`}
+              >
                 Todas
               </button>
               <div className="max-h-48 overflow-y-auto">
-                {loadingEtiquetas ? <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div> :
-                  etiquetasList.filter((et) => !etiquetasSearch || et.nombre.toLowerCase().includes(etiquetasSearch.toLowerCase())).map((et) => {
-                    const selected: string[] = activeFilters['etiquetas'] || [];
-                    const isSelected = selected.includes(et.nombre);
-                    return (
-                      <button key={et.id} onClick={() => {
-                        const updated = isSelected ? selected.filter((x) => x !== et.nombre) : [...selected, et.nombre];
-                        setActiveFilters((prev) => ({ ...prev, etiquetas: updated }));
-                      }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                        <span className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${isSelected ? 'bg-primary border-primary' : 'border-border'}`}>
-                          {isSelected && <svg width="8" height="8" viewBox="0 0 12 12" fill="white"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                        </span>
-                        {et.nombre}
-                      </button>
-                    );
-                  })
-                }
+                {loadingEtiquetas ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div>
+                ) : (
+                  etiquetasList
+                    .filter(
+                      (et) =>
+                        !etiquetasSearch ||
+                        et.nombre.toLowerCase().includes(etiquetasSearch.toLowerCase())
+                    )
+                    .map((et) => {
+                      const selected: string[] = activeFilters['etiquetas'] || [];
+                      const isSelected = selected.includes(et.nombre);
+                      return (
+                        <button
+                          key={et.id}
+                          onClick={() => {
+                            const updated = isSelected
+                              ? selected.filter((x) => x !== et.nombre)
+                              : [...selected, et.nombre];
+                            setActiveFilters((prev) => ({ ...prev, etiquetas: updated }));
+                          }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}
+                        >
+                          <span
+                            className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${isSelected ? 'bg-primary border-primary' : 'border-border'}`}
+                          >
+                            {isSelected && (
+                              <svg width="8" height="8" viewBox="0 0 12 12" fill="white">
+                                <path
+                                  d="M2 6l3 3 5-5"
+                                  stroke="white"
+                                  strokeWidth="2"
+                                  fill="none"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            )}
+                          </span>
+                          {et.nombre}
+                        </button>
+                      );
+                    })
+                )}
               </div>
             </div>
           );
@@ -3662,33 +5346,73 @@ export default function MisDocumentosPage() {
           return (
             <div className="py-1 min-w-[200px]">
               <div className="px-3 py-2">
-                <input type="text" placeholder="Buscar participante..." value={participantesSearch} onChange={(e) => setParticipantesSearch(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                <input
+                  type="text"
+                  placeholder="Buscar participante..."
+                  value={participantesSearch}
+                  onChange={(e) => setParticipantesSearch(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
               </div>
-              {[{ value: '', label: 'Todos' }, { value: 'yo', label: 'Yo' }].map((opt) => (
-                <button key={opt.value} onClick={() => { setActiveFilters((prev) => ({ ...prev, participantes: opt.value })); setOpenFilterDropdown(null); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['participantes'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}>
+              {[
+                { value: '', label: 'Todos' },
+                { value: 'yo', label: 'Yo' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setActiveFilters((prev) => ({ ...prev, participantes: opt.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['participantes'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                >
                   {opt.label}
                 </button>
               ))}
               <div className="max-h-40 overflow-y-auto">
-                {loadingParticipantes ? <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div> :
-                  participantUsers.filter((u) => !participantesSearch || (u.full_name || u.email || '').toLowerCase().includes(participantesSearch.toLowerCase())).map((u) => (
-                    <button key={u.id} onClick={() => { setActiveFilters((prev) => ({ ...prev, participantes: [u.id] })); setOpenFilterDropdown(null); }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors truncate ${Array.isArray(activeFilters['participantes']) && activeFilters['participantes'].includes(u.id) ? 'text-primary font-medium' : 'text-foreground'}`}>
-                      {u.full_name || u.email}
-                    </button>
-                  ))
-                }
+                {loadingParticipantes ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div>
+                ) : (
+                  participantUsers
+                    .filter(
+                      (u) =>
+                        !participantesSearch ||
+                        (u.full_name || u.email || '')
+                          .toLowerCase()
+                          .includes(participantesSearch.toLowerCase())
+                    )
+                    .map((u) => (
+                      <button
+                        key={u.id}
+                        onClick={() => {
+                          setActiveFilters((prev) => ({ ...prev, participantes: [u.id] }));
+                          setOpenFilterDropdown(null);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors truncate ${Array.isArray(activeFilters['participantes']) && activeFilters['participantes'].includes(u.id) ? 'text-primary font-medium' : 'text-foreground'}`}
+                      >
+                        {u.full_name || u.email}
+                      </button>
+                    ))
+                )}
               </div>
             </div>
           );
         case 'prioridad':
           return (
             <div className="py-1 min-w-[160px]">
-              {[{ value: '', label: 'Todas' }, { value: 'urgente', label: 'Urgente' }, { value: 'normal', label: 'Normal' }].map((opt) => (
-                <button key={opt.value} onClick={() => { setActiveFilters((prev) => ({ ...prev, prioridad: opt.value })); setOpenFilterDropdown(null); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['prioridad'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}>
+              {[
+                { value: '', label: 'Todas' },
+                { value: 'urgente', label: 'Urgente' },
+                { value: 'normal', label: 'Normal' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setActiveFilters((prev) => ({ ...prev, prioridad: opt.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['prioridad'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                >
                   {opt.label}
                 </button>
               ))}
@@ -3707,10 +5431,20 @@ export default function MisDocumentosPage() {
                 { value: 'aprobo', label: 'Aprobado', dot: 'bg-blue-500' },
                 { value: 'cancelo', label: 'Cancelado', dot: 'bg-slate-400' },
                 { value: 'urgente_atencion', label: 'Urgente atención', dot: 'bg-orange-500' },
-                { value: 'participacion_vencida', label: 'Participación vencida', dot: 'bg-red-800' },
+                {
+                  value: 'participacion_vencida',
+                  label: 'Participación vencida',
+                  dot: 'bg-red-800',
+                },
               ].map((opt) => (
-                <button key={opt.value} onClick={() => { setActiveFilters((prev) => ({ ...prev, estadoParticipacion: opt.value })); setOpenFilterDropdown(null); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${activeFilters['estadoParticipacion'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}>
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setActiveFilters((prev) => ({ ...prev, estadoParticipacion: opt.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${activeFilters['estadoParticipacion'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                >
                   {opt.dot && <span className={`w-2 h-2 rounded-full flex-shrink-0 ${opt.dot}`} />}
                   {!opt.dot && <span className="w-2 h-2 flex-shrink-0" />}
                   {opt.label}
@@ -3729,284 +5463,577 @@ export default function MisDocumentosPage() {
     }).length;
 
     return (
-    <>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <FileText size={24} className="text-primary" />
-            Mi Espacio
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">Espacio de trabajo de: <span className="font-medium text-foreground">{isPersonalWorkspace ? personalUserFullName : workspaceDisplayName}</span></p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowCarpetaModal(true)} className="flex items-center gap-2 bg-white text-foreground border border-border px-4 py-2 rounded-lg text-sm font-semibold hover:bg-muted transition-colors">
-            <FolderPlus size={16} className="text-primary" />Crear Carpeta
-          </button>
-          <button onClick={() => router.push('/crear-documento')} className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors">
-            <FilePlus size={16} />Crear Documento
-          </button>
-        </div>
-      </div>
-      {folderBreadcrumb.length > 0 && (
-        <div className="flex items-center gap-1 mb-4 text-sm text-muted-foreground flex-wrap">
-          <button onClick={() => handleBreadcrumbNav(-1)} className="hover:text-primary transition-colors">Mi Espacio</button>
-          {folderBreadcrumb.map((crumb, idx) => (
-            <React.Fragment key={crumb.id}>
-              <ChevronRight size={14} />
-              <button
-                onClick={() => handleBreadcrumbNav(idx)}
-                className={`hover:text-primary transition-colors ${idx === folderBreadcrumb.length - 1 ? 'text-foreground font-medium' : ''}`}
-              >
-                {crumb.name}
-              </button>
-            </React.Fragment>
-          ))}
-        </div>
-      )}
-      {/* Toolbar row */}
-      <div className="flex items-center gap-3 mb-3 flex-wrap">
-        <div className="flex-1 relative min-w-[160px]">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input type="text" placeholder="Buscar documentos..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" />
-        </div>
-        <div className="relative" ref={miEspacioSortDropdownRef}>
-          <button
-            onClick={() => setMiEspacioSortDropdownOpen((v) => !v)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-border rounded-lg bg-white hover:bg-muted transition-colors text-foreground"
-          >
-            <ArrowUpDown size={14} />
-            <span>Ordenar</span>
-          </button>
-          {miEspacioSortDropdownOpen && (
-            <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-border rounded-lg shadow-lg min-w-[160px] py-1">
-              {[
-                { value: 'ultimaModificacion_desc', label: 'Más reciente' },
-                { value: 'ultimaModificacion_asc', label: 'Más antiguo' },
-                { value: 'nombre_asc', label: 'Nombre A–Z' },
-                { value: 'nombre_desc', label: 'Nombre Z–A' },
-                { value: 'estado_asc', label: 'Estado' },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => { setMiEspacioSortOrder(opt.value); setMiEspacioSortDropdownOpen(false); }}
-                  className={`w-full text-left px-3 py-2 text-sm transition-colors hover:bg-muted ${miEspacioSortOrder === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center border border-border rounded-lg overflow-hidden bg-white">
-          <button onClick={() => setViewMode('list')} className={`p-2 transition-colors ${viewMode === 'list' ? 'bg-muted text-foreground' : 'bg-white text-muted-foreground hover:bg-muted'}`} title="Vista lista">
-            <LayoutList size={16} />
-          </button>
-          <button onClick={() => setViewMode('grid')} className={`p-2 transition-colors ${viewMode === 'grid' ? 'bg-muted text-foreground' : 'bg-white text-muted-foreground hover:bg-muted'}`} title="Vista cuadrícula">
-            <LayoutGrid size={16} />
-          </button>
-        </div>
-        <button
-          onClick={() => setPersonalizarOpen(true)}
-          className="p-2 border border-border rounded-lg bg-white hover:bg-muted transition-colors text-muted-foreground"
-          title="Personalizar vista"
-        >
-          <SlidersHorizontal size={16} />
-        </button>
-        <button
-          onClick={() => setIsFullscreen((v) => !v)}
-          className="p-2 border border-border rounded-lg bg-white hover:bg-muted transition-colors text-muted-foreground"
-          title={isFullscreen ? 'Salir de vista amplia' : 'Vista amplia'}
-        >
-          {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-        </button>
-      </div>
-
-      {/* Filter bar row */}
-      {visibleFilters.length > 0 && (
-        <div className="flex items-center gap-2 mb-3 flex-wrap" ref={filterDropdownRef}>
-          {visibleFilters.map((f) => {
-            const hasValue = activeFilters[f.id] && (Array.isArray(activeFilters[f.id]) ? activeFilters[f.id].length > 0 : activeFilters[f.id] !== '');
-            return (
-              <div key={f.id} className="relative">
-                <button
-                  onClick={() => setOpenFilterDropdown(openFilterDropdown === f.id ? null : f.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg transition-colors ${hasValue ? 'border-primary bg-primary/10 text-primary font-semibold' : 'border-border bg-white text-foreground hover:bg-muted'}`}
-                >
-                  {f.label}
-                  {hasValue && <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />}
-                </button>
-                {openFilterDropdown === f.id && (
-                  <div className="absolute top-full left-0 mt-1 z-[200] bg-white border border-border rounded-xl shadow-xl overflow-hidden">
-                    {renderFilterDropdown(f.id)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {Object.values(activeFilters).some((v) => v && (Array.isArray(v) ? v.length > 0 : v !== '')) && (
+      <>
+        <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="flex items-center gap-2 text-2xl font-700 text-slate-950">Mi Espacio</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Espacio de trabajo de{' '}
+              <span className="font-600 text-slate-700">
+                {isPersonalWorkspace ? personalUserFullName : workspaceDisplayName}
+              </span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setActiveFilters({})}
-              className="flex items-center gap-1 px-2 py-1.5 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+              onClick={() => setShowCarpetaModal(true)}
+              className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
             >
-              <X size={11} />Limpiar filtros
+              <FolderPlus size={16} className="text-primary" />
+              Crear Carpeta
             </button>
-          )}
+            <button
+              onClick={() => router.push('/crear-documento')}
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-colors hover:bg-primary/90"
+            >
+              <FilePlus size={16} />
+              Crear Documento
+            </button>
+          </div>
         </div>
-      )}
+        {folderBreadcrumb.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
+            <button
+              onClick={() => handleBreadcrumbNav(-1)}
+              className="hover:text-primary transition-colors"
+            >
+              Mi Espacio
+            </button>
+            {folderBreadcrumb.map((crumb, idx) => (
+              <React.Fragment key={crumb.id}>
+                <ChevronRight size={14} />
+                <button
+                  onClick={() => handleBreadcrumbNav(idx)}
+                  className={`hover:text-primary transition-colors ${idx === folderBreadcrumb.length - 1 ? 'text-foreground font-medium' : ''}`}
+                >
+                  {crumb.name}
+                </button>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+        <section className="mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          {/* Toolbar row */}
+          <div className="flex flex-wrap items-center gap-2 p-3">
+            <div className="flex-1 relative min-w-[160px]">
+              <Search
+                size={15}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <input
+                type="text"
+                placeholder="Buscar documentos..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
+              />
+            </div>
+            <div className="relative" ref={miEspacioSortDropdownRef}>
+              <button
+                onClick={() => setMiEspacioSortDropdownOpen((v) => !v)}
+                className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
+              >
+                <ArrowUpDown size={14} />
+                <span>Ordenar</span>
+              </button>
+              {miEspacioSortDropdownOpen && (
+                <div className="absolute right-0 top-full z-50 mt-1 min-w-[168px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
+                  {[
+                    { value: 'ultimaModificacion_desc', label: 'Más reciente' },
+                    { value: 'ultimaModificacion_asc', label: 'Más antiguo' },
+                    { value: 'nombre_asc', label: 'Nombre A–Z' },
+                    { value: 'nombre_desc', label: 'Nombre Z–A' },
+                    { value: 'estado_asc', label: 'Estado' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => {
+                        setMiEspacioSortOrder(opt.value);
+                        setMiEspacioSortDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors hover:bg-muted ${miEspacioSortOrder === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                title="Vista lista"
+              >
+                <LayoutList size={16} />
+              </button>
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                title="Vista cuadrícula"
+              >
+                <LayoutGrid size={16} />
+              </button>
+            </div>
+            <button
+              onClick={() => setPersonalizarOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+              title="Personalizar vista"
+            >
+              <SlidersHorizontal size={16} />
+            </button>
+            <button
+              onClick={() => setIsFullscreen((v) => !v)}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+              title={isFullscreen ? 'Salir de vista amplia' : 'Vista amplia'}
+            >
+              {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+          </div>
 
-      {/* Main content: list or grid */}
-      {viewMode === 'grid' ? (
-        <div className="p-1">
-          {/* Selection bar when items are checked in grid view */}
-          {(selectedRows.length > 0 || selectedFolders.length > 0) && (
-            <div className="flex items-center justify-between bg-muted/60 border border-border rounded-xl px-4 py-3 mb-3">
-              <span className="text-sm font-medium text-foreground">
-                {selectedRows.length + selectedFolders.length} elemento(s) seleccionado(s)
-              </span>
-              <div className="flex items-center gap-2">
+          {/* Filter bar row */}
+          {visibleFilters.length > 0 && (
+            <div
+              className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5"
+              ref={filterDropdownRef}
+            >
+              {visibleFilters.map((f) => {
+                const hasValue =
+                  activeFilters[f.id] &&
+                  (Array.isArray(activeFilters[f.id])
+                    ? activeFilters[f.id].length > 0
+                    : activeFilters[f.id] !== '');
+                return (
+                  <div key={f.id} className="relative">
+                    <button
+                      onClick={() =>
+                        setOpenFilterDropdown(openFilterDropdown === f.id ? null : f.id)
+                      }
+                      className={`flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-600 transition-colors ${hasValue ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+                    >
+                      {f.label}
+                      {hasValue && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                      )}
+                    </button>
+                    {openFilterDropdown === f.id && (
+                      <div className="absolute left-0 top-full z-[200] mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
+                        {renderFilterDropdown(f.id)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {Object.values(activeFilters).some(
+                (v) => v && (Array.isArray(v) ? v.length > 0 : v !== '')
+              ) && (
                 <button
-                  onClick={() => {
-                    if (selectedRows.length > 0) {
-                      setMoveModal({ open: true, docId: null, docName: '', isBulk: true });
-                    }
-                  }}
-                  disabled={selectedRows.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() => setActiveFilters({})}
+                  className="flex items-center gap-1 px-2 py-1.5 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
                 >
-                  <Move size={14} />Mover a...
+                  <X size={11} />
+                  Limpiar filtros
                 </button>
-                <button
-                  onClick={() => {
-                    if (selectedRows.length > 0) {
-                      handleBulkPapelera();
-                    }
-                  }}
-                  disabled={selectedRows.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Trash2 size={14} />Mover a la papelera
-                </button>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Main content: list or grid */}
+        {viewMode === 'grid' ? (
+          <div className="p-1">
+            {/* Selection bar when items are checked in grid view */}
+            {(selectedRows.length > 0 || selectedFolders.length > 0) && (
+              <div className="flex items-center justify-between bg-muted/60 border border-border rounded-xl px-4 py-3 mb-3">
+                <span className="text-sm font-medium text-foreground">
+                  {selectedRows.length + selectedFolders.length} elemento(s) seleccionado(s)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (selectedRows.length > 0) {
+                        setMoveModal({ open: true, docId: null, docName: '', isBulk: true });
+                      }
+                    }}
+                    disabled={selectedRows.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Move size={14} />
+                    Mover a...
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedRows.length > 0) {
+                        handleBulkPapelera();
+                      }
+                    }}
+                    disabled={selectedRows.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 size={14} />
+                    Mover a la papelera
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-          {loadingDocs ? (
-            <div className="flex items-center justify-center py-16 gap-3">
-              <svg className="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-              <span className="text-sm text-muted-foreground">Cargando documentos...</span>
-            </div>
-          ) : (visibleCarpetas.length === 0 && sortedDocuments.length === 0) ? (
-            <div className="py-16 text-center text-sm text-muted-foreground">
-              {searchQuery ? 'No se encontraron documentos.' : 'No hay documentos en este espacio aún.'}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-              {visibleCarpetas.map(renderFolderGridCard)}
-              {sortedDocuments.map(renderDocGridCard)}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          {/* Selection action bar for list view */}
-          {(selectedRows.length > 0 || selectedFolders.length > 0) && (
-            <div className="flex items-center justify-between bg-muted/60 border-b border-border px-4 py-3">
-              <span className="text-sm font-medium text-foreground">
-                {selectedRows.length + selectedFolders.length} elemento(s) seleccionado(s)
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setSelectedRows([]); setSelectedFolders([]); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+            )}
+            {loadingDocs ? (
+              <div className="flex items-center justify-center py-16 gap-3">
+                <svg
+                  className="animate-spin h-5 w-5 text-primary"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
                 >
-                  <X size={14} />Deseleccionar
-                </button>
-                <button
-                  onClick={() => {
-                    if (selectedRows.length > 0) {
-                      setMoveModal({ open: true, docId: null, docName: '', isBulk: true });
-                    }
-                  }}
-                  disabled={selectedRows.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Move size={14} />Mover a...
-                </button>
-                <button
-                  onClick={() => {
-                    if (selectedRows.length > 0) {
-                      handleBulkPapelera();
-                    }
-                  }}
-                  disabled={selectedRows.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Trash2 size={14} />Mover a la papelera
-                </button>
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                <span className="text-sm text-muted-foreground">Cargando documentos...</span>
               </div>
-            </div>
-          )}
-          {loadingDocs ? (
-            <div className="flex items-center justify-center py-16 gap-3">
-              <svg className="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-              <span className="text-sm text-muted-foreground">Cargando documentos...</span>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-max">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40">
-                    <th className="px-3 py-3" style={{ width: `${mainColWidths.checkbox}px` }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedRows.length === sortedDocuments.length && selectedFolders.length === visibleCarpetas.length && (sortedDocuments.length + visibleCarpetas.length) > 0}
-                        onChange={toggleSelectAll}
-                        className="rounded border-border accent-primary cursor-pointer"
-                      />
-                    </th>
-                    <ResizableTh colKey="nombre" width={mainColWidths.nombre} minWidth={120} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3">Nombre</ResizableTh>
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'propietario') && <ResizableTh colKey="propietario" width={mainColWidths.propietario} minWidth={80} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Propietario</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'ultimaModificacion') && <ResizableTh colKey="ultimaModificacion" width={mainColWidths.ultimaModificacion} minWidth={120} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Última modificación</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'tamano') && <ResizableTh colKey="tamano" width={mainColWidths.tamano} minWidth={60} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Tamaño</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'estado') && <ResizableTh colKey="estado" width={mainColWidths.estado} minWidth={80} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Estado</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'estadoParticipacion') && <ResizableTh colKey="estadoParticipacion" width={mainColWidths.estadoParticipacion} minWidth={120} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Estado de mi participación</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'etiquetas') && <ResizableTh colKey="etiquetas" width={mainColWidths.etiquetas} minWidth={80} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Etiquetas</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'tipoDocumento') && <ResizableTh colKey="tipoDocumento" width={mainColWidths.tipoDocumento} minWidth={70} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Tipo</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'numeroDocumento') && <ResizableTh colKey="numeroDocumento" width={mainColWidths.numeroDocumento} minWidth={80} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">N° Documento</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'folioInterno') && <ResizableTh colKey="folioInterno" width={mainColWidths.folioInterno} minWidth={70} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Folio</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'fechaCreacion') && <ResizableTh colKey="fechaCreacion" width={mainColWidths.fechaCreacion} minWidth={100} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Creación</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'fechaCompletado') && <ResizableTh colKey="fechaCompletado" width={mainColWidths.fechaCompletado} minWidth={100} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Completado</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'fechaVencimiento') && <ResizableTh colKey="fechaVencimiento" width={mainColWidths.fechaVencimiento} minWidth={90} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Vencimiento</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'prioridad') && <ResizableTh colKey="prioridad" width={mainColWidths.prioridad} minWidth={70} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Prioridad</ResizableTh>}
-                    {columnConfig.filter((c) => c.visible).find((c) => c.id === 'rutaGuardado') && <ResizableTh colKey="rutaGuardado" width={mainColWidths.rutaGuardado} minWidth={90} onResize={resizeMainCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Ruta</ResizableTh>}
-                    <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleCarpetas.map(renderFolderTableRow)}
-                  {sortedDocuments.map((doc) => renderDocRowWithColumns(doc, columnConfig.filter((c) => c.visible)))}
-                  {visibleCarpetas.length === 0 && sortedDocuments.length === 0 && (
-                    <tr>
-                      <td colSpan={columnConfig.filter((c) => c.visible).length + 3} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                        {searchQuery ? 'No se encontraron documentos.' : 'No hay documentos en este espacio aún.'}
-                      </td>
+            ) : visibleCarpetas.length === 0 && sortedDocuments.length === 0 ? (
+              <div className="py-16 text-center text-sm text-muted-foreground">
+                {searchQuery
+                  ? 'No se encontraron documentos.'
+                  : 'No hay documentos en este espacio aún.'}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                {visibleCarpetas.map(renderFolderGridCard)}
+                {sortedDocuments.map(renderDocGridCard)}
+              </div>
+            )}
+          </div>
+        ) : (
+          <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            {/* Selection action bar for list view */}
+            {(selectedRows.length > 0 || selectedFolders.length > 0) && (
+              <div className="flex items-center justify-between bg-muted/60 border-b border-border px-4 py-3">
+                <span className="text-sm font-medium text-foreground">
+                  {selectedRows.length + selectedFolders.length} elemento(s) seleccionado(s)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedRows([]);
+                      setSelectedFolders([]);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+                  >
+                    <X size={14} />
+                    Deseleccionar
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedRows.length > 0) {
+                        setMoveModal({ open: true, docId: null, docName: '', isBulk: true });
+                      }
+                    }}
+                    disabled={selectedRows.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Move size={14} />
+                    Mover a...
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedRows.length > 0) {
+                        handleBulkPapelera();
+                      }
+                    }}
+                    disabled={selectedRows.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 size={14} />
+                    Mover a la papelera
+                  </button>
+                </div>
+              </div>
+            )}
+            {loadingDocs ? (
+              <div className="flex items-center justify-center py-16 gap-3">
+                <svg
+                  className="animate-spin h-5 w-5 text-primary"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                <span className="text-sm text-muted-foreground">Cargando documentos...</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-max">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/80">
+                      <th
+                        className={selectionCheckboxCellClass}
+                        style={{ width: `${mainColWidths.checkbox}px` }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={
+                            selectedRows.length === sortedDocuments.length &&
+                            selectedFolders.length === visibleCarpetas.length &&
+                            sortedDocuments.length + visibleCarpetas.length > 0
+                          }
+                          onChange={toggleSelectAll}
+                          className={selectionCheckboxClass}
+                        />
+                      </th>
+                      <ResizableTh
+                        colKey="nombre"
+                        width={mainColWidths.nombre}
+                        minWidth={120}
+                        onResize={resizeMainCol}
+                        className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                      >
+                        Nombre
+                      </ResizableTh>
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'propietario') && (
+                        <ResizableTh
+                          colKey="propietario"
+                          width={mainColWidths.propietario}
+                          minWidth={80}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Propietario
+                        </ResizableTh>
+                      )}
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'ultimaModificacion') && (
+                        <ResizableTh
+                          colKey="ultimaModificacion"
+                          width={mainColWidths.ultimaModificacion}
+                          minWidth={120}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Última modificación
+                        </ResizableTh>
+                      )}
+                      {columnConfig.filter((c) => c.visible).find((c) => c.id === 'tamano') && (
+                        <ResizableTh
+                          colKey="tamano"
+                          width={mainColWidths.tamano}
+                          minWidth={60}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Tamaño
+                        </ResizableTh>
+                      )}
+                      {columnConfig.filter((c) => c.visible).find((c) => c.id === 'estado') && (
+                        <ResizableTh
+                          colKey="estado"
+                          width={mainColWidths.estado}
+                          minWidth={80}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Estado
+                        </ResizableTh>
+                      )}
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'estadoParticipacion') && (
+                        <ResizableTh
+                          colKey="estadoParticipacion"
+                          width={mainColWidths.estadoParticipacion}
+                          minWidth={120}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Estado de mi participación
+                        </ResizableTh>
+                      )}
+                      {columnConfig.filter((c) => c.visible).find((c) => c.id === 'etiquetas') && (
+                        <ResizableTh
+                          colKey="etiquetas"
+                          width={mainColWidths.etiquetas}
+                          minWidth={80}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Etiquetas
+                        </ResizableTh>
+                      )}
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'tipoDocumento') && (
+                        <ResizableTh
+                          colKey="tipoDocumento"
+                          width={mainColWidths.tipoDocumento}
+                          minWidth={70}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Tipo
+                        </ResizableTh>
+                      )}
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'numeroDocumento') && (
+                        <ResizableTh
+                          colKey="numeroDocumento"
+                          width={mainColWidths.numeroDocumento}
+                          minWidth={80}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          N° Documento
+                        </ResizableTh>
+                      )}
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'folioInterno') && (
+                        <ResizableTh
+                          colKey="folioInterno"
+                          width={mainColWidths.folioInterno}
+                          minWidth={70}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Folio
+                        </ResizableTh>
+                      )}
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'fechaCreacion') && (
+                        <ResizableTh
+                          colKey="fechaCreacion"
+                          width={mainColWidths.fechaCreacion}
+                          minWidth={100}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Creación
+                        </ResizableTh>
+                      )}
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'fechaCompletado') && (
+                        <ResizableTh
+                          colKey="fechaCompletado"
+                          width={mainColWidths.fechaCompletado}
+                          minWidth={100}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Completado
+                        </ResizableTh>
+                      )}
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'fechaVencimiento') && (
+                        <ResizableTh
+                          colKey="fechaVencimiento"
+                          width={mainColWidths.fechaVencimiento}
+                          minWidth={90}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Vencimiento
+                        </ResizableTh>
+                      )}
+                      {columnConfig.filter((c) => c.visible).find((c) => c.id === 'prioridad') && (
+                        <ResizableTh
+                          colKey="prioridad"
+                          width={mainColWidths.prioridad}
+                          minWidth={70}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Prioridad
+                        </ResizableTh>
+                      )}
+                      {columnConfig
+                        .filter((c) => c.visible)
+                        .find((c) => c.id === 'rutaGuardado') && (
+                        <ResizableTh
+                          colKey="rutaGuardado"
+                          width={mainColWidths.rutaGuardado}
+                          minWidth={90}
+                          onResize={resizeMainCol}
+                          className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                        >
+                          Ruta
+                        </ResizableTh>
+                      )}
+                      <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-    </>
+                  </thead>
+                  <tbody>
+                    {visibleCarpetas.map(renderFolderTableRow)}
+                    {sortedDocuments.map((doc) =>
+                      renderDocRowWithColumns(
+                        doc,
+                        columnConfig.filter((c) => c.visible)
+                      )
+                    )}
+                    {visibleCarpetas.length === 0 && sortedDocuments.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={columnConfig.filter((c) => c.visible).length + 3}
+                          className="px-4 py-12 text-center text-sm text-muted-foreground"
+                        >
+                          {searchQuery
+                            ? 'No se encontraron documentos.'
+                            : 'No hay documentos en este espacio aún.'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+      </>
     );
   };
 
   return (
     <AppLayout noPadding>
-      <div className={`flex ${isFullscreen ? 'fixed inset-0 z-[100] bg-background' : 'min-h-[calc(100vh-128px)]'}`}>
+      <div
+        className={`flex bg-[#f6f8fb] ${isFullscreen ? 'fixed inset-0 z-[100]' : '-mx-4 -my-4 min-h-[calc(100vh-104px)] md:-my-6'}`}
+      >
         {/* Left sidebar */}
-        <div className={`w-52 2xl:w-64 flex-shrink-0 border-r border-border bg-white flex flex-col ${isFullscreen ? 'hidden' : ''}`}>
-          <div className="flex flex-col pt-2 px-2 gap-0.5 flex-1 overflow-y-auto">
+        <aside
+          className={`flex w-60 flex-shrink-0 flex-col border-r border-slate-200/90 bg-white 2xl:w-64 ${isFullscreen ? 'hidden' : ''}`}
+        >
+          <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-3 pt-3">
+            <div className="mb-1 px-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Principal
+              </p>
+            </div>
             {/* Inicio & Mi espacio & Papelera */}
             {sidebarItems.map((item) => {
               const Icon2 = item.icon;
@@ -4021,9 +6048,10 @@ export default function MisDocumentosPage() {
                       }
                     }}
                     title={item.label}
-                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full ${
+                    className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-600 transition-colors ${
                       activeSection === item.id
-                        ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted'
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
                     }`}
                   >
                     {Icon2 && <Icon2 size={16} className="flex-shrink-0" />}
@@ -4031,8 +6059,8 @@ export default function MisDocumentosPage() {
                   </button>
                   {/* Folder tree under Mi espacio — recursive */}
                   {item.id === 'mi-espacio' && rootCarpetas.length > 0 && (
-                    <div className="ml-1 flex flex-col">
-                      {rootCarpetas.map((carpeta) => (
+                    <div className="ml-5 mt-0.5 flex flex-col border-l border-slate-200 pl-2.5">
+                      {rootCarpetas.map((carpeta, index) => (
                         <FolderTreeNode
                           key={carpeta.id}
                           carpeta={carpeta}
@@ -4040,6 +6068,7 @@ export default function MisDocumentosPage() {
                           currentFolderId={currentFolderId}
                           activeSection={activeSection}
                           depth={0}
+                          isLast={index === rootCarpetas.length - 1}
                           onNavigate={handleSidebarFolderNav}
                         />
                       ))}
@@ -4051,37 +6080,50 @@ export default function MisDocumentosPage() {
 
             {/* CREADOS POR DOCUBOX section */}
             <div className="mt-3 mb-1 px-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Creados por Docubox</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Creados por Docubox
+              </p>
             </div>
             <button
               onClick={() => setActiveSection('favoritos')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full ${
-                activeSection === 'favoritos' ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted'
+              className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-600 transition-colors ${
+                activeSection === 'favoritos'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
               }`}
             >
-              <Star size={16} className={`flex-shrink-0 ${activeSection === 'favoritos' ? 'text-primary' : 'text-yellow-400'}`} />
+              <Star
+                size={16}
+                className={`flex-shrink-0 ${activeSection === 'favoritos' ? 'text-primary' : 'text-yellow-400'}`}
+              />
               <span className="text-left flex-1 truncate">Favoritos</span>
             </button>
             <button
               onClick={() => setActiveSection('por-vencer')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full ${
-                activeSection === 'por-vencer' ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted'
+              className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-600 transition-colors ${
+                activeSection === 'por-vencer'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
               }`}
             >
               <AlertTriangle size={16} className="flex-shrink-0 text-orange-500" />
-              <span className="text-left flex-1 truncate text-foreground">Por vencer (72hrs.)</span>
+              <span className="flex-1 truncate text-left">Por vencer (72hrs.)</span>
             </button>
 
             {/* CREADOS POR MÍ section */}
             <div className="mt-3 mb-1 px-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Creados por mí</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Creados por mí
+              </p>
             </div>
             {/* Custom filters */}
             {customFilters.map((cf) => (
               <div
                 key={cf.id}
-                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-colors w-full group ${
-                  activeSection === `custom-${cf.id}` ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted'
+                className={`group flex h-8 w-full items-center gap-1 rounded-md px-2.5 text-sm font-500 transition-colors ${
+                  activeSection === `custom-${cf.id}`
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
                 }`}
               >
                 {editingFilterId === cf.id ? (
@@ -4096,7 +6138,9 @@ export default function MisDocumentosPage() {
                         if (e.key === 'Enter') {
                           const nombre = editingFilterName.trim();
                           if (nombre && nombre !== cf.nombre) {
-                            const updated = customFilters.map((f) => f.id === cf.id ? { ...f, nombre } : f);
+                            const updated = customFilters.map((f) =>
+                              f.id === cf.id ? { ...f, nombre } : f
+                            );
                             setCustomFilters(updated);
                             await saveCustomFilters(updated);
                           }
@@ -4112,7 +6156,9 @@ export default function MisDocumentosPage() {
                       onClick={async () => {
                         const nombre = editingFilterName.trim();
                         if (nombre && nombre !== cf.nombre) {
-                          const updated = customFilters.map((f) => f.id === cf.id ? { ...f, nombre } : f);
+                          const updated = customFilters.map((f) =>
+                            f.id === cf.id ? { ...f, nombre } : f
+                          );
                           setCustomFilters(updated);
                           await saveCustomFilters(updated);
                         }
@@ -4150,40 +6196,48 @@ export default function MisDocumentosPage() {
             {/* Crear filtro button */}
             <button
               onClick={() => setShowCrearFiltroModal(true)}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-primary hover:bg-primary/5 border border-dashed border-primary/30 mt-1"
+              className="mt-2 flex w-full items-center gap-2.5 rounded-md border border-dashed border-primary/30 px-3 py-2 text-sm font-600 text-primary transition-colors hover:bg-primary/5"
             >
               <Plus size={15} className="flex-shrink-0" />
               <span className="text-left flex-1 truncate">Crear filtro</span>
             </button>
           </div>
-        </div>
+        </aside>
 
         {/* Main content */}
-        <div className="flex-1 overflow-auto px-4 sm:px-6 lg:px-8 pt-2 pb-4 md:pb-6">
+        <main className="flex-1 overflow-auto px-4 pb-4 pt-4 sm:px-5 md:pb-5 lg:px-6 xl:px-7">
           {activeSection === 'mi-espacio' && renderMiEspacioContent()}
 
           {activeSection === 'favoritos' && (
             <>
-              <div className="flex items-start justify-between mb-6">
+              <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                    <Star size={22} className="text-yellow-400 fill-yellow-400" />
-                    Favoritos
-                  </h1>
-                  <p className="text-sm text-muted-foreground mt-1">Documentos marcados como favoritos</p>
+                  <h1 className="text-2xl font-700 text-slate-950">Favoritos</h1>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Documentos marcados como favoritos
+                  </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <div className="flex-1 relative">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input type="text" placeholder="Buscar en Favoritos..." value={favSearchQuery} onChange={(e) => setFavSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" />
+              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                <div className="relative min-w-[180px] flex-1">
+                  <Search
+                    size={15}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Buscar en Favoritos..."
+                    value={favSearchQuery}
+                    onChange={(e) => setFavSearchQuery(e.target.value)}
+                    className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  />
                 </div>
                 <div className="relative">
                   <select
                     value={favSortOrder}
                     onChange={(e) => setFavSortOrder(e.target.value)}
                     style={{ fontFamily: 'inherit' }}
-                    className="pl-8 pr-3 py-2 text-sm border border-border rounded-lg bg-white hover:bg-muted transition-colors text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    className="h-9 cursor-pointer appearance-none rounded-md border border-slate-200 bg-white pl-8 pr-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
                   >
                     <option value="ultimaModificacion_desc">Más reciente</option>
                     <option value="ultimaModificacion_asc">Más antiguo</option>
@@ -4191,17 +6245,35 @@ export default function MisDocumentosPage() {
                     <option value="nombre_desc">Nombre Z–A</option>
                     <option value="estado_asc">Estado</option>
                   </select>
-                  <ArrowUpDown size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <ArrowUpDown
+                    size={14}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                  />
                 </div>
-                <div className="flex items-center border border-border rounded-lg overflow-hidden bg-white">
-                  <button onClick={() => setFavViewMode('list')} className={`p-2 transition-colors ${favViewMode === 'list' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}><LayoutList size={16} /></button>
-                  <button onClick={() => setFavViewMode('grid')} className={`p-2 transition-colors ${favViewMode === 'grid' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}><LayoutGrid size={16} /></button>
+                <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
+                  <button
+                    onClick={() => setFavViewMode('list')}
+                    className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${favViewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                    title="Vista lista"
+                  >
+                    <LayoutList size={16} />
+                  </button>
+                  <button
+                    onClick={() => setFavViewMode('grid')}
+                    className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${favViewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                    title="Vista cuadrícula"
+                  >
+                    <LayoutGrid size={16} />
+                  </button>
                 </div>
                 <div className="relative">
                   <button
                     onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.stopPropagation(); setFavColumnConfigOpen((v) => !v); }}
-                    className={`p-2 border rounded-lg transition-colors ${favColumnConfigOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-white hover:bg-muted text-foreground'}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFavColumnConfigOpen((v) => !v);
+                    }}
+                    className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${favColumnConfigOpen ? 'border-primary/40 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950'}`}
                     title="Configurar columnas"
                   >
                     <SlidersHorizontal size={14} />
@@ -4209,626 +6281,106 @@ export default function MisDocumentosPage() {
                   {favColumnConfigOpen && (
                     <div
                       ref={favColumnConfigRef}
-                      className="absolute top-full right-0 mt-1 z-[200] bg-white border border-border rounded-xl shadow-xl p-3 min-w-[220px]"
+                      className="absolute right-0 top-full z-[200] mt-1 min-w-[220px] rounded-lg border border-slate-200 bg-white p-3 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]"
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Columnas visibles</p>
+                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                        Columnas visibles
+                      </p>
                       <div className="space-y-0.5 max-h-64 overflow-y-auto">
                         {/* Nombre - mandatory, always first */}
                         <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-blue-50 border border-blue-100">
-                          <input type="checkbox" checked disabled className="rounded border-border accent-primary cursor-not-allowed flex-shrink-0 opacity-60" />
+                          <input
+                            type="checkbox"
+                            checked
+                            disabled
+                            className="rounded border-border accent-primary cursor-not-allowed flex-shrink-0 opacity-60"
+                          />
                           <span className="text-sm text-foreground font-medium">Nombre</span>
-                          <span className="text-[10px] text-blue-600 font-semibold ml-auto">Fijo</span>
+                          <span className="text-[10px] text-blue-600 font-semibold ml-auto">
+                            Fijo
+                          </span>
                         </div>
-                        {(favColumnConfig).filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento').map((col, colIdx) => (
-                          <div
-                            key={col.id}
-                            draggable
-                            onDragStart={() => { favColDragIdxRef.current = colIdx; setFavColDragIdx(colIdx); }}
-                            onDragEnter={() => { favColDragOverIdxRef.current = colIdx; setFavColDragOverIdx(colIdx); }}
-                            onDragEnd={() => {
-                              const from = favColDragIdxRef.current;
-                              const to = favColDragOverIdxRef.current;
-                              if (from !== null && to !== null && from !== to) {
-                                const nonNombre = favColumnConfig.filter((c) => c.id !== 'nombre' && c.id !== 'nombreDocumento');
-                                const updated = [...nonNombre];
-                                const [moved] = updated.splice(from, 1);
-                                updated.splice(to, 0, moved);
-                                setFavColumnConfig(updated);
-                              }
-                              favColDragIdxRef.current = null; favColDragOverIdxRef.current = null;
-                              setFavColDragIdx(null); setFavColDragOverIdx(null);
-                            }}
-                            onDragOver={(e) => e.preventDefault()}
-                            className={`flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${favColDragIdx === colIdx ? 'opacity-40 border border-blue-400 bg-blue-50' : favColDragOverIdx === colIdx ? 'border border-blue-400 bg-blue-50' : 'hover:bg-muted'}`}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-muted-foreground/40 flex-shrink-0"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
-                            <input
-                              type="checkbox"
-                              checked={col.visible}
-                              onChange={() => {
-                                const updated = favColumnConfig.map((c) => c.id === col.id ? { ...c, visible: !c.visible } : c);
-                                setFavColumnConfig(updated);
+                        {favColumnConfig
+                          .filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento')
+                          .map((col, colIdx) => (
+                            <div
+                              key={col.id}
+                              draggable
+                              onDragStart={() => {
+                                favColDragIdxRef.current = colIdx;
+                                setFavColDragIdx(colIdx);
                               }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="rounded border-border accent-primary cursor-pointer flex-shrink-0"
-                            />
-                            <span className="text-sm text-foreground">{col.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-2 pt-2 border-t border-border flex gap-2">
-                        <button onClick={() => setFavColumnConfig(DEFAULT_CF_COLUMNS.map((c) => ({ ...c, visible: true })))} className="flex-1 text-xs text-primary hover:underline font-medium text-center py-1">Mostrar todas</button>
-                        <button onClick={() => setFavColumnConfig(DEFAULT_CF_COLUMNS.map((c) => ({ ...c })))} className="flex-1 text-xs text-muted-foreground hover:text-foreground font-medium text-center py-1">Restablecer</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="bg-white border border-border rounded-xl overflow-hidden">
-                {loadingFavorites ? (
-                  <div className="flex items-center justify-center py-12 gap-3"><svg className="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg><span className="text-sm text-muted-foreground">Cargando favoritos...</span></div>
-                ) : favViewMode === 'grid' ? (
-                  <div className="p-4">
-                    {favoriteDocuments.filter((d) => d.name.toLowerCase().includes(favSearchQuery.toLowerCase())).length === 0 ? (
-                      <div className="py-12 text-center text-sm text-muted-foreground">No tienes documentos favoritos aún.</div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                        {favoriteDocuments.filter((d) => d.name.toLowerCase().includes(favSearchQuery.toLowerCase())).map(renderDocGridCard)}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                  <table className="w-full min-w-max">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/40">
-                        <th className="px-3 py-3" style={{ width: `${favColWidths.checkbox}px` }}></th>
-                        <ResizableTh colKey="nombre" width={favColWidths.nombre} minWidth={120} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3">Nombre</ResizableTh>
-                        {favColumnConfig.find((c) => c.id === 'propietario')?.visible && <ResizableTh colKey="propietario" width={favColWidths.propietario} minWidth={80} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Propietario</ResizableTh>}
-                        {favColumnConfig.find((c) => c.id === 'estado')?.visible && <ResizableTh colKey="estado" width={favColWidths.estado} minWidth={80} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Estado</ResizableTh>}
-                        {favColumnConfig.find((c) => c.id === 'fechaCreacion')?.visible && <ResizableTh colKey="fechaCreacion" width={favColWidths.fechaCreacion} minWidth={100} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Fecha de creación</ResizableTh>}
-                        {favColumnConfig.find((c) => c.id === 'numeroDocumento')?.visible && <ResizableTh colKey="numeroDocumento" width={favColWidths.numeroDocumento} minWidth={80} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">N° Documento</ResizableTh>}
-                        {favColumnConfig.find((c) => c.id === 'ultimaModificacion')?.visible && <ResizableTh colKey="ultimaModificacion" width={favColWidths.ultimaModificacion} minWidth={120} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Última modificación</ResizableTh>}
-                        {favColumnConfig.find((c) => c.id === 'tamano')?.visible && <ResizableTh colKey="tamano" width={favColWidths.tamano} minWidth={60} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Tamaño</ResizableTh>}
-                        {favColumnConfig.find((c) => c.id === 'etiquetas')?.visible && <ResizableTh colKey="etiquetas" width={favColWidths.etiquetas} minWidth={80} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Etiquetas</ResizableTh>}
-                        {favColumnConfig.find((c) => c.id === 'tipoDocumento')?.visible && <ResizableTh colKey="tipoDocumento" width={favColWidths.tipoDocumento} minWidth={70} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Tipo</ResizableTh>}
-                        {favColumnConfig.find((c) => c.id === 'fechaVencimiento')?.visible && <ResizableTh colKey="fechaVencimiento" width={favColWidths.fechaVencimiento} minWidth={90} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Vencimiento</ResizableTh>}
-                        {favColumnConfig.find((c) => c.id === 'prioridad')?.visible && <ResizableTh colKey="prioridad" width={favColWidths.prioridad} minWidth={70} onResize={resizeFavCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Prioridad</ResizableTh>}
-                        <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        let docs = favoriteDocuments.filter((d) => d.name.toLowerCase().includes(favSearchQuery.toLowerCase()));
-                        docs = [...docs].sort((a, b) => {
-                          if (favSortOrder === 'nombre_asc') return a.name.localeCompare(b.name);
-                          if (favSortOrder === 'nombre_desc') return b.name.localeCompare(a.name);
-                          if (favSortOrder === 'estado_asc') return a.estado.localeCompare(b.estado);
-                          if (favSortOrder === 'ultimaModificacion_asc') return a.ultimaModificacion.localeCompare(b.ultimaModificacion);
-                          return b.ultimaModificacion.localeCompare(a.ultimaModificacion);
-                        });
-                        return docs.map((doc) => (
-                          <tr key={doc.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors group">
-                            <td className="px-3 py-3 w-10">
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En proceso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}>
-                                <FileText size={16} className={getDocIconColor(doc.estado)} />
-                              </div>
-                            </td>
-                            <td className="px-3 py-3 min-w-[200px]">
-                              <div className="flex flex-col">
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    onClick={() => doc.isDraft ? router.push(`/crear-documento?draft=${doc.id}`) : router.push(`/visor-documento/${doc.id}`)}
-                                    className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
-                                  >
-                                    {doc.name}
-                                  </button>
-                                  <Star size={11} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />
-                                </div>
-                                {doc.descripcion ? (
-                                  <span className="text-xs text-muted-foreground">{doc.descripcion}</span>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">{doc.fechaCreacion ? doc.fechaCreacion.split(' ')[0] : ''}</span>
-                                )}
-                              </div>
-                            </td>
-                            {favColumnConfig.find((c) => c.id === 'propietario')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.ownerName || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Yo'}</span></td>}
-                            {favColumnConfig.find((c) => c.id === 'estado')?.visible && <td className="px-3 py-3"><div className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`} /><span className="text-xs text-muted-foreground">{doc.estado}</span></div></td>}
-                            {favColumnConfig.find((c) => c.id === 'fechaCreacion')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.fechaCreacion || '—'}</span></td>}
-                            {favColumnConfig.find((c) => c.id === 'numeroDocumento')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.numeroOficio || '—'}</span></td>}
-                            {favColumnConfig.find((c) => c.id === 'ultimaModificacion')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.ultimaModificacion}</span></td>}
-                            {favColumnConfig.find((c) => c.id === 'tamano')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.tamano}</span></td>}
-                            {favColumnConfig.find((c) => c.id === 'etiquetas')?.visible && <td className="px-3 py-3"><div className="flex flex-wrap gap-1">{doc.etiquetas.length > 0 ? doc.etiquetas.slice(0, 2).map((tagId, i) => {
-                              const etiqueta = etiquetasList.find((e) => e.id === String(tagId) || e.nombre === String(tagId));
-                              const label = etiqueta ? etiqueta.nombre : String(tagId);
-                              const color = etiqueta?.color || '#6366f1';
-                              return <span key={i} className="px-1.5 py-0.5 text-xs rounded-full font-medium" style={{ backgroundColor: `${color}20`, color, border: `1px solid ${color}40` }}>{label}</span>;
-                            }) : <span className="text-xs text-muted-foreground">—</span>}</div></td>}
-                            {favColumnConfig.find((c) => c.id === 'tipoDocumento')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.tipoDocumentoNombre || '—'}</span></td>}
-                            {favColumnConfig.find((c) => c.id === 'fechaVencimiento')?.visible && <td className="px-3 py-3"><span className={`text-xs ${doc.fechaVencimiento ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}>{doc.fechaVencimiento ? formatDate(doc.fechaVencimiento) : '—'}</span></td>}
-                            {favColumnConfig.find((c) => c.id === 'prioridad')?.visible && <td className="px-3 py-3">{doc.esUrgente ? <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">Urgente</span> : <span className="text-xs text-muted-foreground">Normal</span>}</td>}
-                            <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
-                              <button onClick={(e) => openContextMenu(e, doc)} className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`} title="Opciones">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-                              </button>
-                            </td>
-                          </tr>
-                        ));
-                      })()}
-                      {favoriteDocuments.length === 0 && <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-muted-foreground">No tienes documentos favoritos aún.</td></tr>}
-                    </tbody>
-                  </table>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          {activeSection === 'por-vencer' && (
-            <>
-              <div className="flex items-start justify-between mb-6">
-                <div>
-                  <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                    <AlertTriangle size={22} className="text-orange-500" />
-                    Por vencer
-                  </h1>
-                  <p className="text-sm text-muted-foreground mt-1">Documentos que vencen en las próximas 72 horas</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <div className="flex-1 relative">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input type="text" placeholder="Buscar..." value={porVencerSearch} onChange={(e) => setPorVencerSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" />
-                </div>
-                <div className="relative">
-                  <select
-                    value={porVencerSortOrder}
-                    onChange={(e) => setPorVencerSortOrder(e.target.value)}
-                    style={{ fontFamily: 'inherit' }}
-                    className="pl-8 pr-3 py-2 text-sm border border-border rounded-lg bg-white hover:bg-muted transition-colors text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                  >
-                    <option value="fechaVencimiento_asc">Vence antes</option>
-                    <option value="fechaVencimiento_desc">Vence después</option>
-                    <option value="nombre_asc">Nombre A–Z</option>
-                    <option value="nombre_desc">Nombre Z–A</option>
-                    <option value="estado_asc">Estado</option>
-                  </select>
-                  <ArrowUpDown size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                </div>
-                <div className="flex items-center border border-border rounded-lg overflow-hidden bg-white">
-                  <button onClick={() => setPorVencerViewMode('list')} className={`p-2 transition-colors ${porVencerViewMode === 'list' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}><LayoutList size={16} /></button>
-                  <button onClick={() => setPorVencerViewMode('grid')} className={`p-2 transition-colors ${porVencerViewMode === 'grid' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}><LayoutGrid size={16} /></button>
-                </div>
-                <div className="relative">
-                  <button
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.stopPropagation(); setPorVencerColumnConfigOpen((v) => !v); }}
-                    className={`p-2 border rounded-lg transition-colors ${porVencerColumnConfigOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-white hover:bg-muted text-foreground'}`}
-                    title="Configurar columnas"
-                  >
-                    <SlidersHorizontal size={14} />
-                  </button>
-                  {porVencerColumnConfigOpen && (
-                    <div
-                      ref={porVencerColumnConfigRef}
-                      className="absolute top-full right-0 mt-1 z-[200] bg-white border border-border rounded-xl shadow-xl p-3 min-w-[220px]"
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Columnas visibles</p>
-                      <div className="space-y-0.5 max-h-64 overflow-y-auto">
-                        {/* Nombre - mandatory, always first */}
-                        <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-blue-50 border border-blue-100">
-                          <input type="checkbox" checked disabled className="rounded border-border accent-primary cursor-not-allowed flex-shrink-0 opacity-60" />
-                          <span className="text-sm text-foreground font-medium">Nombre</span>
-                          <span className="text-[10px] text-blue-600 font-semibold ml-auto">Fijo</span>
-                        </div>
-                        {porVencerColumnConfig.filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento').map((col, colIdx) => (
-                          <div
-                            key={col.id}
-                            draggable
-                            onDragStart={() => { pvColDragIdxRef.current = colIdx; setPvColDragIdx(colIdx); }}
-                            onDragEnter={() => { pvColDragOverIdxRef.current = colIdx; setPvColDragOverIdx(colIdx); }}
-                            onDragEnd={() => {
-                              const from = pvColDragIdxRef.current;
-                              const to = pvColDragOverIdxRef.current;
-                              if (from !== null && to !== null && from !== to) {
-                                const nonNombre = porVencerColumnConfig.filter((c) => c.id !== 'nombre' && c.id !== 'nombreDocumento');
-                                const updated = [...nonNombre];
-                                const [moved] = updated.splice(from, 1);
-                                updated.splice(to, 0, moved);
-                                setPorVencerColumnConfig(updated);
-                              }
-                              pvColDragIdxRef.current = null; pvColDragOverIdxRef.current = null;
-                              setPvColDragIdx(null); setPvColDragOverIdx(null);
-                            }}
-                            onDragOver={(e) => e.preventDefault()}
-                            className={`flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${pvColDragIdx === colIdx ? 'opacity-40 border border-blue-400 bg-blue-50' : pvColDragOverIdx === colIdx ? 'border border-blue-400 bg-blue-50' : 'hover:bg-muted'}`}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-muted-foreground/40 flex-shrink-0"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
-                            <input
-                              type="checkbox"
-                              checked={col.visible}
-                              onChange={() => {
-                                const updated = porVencerColumnConfig.map((c) => c.id === col.id ? { ...c, visible: !c.visible } : c);
-                                setPorVencerColumnConfig(updated);
+                              onDragEnter={() => {
+                                favColDragOverIdxRef.current = colIdx;
+                                setFavColDragOverIdx(colIdx);
                               }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="rounded border-border accent-primary cursor-pointer flex-shrink-0"
-                            />
-                            <span className="text-sm text-foreground">{col.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-2 pt-2 border-t border-border flex gap-2">
-                        <button onClick={() => setPorVencerColumnConfig(DEFAULT_CF_COLUMNS.map((c) => ({ ...c, visible: true })))} className="flex-1 text-xs text-primary hover:underline font-medium text-center py-1">Mostrar todas</button>
-                        <button onClick={() => setPorVencerColumnConfig(DEFAULT_CF_COLUMNS.map((c) => ({ ...c })))} className="flex-1 text-xs text-muted-foreground hover:text-foreground font-medium text-center py-1">Restablecer</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="bg-white border border-border rounded-xl overflow-hidden">
-                {loadingPorVencer ? (
-                  <div className="flex items-center justify-center py-12 gap-3"><svg className="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg><span className="text-sm text-muted-foreground">Cargando...</span></div>
-                ) : porVencerViewMode === 'grid' ? (
-                  <div className="p-4">
-                    {porVencerDocuments.filter((d) => d.name.toLowerCase().includes(porVencerSearch.toLowerCase())).length === 0 ? (
-                      <div className="py-12 text-center text-sm text-muted-foreground">No hay documentos por vencer en las próximas 72 horas.</div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                        {porVencerDocuments.filter((d) => d.name.toLowerCase().includes(porVencerSearch.toLowerCase())).map(renderDocGridCard)}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                  <table className="w-full min-w-max">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/40">
-                        <th className="px-3 py-3" style={{ width: `${porVencerColWidths.checkbox}px` }}></th>
-                        <ResizableTh colKey="nombre" width={porVencerColWidths.nombre} minWidth={120} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3">Nombre</ResizableTh>
-                        {porVencerColumnConfig.find((c) => c.id === 'propietario')?.visible && <ResizableTh colKey="propietario" width={porVencerColWidths.propietario} minWidth={80} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Propietario</ResizableTh>}
-                        {porVencerColumnConfig.find((c) => c.id === 'estado')?.visible && <ResizableTh colKey="estado" width={porVencerColWidths.estado} minWidth={80} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Estado</ResizableTh>}
-                        {porVencerColumnConfig.find((c) => c.id === 'fechaCreacion')?.visible && <ResizableTh colKey="fechaCreacion" width={porVencerColWidths.fechaCreacion} minWidth={100} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Fecha de creación</ResizableTh>}
-                        {porVencerColumnConfig.find((c) => c.id === 'numeroDocumento')?.visible && <ResizableTh colKey="numeroDocumento" width={porVencerColWidths.numeroDocumento} minWidth={80} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">N° Documento</ResizableTh>}
-                        {porVencerColumnConfig.find((c) => c.id === 'ultimaModificacion')?.visible && <ResizableTh colKey="ultimaModificacion" width={porVencerColWidths.ultimaModificacion} minWidth={120} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Última modificación</ResizableTh>}
-                        {porVencerColumnConfig.find((c) => c.id === 'tamano')?.visible && <ResizableTh colKey="tamano" width={porVencerColWidths.tamano} minWidth={60} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Tamaño</ResizableTh>}
-                        <ResizableTh colKey="vence" width={porVencerColWidths.vence} minWidth={90} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-orange-500 px-3 py-3 whitespace-nowrap">Vence</ResizableTh>
-                        {porVencerColumnConfig.find((c) => c.id === 'etiquetas')?.visible && <ResizableTh colKey="etiquetas" width={porVencerColWidths.etiquetas} minWidth={80} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Etiquetas</ResizableTh>}
-                        {porVencerColumnConfig.find((c) => c.id === 'tipoDocumento')?.visible && <ResizableTh colKey="tipoDocumento" width={porVencerColWidths.tipoDocumento} minWidth={70} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Tipo</ResizableTh>}
-                        {porVencerColumnConfig.find((c) => c.id === 'prioridad')?.visible && <ResizableTh colKey="prioridad" width={porVencerColWidths.prioridad} minWidth={70} onResize={resizePorVencerCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Prioridad</ResizableTh>}
-                        <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        let docs = porVencerDocuments.filter((d) => d.name.toLowerCase().includes(porVencerSearch.toLowerCase()));
-                        docs = [...docs].sort((a, b) => {
-                          if (porVencerSortOrder === 'nombre_asc') return a.name.localeCompare(b.name);
-                          if (porVencerSortOrder === 'nombre_desc') return b.name.localeCompare(a.name);
-                          if (porVencerSortOrder === 'estado_asc') return a.estado.localeCompare(b.estado);
-                          if (porVencerSortOrder === 'fechaVencimiento_desc') return (b.fechaVencimiento || '').localeCompare(a.fechaVencimiento || '');
-                          return (a.fechaVencimiento || '').localeCompare(b.fechaVencimiento || '');
-                        });
-                        return docs.map((doc) => (
-                          <tr key={doc.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors group">
-                            <td className="px-3 py-3 w-10">
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En proceso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}>
-                                <FileText size={16} className={getDocIconColor(doc.estado)} />
-                              </div>
-                            </td>
-                            <td className="px-3 py-3 min-w-[200px]">
-                              <div className="flex flex-col">
-                                <button
-                                  onClick={() => doc.isDraft ? router.push(`/crear-documento?draft=${doc.id}`) : router.push(`/visor-documento/${doc.id}`)}
-                                  className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
-                                >
-                                  {doc.name}
-                                </button>
-                                {doc.descripcion ? (
-                                  <span className="text-xs text-muted-foreground">{doc.descripcion}</span>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">{doc.fechaCreacion ? doc.fechaCreacion.split(' ')[0] : ''}</span>
-                                )}
-                              </div>
-                            </td>
-                            {porVencerColumnConfig.find((c) => c.id === 'propietario')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.ownerName || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Yo'}</span></td>}
-                            {porVencerColumnConfig.find((c) => c.id === 'estado')?.visible && <td className="px-3 py-3"><div className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`} /><span className="text-xs text-muted-foreground">{doc.estado}</span></div></td>}
-                            {porVencerColumnConfig.find((c) => c.id === 'fechaCreacion')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.fechaCreacion || '—'}</span></td>}
-                            {porVencerColumnConfig.find((c) => c.id === 'numeroDocumento')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.numeroOficio || '—'}</span></td>}
-                            {porVencerColumnConfig.find((c) => c.id === 'ultimaModificacion')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.ultimaModificacion}</span></td>}
-                            {porVencerColumnConfig.find((c) => c.id === 'tamano')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.tamano}</span></td>}
-                            <td className="px-3 py-3"><span className="text-xs text-orange-600 font-medium">{doc.fechaVencimiento ? formatDate(doc.fechaVencimiento) : '—'}</span></td>
-                            {porVencerColumnConfig.find((c) => c.id === 'etiquetas')?.visible && <td className="px-3 py-3"><div className="flex flex-wrap gap-1">{doc.etiquetas.length > 0 ? doc.etiquetas.slice(0, 2).map((tagId, i) => { const etiqueta = etiquetasList.find((e) => e.id === String(tagId) || e.nombre === String(tagId)); const label = etiqueta ? etiqueta.nombre : String(tagId); const color = etiqueta?.color || '#6366f1'; return <span key={i} className="px-1.5 py-0.5 text-xs rounded-full font-medium" style={{ backgroundColor: `${color}20`, color, border: `1px solid ${color}40` }}>{label}</span>; }) : <span className="text-xs text-muted-foreground">—</span>}</div></td>}
-                            {porVencerColumnConfig.find((c) => c.id === 'tipoDocumento')?.visible && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.tipoDocumentoNombre || '—'}</span></td>}
-                            {porVencerColumnConfig.find((c) => c.id === 'prioridad')?.visible && <td className="px-3 py-3">{doc.esUrgente ? <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">Urgente</span> : <span className="text-xs text-muted-foreground">Normal</span>}</td>}
-                            <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
-                              <button onClick={(e) => openContextMenu(e, doc)} className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`} title="Opciones">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-                              </button>
-                            </td>
-                          </tr>
-                        ));
-                      })()}
-                      {porVencerDocuments.length === 0 && <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-muted-foreground">No hay documentos por vencer en las próximas 72 horas.</td></tr>}
-                    </tbody>
-                  </table>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          {activeSection === 'papelera' && (
-            <>
-              <div className="flex items-start justify-between mb-6">
-                <div>
-                  <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                    <Trash2 size={22} className="text-muted-foreground" />
-                    Papelera
-                  </h1>
-                  <p className="text-sm text-muted-foreground mt-1">Documentos eliminados recientemente</p>
-                </div>
-                {deletedDocuments.length > 0 && (
-                  <button
-                    onClick={openConfirmEmptyAll}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
-                  >
-                    <Trash2 size={15} />Vaciar papelera
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="flex-1 relative">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Buscar en papelera..."
-                    value={papeleraSearch}
-                    onChange={(e) => setPapeleraSearch(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                  />
-                </div>
-              </div>
-              <div className="bg-white border border-border rounded-xl overflow-hidden">
-                {loadingPapelera ? (
-                  <div className="flex items-center justify-center py-12 gap-3">
-                    <svg className="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    <span className="text-sm text-muted-foreground">Cargando papelera...</span>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                  <table className="w-full min-w-max">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <ResizableTh colKey="nombre" width={papeleraColWidths.nombre} minWidth={150} onResize={resizePapeleraCol} className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Nombre del documento</ResizableTh>
-                        <ResizableTh colKey="tipo" width={papeleraColWidths.tipo} minWidth={70} onResize={resizePapeleraCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3">Tipo</ResizableTh>
-                        <ResizableTh colKey="eliminadoPor" width={papeleraColWidths.eliminadoPor} minWidth={100} onResize={resizePapeleraCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3">Eliminado por</ResizableTh>
-                        <ResizableTh colKey="fechaEliminacion" width={papeleraColWidths.fechaEliminacion} minWidth={100} onResize={resizePapeleraCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3">Fecha eliminación</ResizableTh>
-                        <ResizableTh colKey="tamano" width={papeleraColWidths.tamano} minWidth={60} onResize={resizePapeleraCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3">Tamaño</ResizableTh>
-                        <ResizableTh colKey="retencion" width={papeleraColWidths.retencion} minWidth={70} onResize={resizePapeleraCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3">Retención</ResizableTh>
-                        <th className="sticky right-0 bg-white text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]" style={{ width: `${papeleraColWidths.acciones}px` }}>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredDeleted.map((doc) => (
-                        <tr key={doc.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                          <td className="px-4 py-3 min-w-[260px]">
-                            <div className="flex items-start gap-2">
-                              <FileText size={16} className="text-muted-foreground flex-shrink-0 mt-0.5" />
-                              <div className="flex flex-col min-w-0">
-                                <span className="text-xs font-medium text-foreground">{doc.name}</span>
-                                {doc.descripcion && (
-                                  <span className="text-xs text-muted-foreground">{doc.descripcion}</span>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.tipo}</span></td>
-                          <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.eliminadoPor}</span></td>
-                          <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.fechaEliminacion}</span></td>
-                          <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.tamano}</span></td>
-                          <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.retencion || '—'}</span></td>
-                          <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
-                            <div className="flex items-center gap-2 justify-end">
-                              <button
-                                onClick={() => handleRestore(doc.id)}
-                                className="px-3 py-1.5 text-xs font-medium text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors whitespace-nowrap"
+                              onDragEnd={() => {
+                                const from = favColDragIdxRef.current;
+                                const to = favColDragOverIdxRef.current;
+                                if (from !== null && to !== null && from !== to) {
+                                  const nonNombre = favColumnConfig.filter(
+                                    (c) => c.id !== 'nombre' && c.id !== 'nombreDocumento'
+                                  );
+                                  const updated = [...nonNombre];
+                                  const [moved] = updated.splice(from, 1);
+                                  updated.splice(to, 0, moved);
+                                  setFavColumnConfig(updated);
+                                }
+                                favColDragIdxRef.current = null;
+                                favColDragOverIdxRef.current = null;
+                                setFavColDragIdx(null);
+                                setFavColDragOverIdx(null);
+                              }}
+                              onDragOver={(e) => e.preventDefault()}
+                              className={`flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${favColDragIdx === colIdx ? 'opacity-40 border border-blue-400 bg-blue-50' : favColDragOverIdx === colIdx ? 'border border-blue-400 bg-blue-50' : 'hover:bg-muted'}`}
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                className="text-muted-foreground/40 flex-shrink-0"
                               >
-                                Restaurar
-                              </button>
-                              <button
-                                onClick={() => openConfirmDelete(doc.id, doc.name)}
-                                className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap"
-                              >
-                                Eliminar permanentemente
-                              </button>
+                                <circle cx="9" cy="5" r="1.5" />
+                                <circle cx="15" cy="5" r="1.5" />
+                                <circle cx="9" cy="12" r="1.5" />
+                                <circle cx="15" cy="12" r="1.5" />
+                                <circle cx="9" cy="19" r="1.5" />
+                                <circle cx="15" cy="19" r="1.5" />
+                              </svg>
+                              <input
+                                type="checkbox"
+                                checked={col.visible}
+                                onChange={() => {
+                                  const updated = favColumnConfig.map((c) =>
+                                    c.id === col.id ? { ...c, visible: !c.visible } : c
+                                  );
+                                  setFavColumnConfig(updated);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="rounded border-border accent-primary cursor-pointer flex-shrink-0"
+                              />
+                              <span className="text-sm text-foreground">{col.label}</span>
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredDeleted.length === 0 && (
-                        <tr>
-                          <td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                            {papeleraSearch ? 'No se encontraron documentos.' : 'La papelera está vacía.'}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                  </div>
-                )}
-              </div>
-              {confirmDelete.open && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center">
-                  <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setConfirmDelete({ open: false, docId: null, docName: '', isEmptyAll: false })} />
-                  <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 z-10">
-                    <button onClick={() => setConfirmDelete({ open: false, docId: null, docName: '', isEmptyAll: false })} className="absolute top-4 right-4 p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"><X size={16} /></button>
-                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mb-4"><AlertCircle size={24} className="text-red-600" /></div>
-                    <h2 className="text-lg font-bold text-foreground mb-2">{confirmDelete.isEmptyAll ? 'Vaciar papelera' : 'Eliminar permanentemente'}</h2>
-                    <p className="text-sm text-muted-foreground mb-6">{confirmDelete.isEmptyAll ? 'Se eliminarán permanentemente todos los documentos de la papelera. Esta acción no se puede deshacer.' : (<>¿Estás seguro de que deseas eliminar permanentemente <span className="font-semibold text-foreground">&ldquo;{confirmDelete.docName}&rdquo;</span>? Esta acción no se puede deshacer.</>)}</p>
-                    <div className="flex items-center gap-3 justify-end">
-                      <button onClick={() => setConfirmDelete({ open: false, docId: null, docName: '', isEmptyAll: false })} className="px-4 py-2 text-sm font-semibold text-foreground border border-border rounded-lg hover:bg-muted transition-colors">Cancelar</button>
-                      <button onClick={handleConfirmPermanentDelete} className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors">{confirmDelete.isEmptyAll ? 'Vaciar papelera' : 'Eliminar permanentemente'}</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Custom filter sections */}
-          {customFilters.map((cf) => activeSection === `custom-${cf.id}` && (
-            <React.Fragment key={cf.id}>
-              <div className="flex items-start justify-between mb-6">
-                <div>
-                  <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                    <span className="text-2xl">{cf.icono}</span>
-                    {cf.nombre}
-                  </h1>
-                  <p className="text-sm text-muted-foreground mt-1">{cf.descripcion || 'Filtro personalizado'}</p>
-                </div>
-                <button
-                  onClick={async () => {
-                    const updated = customFilters.filter((f) => f.id !== cf.id);
-                    setCustomFilters(updated);
-                    await saveCustomFilters(updated);
-                    setActiveSection('inicio');
-                    showToast(`Filtro "${cf.nombre}" eliminado`);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-                >
-                  <X size={14} />Eliminar filtro
-                </button>
-              </div>
-
-              {/* Toolbar: search, sort, view type, configure columns */}
-              <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <div className="flex-1 min-w-[180px] relative">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder={`Buscar en ${cf.nombre}...`}
-                    value={cfSearchQueries[cf.id] || ''}
-                    onChange={(e) => setCfSearchQueries((prev) => ({ ...prev, [cf.id]: e.target.value }))}
-                    className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                  />
-                </div>
-                <div className="relative">
-                  <select
-                    value={cfSortOrders[cf.id] || 'ultimaModificacion_desc'}
-                    onChange={(e) => setCfSortOrders((prev) => ({ ...prev, [cf.id]: e.target.value }))}
-                    style={{ fontFamily: 'inherit' }}
-                    className="pl-8 pr-3 py-2 text-sm border border-border rounded-lg bg-white hover:bg-muted transition-colors text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                  >
-                    <option value="ultimaModificacion_desc">Más reciente</option>
-                    <option value="ultimaModificacion_asc">Más antiguo</option>
-                    <option value="nombre_asc">Nombre A–Z</option>
-                    <option value="nombre_desc">Nombre Z–A</option>
-                    <option value="estado_asc">Estado</option>
-                  </select>
-                  <ArrowUpDown size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                </div>
-                <div className="flex items-center border border-border rounded-lg overflow-hidden bg-white">
-                  <button
-                    onClick={() => setCfViewModes((prev) => ({ ...prev, [cf.id]: 'list' }))}
-                    className={`p-2 transition-colors ${(cfViewModes[cf.id] || 'list') === 'list' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}
-                    title="Vista lista"
-                  >
-                    <LayoutList size={16} />
-                  </button>
-                  <button
-                    onClick={() => setCfViewModes((prev) => ({ ...prev, [cf.id]: 'grid' }))}
-                    className={`p-2 transition-colors ${(cfViewModes[cf.id] || 'list') === 'grid' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}
-                    title="Vista cuadrícula"
-                  >
-                    <LayoutGrid size={16} />
-                  </button>
-                </div>
-                <div
-                  className="relative"
-                  ref={(el) => { cfColumnConfigRefs.current[cf.id] = el; }}
-                >
-                  <button
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCfColumnConfigOpen((prev) => prev === cf.id ? null : cf.id);
-                    }}
-                    className={`p-2 border rounded-lg transition-colors ${cfColumnConfigOpen === cf.id ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-white hover:bg-muted text-foreground'}`}
-                    title="Configurar columnas"
-                  >
-                    <SlidersHorizontal size={14} />
-                  </button>
-                  {cfColumnConfigOpen === cf.id && (
-                    <div
-                      className="absolute top-full right-0 mt-1 z-[200] bg-white border border-border rounded-xl shadow-xl p-3 min-w-[220px]"
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Columnas visibles</p>
-                      <div className="space-y-0.5 max-h-64 overflow-y-auto">
-                        {/* Nombre - mandatory, always first, not draggable */}
-                        <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-blue-50 border border-blue-100 select-none">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-muted-foreground/30 flex-shrink-0"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
-                          <span className="text-sm text-foreground font-medium flex-1">Nombre</span>
-                          <span className="text-[10px] text-blue-600 font-semibold">Fijo</span>
-                          <input type="checkbox" checked disabled className="rounded border-border accent-primary cursor-not-allowed flex-shrink-0 opacity-60" />
-                        </div>
-                        {(cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS).filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento').map((col, colIdx) => (
-                          <div
-                            key={col.id}
-                            draggable
-                            onDragStart={() => { cfColDragIdxRef.current[cf.id] = colIdx; setCfColDragIdx((p) => ({ ...p, [cf.id]: colIdx })); }}
-                            onDragEnter={() => { cfColDragOverIdxRef.current[cf.id] = colIdx; setCfColDragOverIdx((p) => ({ ...p, [cf.id]: colIdx })); }}
-                            onDragEnd={() => {
-                              const from = cfColDragIdxRef.current[cf.id];
-                              const to = cfColDragOverIdxRef.current[cf.id];
-                              if (from !== null && from !== undefined && to !== null && to !== undefined && from !== to) {
-                                const current = cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS.map((c) => ({ ...c }));
-                                const nonNombre = current.filter((c) => c.id !== 'nombre' && c.id !== 'nombreDocumento');
-                                const updated = [...nonNombre];
-                                const [moved] = updated.splice(from, 1);
-                                updated.splice(to, 0, moved);
-                                setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: updated }));
-                              }
-                              cfColDragIdxRef.current[cf.id] = null;
-                              cfColDragOverIdxRef.current[cf.id] = null;
-                              setCfColDragIdx((p) => ({ ...p, [cf.id]: null }));
-                              setCfColDragOverIdx((p) => ({ ...p, [cf.id]: null }));
-                            }}
-                            onDragOver={(e) => e.preventDefault()}
-                            className={`flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${cfColDragIdx[cf.id] === colIdx ? 'opacity-40 border border-blue-400 bg-blue-50' : cfColDragOverIdx[cf.id] === colIdx ? 'border border-blue-400 bg-blue-50' : 'hover:bg-muted'}`}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-muted-foreground/40 flex-shrink-0 cursor-grab"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
-                            <input
-                              type="checkbox"
-                              checked={col.visible}
-                              onChange={() => {
-                                const current = cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS.map((c) => ({ ...c }));
-                                const actualIdx = current.findIndex((c) => c.id === col.id);
-                                const updated = current.map((c, i) => i === actualIdx ? { ...c, visible: !c.visible } : c);
-                                setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: updated }));
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="rounded border-border accent-primary cursor-pointer flex-shrink-0"
-                            />
-                            <span className="text-sm text-foreground">{col.label}</span>
-                          </div>
-                        ))}
+                          ))}
                       </div>
                       <div className="mt-2 pt-2 border-t border-border flex gap-2">
                         <button
-                          onClick={() => { setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: DEFAULT_CF_COLUMNS.map((c) => ({ ...c, visible: true })) })); }}
+                          onClick={() =>
+                            setFavColumnConfig(
+                              DEFAULT_CF_COLUMNS.map((c) => ({ ...c, visible: true }))
+                            )
+                          }
                           className="flex-1 text-xs text-primary hover:underline font-medium text-center py-1"
                         >
                           Mostrar todas
                         </button>
                         <button
-                          onClick={() => { setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: DEFAULT_CF_COLUMNS.map((c) => ({ ...c })) })); }}
+                          onClick={() =>
+                            setFavColumnConfig(DEFAULT_CF_COLUMNS.map((c) => ({ ...c })))
+                          }
                           className="flex-1 text-xs text-muted-foreground hover:text-foreground font-medium text-center py-1"
                         >
                           Restablecer
@@ -4838,131 +6390,2029 @@ export default function MisDocumentosPage() {
                   )}
                 </div>
               </div>
-
-              {/* Document list */}
-              {(() => {
-                const cfSearch = (cfSearchQueries[cf.id] || '').toLowerCase();
-                const cfSort = cfSortOrders[cf.id] || 'ultimaModificacion_desc';
-                const cfView = cfViewModes[cf.id] || 'list';
-                const cfCols = cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS;
-
-                let docs = getCustomFilterDocuments(cf).filter((doc) =>
-                  !cfSearch || doc.name.toLowerCase().includes(cfSearch)
-                );
-
-                docs = [...docs].sort((a, b) => {
-                  if (cfSort === 'nombre_asc') return a.name.localeCompare(b.name);
-                  if (cfSort === 'nombre_desc') return b.name.localeCompare(a.name);
-                  if (cfSort === 'estado_asc') return a.estado.localeCompare(b.estado);
-                  if (cfSort === 'ultimaModificacion_asc') return a.ultimaModificacion.localeCompare(b.ultimaModificacion);
-                  return b.ultimaModificacion.localeCompare(a.ultimaModificacion);
-                });
-
-                if (cfView === 'grid') {
-                  return (
-                    <div>
-                      {docs.length === 0 ? (
-                        <div className="py-16 text-center text-sm text-muted-foreground">
-                          {cfSearch ? 'No hay documentos que coincidan con la búsqueda.' : 'No hay documentos que coincidan con este filtro.'}
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                          {docs.map(renderDocGridCard)}
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-
-                const visibleCols = cfCols.filter((c) => c.visible);
-                return (
-                  <div className="bg-white border border-border rounded-xl overflow-hidden">
-                    <div className="overflow-x-auto">
+              <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                {loadingFavorites ? (
+                  <div className="flex items-center justify-center py-12 gap-3">
+                    <svg
+                      className="animate-spin h-5 w-5 text-primary"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    <span className="text-sm text-muted-foreground">Cargando favoritos...</span>
+                  </div>
+                ) : favViewMode === 'grid' ? (
+                  <div className="p-4">
+                    {favoriteDocuments.filter((d) =>
+                      d.name.toLowerCase().includes(favSearchQuery.toLowerCase())
+                    ).length === 0 ? (
+                      <LibraryEmptyState
+                        icon={Star}
+                        title={favSearchQuery ? 'Sin resultados' : 'Aún no tienes favoritos'}
+                        description={
+                          favSearchQuery
+                            ? 'Prueba con otro nombre o término de búsqueda.'
+                            : 'Marca documentos como favoritos para encontrarlos rápidamente aquí.'
+                        }
+                      />
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        {favoriteDocuments
+                          .filter((d) =>
+                            d.name.toLowerCase().includes(favSearchQuery.toLowerCase())
+                          )
+                          .map(renderDocGridCard)}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
                     <table className="w-full min-w-max">
                       <thead>
-                        <tr className="border-b border-border bg-muted/40">
-                          <th className="px-3 py-3" style={{ width: `${cfColWidths.checkbox}px` }}></th>
-                          <ResizableTh colKey="nombre" width={cfColWidths.nombre} minWidth={120} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3">Nombre</ResizableTh>
-                          {visibleCols.find((c) => c.id === 'propietario') && <ResizableTh colKey="propietario" width={cfColWidths.propietario} minWidth={80} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Propietario</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'estado') && <ResizableTh colKey="estado" width={cfColWidths.estado} minWidth={80} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Estado</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'fechaCreacion') && <ResizableTh colKey="fechaCreacion" width={cfColWidths.fechaCreacion} minWidth={100} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Fecha de creación</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'numeroDocumento') && <ResizableTh colKey="numeroDocumento" width={cfColWidths.numeroDocumento} minWidth={80} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">N° Documento</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'ultimaModificacion') && <ResizableTh colKey="ultimaModificacion" width={cfColWidths.ultimaModificacion} minWidth={120} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Última modificación</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'tamano') && <ResizableTh colKey="tamano" width={cfColWidths.tamano} minWidth={60} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Tamaño</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'etiquetas') && <ResizableTh colKey="etiquetas" width={cfColWidths.etiquetas} minWidth={80} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Etiquetas</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'tipoDocumento') && <ResizableTh colKey="tipoDocumento" width={cfColWidths.tipoDocumento} minWidth={70} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Tipo</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'folioInterno') && <ResizableTh colKey="folioInterno" width={cfColWidths.folioInterno} minWidth={70} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Folio</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'fechaCompletado') && <ResizableTh colKey="fechaCompletado" width={cfColWidths.fechaCompletado} minWidth={100} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Completado</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'fechaVencimiento') && <ResizableTh colKey="fechaVencimiento" width={cfColWidths.fechaVencimiento} minWidth={90} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Vencimiento</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'prioridad') && <ResizableTh colKey="prioridad" width={cfColWidths.prioridad} minWidth={70} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Prioridad</ResizableTh>}
-                          {visibleCols.find((c) => c.id === 'rutaGuardado') && <ResizableTh colKey="rutaGuardado" width={cfColWidths.rutaGuardado} minWidth={90} onResize={resizeCfCol} className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap">Ruta</ResizableTh>}
+                            <tr className="border-b border-slate-200 bg-slate-50/80">
+                          <th
+                            className={selectionCheckboxCellClass}
+                            style={{ width: `${favColWidths.checkbox}px` }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={
+                                favoriteDocuments.filter((doc) =>
+                                  doc.name.toLowerCase().includes(favSearchQuery.toLowerCase())
+                                ).length > 0 &&
+                                favoriteDocuments
+                                  .filter((doc) =>
+                                    doc.name.toLowerCase().includes(favSearchQuery.toLowerCase())
+                                  )
+                                  .every((doc) => selectedRows.includes(doc.id))
+                              }
+                              onChange={() =>
+                                toggleSelectDocumentSet(
+                                  favoriteDocuments
+                                    .filter((doc) =>
+                                      doc.name.toLowerCase().includes(favSearchQuery.toLowerCase())
+                                    )
+                                    .map((doc) => doc.id)
+                                )
+                              }
+                              className={selectionCheckboxClass}
+                              aria-label="Seleccionar todos los favoritos visibles"
+                            />
+                          </th>
+                          <ResizableTh
+                            colKey="nombre"
+                            width={favColWidths.nombre}
+                            minWidth={120}
+                            onResize={resizeFavCol}
+                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                          >
+                            Nombre
+                          </ResizableTh>
+                          {favColumnConfig.find((c) => c.id === 'propietario')?.visible && (
+                            <ResizableTh
+                              colKey="propietario"
+                              width={favColWidths.propietario}
+                              minWidth={80}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Propietario
+                            </ResizableTh>
+                          )}
+                          {favColumnConfig.find((c) => c.id === 'estado')?.visible && (
+                            <ResizableTh
+                              colKey="estado"
+                              width={favColWidths.estado}
+                              minWidth={80}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Estado
+                            </ResizableTh>
+                          )}
+                          {favColumnConfig.find((c) => c.id === 'fechaCreacion')?.visible && (
+                            <ResizableTh
+                              colKey="fechaCreacion"
+                              width={favColWidths.fechaCreacion}
+                              minWidth={100}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Fecha de creación
+                            </ResizableTh>
+                          )}
+                          {favColumnConfig.find((c) => c.id === 'numeroDocumento')?.visible && (
+                            <ResizableTh
+                              colKey="numeroDocumento"
+                              width={favColWidths.numeroDocumento}
+                              minWidth={80}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              N° Documento
+                            </ResizableTh>
+                          )}
+                          {favColumnConfig.find((c) => c.id === 'ultimaModificacion')?.visible && (
+                            <ResizableTh
+                              colKey="ultimaModificacion"
+                              width={favColWidths.ultimaModificacion}
+                              minWidth={120}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Última modificación
+                            </ResizableTh>
+                          )}
+                          {favColumnConfig.find((c) => c.id === 'tamano')?.visible && (
+                            <ResizableTh
+                              colKey="tamano"
+                              width={favColWidths.tamano}
+                              minWidth={60}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Tamaño
+                            </ResizableTh>
+                          )}
+                          {favColumnConfig.find((c) => c.id === 'etiquetas')?.visible && (
+                            <ResizableTh
+                              colKey="etiquetas"
+                              width={favColWidths.etiquetas}
+                              minWidth={80}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Etiquetas
+                            </ResizableTh>
+                          )}
+                          {favColumnConfig.find((c) => c.id === 'tipoDocumento')?.visible && (
+                            <ResizableTh
+                              colKey="tipoDocumento"
+                              width={favColWidths.tipoDocumento}
+                              minWidth={70}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Tipo
+                            </ResizableTh>
+                          )}
+                          {favColumnConfig.find((c) => c.id === 'fechaVencimiento')?.visible && (
+                            <ResizableTh
+                              colKey="fechaVencimiento"
+                              width={favColWidths.fechaVencimiento}
+                              minWidth={90}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Vencimiento
+                            </ResizableTh>
+                          )}
+                          {favColumnConfig.find((c) => c.id === 'prioridad')?.visible && (
+                            <ResizableTh
+                              colKey="prioridad"
+                              width={favColWidths.prioridad}
+                              minWidth={70}
+                              onResize={resizeFavCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Prioridad
+                            </ResizableTh>
+                          )}
                           <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {docs.map((doc) => (
-                          <tr key={doc.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors group">
-                            <td className="px-3 py-3 w-10">
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En proceso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}>
-                                <FileText size={16} className={getDocIconColor(doc.estado)} />
-                              </div>
-                            </td>
-                            <td className="px-3 py-3 min-w-[200px]">
-                              <div className="flex flex-col">
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    onClick={() => doc.isDraft ? router.push(`/crear-documento?draft=${doc.id}`) : router.push(`/visor-documento/${doc.id}`)}
-                                    className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
-                                    title={doc.name}
+                        {(() => {
+                          let docs = favoriteDocuments.filter((d) =>
+                            d.name.toLowerCase().includes(favSearchQuery.toLowerCase())
+                          );
+                          docs = [...docs].sort((a, b) => {
+                            if (favSortOrder === 'nombre_asc') return a.name.localeCompare(b.name);
+                            if (favSortOrder === 'nombre_desc') return b.name.localeCompare(a.name);
+                            if (favSortOrder === 'estado_asc')
+                              return a.estado.localeCompare(b.estado);
+                            if (favSortOrder === 'ultimaModificacion_asc')
+                              return a.ultimaModificacion.localeCompare(b.ultimaModificacion);
+                            return b.ultimaModificacion.localeCompare(a.ultimaModificacion);
+                          });
+                          return docs.map((doc) => (
+                            <tr
+                              key={doc.id}
+                              className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors group"
+                            >
+                              <td className={selectionCheckboxCellClass}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRows.includes(doc.id)}
+                                  onChange={() => toggleSelectRow(doc.id)}
+                                  className={selectionCheckboxClass}
+                                  aria-label={`Seleccionar ${doc.name}`}
+                                />
+                              </td>
+                              <td className="px-3 py-3 min-w-[200px]">
+                                <div className="flex items-center gap-2.5">
+                                  <div
+                                    className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En progreso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}
                                   >
-                                    {doc.name}
-                                  </button>
-                                  {doc.isFavorite && <Star size={12} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />}
-                                  {doc.esUrgente && <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Urgente" />}
+                                    <FileText size={16} className={getDocIconColor(doc.estado)} />
+                                  </div>
+                                  <div className="flex min-w-0 flex-col">
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() =>
+                                          doc.isDraft
+                                            ? router.push(`/crear-documento?draft=${doc.id}`)
+                                            : router.push(`/visor-documento/${doc.id}`)
+                                        }
+                                        className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
+                                      >
+                                        {doc.name}
+                                      </button>
+                                      <Star
+                                        size={11}
+                                        className="text-yellow-400 fill-yellow-400 flex-shrink-0"
+                                      />
+                                    </div>
+                                    {doc.descripcion ? (
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.descripcion}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.fechaCreacion ? doc.fechaCreacion.split(' ')[0] : ''}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
-                                {doc.descripcion ? (
-                                  <span className="text-xs text-muted-foreground">{doc.descripcion}</span>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">{doc.fechaCreacion ? doc.fechaCreacion.split(' ')[0] : ''}</span>
-                                )}
-                              </div>
-                            </td>
-                            {visibleCols.find((c) => c.id === 'propietario') && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.ownerName || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Yo'}</span></td>}
-                            {visibleCols.find((c) => c.id === 'estado') && <td className="px-3 py-3"><div className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`} /><span className="text-xs text-muted-foreground">{doc.estado}</span></div></td>}
-                            {visibleCols.find((c) => c.id === 'fechaCreacion') && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.fechaCreacion || '—'}</span></td>}
-                            {visibleCols.find((c) => c.id === 'numeroDocumento') && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.numeroOficio || '—'}</span></td>}
-                            {visibleCols.find((c) => c.id === 'ultimaModificacion') && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.ultimaModificacion}</span></td>}
-                            {visibleCols.find((c) => c.id === 'tamano') && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.tamano}</span></td>}
-                            {visibleCols.find((c) => c.id === 'etiquetas') && <td className="px-3 py-3"><div className="flex flex-wrap gap-1">{doc.etiquetas.length > 0 ? doc.etiquetas.slice(0, 2).map((tagId, i) => { const etiqueta = etiquetasList.find((e) => e.id === String(tagId) || e.nombre === String(tagId)); const label = etiqueta ? etiqueta.nombre : String(tagId); const color = etiqueta?.color || '#6366f1'; return <span key={i} className="px-1.5 py-0.5 text-xs rounded-full font-medium" style={{ backgroundColor: `${color}20`, color, border: `1px solid ${color}40` }}>{label}</span>; }) : <span className="text-xs text-muted-foreground">—</span>}{doc.etiquetas.length > 2 && <span className="text-xs text-muted-foreground">+{doc.etiquetas.length - 2}</span>}</div></td>}
-                            {visibleCols.find((c) => c.id === 'tipoDocumento') && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.tipoDocumentoNombre || '—'}</span></td>}
-                            {visibleCols.find((c) => c.id === 'folioInterno') && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.folioInterno || '—'}</span></td>}
-                            {visibleCols.find((c) => c.id === 'fechaCompletado') && <td className="px-3 py-3"><span className="text-xs text-muted-foreground">{doc.fechaCompletado || '—'}</span></td>}
-                            {visibleCols.find((c) => c.id === 'fechaVencimiento') && <td className="px-3 py-3"><span className={`text-xs ${doc.fechaVencimiento ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}>{doc.fechaVencimiento ? formatDate(doc.fechaVencimiento) : '—'}</span></td>}
-                            {visibleCols.find((c) => c.id === 'prioridad') && <td className="px-3 py-3">{doc.esUrgente ? <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">Urgente</span> : <span className="text-xs text-muted-foreground">Normal</span>}</td>}
-                            {visibleCols.find((c) => c.id === 'rutaGuardado') && <td className="px-3 py-3"><span className="text-xs text-muted-foreground truncate max-w-[120px] block">{doc.rutaGuardado || '—'}</span></td>}
-                            <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
-                              <button onClick={(e) => openContextMenu(e, doc)} className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`} title="Opciones">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                        {docs.length === 0 && (
+                              </td>
+                              {favColumnConfig.find((c) => c.id === 'propietario')?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.ownerName ||
+                                      user?.user_metadata?.full_name ||
+                                      user?.email?.split('@')[0] ||
+                                      'Yo'}
+                                  </span>
+                                </td>
+                              )}
+                              {favColumnConfig.find((c) => c.id === 'estado')?.visible && (
+                                <td className="px-3 py-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`}
+                                    />
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.estado}
+                                    </span>
+                                  </div>
+                                </td>
+                              )}
+                              {favColumnConfig.find((c) => c.id === 'fechaCreacion')?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.fechaCreacion || '—'}
+                                  </span>
+                                </td>
+                              )}
+                              {favColumnConfig.find((c) => c.id === 'numeroDocumento')?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.numeroOficio || '—'}
+                                  </span>
+                                </td>
+                              )}
+                              {favColumnConfig.find((c) => c.id === 'ultimaModificacion')
+                                ?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.ultimaModificacion}
+                                  </span>
+                                </td>
+                              )}
+                              {favColumnConfig.find((c) => c.id === 'tamano')?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.tamano}
+                                  </span>
+                                </td>
+                              )}
+                              {favColumnConfig.find((c) => c.id === 'etiquetas')?.visible && (
+                                <td className="px-3 py-3">
+                                  <div className="flex flex-wrap gap-1">
+                                    {doc.etiquetas.length > 0 ? (
+                                      doc.etiquetas.slice(0, 2).map((tagId, i) => {
+                                        const etiqueta = etiquetasList.find(
+                                          (e) =>
+                                            e.id === String(tagId) || e.nombre === String(tagId)
+                                        );
+                                        const label = etiqueta ? etiqueta.nombre : String(tagId);
+                                        const color = etiqueta?.color || '#6366f1';
+                                        return (
+                                          <span
+                                            key={i}
+                                            className="px-1.5 py-0.5 text-xs rounded-full font-medium"
+                                            style={{
+                                              backgroundColor: `${color}20`,
+                                              color,
+                                              border: `1px solid ${color}40`,
+                                            }}
+                                          >
+                                            {label}
+                                          </span>
+                                        );
+                                      })
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">—</span>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
+                              {favColumnConfig.find((c) => c.id === 'tipoDocumento')?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.tipoDocumentoNombre || '—'}
+                                  </span>
+                                </td>
+                              )}
+                              {favColumnConfig.find((c) => c.id === 'fechaVencimiento')
+                                ?.visible && (
+                                <td className="px-3 py-3">
+                                  <span
+                                    className={`text-xs ${doc.fechaVencimiento ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}
+                                  >
+                                    {doc.fechaVencimiento ? formatDate(doc.fechaVencimiento) : '—'}
+                                  </span>
+                                </td>
+                              )}
+                              {favColumnConfig.find((c) => c.id === 'prioridad')?.visible && (
+                                <td className="px-3 py-3">
+                                  {doc.esUrgente ? (
+                                    <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">
+                                      Urgente
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">Normal</span>
+                                  )}
+                                </td>
+                              )}
+                              <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
+                                <button
+                                  onClick={(e) => openContextMenu(e, doc)}
+                                  className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+                                  title="Opciones"
+                                >
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="currentColor"
+                                  >
+                                    <circle cx="12" cy="5" r="1.5" />
+                                    <circle cx="12" cy="12" r="1.5" />
+                                    <circle cx="12" cy="19" r="1.5" />
+                                  </svg>
+                                </button>
+                              </td>
+                            </tr>
+                          ));
+                        })()}
+                        {favoriteDocuments.filter((d) =>
+                          d.name.toLowerCase().includes(favSearchQuery.toLowerCase())
+                        ).length === 0 && (
                           <tr>
-                            <td colSpan={visibleCols.length + 3} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                              {cfSearch ? 'No hay documentos que coincidan con la búsqueda.' : 'No hay documentos que coincidan con este filtro.'}
+                            <td
+                              colSpan={10}
+                              className="p-0"
+                            >
+                              <LibraryEmptyState
+                                icon={Star}
+                                title={favSearchQuery ? 'Sin resultados' : 'Aún no tienes favoritos'}
+                                description={
+                                  favSearchQuery
+                                    ? 'Prueba con otro nombre o término de búsqueda.'
+                                    : 'Marca documentos como favoritos para encontrarlos rápidamente aquí.'
+                                }
+                              />
                             </td>
                           </tr>
                         )}
                       </tbody>
                     </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {activeSection === 'por-vencer' && (
+            <>
+              <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h1 className="text-2xl font-700 text-slate-950">Por vencer</h1>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Documentos que vencen en las próximas 72 horas
+                  </p>
+                </div>
+              </div>
+              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                <div className="relative min-w-[180px] flex-1">
+                  <Search
+                    size={15}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Buscar..."
+                    value={porVencerSearch}
+                    onChange={(e) => setPorVencerSearch(e.target.value)}
+                    className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  />
+                </div>
+                <div className="relative">
+                  <select
+                    value={porVencerSortOrder}
+                    onChange={(e) => setPorVencerSortOrder(e.target.value)}
+                    style={{ fontFamily: 'inherit' }}
+                    className="h-9 cursor-pointer appearance-none rounded-md border border-slate-200 bg-white pl-8 pr-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  >
+                    <option value="fechaVencimiento_asc">Vence antes</option>
+                    <option value="fechaVencimiento_desc">Vence después</option>
+                    <option value="nombre_asc">Nombre A–Z</option>
+                    <option value="nombre_desc">Nombre Z–A</option>
+                    <option value="estado_asc">Estado</option>
+                  </select>
+                  <ArrowUpDown
+                    size={14}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                  />
+                </div>
+                <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
+                  <button
+                    onClick={() => setPorVencerViewMode('list')}
+                    className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${porVencerViewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                    title="Vista lista"
+                  >
+                    <LayoutList size={16} />
+                  </button>
+                  <button
+                    onClick={() => setPorVencerViewMode('grid')}
+                    className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${porVencerViewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                    title="Vista cuadrícula"
+                  >
+                    <LayoutGrid size={16} />
+                  </button>
+                </div>
+                <div className="relative">
+                  <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPorVencerColumnConfigOpen((v) => !v);
+                    }}
+                    className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${porVencerColumnConfigOpen ? 'border-primary/40 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950'}`}
+                    title="Configurar columnas"
+                  >
+                    <SlidersHorizontal size={14} />
+                  </button>
+                  {porVencerColumnConfigOpen && (
+                    <div
+                      ref={porVencerColumnConfigRef}
+                      className="absolute right-0 top-full z-[200] mt-1 min-w-[220px] rounded-lg border border-slate-200 bg-white p-3 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                        Columnas visibles
+                      </p>
+                      <div className="space-y-0.5 max-h-64 overflow-y-auto">
+                        {/* Nombre - mandatory, always first */}
+                        <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-blue-50 border border-blue-100">
+                          <input
+                            type="checkbox"
+                            checked
+                            disabled
+                            className="rounded border-border accent-primary cursor-not-allowed flex-shrink-0 opacity-60"
+                          />
+                          <span className="text-sm text-foreground font-medium">Nombre</span>
+                          <span className="text-[10px] text-blue-600 font-semibold ml-auto">
+                            Fijo
+                          </span>
+                        </div>
+                        {porVencerColumnConfig
+                          .filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento')
+                          .map((col, colIdx) => (
+                            <div
+                              key={col.id}
+                              draggable
+                              onDragStart={() => {
+                                pvColDragIdxRef.current = colIdx;
+                                setPvColDragIdx(colIdx);
+                              }}
+                              onDragEnter={() => {
+                                pvColDragOverIdxRef.current = colIdx;
+                                setPvColDragOverIdx(colIdx);
+                              }}
+                              onDragEnd={() => {
+                                const from = pvColDragIdxRef.current;
+                                const to = pvColDragOverIdxRef.current;
+                                if (from !== null && to !== null && from !== to) {
+                                  const nonNombre = porVencerColumnConfig.filter(
+                                    (c) => c.id !== 'nombre' && c.id !== 'nombreDocumento'
+                                  );
+                                  const updated = [...nonNombre];
+                                  const [moved] = updated.splice(from, 1);
+                                  updated.splice(to, 0, moved);
+                                  setPorVencerColumnConfig(updated);
+                                }
+                                pvColDragIdxRef.current = null;
+                                pvColDragOverIdxRef.current = null;
+                                setPvColDragIdx(null);
+                                setPvColDragOverIdx(null);
+                              }}
+                              onDragOver={(e) => e.preventDefault()}
+                              className={`flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${pvColDragIdx === colIdx ? 'opacity-40 border border-blue-400 bg-blue-50' : pvColDragOverIdx === colIdx ? 'border border-blue-400 bg-blue-50' : 'hover:bg-muted'}`}
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                className="text-muted-foreground/40 flex-shrink-0"
+                              >
+                                <circle cx="9" cy="5" r="1.5" />
+                                <circle cx="15" cy="5" r="1.5" />
+                                <circle cx="9" cy="12" r="1.5" />
+                                <circle cx="15" cy="12" r="1.5" />
+                                <circle cx="9" cy="19" r="1.5" />
+                                <circle cx="15" cy="19" r="1.5" />
+                              </svg>
+                              <input
+                                type="checkbox"
+                                checked={col.visible}
+                                onChange={() => {
+                                  const updated = porVencerColumnConfig.map((c) =>
+                                    c.id === col.id ? { ...c, visible: !c.visible } : c
+                                  );
+                                  setPorVencerColumnConfig(updated);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="rounded border-border accent-primary cursor-pointer flex-shrink-0"
+                              />
+                              <span className="text-sm text-foreground">{col.label}</span>
+                            </div>
+                          ))}
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-border flex gap-2">
+                        <button
+                          onClick={() =>
+                            setPorVencerColumnConfig(
+                              DEFAULT_CF_COLUMNS.map((c) => ({ ...c, visible: true }))
+                            )
+                          }
+                          className="flex-1 text-xs text-primary hover:underline font-medium text-center py-1"
+                        >
+                          Mostrar todas
+                        </button>
+                        <button
+                          onClick={() =>
+                            setPorVencerColumnConfig(DEFAULT_CF_COLUMNS.map((c) => ({ ...c })))
+                          }
+                          className="flex-1 text-xs text-muted-foreground hover:text-foreground font-medium text-center py-1"
+                        >
+                          Restablecer
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                {loadingPorVencer ? (
+                  <div className="flex items-center justify-center py-12 gap-3">
+                    <svg
+                      className="animate-spin h-5 w-5 text-primary"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    <span className="text-sm text-muted-foreground">Cargando...</span>
+                  </div>
+                ) : porVencerViewMode === 'grid' ? (
+                  <div className="p-4">
+                    {porVencerDocuments.filter((d) =>
+                      d.name.toLowerCase().includes(porVencerSearch.toLowerCase())
+                    ).length === 0 ? (
+                      <LibraryEmptyState
+                        icon={AlertTriangle}
+                        title={porVencerSearch ? 'Sin resultados' : 'Todo está al día'}
+                        description={
+                          porVencerSearch
+                            ? 'Prueba con otro nombre o término de búsqueda.'
+                            : 'No hay documentos que venzan durante las próximas 72 horas.'
+                        }
+                      />
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        {porVencerDocuments
+                          .filter((d) =>
+                            d.name.toLowerCase().includes(porVencerSearch.toLowerCase())
+                          )
+                          .map(renderDocGridCard)}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-max">
+                      <thead>
+                            <tr className="border-b border-slate-200 bg-slate-50/80">
+                          <th
+                            className={selectionCheckboxCellClass}
+                            style={{ width: `${porVencerColWidths.checkbox}px` }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={
+                                porVencerDocuments.filter((doc) =>
+                                  doc.name.toLowerCase().includes(porVencerSearch.toLowerCase())
+                                ).length > 0 &&
+                                porVencerDocuments
+                                  .filter((doc) =>
+                                    doc.name.toLowerCase().includes(porVencerSearch.toLowerCase())
+                                  )
+                                  .every((doc) => selectedRows.includes(doc.id))
+                              }
+                              onChange={() =>
+                                toggleSelectDocumentSet(
+                                  porVencerDocuments
+                                    .filter((doc) =>
+                                      doc.name.toLowerCase().includes(porVencerSearch.toLowerCase())
+                                    )
+                                    .map((doc) => doc.id)
+                                )
+                              }
+                              className={selectionCheckboxClass}
+                              aria-label="Seleccionar todos los documentos por vencer visibles"
+                            />
+                          </th>
+                          <ResizableTh
+                            colKey="nombre"
+                            width={porVencerColWidths.nombre}
+                            minWidth={120}
+                            onResize={resizePorVencerCol}
+                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                          >
+                            Nombre
+                          </ResizableTh>
+                          {porVencerColumnConfig.find((c) => c.id === 'propietario')?.visible && (
+                            <ResizableTh
+                              colKey="propietario"
+                              width={porVencerColWidths.propietario}
+                              minWidth={80}
+                              onResize={resizePorVencerCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Propietario
+                            </ResizableTh>
+                          )}
+                          {porVencerColumnConfig.find((c) => c.id === 'estado')?.visible && (
+                            <ResizableTh
+                              colKey="estado"
+                              width={porVencerColWidths.estado}
+                              minWidth={80}
+                              onResize={resizePorVencerCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Estado
+                            </ResizableTh>
+                          )}
+                          {porVencerColumnConfig.find((c) => c.id === 'fechaCreacion')?.visible && (
+                            <ResizableTh
+                              colKey="fechaCreacion"
+                              width={porVencerColWidths.fechaCreacion}
+                              minWidth={100}
+                              onResize={resizePorVencerCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Fecha de creación
+                            </ResizableTh>
+                          )}
+                          {porVencerColumnConfig.find((c) => c.id === 'numeroDocumento')
+                            ?.visible && (
+                            <ResizableTh
+                              colKey="numeroDocumento"
+                              width={porVencerColWidths.numeroDocumento}
+                              minWidth={80}
+                              onResize={resizePorVencerCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              N° Documento
+                            </ResizableTh>
+                          )}
+                          {porVencerColumnConfig.find((c) => c.id === 'ultimaModificacion')
+                            ?.visible && (
+                            <ResizableTh
+                              colKey="ultimaModificacion"
+                              width={porVencerColWidths.ultimaModificacion}
+                              minWidth={120}
+                              onResize={resizePorVencerCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Última modificación
+                            </ResizableTh>
+                          )}
+                          {porVencerColumnConfig.find((c) => c.id === 'tamano')?.visible && (
+                            <ResizableTh
+                              colKey="tamano"
+                              width={porVencerColWidths.tamano}
+                              minWidth={60}
+                              onResize={resizePorVencerCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Tamaño
+                            </ResizableTh>
+                          )}
+                          <ResizableTh
+                            colKey="vence"
+                            width={porVencerColWidths.vence}
+                            minWidth={90}
+                            onResize={resizePorVencerCol}
+                            className="text-left text-xs font-semibold text-orange-500 px-3 py-3 whitespace-nowrap"
+                          >
+                            Vence
+                          </ResizableTh>
+                          {porVencerColumnConfig.find((c) => c.id === 'etiquetas')?.visible && (
+                            <ResizableTh
+                              colKey="etiquetas"
+                              width={porVencerColWidths.etiquetas}
+                              minWidth={80}
+                              onResize={resizePorVencerCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Etiquetas
+                            </ResizableTh>
+                          )}
+                          {porVencerColumnConfig.find((c) => c.id === 'tipoDocumento')?.visible && (
+                            <ResizableTh
+                              colKey="tipoDocumento"
+                              width={porVencerColWidths.tipoDocumento}
+                              minWidth={70}
+                              onResize={resizePorVencerCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Tipo
+                            </ResizableTh>
+                          )}
+                          {porVencerColumnConfig.find((c) => c.id === 'prioridad')?.visible && (
+                            <ResizableTh
+                              colKey="prioridad"
+                              width={porVencerColWidths.prioridad}
+                              minWidth={70}
+                              onResize={resizePorVencerCol}
+                              className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                            >
+                              Prioridad
+                            </ResizableTh>
+                          )}
+                          <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          let docs = porVencerDocuments.filter((d) =>
+                            d.name.toLowerCase().includes(porVencerSearch.toLowerCase())
+                          );
+                          docs = [...docs].sort((a, b) => {
+                            if (porVencerSortOrder === 'nombre_asc')
+                              return a.name.localeCompare(b.name);
+                            if (porVencerSortOrder === 'nombre_desc')
+                              return b.name.localeCompare(a.name);
+                            if (porVencerSortOrder === 'estado_asc')
+                              return a.estado.localeCompare(b.estado);
+                            if (porVencerSortOrder === 'fechaVencimiento_desc')
+                              return (b.fechaVencimiento || '').localeCompare(
+                                a.fechaVencimiento || ''
+                              );
+                            return (a.fechaVencimiento || '').localeCompare(
+                              b.fechaVencimiento || ''
+                            );
+                          });
+                          return docs.map((doc) => (
+                            <tr
+                              key={doc.id}
+                              className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors group"
+                            >
+                              <td className={selectionCheckboxCellClass}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRows.includes(doc.id)}
+                                  onChange={() => toggleSelectRow(doc.id)}
+                                  className={selectionCheckboxClass}
+                                  aria-label={`Seleccionar ${doc.name}`}
+                                />
+                              </td>
+                              <td className="px-3 py-3 min-w-[200px]">
+                                <div className="flex items-center gap-2.5">
+                                  <div
+                                    className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En progreso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}
+                                  >
+                                    <FileText size={16} className={getDocIconColor(doc.estado)} />
+                                  </div>
+                                  <div className="flex min-w-0 flex-col">
+                                    <button
+                                      onClick={() =>
+                                        doc.isDraft
+                                          ? router.push(`/crear-documento?draft=${doc.id}`)
+                                          : router.push(`/visor-documento/${doc.id}`)
+                                      }
+                                      className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
+                                    >
+                                      {doc.name}
+                                    </button>
+                                    {doc.descripcion ? (
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.descripcion}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.fechaCreacion ? doc.fechaCreacion.split(' ')[0] : ''}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              {porVencerColumnConfig.find((c) => c.id === 'propietario')
+                                ?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.ownerName ||
+                                      user?.user_metadata?.full_name ||
+                                      user?.email?.split('@')[0] ||
+                                      'Yo'}
+                                  </span>
+                                </td>
+                              )}
+                              {porVencerColumnConfig.find((c) => c.id === 'estado')?.visible && (
+                                <td className="px-3 py-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`}
+                                    />
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.estado}
+                                    </span>
+                                  </div>
+                                </td>
+                              )}
+                              {porVencerColumnConfig.find((c) => c.id === 'fechaCreacion')
+                                ?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.fechaCreacion || '—'}
+                                  </span>
+                                </td>
+                              )}
+                              {porVencerColumnConfig.find((c) => c.id === 'numeroDocumento')
+                                ?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.numeroOficio || '—'}
+                                  </span>
+                                </td>
+                              )}
+                              {porVencerColumnConfig.find((c) => c.id === 'ultimaModificacion')
+                                ?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.ultimaModificacion}
+                                  </span>
+                                </td>
+                              )}
+                              {porVencerColumnConfig.find((c) => c.id === 'tamano')?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.tamano}
+                                  </span>
+                                </td>
+                              )}
+                              <td className="px-3 py-3">
+                                <span className="text-xs text-orange-600 font-medium">
+                                  {doc.fechaVencimiento ? formatDate(doc.fechaVencimiento) : '—'}
+                                </span>
+                              </td>
+                              {porVencerColumnConfig.find((c) => c.id === 'etiquetas')?.visible && (
+                                <td className="px-3 py-3">
+                                  <div className="flex flex-wrap gap-1">
+                                    {doc.etiquetas.length > 0 ? (
+                                      doc.etiquetas.slice(0, 2).map((tagId, i) => {
+                                        const etiqueta = etiquetasList.find(
+                                          (e) =>
+                                            e.id === String(tagId) || e.nombre === String(tagId)
+                                        );
+                                        const label = etiqueta ? etiqueta.nombre : String(tagId);
+                                        const color = etiqueta?.color || '#6366f1';
+                                        return (
+                                          <span
+                                            key={i}
+                                            className="px-1.5 py-0.5 text-xs rounded-full font-medium"
+                                            style={{
+                                              backgroundColor: `${color}20`,
+                                              color,
+                                              border: `1px solid ${color}40`,
+                                            }}
+                                          >
+                                            {label}
+                                          </span>
+                                        );
+                                      })
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">—</span>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
+                              {porVencerColumnConfig.find((c) => c.id === 'tipoDocumento')
+                                ?.visible && (
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.tipoDocumentoNombre || '—'}
+                                  </span>
+                                </td>
+                              )}
+                              {porVencerColumnConfig.find((c) => c.id === 'prioridad')?.visible && (
+                                <td className="px-3 py-3">
+                                  {doc.esUrgente ? (
+                                    <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">
+                                      Urgente
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">Normal</span>
+                                  )}
+                                </td>
+                              )}
+                              <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
+                                <button
+                                  onClick={(e) => openContextMenu(e, doc)}
+                                  className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+                                  title="Opciones"
+                                >
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="currentColor"
+                                  >
+                                    <circle cx="12" cy="5" r="1.5" />
+                                    <circle cx="12" cy="12" r="1.5" />
+                                    <circle cx="12" cy="19" r="1.5" />
+                                  </svg>
+                                </button>
+                              </td>
+                            </tr>
+                          ));
+                        })()}
+                        {porVencerDocuments.filter((d) =>
+                          d.name.toLowerCase().includes(porVencerSearch.toLowerCase())
+                        ).length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={10}
+                              className="p-0"
+                            >
+                              <LibraryEmptyState
+                                icon={AlertTriangle}
+                                title={porVencerSearch ? 'Sin resultados' : 'Todo está al día'}
+                                description={
+                                  porVencerSearch
+                                    ? 'Prueba con otro nombre o término de búsqueda.'
+                                    : 'No hay documentos que venzan durante las próximas 72 horas.'
+                                }
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {activeSection === 'papelera' && (
+            <>
+              <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h1 className="text-2xl font-700 text-slate-950">Papelera</h1>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Documentos eliminados recientemente
+                  </p>
+                </div>
+                {deletedDocuments.length > 0 && (
+                  <button
+                    onClick={openConfirmEmptyAll}
+                    className="flex h-9 items-center gap-2 rounded-lg bg-red-600 px-3.5 text-sm font-700 text-white transition-colors hover:bg-red-700"
+                  >
+                    <Trash2 size={15} />
+                    Vaciar papelera
+                  </button>
+                )}
+              </div>
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                <div className="relative flex-1">
+                  <Search
+                    size={15}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Buscar en papelera..."
+                    value={papeleraSearch}
+                    onChange={(e) => setPapeleraSearch(e.target.value)}
+                    className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  />
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                {loadingPapelera ? (
+                  <div className="flex items-center justify-center py-12 gap-3">
+                    <svg
+                      className="animate-spin h-5 w-5 text-primary"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    <span className="text-sm text-muted-foreground">Cargando papelera...</span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-max">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50/80">
+                          <th className={selectionCheckboxCellClass} style={{ width: '40px' }}>
+                            <input
+                              type="checkbox"
+                              checked={
+                                filteredDeleted.length > 0 &&
+                                filteredDeleted.every((doc) => selectedRows.includes(doc.id))
+                              }
+                              onChange={() =>
+                                toggleSelectDocumentSet(filteredDeleted.map((doc) => doc.id))
+                              }
+                              className={selectionCheckboxClass}
+                              aria-label="Seleccionar todos los documentos eliminados visibles"
+                            />
+                          </th>
+                          <ResizableTh
+                            colKey="nombre"
+                            width={papeleraColWidths.nombre}
+                            minWidth={150}
+                            onResize={resizePapeleraCol}
+                            className="text-left text-xs font-semibold text-muted-foreground px-4 py-3"
+                          >
+                            Nombre del documento
+                          </ResizableTh>
+                          <ResizableTh
+                            colKey="tipo"
+                            width={papeleraColWidths.tipo}
+                            minWidth={70}
+                            onResize={resizePapeleraCol}
+                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                          >
+                            Tipo
+                          </ResizableTh>
+                          <ResizableTh
+                            colKey="eliminadoPor"
+                            width={papeleraColWidths.eliminadoPor}
+                            minWidth={100}
+                            onResize={resizePapeleraCol}
+                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                          >
+                            Eliminado por
+                          </ResizableTh>
+                          <ResizableTh
+                            colKey="fechaEliminacion"
+                            width={papeleraColWidths.fechaEliminacion}
+                            minWidth={100}
+                            onResize={resizePapeleraCol}
+                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                          >
+                            Fecha eliminación
+                          </ResizableTh>
+                          <ResizableTh
+                            colKey="tamano"
+                            width={papeleraColWidths.tamano}
+                            minWidth={60}
+                            onResize={resizePapeleraCol}
+                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                          >
+                            Tamaño
+                          </ResizableTh>
+                          <ResizableTh
+                            colKey="retencion"
+                            width={papeleraColWidths.retencion}
+                            minWidth={70}
+                            onResize={resizePapeleraCol}
+                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                          >
+                            Retención
+                          </ResizableTh>
+                          <th
+                            className="sticky right-0 border-l border-slate-200 bg-slate-50/80 px-3 py-3 text-left text-xs font-semibold text-muted-foreground shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"
+                            style={{ width: `${papeleraColWidths.acciones}px` }}
+                          >
+                            Acciones
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredDeleted.map((doc) => (
+                          <tr
+                            key={doc.id}
+                            className={`border-b border-border last:border-0 hover:bg-muted/30 transition-colors ${selectedRows.includes(doc.id) ? 'bg-blue-50/60' : ''}`}
+                          >
+                            <td className={selectionCheckboxCellClass}>
+                              <input
+                                type="checkbox"
+                                checked={selectedRows.includes(doc.id)}
+                                onChange={() => toggleSelectRow(doc.id)}
+                                className={selectionCheckboxClass}
+                                aria-label={`Seleccionar ${doc.name}`}
+                              />
+                            </td>
+                            <td className="px-4 py-3 min-w-[260px]">
+                              <div className="flex items-start gap-2">
+                                <FileText
+                                  size={16}
+                                  className="text-muted-foreground flex-shrink-0 mt-0.5"
+                                />
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-xs font-medium text-foreground">
+                                    {doc.name}
+                                  </span>
+                                  {doc.descripcion && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.descripcion}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className="text-xs text-muted-foreground">{doc.tipo}</span>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className="text-xs text-muted-foreground">
+                                {doc.eliminadoPor}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className="text-xs text-muted-foreground">
+                                {doc.fechaEliminacion}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className="text-xs text-muted-foreground">{doc.tamano}</span>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className="text-xs text-muted-foreground">
+                                {doc.retencion || '—'}
+                              </span>
+                            </td>
+                            <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
+                              <div className="flex items-center gap-2 justify-end">
+                                <button
+                                  onClick={() => handleRestore(doc.id)}
+                                  className="px-3 py-1.5 text-xs font-medium text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors whitespace-nowrap"
+                                >
+                                  Restaurar
+                                </button>
+                                <button
+                                  onClick={() => openConfirmDelete(doc.id, doc.name)}
+                                  className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap"
+                                >
+                                  Eliminar permanentemente
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {filteredDeleted.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={8}
+                              className="p-0"
+                            >
+                              <LibraryEmptyState
+                                icon={Trash2}
+                                title={papeleraSearch ? 'Sin resultados' : 'La papelera está vacía'}
+                                description={
+                                  papeleraSearch
+                                    ? 'Prueba con otro nombre o término de búsqueda.'
+                                    : 'Los documentos eliminados aparecerán aquí durante su periodo de retención.'
+                                }
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+              {confirmDelete.open && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center">
+                  <div
+                    className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+                    onClick={() =>
+                      setConfirmDelete({ open: false, docId: null, docName: '', isEmptyAll: false })
+                    }
+                  />
+                  <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 z-10">
+                    <button
+                      onClick={() =>
+                        setConfirmDelete({
+                          open: false,
+                          docId: null,
+                          docName: '',
+                          isEmptyAll: false,
+                        })
+                      }
+                      className="absolute top-4 right-4 p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mb-4">
+                      <AlertCircle size={24} className="text-red-600" />
+                    </div>
+                    <h2 className="text-lg font-bold text-foreground mb-2">
+                      {confirmDelete.isEmptyAll ? 'Vaciar papelera' : 'Eliminar permanentemente'}
+                    </h2>
+                    <p className="text-sm text-muted-foreground mb-6">
+                      {confirmDelete.isEmptyAll ? (
+                        'Se eliminarán permanentemente todos los documentos de la papelera. Esta acción no se puede deshacer.'
+                      ) : (
+                        <>
+                          ¿Estás seguro de que deseas eliminar permanentemente{' '}
+                          <span className="font-semibold text-foreground">
+                            &ldquo;{confirmDelete.docName}&rdquo;
+                          </span>
+                          ? Esta acción no se puede deshacer.
+                        </>
+                      )}
+                    </p>
+                    <div className="flex items-center gap-3 justify-end">
+                      <button
+                        onClick={() =>
+                          setConfirmDelete({
+                            open: false,
+                            docId: null,
+                            docName: '',
+                            isEmptyAll: false,
+                          })
+                        }
+                        className="px-4 py-2 text-sm font-semibold text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={handleConfirmPermanentDelete}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+                      >
+                        {confirmDelete.isEmptyAll ? 'Vaciar papelera' : 'Eliminar permanentemente'}
+                      </button>
                     </div>
                   </div>
-                );
-              })()}
-            </React.Fragment>
-          ))}
-        </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Custom filter sections */}
+          {customFilters.map(
+            (cf) =>
+              activeSection === `custom-${cf.id}` && (
+                <React.Fragment key={cf.id}>
+                  <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <h1 className="text-2xl font-700 text-slate-950">{cf.nombre}</h1>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {cf.descripcion || 'Filtro personalizado'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        const updated = customFilters.filter((f) => f.id !== cf.id);
+                        setCustomFilters(updated);
+                        await saveCustomFilters(updated);
+                        setActiveSection('inicio');
+                        showToast(`Filtro "${cf.nombre}" eliminado`);
+                      }}
+                      className="flex h-9 items-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-600 text-red-600 transition-colors hover:bg-red-50"
+                    >
+                      <X size={14} />
+                      Eliminar filtro
+                    </button>
+                  </div>
+
+                  {/* Toolbar: search, sort, view type, configure columns */}
+                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                    <div className="relative min-w-[180px] flex-1">
+                      <Search
+                        size={15}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      />
+                      <input
+                        type="text"
+                        placeholder={`Buscar en ${cf.nombre}...`}
+                        value={cfSearchQueries[cf.id] || ''}
+                        onChange={(e) =>
+                          setCfSearchQueries((prev) => ({ ...prev, [cf.id]: e.target.value }))
+                        }
+                        className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
+                      />
+                    </div>
+                    <div className="relative">
+                      <select
+                        value={cfSortOrders[cf.id] || 'ultimaModificacion_desc'}
+                        onChange={(e) =>
+                          setCfSortOrders((prev) => ({ ...prev, [cf.id]: e.target.value }))
+                        }
+                        style={{ fontFamily: 'inherit' }}
+                        className="h-9 cursor-pointer appearance-none rounded-md border border-slate-200 bg-white pl-8 pr-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                      >
+                        <option value="ultimaModificacion_desc">Más reciente</option>
+                        <option value="ultimaModificacion_asc">Más antiguo</option>
+                        <option value="nombre_asc">Nombre A–Z</option>
+                        <option value="nombre_desc">Nombre Z–A</option>
+                        <option value="estado_asc">Estado</option>
+                      </select>
+                      <ArrowUpDown
+                        size={14}
+                        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                      />
+                    </div>
+                    <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
+                      <button
+                        onClick={() => setCfViewModes((prev) => ({ ...prev, [cf.id]: 'list' }))}
+                        className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${(cfViewModes[cf.id] || 'list') === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                        title="Vista lista"
+                      >
+                        <LayoutList size={16} />
+                      </button>
+                      <button
+                        onClick={() => setCfViewModes((prev) => ({ ...prev, [cf.id]: 'grid' }))}
+                        className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${(cfViewModes[cf.id] || 'list') === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                        title="Vista cuadrícula"
+                      >
+                        <LayoutGrid size={16} />
+                      </button>
+                    </div>
+                    <div
+                      className="relative"
+                      ref={(el) => {
+                        cfColumnConfigRefs.current[cf.id] = el;
+                      }}
+                    >
+                      <button
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCfColumnConfigOpen((prev) => (prev === cf.id ? null : cf.id));
+                        }}
+                        className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${cfColumnConfigOpen === cf.id ? 'border-primary/40 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950'}`}
+                        title="Configurar columnas"
+                      >
+                        <SlidersHorizontal size={14} />
+                      </button>
+                      {cfColumnConfigOpen === cf.id && (
+                        <div
+                          className="absolute right-0 top-full z-[200] mt-1 min-w-[220px] rounded-lg border border-slate-200 bg-white p-3 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                            Columnas visibles
+                          </p>
+                          <div className="space-y-0.5 max-h-64 overflow-y-auto">
+                            {/* Nombre - mandatory, always first, not draggable */}
+                            <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-blue-50 border border-blue-100 select-none">
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                className="text-muted-foreground/30 flex-shrink-0"
+                              >
+                                <circle cx="9" cy="5" r="1.5" />
+                                <circle cx="15" cy="5" r="1.5" />
+                                <circle cx="9" cy="12" r="1.5" />
+                                <circle cx="15" cy="12" r="1.5" />
+                                <circle cx="9" cy="19" r="1.5" />
+                                <circle cx="15" cy="19" r="1.5" />
+                              </svg>
+                              <span className="text-sm text-foreground font-medium flex-1">
+                                Nombre
+                              </span>
+                              <span className="text-[10px] text-blue-600 font-semibold">Fijo</span>
+                              <input
+                                type="checkbox"
+                                checked
+                                disabled
+                                className="rounded border-border accent-primary cursor-not-allowed flex-shrink-0 opacity-60"
+                              />
+                            </div>
+                            {(cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS)
+                              .filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento')
+                              .map((col, colIdx) => (
+                                <div
+                                  key={col.id}
+                                  draggable
+                                  onDragStart={() => {
+                                    cfColDragIdxRef.current[cf.id] = colIdx;
+                                    setCfColDragIdx((p) => ({ ...p, [cf.id]: colIdx }));
+                                  }}
+                                  onDragEnter={() => {
+                                    cfColDragOverIdxRef.current[cf.id] = colIdx;
+                                    setCfColDragOverIdx((p) => ({ ...p, [cf.id]: colIdx }));
+                                  }}
+                                  onDragEnd={() => {
+                                    const from = cfColDragIdxRef.current[cf.id];
+                                    const to = cfColDragOverIdxRef.current[cf.id];
+                                    if (
+                                      from !== null &&
+                                      from !== undefined &&
+                                      to !== null &&
+                                      to !== undefined &&
+                                      from !== to
+                                    ) {
+                                      const current =
+                                        cfColumnConfigs[cf.id] ||
+                                        DEFAULT_CF_COLUMNS.map((c) => ({ ...c }));
+                                      const nonNombre = current.filter(
+                                        (c) => c.id !== 'nombre' && c.id !== 'nombreDocumento'
+                                      );
+                                      const updated = [...nonNombre];
+                                      const [moved] = updated.splice(from, 1);
+                                      updated.splice(to, 0, moved);
+                                      setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: updated }));
+                                    }
+                                    cfColDragIdxRef.current[cf.id] = null;
+                                    cfColDragOverIdxRef.current[cf.id] = null;
+                                    setCfColDragIdx((p) => ({ ...p, [cf.id]: null }));
+                                    setCfColDragOverIdx((p) => ({ ...p, [cf.id]: null }));
+                                  }}
+                                  onDragOver={(e) => e.preventDefault()}
+                                  className={`flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${cfColDragIdx[cf.id] === colIdx ? 'opacity-40 border border-blue-400 bg-blue-50' : cfColDragOverIdx[cf.id] === colIdx ? 'border border-blue-400 bg-blue-50' : 'hover:bg-muted'}`}
+                                >
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="currentColor"
+                                    className="text-muted-foreground/40 flex-shrink-0 cursor-grab"
+                                  >
+                                    <circle cx="9" cy="5" r="1.5" />
+                                    <circle cx="15" cy="5" r="1.5" />
+                                    <circle cx="9" cy="12" r="1.5" />
+                                    <circle cx="15" cy="12" r="1.5" />
+                                    <circle cx="9" cy="19" r="1.5" />
+                                    <circle cx="15" cy="19" r="1.5" />
+                                  </svg>
+                                  <input
+                                    type="checkbox"
+                                    checked={col.visible}
+                                    onChange={() => {
+                                      const current =
+                                        cfColumnConfigs[cf.id] ||
+                                        DEFAULT_CF_COLUMNS.map((c) => ({ ...c }));
+                                      const actualIdx = current.findIndex((c) => c.id === col.id);
+                                      const updated = current.map((c, i) =>
+                                        i === actualIdx ? { ...c, visible: !c.visible } : c
+                                      );
+                                      setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: updated }));
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="rounded border-border accent-primary cursor-pointer flex-shrink-0"
+                                  />
+                                  <span className="text-sm text-foreground">{col.label}</span>
+                                </div>
+                              ))}
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-border flex gap-2">
+                            <button
+                              onClick={() => {
+                                setCfColumnConfigs((prev) => ({
+                                  ...prev,
+                                  [cf.id]: DEFAULT_CF_COLUMNS.map((c) => ({ ...c, visible: true })),
+                                }));
+                              }}
+                              className="flex-1 text-xs text-primary hover:underline font-medium text-center py-1"
+                            >
+                              Mostrar todas
+                            </button>
+                            <button
+                              onClick={() => {
+                                setCfColumnConfigs((prev) => ({
+                                  ...prev,
+                                  [cf.id]: DEFAULT_CF_COLUMNS.map((c) => ({ ...c })),
+                                }));
+                              }}
+                              className="flex-1 text-xs text-muted-foreground hover:text-foreground font-medium text-center py-1"
+                            >
+                              Restablecer
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Document list */}
+                  {(() => {
+                    const cfSearch = (cfSearchQueries[cf.id] || '').toLowerCase();
+                    const cfSort = cfSortOrders[cf.id] || 'ultimaModificacion_desc';
+                    const cfView = cfViewModes[cf.id] || 'list';
+                    const cfCols = cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS;
+
+                    let docs = getCustomFilterDocuments(cf).filter(
+                      (doc) => !cfSearch || doc.name.toLowerCase().includes(cfSearch)
+                    );
+
+                    docs = [...docs].sort((a, b) => {
+                      if (cfSort === 'nombre_asc') return a.name.localeCompare(b.name);
+                      if (cfSort === 'nombre_desc') return b.name.localeCompare(a.name);
+                      if (cfSort === 'estado_asc') return a.estado.localeCompare(b.estado);
+                      if (cfSort === 'ultimaModificacion_asc')
+                        return a.ultimaModificacion.localeCompare(b.ultimaModificacion);
+                      return b.ultimaModificacion.localeCompare(a.ultimaModificacion);
+                    });
+
+                    if (cfView === 'grid') {
+                      return (
+                        <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                          {docs.length === 0 ? (
+                            <LibraryEmptyState
+                              icon={Filter}
+                              title={cfSearch ? 'Sin resultados' : 'Sin documentos'}
+                              description={
+                                cfSearch
+                                  ? 'Prueba con otro nombre o término de búsqueda.'
+                                  : 'No hay documentos que cumplan las condiciones de este filtro.'
+                              }
+                            />
+                          ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                              {docs.map(renderDocGridCard)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const visibleCols = cfCols.filter((c) => c.visible);
+                    return (
+                      <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-max">
+                            <thead>
+                              <tr className="border-b border-slate-200 bg-slate-50/80">
+                                <ResizableTh
+                                  colKey="nombre"
+                                  width={cfColWidths.nombre}
+                                  minWidth={120}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                                >
+                                  Nombre
+                                </ResizableTh>
+                                {visibleCols.find((c) => c.id === 'propietario') && (
+                                  <ResizableTh
+                                    colKey="propietario"
+                                    width={cfColWidths.propietario}
+                                    minWidth={80}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Propietario
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'estado') && (
+                                  <ResizableTh
+                                    colKey="estado"
+                                    width={cfColWidths.estado}
+                                    minWidth={80}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Estado
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'fechaCreacion') && (
+                                  <ResizableTh
+                                    colKey="fechaCreacion"
+                                    width={cfColWidths.fechaCreacion}
+                                    minWidth={100}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Fecha de creación
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'numeroDocumento') && (
+                                  <ResizableTh
+                                    colKey="numeroDocumento"
+                                    width={cfColWidths.numeroDocumento}
+                                    minWidth={80}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    N° Documento
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'ultimaModificacion') && (
+                                  <ResizableTh
+                                    colKey="ultimaModificacion"
+                                    width={cfColWidths.ultimaModificacion}
+                                    minWidth={120}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Última modificación
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'tamano') && (
+                                  <ResizableTh
+                                    colKey="tamano"
+                                    width={cfColWidths.tamano}
+                                    minWidth={60}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Tamaño
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'etiquetas') && (
+                                  <ResizableTh
+                                    colKey="etiquetas"
+                                    width={cfColWidths.etiquetas}
+                                    minWidth={80}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Etiquetas
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'tipoDocumento') && (
+                                  <ResizableTh
+                                    colKey="tipoDocumento"
+                                    width={cfColWidths.tipoDocumento}
+                                    minWidth={70}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Tipo
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'folioInterno') && (
+                                  <ResizableTh
+                                    colKey="folioInterno"
+                                    width={cfColWidths.folioInterno}
+                                    minWidth={70}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Folio
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'fechaCompletado') && (
+                                  <ResizableTh
+                                    colKey="fechaCompletado"
+                                    width={cfColWidths.fechaCompletado}
+                                    minWidth={100}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Completado
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'fechaVencimiento') && (
+                                  <ResizableTh
+                                    colKey="fechaVencimiento"
+                                    width={cfColWidths.fechaVencimiento}
+                                    minWidth={90}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Vencimiento
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'prioridad') && (
+                                  <ResizableTh
+                                    colKey="prioridad"
+                                    width={cfColWidths.prioridad}
+                                    minWidth={70}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Prioridad
+                                  </ResizableTh>
+                                )}
+                                {visibleCols.find((c) => c.id === 'rutaGuardado') && (
+                                  <ResizableTh
+                                    colKey="rutaGuardado"
+                                    width={cfColWidths.rutaGuardado}
+                                    minWidth={90}
+                                    onResize={resizeCfCol}
+                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                  >
+                                    Ruta
+                                  </ResizableTh>
+                                )}
+                                <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {docs.map((doc) => (
+                                <tr
+                                  key={doc.id}
+                                  className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors group"
+                                >
+                                  <td className="px-3 py-3 min-w-[200px]">
+                                    <div className="flex items-center gap-2.5">
+                                      <div
+                                        className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En progreso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}
+                                      >
+                                        <FileText size={16} className={getDocIconColor(doc.estado)} />
+                                      </div>
+                                      <div className="flex min-w-0 flex-col">
+                                        <div className="flex items-center gap-1.5">
+                                        <button
+                                          onClick={() =>
+                                            doc.isDraft
+                                              ? router.push(`/crear-documento?draft=${doc.id}`)
+                                              : router.push(`/visor-documento/${doc.id}`)
+                                          }
+                                          className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
+                                          title={doc.name}
+                                        >
+                                          {doc.name}
+                                        </button>
+                                        {doc.isFavorite && (
+                                          <Star
+                                            size={12}
+                                            className="text-yellow-400 fill-yellow-400 flex-shrink-0"
+                                          />
+                                        )}
+                                        {doc.esUrgente && (
+                                          <span
+                                            className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
+                                            title="Urgente"
+                                          />
+                                        )}
+                                        </div>
+                                        {doc.descripcion ? (
+                                          <span className="text-xs text-muted-foreground">
+                                            {doc.descripcion}
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-muted-foreground">
+                                            {doc.fechaCreacion ? doc.fechaCreacion.split(' ')[0] : ''}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  {visibleCols.find((c) => c.id === 'propietario') && (
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.ownerName ||
+                                          user?.user_metadata?.full_name ||
+                                          user?.email?.split('@')[0] ||
+                                          'Yo'}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'estado') && (
+                                    <td className="px-3 py-3">
+                                      <div className="flex items-center gap-1.5">
+                                        <span
+                                          className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`}
+                                        />
+                                        <span className="text-xs text-muted-foreground">
+                                          {doc.estado}
+                                        </span>
+                                      </div>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'fechaCreacion') && (
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.fechaCreacion || '—'}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'numeroDocumento') && (
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.numeroOficio || '—'}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'ultimaModificacion') && (
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.ultimaModificacion}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'tamano') && (
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.tamano}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'etiquetas') && (
+                                    <td className="px-3 py-3">
+                                      <div className="flex flex-wrap gap-1">
+                                        {doc.etiquetas.length > 0 ? (
+                                          doc.etiquetas.slice(0, 2).map((tagId, i) => {
+                                            const etiqueta = etiquetasList.find(
+                                              (e) =>
+                                                e.id === String(tagId) || e.nombre === String(tagId)
+                                            );
+                                            const label = etiqueta
+                                              ? etiqueta.nombre
+                                              : String(tagId);
+                                            const color = etiqueta?.color || '#6366f1';
+                                            return (
+                                              <span
+                                                key={i}
+                                                className="px-1.5 py-0.5 text-xs rounded-full font-medium"
+                                                style={{
+                                                  backgroundColor: `${color}20`,
+                                                  color,
+                                                  border: `1px solid ${color}40`,
+                                                }}
+                                              >
+                                                {label}
+                                              </span>
+                                            );
+                                          })
+                                        ) : (
+                                          <span className="text-xs text-muted-foreground">—</span>
+                                        )}
+                                        {doc.etiquetas.length > 2 && (
+                                          <span className="text-xs text-muted-foreground">
+                                            +{doc.etiquetas.length - 2}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'tipoDocumento') && (
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.tipoDocumentoNombre || '—'}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'folioInterno') && (
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.folioInterno || '—'}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'fechaCompletado') && (
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.fechaCompletado || '—'}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'fechaVencimiento') && (
+                                    <td className="px-3 py-3">
+                                      <span
+                                        className={`text-xs ${doc.fechaVencimiento ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}
+                                      >
+                                        {doc.fechaVencimiento
+                                          ? formatDate(doc.fechaVencimiento)
+                                          : '—'}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'prioridad') && (
+                                    <td className="px-3 py-3">
+                                      {doc.esUrgente ? (
+                                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">
+                                          Urgente
+                                        </span>
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">
+                                          Normal
+                                        </span>
+                                      )}
+                                    </td>
+                                  )}
+                                  {visibleCols.find((c) => c.id === 'rutaGuardado') && (
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-muted-foreground truncate max-w-[120px] block">
+                                        {doc.rutaGuardado || '—'}
+                                      </span>
+                                    </td>
+                                  )}
+                                  <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
+                                    <button
+                                      onClick={(e) => openContextMenu(e, doc)}
+                                      className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+                                      title="Opciones"
+                                    >
+                                      <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                      >
+                                        <circle cx="12" cy="5" r="1.5" />
+                                        <circle cx="12" cy="12" r="1.5" />
+                                        <circle cx="12" cy="19" r="1.5" />
+                                      </svg>
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                              {docs.length === 0 && (
+                                <tr>
+                                  <td
+                                    colSpan={visibleCols.length + 2}
+                                    className="p-0"
+                                  >
+                                    <LibraryEmptyState
+                                      icon={Filter}
+                                      title={cfSearch ? 'Sin resultados' : 'Sin documentos'}
+                                      description={
+                                        cfSearch
+                                          ? 'Prueba con otro nombre o término de búsqueda.'
+                                          : 'No hay documentos que cumplan las condiciones de este filtro.'
+                                      }
+                                    />
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </React.Fragment>
+              )
+          )}
+        </main>
       </div>
 
       {/* Document context menu */}
@@ -4995,19 +8445,41 @@ export default function MisDocumentosPage() {
       {/* Confirmation dialog for Mover a papelera */}
       {confirmPapelera.open && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setConfirmPapelera({ open: false, type: 'doc', id: null, name: '' })} />
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setConfirmPapelera({ open: false, type: 'doc', id: null, name: '' })}
+          />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 z-10">
-            <button onClick={() => setConfirmPapelera({ open: false, type: 'doc', id: null, name: '' })} className="absolute top-4 right-4 p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"><X size={16} /></button>
-            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mb-4"><Trash2 size={24} className="text-red-600" /></div>
+            <button
+              onClick={() => setConfirmPapelera({ open: false, type: 'doc', id: null, name: '' })}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+            >
+              <X size={16} />
+            </button>
+            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mb-4">
+              <Trash2 size={24} className="text-red-600" />
+            </div>
             <h2 className="text-lg font-bold text-foreground mb-2">Mover a papelera</h2>
             <p className="text-sm text-muted-foreground mb-6">
               ¿Estás seguro de que deseas mover{' '}
-              <span className="font-semibold text-foreground">&ldquo;{confirmPapelera.name}&rdquo;</span>{' '}
+              <span className="font-semibold text-foreground">
+                &ldquo;{confirmPapelera.name}&rdquo;
+              </span>{' '}
               a la papelera? Podrás restaurarlo desde la sección Papelera.
             </p>
             <div className="flex items-center gap-3 justify-end">
-              <button onClick={() => setConfirmPapelera({ open: false, type: 'doc', id: null, name: '' })} className="px-4 py-2 text-sm font-semibold text-foreground border border-border rounded-lg hover:bg-muted transition-colors">Cancelar</button>
-              <button onClick={handleConfirmPapelera} className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors">Mover a papelera</button>
+              <button
+                onClick={() => setConfirmPapelera({ open: false, type: 'doc', id: null, name: '' })}
+                className="px-4 py-2 text-sm font-semibold text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmPapelera}
+                className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Mover a papelera
+              </button>
             </div>
           </div>
         </div>
@@ -5015,55 +8487,134 @@ export default function MisDocumentosPage() {
 
       {/* Crear Filtro Modal */}
       {showCrearFiltroModal && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center mb-5">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-[0_24px_70px_-24px_rgba(15,23,42,0.45)]">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
               <div className="flex items-center gap-2">
-                <Filter size={18} className="text-primary" />
-                <h2 className="text-base font-semibold text-foreground">Crear filtro personalizado</h2>
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <Filter size={16} />
+                </div>
+                <h2 className="text-base font-700 text-slate-950">
+                  Crear filtro personalizado
+                </h2>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowCrearFiltroModal(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-950"
+                title="Cerrar"
+              >
+                <X size={15} />
+              </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 px-5 py-4 [&_select]:h-9 [&_select]:rounded-md [&_select]:border-slate-200 [&_select]:px-2.5 [&_select]:py-0">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Nombre del filtro <span className="text-red-500">*</span></label>
+                <label className="mb-1.5 block text-xs font-600 text-slate-600">
+                  Nombre del filtro <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
                   autoFocus
                   value={nuevoFiltroNombre}
-                  onChange={(e) => { setNuevoFiltroNombre(e.target.value); setNuevoFiltroError(''); }}
+                  onChange={(e) => {
+                    setNuevoFiltroNombre(e.target.value);
+                    setNuevoFiltroError('');
+                  }}
                   placeholder="Ej. Contratos urgentes"
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Descripción <span className="text-muted-foreground font-normal text-xs">(opcional)</span></label>
+                <label className="mb-1.5 block text-xs font-600 text-slate-600">
+                  Descripción{' '}
+                  <span className="text-muted-foreground font-normal text-xs">(opcional)</span>
+                </label>
                 <input
                   type="text"
                   value={nuevoFiltroDescripcion}
                   onChange={(e) => setNuevoFiltroDescripcion(e.target.value)}
                   placeholder="Ej. Documentos urgentes del área legal"
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Ícono</label>
+                <label className="mb-2 block text-xs font-600 text-slate-600">Ícono</label>
                 {!iconPickerOpen ? (
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 text-xl rounded-lg border-2 border-primary bg-primary/10 flex items-center justify-center">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-lg">
                       {nuevoFiltroIcono}
                     </div>
-                    <button onClick={() => setIconPickerOpen(true)} className="text-sm font-medium text-primary hover:underline">Cambiar</button>
+                    <button
+                      onClick={() => setIconPickerOpen(true)}
+                      className="text-sm font-medium text-primary hover:underline"
+                    >
+                      Cambiar
+                    </button>
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    {['📁','⭐','🔥','📌','✅','🚨','📋','🗂️','💼','🔒','📄','📝','📊','📈','📉','🗃️','🗄️','📦','🏷️','🔖','⚡','🎯','💡','🔍','🔔','⏰','📅','🗓️','✉️','📨','💬','🤝','👥','🏢','🌐','🔗','⚙️','🛡️','🔑','💰','🧾','📜','🏆','🎖️','✍️','🖊️','📮','📬','🗺️','🧩'].map((emoji) => (
+                    {[
+                      '📁',
+                      '⭐',
+                      '🔥',
+                      '📌',
+                      '✅',
+                      '🚨',
+                      '📋',
+                      '🗂️',
+                      '💼',
+                      '🔒',
+                      '📄',
+                      '📝',
+                      '📊',
+                      '📈',
+                      '📉',
+                      '🗃️',
+                      '🗄️',
+                      '📦',
+                      '🏷️',
+                      '🔖',
+                      '⚡',
+                      '🎯',
+                      '💡',
+                      '🔍',
+                      '🔔',
+                      '⏰',
+                      '📅',
+                      '🗓️',
+                      '✉️',
+                      '📨',
+                      '💬',
+                      '🤝',
+                      '👥',
+                      '🏢',
+                      '🌐',
+                      '🔗',
+                      '⚙️',
+                      '🛡️',
+                      '🔑',
+                      '💰',
+                      '🧾',
+                      '📜',
+                      '🏆',
+                      '🎖️',
+                      '✍️',
+                      '🖊️',
+                      '📮',
+                      '📬',
+                      '🗺️',
+                      '🧩',
+                    ].map((emoji) => (
                       <button
                         key={emoji}
-                        onClick={() => { setNuevoFiltroIcono(emoji); setIconPickerOpen(false); }}
-                        className={`w-9 h-9 text-lg rounded-lg border-2 transition-colors flex items-center justify-center ${nuevoFiltroIcono === emoji ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40 hover:bg-muted'}`}
+                        onClick={() => {
+                          setNuevoFiltroIcono(emoji);
+                          setIconPickerOpen(false);
+                        }}
+                        className={`flex h-9 w-9 items-center justify-center rounded-md border text-lg transition-colors ${nuevoFiltroIcono === emoji ? 'border-primary bg-primary/10' : 'border-slate-200 hover:border-primary/40 hover:bg-slate-50'}`}
                       >
                         {emoji}
                       </button>
@@ -5073,16 +8624,24 @@ export default function MisDocumentosPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Criterios de filtrado</label>
-                <div className="border border-border rounded-xl p-3 bg-muted/20 space-y-2">
+                <label className="mb-2 block text-xs font-600 text-slate-600">
+                  Criterios de filtrado
+                </label>
+                <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
                   {nuevoFiltroCriterios.length > 0 && (
                     <div className="space-y-2 mb-2">
                       {nuevoFiltroCriterios.map((criterioId, idx) => {
                         const criterioLabels: Record<string, string> = {
-                          estado: 'Estado', prioridad: 'Prioridad', tipoDocumento: 'Tipo de documento',
-                          etiquetas: 'Etiquetas', fechaCreacion: 'Fecha de creación',
-                          fechaUltimaModificacion: 'Fecha última modificación', fechaVencimiento: 'Fecha de vencimiento',
-                          fechaCompletado: 'Fecha de completado', participantes: 'Participantes', propietario: 'Propietario',
+                          estado: 'Estado',
+                          prioridad: 'Prioridad',
+                          tipoDocumento: 'Tipo de documento',
+                          etiquetas: 'Etiquetas',
+                          fechaCreacion: 'Fecha de creación',
+                          fechaUltimaModificacion: 'Fecha última modificación',
+                          fechaVencimiento: 'Fecha de vencimiento',
+                          fechaCompletado: 'Fecha de completado',
+                          participantes: 'Participantes',
+                          propietario: 'Propietario',
                           estadoParticipacion: 'Estado de mi participación',
                         };
                         return (
@@ -5090,9 +8649,16 @@ export default function MisDocumentosPage() {
                             key={criterioId}
                             draggable
                             onDragStart={() => setDragCriterioIdx(idx)}
-                            onDragOver={(e) => { e.preventDefault(); setDragOverCriterioIdx(idx); }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              setDragOverCriterioIdx(idx);
+                            }}
                             onDragEnd={() => {
-                              if (dragCriterioIdx !== null && dragOverCriterioIdx !== null && dragCriterioIdx !== dragOverCriterioIdx) {
+                              if (
+                                dragCriterioIdx !== null &&
+                                dragOverCriterioIdx !== null &&
+                                dragCriterioIdx !== dragOverCriterioIdx
+                              ) {
                                 const reordered = [...nuevoFiltroCriterios];
                                 const [moved] = reordered.splice(dragCriterioIdx, 1);
                                 reordered.splice(dragOverCriterioIdx, 0, moved);
@@ -5101,18 +8667,40 @@ export default function MisDocumentosPage() {
                               setDragCriterioIdx(null);
                               setDragOverCriterioIdx(null);
                             }}
-                            className={`flex items-start gap-2 p-2 rounded-lg border bg-white transition-all ${dragOverCriterioIdx === idx ? 'border-primary bg-primary/5' : 'border-border'}`}
+                            className={`flex items-start gap-2 rounded-md border bg-white p-2 transition-all ${dragOverCriterioIdx === idx ? 'border-primary bg-primary/5' : 'border-slate-200'}`}
                           >
-                            <div className="flex-shrink-0 mt-1 cursor-grab text-muted-foreground/50 hover:text-muted-foreground" title="Arrastrar para reordenar">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
+                            <div
+                              className="flex-shrink-0 mt-1 cursor-grab text-muted-foreground/50 hover:text-muted-foreground"
+                              title="Arrastrar para reordenar"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="9" cy="5" r="1.5" />
+                                <circle cx="15" cy="5" r="1.5" />
+                                <circle cx="9" cy="12" r="1.5" />
+                                <circle cx="15" cy="12" r="1.5" />
+                                <circle cx="9" cy="19" r="1.5" />
+                                <circle cx="15" cy="19" r="1.5" />
+                              </svg>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-muted-foreground mb-1">{criterioLabels[criterioId] || criterioId}</p>
+                              <p className="text-xs font-semibold text-muted-foreground mb-1">
+                                {criterioLabels[criterioId] || criterioId}
+                              </p>
                               {criterioId === 'estado' && (
-                                <select value={nuevoFiltroFiltros['estado'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, estado: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['estado'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      estado: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Cualquier estado</option>
                                   <option value="Borrador">Borrador</option>
-                                  <option value="En proceso">En proceso</option>
+                                  <option value="En progreso">En progreso</option>
                                   <option value="En espera">En espera</option>
                                   <option value="Completado">Completado</option>
                                   <option value="Rechazado">Rechazado</option>
@@ -5121,26 +8709,74 @@ export default function MisDocumentosPage() {
                                 </select>
                               )}
                               {criterioId === 'prioridad' && (
-                                <select value={nuevoFiltroFiltros['prioridad'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, prioridad: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['prioridad'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      prioridad: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Cualquier prioridad</option>
                                   <option value="urgente">Urgente</option>
                                   <option value="normal">Normal</option>
                                 </select>
                               )}
                               {criterioId === 'tipoDocumento' && (
-                                <select value={(nuevoFiltroFiltros['tipoDocumento'] || [])[0] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, tipoDocumento: e.target.value ? [e.target.value] : [] }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={(nuevoFiltroFiltros['tipoDocumento'] || [])[0] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      tipoDocumento: e.target.value ? [e.target.value] : [],
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Cualquier tipo</option>
-                                  {tiposDocumento.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+                                  {tiposDocumento.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.nombre}
+                                    </option>
+                                  ))}
                                 </select>
                               )}
                               {criterioId === 'etiquetas' && (
-                                <select value={(nuevoFiltroFiltros['etiquetas'] || [])[0] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, etiquetas: e.target.value ? [e.target.value] : [] }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={(nuevoFiltroFiltros['etiquetas'] || [])[0] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      etiquetas: e.target.value ? [e.target.value] : [],
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Cualquier etiqueta</option>
-                                  {etiquetasList.map((et) => <option key={et.id} value={et.nombre}>{et.nombre}</option>)}
+                                  {etiquetasList.map((et) => (
+                                    <option key={et.id} value={et.nombre}>
+                                      {et.nombre}
+                                    </option>
+                                  ))}
                                 </select>
                               )}
                               {criterioId === 'fechaCreacion' && (
-                                <select value={nuevoFiltroFiltros['fechaCreacion'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, fechaCreacion: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['fechaCreacion'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      fechaCreacion: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Cualquier fecha</option>
                                   <option value="today">Hoy</option>
                                   <option value="week">Últimos 7 días</option>
@@ -5149,7 +8785,17 @@ export default function MisDocumentosPage() {
                                 </select>
                               )}
                               {criterioId === 'fechaUltimaModificacion' && (
-                                <select value={nuevoFiltroFiltros['fechaUltimaModificacion'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, fechaUltimaModificacion: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['fechaUltimaModificacion'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      fechaUltimaModificacion: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Cualquier fecha</option>
                                   <option value="today">Hoy</option>
                                   <option value="week">Últimos 7 días</option>
@@ -5158,7 +8804,17 @@ export default function MisDocumentosPage() {
                                 </select>
                               )}
                               {criterioId === 'fechaVencimiento' && (
-                                <select value={nuevoFiltroFiltros['fechaVencimiento'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, fechaVencimiento: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['fechaVencimiento'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      fechaVencimiento: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Todos</option>
                                   <option value="vencido">Vencidos</option>
                                   <option value="proximos">Por vencer (72hrs)</option>
@@ -5166,7 +8822,17 @@ export default function MisDocumentosPage() {
                                 </select>
                               )}
                               {criterioId === 'fechaCompletado' && (
-                                <select value={nuevoFiltroFiltros['fechaCompletado'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, fechaCompletado: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['fechaCompletado'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      fechaCompletado: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Cualquier fecha</option>
                                   <option value="sin_completado">Sin completado</option>
                                   <option value="today">Hoy</option>
@@ -5175,22 +8841,52 @@ export default function MisDocumentosPage() {
                                 </select>
                               )}
                               {criterioId === 'participantes' && (
-                                <select value={nuevoFiltroFiltros['participantes'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, participantes: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['participantes'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      participantes: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Todos</option>
                                   <option value="yo">Yo</option>
                                 </select>
                               )}
                               {criterioId === 'propietario' && (
-                                <select value={nuevoFiltroFiltros['propietario'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, propietario: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['propietario'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      propietario: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Todos</option>
                                   <option value="mios">Míos</option>
                                 </select>
                               )}
                               {criterioId === 'estado' && (
-                                <select value={nuevoFiltroFiltros['estado'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, estado: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['estado'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      estado: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Cualquier estado</option>
                                   <option value="Borrador">Borrador</option>
-                                  <option value="En proceso">En proceso</option>
+                                  <option value="En progreso">En progreso</option>
                                   <option value="En espera">En espera</option>
                                   <option value="Completado">Completado</option>
                                   <option value="Rechazado">Rechazado</option>
@@ -5199,7 +8895,17 @@ export default function MisDocumentosPage() {
                                 </select>
                               )}
                               {criterioId === 'prioridad' && (
-                                <select value={nuevoFiltroFiltros['prioridad'] || ''} onChange={(e) => setNuevoFiltroFiltros((prev) => ({ ...prev, prioridad: e.target.value }))} style={{ fontFamily: 'inherit' }} className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors">
+                                <select
+                                  value={nuevoFiltroFiltros['prioridad'] || ''}
+                                  onChange={(e) =>
+                                    setNuevoFiltroFiltros((prev) => ({
+                                      ...prev,
+                                      prioridad: e.target.value,
+                                    }))
+                                  }
+                                  style={{ fontFamily: 'inherit' }}
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                >
                                   <option value="">Cualquier prioridad</option>
                                   <option value="urgente">Urgente</option>
                                   <option value="normal">Normal</option>
@@ -5209,7 +8915,11 @@ export default function MisDocumentosPage() {
                             <button
                               onClick={() => {
                                 setNuevoFiltroCriterios((prev) => prev.filter((_, i) => i !== idx));
-                                setNuevoFiltroFiltros((prev) => { const next = { ...prev }; delete next[criterioId]; return next; });
+                                setNuevoFiltroFiltros((prev) => {
+                                  const next = { ...prev };
+                                  delete next[criterioId];
+                                  return next;
+                                });
                               }}
                               className="flex-shrink-0 mt-1 p-1 rounded hover:bg-red-100 text-muted-foreground hover:text-red-500 transition-colors"
                               title="Eliminar criterio"
@@ -5225,15 +8935,23 @@ export default function MisDocumentosPage() {
                   {!showCriterioSelector ? (
                     <button
                       onClick={() => setShowCriterioSelector(true)}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-primary border border-dashed border-primary/40 rounded-lg hover:bg-primary/5 transition-colors"
+                      className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-dashed border-primary/40 px-3 text-sm font-600 text-primary transition-colors hover:bg-primary/5"
                     >
-                      <Plus size={14} />Agregar criterio
+                      <Plus size={14} />
+                      Agregar criterio
                     </button>
                   ) : (
-                    <div className="border border-border rounded-lg bg-white shadow-sm overflow-hidden">
-                      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Seleccionar criterio</p>
-                        <button onClick={() => setShowCriterioSelector(false)} className="p-0.5 rounded hover:bg-muted text-muted-foreground transition-colors"><X size={12} /></button>
+                    <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+                      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                          Seleccionar criterio
+                        </p>
+                        <button
+                          onClick={() => setShowCriterioSelector(false)}
+                          className="p-0.5 rounded hover:bg-muted text-muted-foreground transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
                       </div>
                       <div className="p-1">
                         {[
@@ -5242,7 +8960,11 @@ export default function MisDocumentosPage() {
                           { id: 'tipoDocumento', label: 'Tipo de documento', emoji: '📄' },
                           { id: 'etiquetas', label: 'Etiquetas', emoji: '🏷️' },
                           { id: 'fechaCreacion', label: 'Fecha de creación', emoji: '📅' },
-                          { id: 'fechaUltimaModificacion', label: 'Fecha última modificación', emoji: '🕐' },
+                          {
+                            id: 'fechaUltimaModificacion',
+                            label: 'Fecha última modificación',
+                            emoji: '🕐',
+                          },
                           { id: 'fechaVencimiento', label: 'Fecha de vencimiento', emoji: '⏰' },
                           { id: 'fechaCompletado', label: 'Fecha de completado', emoji: '✅' },
                           { id: 'participantes', label: 'Participantes', emoji: '👥' },
@@ -5252,7 +8974,10 @@ export default function MisDocumentosPage() {
                           .map((criterio) => (
                             <button
                               key={criterio.id}
-                              onClick={() => { setNuevoFiltroCriterios((prev) => [...prev, criterio.id]); setShowCriterioSelector(false); }}
+                              onClick={() => {
+                                setNuevoFiltroCriterios((prev) => [...prev, criterio.id]);
+                                setShowCriterioSelector(false);
+                              }}
                               className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-primary/5 rounded-lg transition-colors text-left"
                             >
                               <span className="text-base">{criterio.emoji}</span>
@@ -5260,19 +8985,23 @@ export default function MisDocumentosPage() {
                             </button>
                           ))}
                         {nuevoFiltroCriterios.length === 10 && (
-                          <p className="text-xs text-muted-foreground text-center py-2">Todos los criterios han sido agregados</p>
+                          <p className="text-xs text-muted-foreground text-center py-2">
+                            Todos los criterios han sido agregados
+                          </p>
                         )}
                       </div>
                     </div>
                   )}
 
                   {nuevoFiltroCriterios.length > 1 && (
-                    <p className="text-xs text-muted-foreground text-center pt-1">💡 Arrastra los criterios para reordenarlos</p>
+                    <p className="text-xs text-muted-foreground text-center pt-1">
+                      💡 Arrastra los criterios para reordenarlos
+                    </p>
                   )}
                 </div>
               </div>
 
-              <div className="bg-primary/5 border border-primary/20 rounded-xl p-3">
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
                 <p className="text-xs font-medium text-primary mb-1">Vista previa</p>
                 <p className="text-sm text-foreground">
                   <span className="mr-1">{nuevoFiltroIcono}</span>
@@ -5281,10 +9010,20 @@ export default function MisDocumentosPage() {
                   <span className="text-muted-foreground">
                     {(() => {
                       const count = realDocuments.filter((doc) => {
-                        if (nuevoFiltroFiltros['estado'] && doc.estado !== nuevoFiltroFiltros['estado']) return false;
-                        if (nuevoFiltroFiltros['prioridad'] === 'urgente' && !doc.esUrgente) return false;
-                        if (nuevoFiltroFiltros['prioridad'] === 'normal' && doc.esUrgente) return false;
-                        if (nuevoFiltroFiltros['tipoDocumento']?.length > 0 && !nuevoFiltroFiltros['tipoDocumento'].includes(doc.tipoDocumentoId || '')) return false;
+                        if (
+                          nuevoFiltroFiltros['estado'] &&
+                          doc.estado !== nuevoFiltroFiltros['estado']
+                        )
+                          return false;
+                        if (nuevoFiltroFiltros['prioridad'] === 'urgente' && !doc.esUrgente)
+                          return false;
+                        if (nuevoFiltroFiltros['prioridad'] === 'normal' && doc.esUrgente)
+                          return false;
+                        if (
+                          nuevoFiltroFiltros['tipoDocumento']?.length > 0 &&
+                          !nuevoFiltroFiltros['tipoDocumento'].includes(doc.tipoDocumentoId || '')
+                        )
+                          return false;
                         return true;
                       }).length;
                       return `${count} documento(s) coinciden`;
@@ -5296,7 +9035,7 @@ export default function MisDocumentosPage() {
               {nuevoFiltroError && <p className="text-xs text-red-500">{nuevoFiltroError}</p>}
             </div>
 
-            <div className="flex items-center gap-2 justify-end mt-5">
+            <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4">
               <button
                 onClick={() => {
                   setShowCrearFiltroModal(false);
@@ -5309,14 +9048,17 @@ export default function MisDocumentosPage() {
                   setShowCriterioSelector(false);
                   setIconPickerOpen(true);
                 }}
-                className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+                className="flex h-9 items-center rounded-lg border border-slate-200 px-4 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50"
               >
                 Cancelar
               </button>
               <button
                 onClick={async () => {
                   const nombre = nuevoFiltroNombre.trim();
-                  if (!nombre) { setNuevoFiltroError('El nombre del filtro es obligatorio.'); return; }
+                  if (!nombre) {
+                    setNuevoFiltroError('El nombre del filtro es obligatorio.');
+                    return;
+                  }
                   const newFilter: CustomFilter = {
                     id: Date.now().toString(),
                     nombre,
@@ -5339,7 +9081,7 @@ export default function MisDocumentosPage() {
                   setIconPickerOpen(true);
                   showToast(`Filtro "${nombre}" creado`);
                 }}
-                className="px-4 py-2 text-sm font-semibold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                className="flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-700 text-white transition-colors hover:bg-primary/90"
               >
                 Crear filtro
               </button>
@@ -5353,11 +9095,23 @@ export default function MisDocumentosPage() {
         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2"><FileText size={18} className="text-primary" /><h2 className="text-base font-semibold text-foreground">Renombrar documento</h2></div>
-              <button onClick={() => setRenameModal({ open: false, docId: null, currentName: '', newName: '' })} className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground"><X size={16} /></button>
+              <div className="flex items-center gap-2">
+                <FileText size={18} className="text-primary" />
+                <h2 className="text-base font-semibold text-foreground">Renombrar documento</h2>
+              </div>
+              <button
+                onClick={() =>
+                  setRenameModal({ open: false, docId: null, currentName: '', newName: '' })
+                }
+                className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground"
+              >
+                <X size={16} />
+              </button>
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-1.5">Nuevo nombre <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-foreground mb-1.5">
+                Nuevo nombre <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 autoFocus
@@ -5368,8 +9122,20 @@ export default function MisDocumentosPage() {
               />
             </div>
             <div className="flex items-center gap-2 justify-end">
-              <button onClick={() => setRenameModal({ open: false, docId: null, currentName: '', newName: '' })} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors">Cancelar</button>
-              <button onClick={handleSaveRename} className="px-4 py-2 text-sm font-semibold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">Guardar</button>
+              <button
+                onClick={() =>
+                  setRenameModal({ open: false, docId: null, currentName: '', newName: '' })
+                }
+                className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveRename}
+                className="px-4 py-2 text-sm font-semibold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Guardar
+              </button>
             </div>
           </div>
         </div>
@@ -5380,23 +9146,59 @@ export default function MisDocumentosPage() {
         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2"><Folder size={18} className="text-primary" /><h2 className="text-base font-semibold text-foreground">Renombrar carpeta</h2></div>
-              <button onClick={() => setRenameFolderModal({ open: false, carpetaId: null, currentName: '', newName: '' })} className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground"><X size={16} /></button>
+              <div className="flex items-center gap-2">
+                <Folder size={18} className="text-primary" />
+                <h2 className="text-base font-semibold text-foreground">Renombrar carpeta</h2>
+              </div>
+              <button
+                onClick={() =>
+                  setRenameFolderModal({
+                    open: false,
+                    carpetaId: null,
+                    currentName: '',
+                    newName: '',
+                  })
+                }
+                className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground"
+              >
+                <X size={16} />
+              </button>
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-1.5">Nuevo nombre <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-foreground mb-1.5">
+                Nuevo nombre <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 autoFocus
                 value={renameFolderModal.newName}
-                onChange={(e) => setRenameFolderModal((prev) => ({ ...prev, newName: e.target.value }))}
+                onChange={(e) =>
+                  setRenameFolderModal((prev) => ({ ...prev, newName: e.target.value }))
+                }
                 onKeyDown={(e) => e.key === 'Enter' && handleSaveRenameFolder()}
                 className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
               />
             </div>
             <div className="flex items-center gap-2 justify-end">
-              <button onClick={() => setRenameFolderModal({ open: false, carpetaId: null, currentName: '', newName: '' })} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors">Cancelar</button>
-              <button onClick={handleSaveRenameFolder} className="px-4 py-2 text-sm font-semibold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">Guardar</button>
+              <button
+                onClick={() =>
+                  setRenameFolderModal({
+                    open: false,
+                    carpetaId: null,
+                    currentName: '',
+                    newName: '',
+                  })
+                }
+                className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveRenameFolder}
+                className="px-4 py-2 text-sm font-semibold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Guardar
+              </button>
             </div>
           </div>
         </div>
@@ -5407,8 +9209,23 @@ export default function MisDocumentosPage() {
         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2"><Move size={18} className="text-primary" /><h2 className="text-base font-semibold text-foreground">Mover {moveModal.isBulk ? `${selectedRows.length} documento(s)` : `"${moveModal.docName}"`}</h2></div>
-              <button onClick={() => setMoveModal({ open: false, docId: null, docName: '', isBulk: false })} className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground"><X size={16} /></button>
+              <div className="flex items-center gap-2">
+                <Move size={18} className="text-primary" />
+                <h2 className="text-base font-semibold text-foreground">
+                  Mover{' '}
+                  {moveModal.isBulk
+                    ? `${selectedRows.length} documento(s)`
+                    : `"${moveModal.docName}"`}
+                </h2>
+              </div>
+              <button
+                onClick={() =>
+                  setMoveModal({ open: false, docId: null, docName: '', isBulk: false })
+                }
+                className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground"
+              >
+                <X size={16} />
+              </button>
             </div>
             <p className="text-sm text-muted-foreground mb-3">Selecciona la carpeta destino:</p>
             <div className="max-h-48 overflow-y-auto border border-border rounded-lg divide-y divide-border">
@@ -5431,7 +9248,14 @@ export default function MisDocumentosPage() {
               ))}
             </div>
             <div className="flex items-center gap-2 justify-end mt-4">
-              <button onClick={() => setMoveModal({ open: false, docId: null, docName: '', isBulk: false })} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors">Cancelar</button>
+              <button
+                onClick={() =>
+                  setMoveModal({ open: false, docId: null, docName: '', isBulk: false })
+                }
+                className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>
@@ -5442,8 +9266,20 @@ export default function MisDocumentosPage() {
         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2"><Move size={18} className="text-primary" /><h2 className="text-base font-semibold text-foreground">Mover carpeta &ldquo;{moveFolderModal.carpetaName}&rdquo;</h2></div>
-              <button onClick={() => setMoveFolderModal({ open: false, carpetaId: null, carpetaName: '' })} className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground"><X size={16} /></button>
+              <div className="flex items-center gap-2">
+                <Move size={18} className="text-primary" />
+                <h2 className="text-base font-semibold text-foreground">
+                  Mover carpeta &ldquo;{moveFolderModal.carpetaName}&rdquo;
+                </h2>
+              </div>
+              <button
+                onClick={() =>
+                  setMoveFolderModal({ open: false, carpetaId: null, carpetaName: '' })
+                }
+                className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground"
+              >
+                <X size={16} />
+              </button>
             </div>
             <p className="text-sm text-muted-foreground mb-3">Selecciona la carpeta destino:</p>
             <div className="max-h-48 overflow-y-auto border border-border rounded-lg divide-y divide-border">
@@ -5454,19 +9290,28 @@ export default function MisDocumentosPage() {
                 <Home size={15} className="text-muted-foreground flex-shrink-0" />
                 <span className="font-medium">Raíz (sin carpeta padre)</span>
               </button>
-              {carpetas.filter((c) => c.id !== moveFolderModal.carpetaId).map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => handleSaveMoveFolder(c.id, c.name)}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
-                >
-                  <Folder size={15} className="text-yellow-500 flex-shrink-0" />
-                  <span className="truncate">{c.name}</span>
-                </button>
-              ))}
+              {carpetas
+                .filter((c) => c.id !== moveFolderModal.carpetaId)
+                .map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => handleSaveMoveFolder(c.id, c.name)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+                  >
+                    <Folder size={15} className="text-yellow-500 flex-shrink-0" />
+                    <span className="truncate">{c.name}</span>
+                  </button>
+                ))}
             </div>
             <div className="flex items-center gap-2 justify-end mt-4">
-              <button onClick={() => setMoveFolderModal({ open: false, carpetaId: null, carpetaName: '' })} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors">Cancelar</button>
+              <button
+                onClick={() =>
+                  setMoveFolderModal({ open: false, carpetaId: null, carpetaName: '' })
+                }
+                className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>
@@ -5481,25 +9326,35 @@ export default function MisDocumentosPage() {
                 <Folder size={18} className="text-primary" />
                 <h2 className="text-base font-semibold text-foreground">Crear carpeta</h2>
               </div>
-              <button onClick={handleCloseCarpetaModal} className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
+              <button
+                onClick={handleCloseCarpetaModal}
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+              >
                 <X size={16} />
               </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Nombre <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Nombre <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
                   autoFocus
                   value={nuevaCarpetaNombre}
-                  onChange={(e) => { setNuevaCarpetaNombre(e.target.value); setCarpetaError(''); }}
+                  onChange={(e) => {
+                    setNuevaCarpetaNombre(e.target.value);
+                    setCarpetaError('');
+                  }}
                   onKeyDown={(e) => e.key === 'Enter' && handleCrearCarpeta()}
                   placeholder="Ej. Contratos 2024"
                   className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Descripción</label>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Descripción
+                </label>
                 <input
                   type="text"
                   value={nuevaCarpetaDescripcion}
@@ -5509,25 +9364,33 @@ export default function MisDocumentosPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Grupo de tipo de documento <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Grupo de tipo de documento <span className="text-red-500">*</span>
+                </label>
                 <select
                   value={nuevaCarpetaGrupoId}
-                  onChange={(e) => { setNuevaCarpetaGrupoId(e.target.value); setCarpetaError(''); }}
+                  onChange={(e) => {
+                    setNuevaCarpetaGrupoId(e.target.value);
+                    setCarpetaError('');
+                  }}
                   style={{ fontFamily: 'inherit' }}
                   className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors bg-white"
                 >
                   <option value="">Seleccionar grupo...</option>
                   {gruposDocumento.map((g) => (
-                    <option key={g.id} value={g.id}>{g.nombre}</option>
+                    <option key={g.id} value={g.id}>
+                      {g.nombre}
+                    </option>
                   ))}
                 </select>
               </div>
-              {carpetaError && (
-                <p className="text-xs text-red-500">{carpetaError}</p>
-              )}
+              {carpetaError && <p className="text-xs text-red-500">{carpetaError}</p>}
             </div>
             <div className="flex items-center gap-2 justify-end mt-5">
-              <button onClick={handleCloseCarpetaModal} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors">
+              <button
+                onClick={handleCloseCarpetaModal}
+                className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+              >
                 Cancelar
               </button>
               <button
@@ -5536,9 +9399,25 @@ export default function MisDocumentosPage() {
                 className="px-4 py-2 text-sm font-semibold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {crearCarpetaLoading && (
-                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  <svg
+                    className="animate-spin h-4 w-4"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
                   </svg>
                 )}
                 Crear carpeta
@@ -5555,5 +9434,13 @@ export default function MisDocumentosPage() {
         </div>
       )}
     </AppLayout>
+  );
+}
+
+export default function MisDocumentosPage() {
+  return (
+    <Suspense fallback={null}>
+      <MisDocumentosContent />
+    </Suspense>
   );
 }

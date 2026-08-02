@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, Save, CheckCircle, AlertCircle, Info, ArrowRight, X, CheckCircle2, FileText, Settings, Send, Tag, Search, Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Type, Strikethrough, Link, Indent, Outdent, Highlighter, Minus, Star, Layers, Image as ImageIcon, Table as TableIcon, Hash, Columns, Layout } from 'lucide-react';
+import { Eye, Save, CheckCircle, AlertCircle, Info, ArrowLeft, ArrowRight, X, CheckCircle2, FileText, Settings, Send, Tag, Search, Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Type, Strikethrough, Link, Indent, Outdent, Highlighter, Minus, Star, Layers, Image as ImageIcon, Table as TableIcon, Hash, Columns, Layout } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 import { FieldsSidebar } from '../components/FieldsSidebar';
@@ -1721,28 +1721,31 @@ function TipoDocumentoModal({
     const grupo = grupos.find((g) => g.id === t.grupo_id);
     const isFav = favorites.has(t.id);
     return (
-      <button
+      <div
         key={t.id}
-        type="button"
-        onClick={() => onSelect(t.id)}
-        className={`w-full text-left px-5 py-3.5 hover:bg-gray-50 transition-colors flex items-center justify-between border-b border-gray-100 last:border-0 ${selectedId === t.id ? 'bg-blue-50' : ''}`}
+        className={`flex w-full items-center border-b border-gray-100 transition-colors last:border-0 hover:bg-gray-50 ${selectedId === t.id ? 'bg-blue-50' : ''}`}
       >
-        <div className="min-w-0 flex-1">
-          <p className={`text-sm font-semibold leading-snug ${selectedId === t.id ? 'text-blue-700' : 'text-gray-900'}`}>{t.nombre}</p>
-          {grupo && <p className="text-xs text-gray-500 mt-0.5">{grupo.nombre}</p>}
-        </div>
+        <button
+          type="button"
+          onClick={() => onSelect(t.id)}
+          className="min-w-0 flex-1 px-5 py-3.5 text-left"
+        >
+          <span className={`block text-sm font-semibold leading-snug ${selectedId === t.id ? 'text-blue-700' : 'text-gray-900'}`}>{t.nombre}</span>
+          {grupo && <span className="mt-0.5 block text-xs text-gray-500">{grupo.nombre}</span>}
+        </button>
         <button
           type="button"
           onClick={(e) => toggleFavorite(t.id, e)}
-          className="ml-3 shrink-0 p-1 rounded-full hover:bg-amber-50 transition-colors"
+          className="mr-4 shrink-0 rounded-md p-2 transition-colors hover:bg-amber-50"
           title={isFav ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+          aria-label={isFav ? `Quitar ${t.nombre} de favoritos` : `Agregar ${t.nombre} a favoritos`}
         >
           <Star
             size={16}
             className={isFav ? 'text-amber-400 fill-amber-400' : 'text-gray-300 hover:text-amber-300'}
           />
         </button>
-      </button>
+      </div>
     );
   };
 
@@ -2084,22 +2087,22 @@ function StepInfoGeneral({
   const selectedEtiquetas = etiquetas.filter((e) => data.etiquetasIds.includes(e.id));
 
   return (
-    <div className="flex-1 overflow-y-auto bg-white px-4 py-10">
-      <div className="max-w-5xl mx-auto w-full">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Nueva plantilla</h1>
-          <p className="text-sm text-gray-500 mt-1">Configura, valida y publica tu plantilla en una sola vista</p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="p-6">
-            <div className="flex items-center gap-2 mb-5">
-              <h2 className="text-sm font-semibold text-gray-900">Información general</h2>
+    <div className="flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
+      <div className="mx-auto w-full max-w-6xl">
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="flex items-center gap-3 border-b border-slate-200 px-6 py-4">
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 text-primary">
+              <FileText size={17} />
             </div>
-
-            <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-950">Datos de la plantilla</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Información básica, clasificación y formato del documento.</p>
+            </div>
+          </div>
+          <div className="p-6">
+            <div className="grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2">
               {/* Nombre */}
-              <div className="col-span-2">
+              <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1">
                   Nombre de la plantilla <span className="text-red-500">*</span>
                 </label>
@@ -2116,7 +2119,7 @@ function StepInfoGeneral({
               </div>
 
               {/* Descripción */}
-              <div className="col-span-2">
+              <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-700 mb-1">Descripción</label>
                 <textarea
                   value={data.descripcion}
@@ -2128,7 +2131,7 @@ function StepInfoGeneral({
               </div>
 
               {/* Número de oficio / identificador */}
-              <div className="col-span-2">
+              <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-700 mb-1">Número de oficio / documento</label>
                 <input
                   type="text"
@@ -2186,7 +2189,7 @@ function StepInfoGeneral({
               </div>
 
               {/* Etiquetas — input + Buscar button */}
-              <div className="col-span-2">
+              <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1.5">
                   <Tag size={12} className="text-gray-400" />
                   Etiquetas
@@ -2225,7 +2228,7 @@ function StepInfoGeneral({
               </div>
 
               {/* Configuración de hoja */}
-              <div className="col-span-2">
+              <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1">
                   Configuración de hoja <span className="text-red-500">*</span>
                   <span className="text-xs font-normal text-gray-400">(Tamaño obligatorio)</span>
@@ -2337,19 +2340,20 @@ function StepPublicacion({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-white px-4 py-10">
-      <div className="max-w-5xl mx-auto w-full">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Publicación</h1>
-          <p className="text-sm text-gray-500 mt-1">Elige cómo deseas guardar o publicar esta plantilla</p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
-          <div className="p-6">
-            <div className="flex items-center gap-2 mb-5">
-              <h2 className="text-sm font-semibold text-gray-900">Clasificación</h2>
+    <div className="flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
+      <div className="mx-auto w-full max-w-6xl space-y-5">
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="flex items-center gap-3 border-b border-slate-200 px-6 py-4">
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 text-primary">
+              <Layers size={17} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-950">Clasificación</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Define el uso y el área responsable de la plantilla.</p>
+            </div>
+          </div>
+          <div className="p-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Área responsable</label>
                 <select
@@ -2376,20 +2380,26 @@ function StepPublicacion({
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="p-6">
-            <div className="flex items-center gap-2 mb-5">
-              <h2 className="text-sm font-semibold text-gray-900">Publicación</h2>
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="flex items-center gap-3 border-b border-slate-200 px-6 py-4">
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 text-primary">
+              <Send size={17} />
             </div>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-950">Publicación</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Selecciona el destino y registra los últimos detalles.</p>
+            </div>
+          </div>
+          <div className="p-6">
 
-            <div className="grid grid-cols-4 gap-3 mb-6">
+            <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
               {PUBLICACION_OPTIONS.map((opt) => (
                 <button
                   key={opt.id}
                   type="button"
                   onClick={() => handleOptionChange(opt.id)}
-                  className={`text-left p-3 rounded-lg border-2 transition-all ${
-                    data.publicacionOpcion === opt.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-white'
+                  className={`min-h-[92px] rounded-md border p-4 text-left transition-all ${
+                    data.publicacionOpcion === opt.id ? 'border-primary bg-blue-50 ring-1 ring-primary/10' : 'border-slate-200 bg-white hover:border-primary/30 hover:bg-slate-50'
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
@@ -2428,8 +2438,8 @@ function StepPublicacion({
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-4 items-start">
-              <div className="col-span-2">
+            <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
+              <div className="lg:col-span-2">
                 <label className="block text-xs font-medium text-gray-700 mb-1">Comentario de publicación</label>
                 <textarea
                   value={data.comentarioPublicacion}
@@ -2956,31 +2966,42 @@ function NuevaPlantillaPage() {
   };
 
   const selectedField = insertedFields.find((f) => f.id === selectedFieldId) ?? null;
+  const activeWizardStep = WIZARD_STEPS.find((step) => step.id === wizardStep) ?? WIZARD_STEPS[0];
+  const ActiveWizardIcon = activeWizardStep.icon;
+  const stepDescriptions: Record<number, string> = {
+    1: 'Define la identidad, clasificación y formato base de la plantilla.',
+    2: 'Diseña el contenido e incorpora los campos que se completarán después.',
+    3: 'Revisa la clasificación y elige cómo guardar o publicar la plantilla.',
+  };
+  const wizardProgress = ((wizardStep - 1) / (WIZARD_STEPS.length - 1)) * 100;
 
   return (
-    <div
-      className="flex flex-col h-screen overflow-hidden bg-white"
-      style={{ fontFamily: "'Inter', 'IBM Plex Sans', sans-serif", fontSize: '14px' }}
-    >
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');`}</style>
+    <div className="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950">
 
       {/* Loading overlay when fetching existing template */}
       {isLoadingTemplate && (
-        <div className="absolute inset-0 z-[300] flex items-center justify-center bg-white/80">
+        <div className="absolute inset-0 z-[300] flex items-center justify-center bg-white/85 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-gray-500 font-medium">Cargando plantilla...</p>
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <p className="text-sm font-medium text-slate-500">Cargando plantilla...</p>
           </div>
         </div>
       )}
 
       {/* ── Top header ── */}
-      <header className="h-16 border-b border-gray-100 flex items-center px-6 shrink-0 bg-white z-20">
-        <div className="flex-1">
-          <AppLogo size={36} />
+      <header className="z-20 flex h-[84px] shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
+        <div className="flex min-w-0 flex-1 items-center gap-5">
+          <div className="h-10 w-10 shrink-0 overflow-hidden sm:h-auto sm:w-auto">
+            <AppLogo size={38} />
+          </div>
+          <div className="hidden h-11 w-px bg-slate-200 xl:block" />
+          <div className="hidden min-w-0 xl:block">
+            <p className="truncate text-base font-semibold text-slate-950">Nueva plantilla</p>
+            <p className="truncate text-xs text-slate-500">Espacio Personal</p>
+          </div>
         </div>
 
-        <nav className="flex items-center gap-1 sm:gap-2">
+        <nav className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1">
           {WIZARD_STEPS.map((step, idx) => {
             const StepIcon = step.icon;
             const isActive = step.id === wizardStep;
@@ -2989,34 +3010,36 @@ function NuevaPlantillaPage() {
               <React.Fragment key={step.id}>
                 <button
                   onClick={() => (isCompleted || isActive) && setWizardStep(step.id as 1 | 2 | 3)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  aria-label={step.label}
+                  title={step.label}
+                  className={`flex h-10 items-center gap-2 rounded-md px-2 text-sm font-medium transition-all sm:px-3 ${
                     isActive
-                      ? 'border-2 border-blue-600 text-blue-600 bg-white'
+                      ? 'bg-white text-primary shadow-sm ring-1 ring-slate-200'
                       : isCompleted
-                      ? 'text-blue-600 hover:bg-blue-50 cursor-pointer' : 'text-gray-400 cursor-default'
+                      ? 'cursor-pointer text-primary hover:bg-white/80' : 'cursor-default text-slate-400'
                   }`}
                 >
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-                    isActive ? 'bg-blue-600 text-white' : isCompleted ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'
+                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
+                    isActive ? 'bg-primary text-white' : isCompleted ? 'bg-blue-100 text-primary' : 'bg-slate-200/80 text-slate-400'
                   }`}>
                     {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
                   </span>
-                  <span className="hidden sm:inline">{step.label}</span>
+                  <span className="hidden lg:inline">{step.label}</span>
                 </button>
                 {idx < WIZARD_STEPS.length - 1 && (
-                  <div className={`w-8 h-px ${step.id < wizardStep ? 'bg-blue-600' : 'bg-gray-200'}`} />
+                  <div className={`mx-1 hidden h-px w-4 sm:block ${step.id < wizardStep ? 'bg-primary/50' : 'bg-slate-200'}`} />
                 )}
               </React.Fragment>
             );
           })}
         </nav>
 
-        <div className="flex-1 flex items-center justify-end gap-1">
+        <div className="flex flex-1 items-center justify-end gap-2">
           {wizardStep === 2 && (
             <button
               type="button"
               onClick={() => setShowPreview(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
             >
               <Eye size={15} />
               <span className="hidden sm:inline">Vista previa</span>
@@ -3025,7 +3048,7 @@ function NuevaPlantillaPage() {
           <button
             type="button"
             onClick={handleExitClick}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium ml-1"
+            className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
           >
             <X size={16} />
             <span className="hidden sm:inline">Salir</span>
@@ -3034,7 +3057,39 @@ function NuevaPlantillaPage() {
       </header>
 
       {/* ── Body ── */}
-      <div className="flex flex-1 overflow-hidden bg-white">
+      <div className="flex flex-1 flex-col overflow-hidden bg-slate-50">
+        <section className="shrink-0 border-b border-slate-200 bg-slate-50 px-7 py-5">
+          <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-8">
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-primary">
+                <ActiveWizardIcon size={22} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl font-semibold text-slate-950">{activeWizardStep.label}</h1>
+                  <span className="rounded-md bg-slate-200/80 px-2 py-1 text-xs font-medium text-slate-600">
+                    Paso {wizardStep} de {WIZARD_STEPS.length}
+                  </span>
+                </div>
+                <p className="mt-1 truncate text-sm text-slate-500">{stepDescriptions[wizardStep]}</p>
+              </div>
+            </div>
+            <div className="hidden w-64 shrink-0 lg:block">
+              <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500">
+                <span>Progreso</span>
+                <span>{Math.round(wizardProgress)}%</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-300"
+                  style={{ width: `${wizardProgress}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div className="flex flex-1 overflow-hidden">
         {wizardStep === 1 && (
           <StepInfoGeneral
             data={infoData}
@@ -3046,23 +3101,25 @@ function NuevaPlantillaPage() {
         {wizardStep === 2 && (
           <div className="flex flex-1 overflow-hidden">
             {/* Left fields sidebar */}
-            <FieldsSidebar
-              editor={null}
-              fields={insertedFields}
-              selectedFieldId={selectedFieldId}
-              onInsertField={insertGeneralField}
-              onSelectField={(id) => {
-                setSelectedFieldId(id);
-                document.querySelectorAll('[data-field-id]').forEach((el) => {
-                  (el as HTMLElement).style.outline = '';
-                });
-                if (id) {
-                  const chip = document.querySelector(`[data-field-id="${id}"]`) as HTMLElement | null;
-                  if (chip) chip.style.outline = '2px solid #3B82F6';
-                }
-              }}
-              onUpdateField={() => {}}
-            />
+            <div className="hidden shrink-0 md:flex">
+              <FieldsSidebar
+                editor={null}
+                fields={insertedFields}
+                selectedFieldId={selectedFieldId}
+                onInsertField={insertGeneralField}
+                onSelectField={(id) => {
+                  setSelectedFieldId(id);
+                  document.querySelectorAll('[data-field-id]').forEach((el) => {
+                    (el as HTMLElement).style.outline = '';
+                  });
+                  if (id) {
+                    const chip = document.querySelector(`[data-field-id="${id}"]`) as HTMLElement | null;
+                    if (chip) chip.style.outline = '2px solid #3B82F6';
+                  }
+                }}
+                onUpdateField={() => {}}
+              />
+            </div>
 
             {/* Center: toolbar + multi-page editor (no MenuBar) */}
             <div className="flex-1 flex flex-col overflow-hidden">
@@ -3190,23 +3247,25 @@ function NuevaPlantillaPage() {
             </div>
 
             {/* Right: Field Properties Sidebar */}
-            <FieldPropertiesSidebar
-              field={selectedField}
-              onClose={() => setSelectedFieldId(null)}
-              onUpdate={handleUpdateField}
-              allFields={insertedFields}
-              onSelectField={(id) => {
-                setSelectedFieldId(id);
-                document.querySelectorAll('[data-field-id]').forEach((el) => {
-                  (el as HTMLElement).style.outline = '';
-                });
-                const chip = document.querySelector(`[data-field-id="${id}"]`) as HTMLElement | null;
-                if (chip) {
-                  chip.style.outline = '2px solid #3B82F6';
-                  chip.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }
-              }}
-            />
+            <div className="hidden shrink-0 xl:flex">
+              <FieldPropertiesSidebar
+                field={selectedField}
+                onClose={() => setSelectedFieldId(null)}
+                onUpdate={handleUpdateField}
+                allFields={insertedFields}
+                onSelectField={(id) => {
+                  setSelectedFieldId(id);
+                  document.querySelectorAll('[data-field-id]').forEach((el) => {
+                    (el as HTMLElement).style.outline = '';
+                  });
+                  const chip = document.querySelector(`[data-field-id="${id}"]`) as HTMLElement | null;
+                  if (chip) {
+                    chip.style.outline = '2px solid #3B82F6';
+                    chip.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                  }
+                }}
+              />
+            </div>
           </div>
         )}
 
@@ -3218,22 +3277,24 @@ function NuevaPlantillaPage() {
             onInfoChange={handleInfoChange}
           />
         )}
+        </div>
       </div>
 
       {/* ── Footer bar ── */}
-      <footer className="h-16 border-t border-gray-100 flex items-center justify-between px-6 shrink-0 bg-white z-20">
+      <footer className="z-20 flex h-16 shrink-0 items-center justify-between border-t border-slate-200 bg-white px-6">
         <button
           onClick={handleBack}
-          className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+          className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
         >
-          ← Atrás
+          <ArrowLeft size={16} />
+          Atrás
         </button>
         <div className="flex items-center gap-3">
           {wizardStep === 2 && (
             <button
               onClick={() => setShowExitModal(true)}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-60"
+              className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
               <Save size={15} />
               {isSaving ? 'Guardando...' : 'Guardar borrador'}
@@ -3242,8 +3303,7 @@ function NuevaPlantillaPage() {
           {wizardStep < 3 ? (
             <button
               onClick={handleNext}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm text-white"
-              style={{ backgroundColor: '#1A56DB' }}
+              className="flex h-10 items-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-primary/90"
             >
               Siguiente <ArrowRight size={16} />
             </button>
@@ -3251,8 +3311,7 @@ function NuevaPlantillaPage() {
             <button
               onClick={handlePublish}
               disabled={isSaving || !pubData.estadoPlantilla}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm text-white disabled:opacity-60"
-              style={{ backgroundColor: '#1A56DB' }}
+              className="flex h-10 items-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
               {isSaving ? 'Guardando...' : (
                 {

@@ -37,7 +37,7 @@ function PeriodFilter({ value, onChange }: { value: string; onChange: (v: string
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white hover:bg-slate-50 transition-colors text-slate-700 font-700"
+        className="flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
       >
         <svg
           width="14"
@@ -67,7 +67,7 @@ function PeriodFilter({ value, onChange }: { value: string; onChange: (v: string
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-border rounded-xl shadow-lg min-w-[160px] py-1">
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[168px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
           {PERIOD_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -190,7 +190,7 @@ export default function EstadoDocumentosWidget() {
       label: 'Borrador',
       count: counts.borrador,
       color: 'text-slate-700',
-      bg: 'bg-white',
+      bg: 'bg-slate-50/45',
       border: 'border-slate-200',
       iconBg: 'bg-slate-100',
       icon: (
@@ -302,7 +302,7 @@ export default function EstadoDocumentosWidget() {
       label: 'Cancelado',
       count: counts.cancelado,
       color: 'text-slate-600',
-      bg: 'bg-white',
+      bg: 'bg-slate-50/45',
       border: 'border-slate-200',
       iconBg: 'bg-slate-100',
       icon: (
@@ -346,9 +346,9 @@ export default function EstadoDocumentosWidget() {
   ];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.55)] transition-all duration-200">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[13px] font-700 text-slate-900">Estado de los documentos</h2>
+    <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <h2 className="text-sm font-700 text-slate-950">Estado de los documentos</h2>
         <PeriodFilter value={period} onChange={setPeriod} />
       </div>
       {loading ? (
@@ -376,25 +376,25 @@ export default function EstadoDocumentosWidget() {
           <span className="text-sm text-muted-foreground">Cargando...</span>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        <div className="m-4 grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid-cols-4 lg:grid-cols-7">
           {items.map((s) => (
             <div
               key={s.label}
-              className={`${s.bg} border ${s.border} rounded-2xl p-4 flex flex-col gap-2 min-h-[106px] justify-between shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5`}
+              className={`flex min-h-[108px] flex-col justify-between gap-3 border-b border-r border-slate-200 ${s.bg} p-4 transition-colors hover:bg-white`}
             >
               <div className="flex items-center justify-between">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${s.iconBg}`}>
+                <div className={`flex h-8 w-8 items-center justify-center rounded-md ${s.iconBg}`}>
                   {s.icon}
                 </div>
               </div>
               <div>
-                <span className={`text-3xl font-extrabold ${s.color}`}>{s.count}</span>
-                <p className="text-xs text-muted-foreground font-medium mt-0.5">{s.label}</p>
+                <span className={`text-2xl font-800 tabular-nums ${s.color}`}>{s.count}</span>
+                <p className="mt-0.5 text-[11px] font-600 text-slate-500">{s.label}</p>
               </div>
             </div>
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }

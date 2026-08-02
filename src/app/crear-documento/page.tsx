@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { Upload, Users, Settings, Send, X, ArrowRight, CheckCircle2, Save, LayoutGrid } from 'lucide-react';
+import { Upload, Users, Settings, Send, X, ArrowRight, ArrowLeft, CheckCircle2, Save, LayoutGrid, Maximize2 } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -165,6 +165,16 @@ function CrearDocumentoPageInner() {
   const STEPS = isMixto ? MIXTO_STEPS : isCondicional ? CONDICIONAL_STEPS : BASE_STEPS;
 
   const currentStepLabel = STEPS.find((s) => s.id === currentStep)?.label ?? '';
+  const CurrentStepIcon = STEPS.find((s) => s.id === currentStep)?.icon ?? Upload;
+  const currentStepDescription = ({
+    Subir: 'Carga el archivo y define sus propiedades iniciales.',
+    Participantes: 'Elige quienes participan y configura su intervencion.',
+    Agrupamiento: 'Organiza los grupos y el orden de participacion.',
+    Ajustes: 'Define los campos que deberá completar cada participante.',
+    'Flujo de Trabajo': 'Define condiciones y acciones para el proceso.',
+    Enviar: 'Revisa la información final antes de iniciar el proceso.',
+  } as Record<string, string>)[currentStepLabel] ?? 'Configura el documento antes de enviarlo.';
+  const completionPercent = Math.round(((currentStep - 1) / Math.max(STEPS.length - 1, 1)) * 100);
 
   // Load draft from Supabase if draftId is in URL
   useEffect(() => {
@@ -232,7 +242,7 @@ function CrearDocumentoPageInner() {
     return true;
   })();
 
-  const nextButtonLabel = currentStepLabel === 'Ajustes' && !ajustesFixarCampos ? 'Continuar sin fijar campos' : 'Siguiente';
+  const nextButtonLabel = currentStepLabel === 'Ajustes' && !ajustesFixarCampos ? 'Continuar sin asignar campos' : 'Siguiente';
 
   const isLastStep = currentStep === STEPS.length;
 
@@ -446,7 +456,7 @@ function CrearDocumentoPageInner() {
   }
 
   return (
-    <div ref={containerRef} className="h-screen bg-white flex flex-col">
+    <div ref={containerRef} className="flex h-screen flex-col bg-slate-50 text-slate-950">
       {showExitModal && (
         <ExitConfirmModal
           canSave={canSaveDraft}
@@ -457,9 +467,16 @@ function CrearDocumentoPageInner() {
         />
       )}
 
-      <header className="h-16 border-b border-gray-100 flex items-center px-6 shrink-0 bg-white">
-        <div className="flex-1"><AppLogo size={36} /></div>
-        <nav className="flex items-center gap-1 sm:gap-2">
+      <header className="flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <AppLogo size={34} />
+          <div className="hidden h-8 w-px bg-slate-200 lg:block" />
+          <div className="hidden min-w-0 lg:block">
+            <p className="truncate text-sm font-700 text-slate-950">Nuevo documento</p>
+            <p className="truncate text-xs text-slate-500">{activeWorkspace?.name || 'Espacio personal'}</p>
+          </div>
+        </div>
+        <nav className="hidden items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 xl:flex">
           {STEPS.map((step, idx) => {
             const StepIcon = step.icon;
             const isActive = step.id === currentStep;
@@ -468,41 +485,73 @@ function CrearDocumentoPageInner() {
               <React.Fragment key={step.id}>
                 <button
                   onClick={() => step.id < currentStep && setCurrentStep(step.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${isActive ? 'border-2 border-primary text-primary bg-white' : isCompleted ? 'text-primary hover:bg-primary/5 cursor-pointer' : 'text-gray-400 cursor-default'}`}
+                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-xs font-600 transition-colors ${isActive ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]' : isCompleted ? 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary' : 'cursor-default text-slate-400'}`}
                 >
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'}`}>
-                    {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'}`}>
+                    {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                   </span>
-                  <span className="hidden sm:inline">{step.label}</span>
+                  <span>{step.label}</span>
                 </button>
-                {idx < STEPS.length - 1 && <div className={`w-8 h-px ${step.id < currentStep ? 'bg-primary' : 'bg-gray-200'}`} />}
+                {idx < STEPS.length - 1 && <div className={`h-px w-3 ${step.id < currentStep ? 'bg-primary/50' : 'bg-slate-200'}`} />}
               </React.Fragment>
             );
           })}
         </nav>
-        <div className="flex-1 flex items-center justify-end gap-1">
-          <button title="Preferencias" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/>
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-              <line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/>
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-            </svg>
+        <div className="flex flex-1 items-center justify-end gap-1.5">
+          <button onClick={handleToggleFullscreen} title={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'} className="flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-slate-500 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950">
+            <Maximize2 size={17} />
           </button>
-          <button onClick={handleToggleFullscreen} title={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
-              <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
-            </svg>
-          </button>
-          <button onClick={() => setShowExitModal(true)} title="Salir" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors ml-1 text-sm font-medium">
+          <button onClick={() => setShowExitModal(true)} title="Salir" className="ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600">
             <X size={16} /><span className="hidden sm:inline">Salir</span>
           </button>
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-4 py-10">
-        <div className="max-w-7xl mx-auto w-full">
+      <div className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-4 py-2 xl:hidden">
+        <nav className="mx-auto flex min-w-max items-center gap-1">
+          {STEPS.map((step) => {
+            const StepIcon = step.icon;
+            const isActive = step.id === currentStep;
+            const isCompleted = step.id < currentStep;
+            return (
+              <button
+                key={step.id}
+                onClick={() => step.id < currentStep && setCurrentStep(step.id)}
+                className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-600 transition-colors ${isActive ? 'bg-primary/10 text-primary' : isCompleted ? 'text-slate-700' : 'text-slate-400'}`}
+              >
+                {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
+                {step.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[1480px] px-4 py-5 lg:px-6 lg:py-6">
+          <div className="mb-5 flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <CurrentStepIcon size={19} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl font-700 text-slate-950">{currentStepLabel}</h1>
+                  <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">Paso {currentStep} de {STEPS.length}</span>
+                </div>
+                <p className="mt-1 text-sm text-slate-500">{currentStepDescription}</p>
+              </div>
+            </div>
+            <div className="w-full sm:w-60">
+              <div className="flex items-center justify-between text-xs font-600 text-slate-500">
+                <span>Progreso</span>
+                <span>{completionPercent}%</span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${completionPercent}%` }} />
+              </div>
+            </div>
+          </div>
           {currentStep === 1 && (
             <StepSubir
               file={file}
@@ -535,17 +584,18 @@ function CrearDocumentoPageInner() {
         </div>
       </main>
 
-      <footer className="h-16 border-t border-gray-100 flex items-center justify-between px-6 shrink-0 bg-white">
-        {currentStep === 1 ? (
-          <div />
-        ) : (
-          <button onClick={handleBack} className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-            ← Atrás
-          </button>
-        )}
-        <div className="flex items-center gap-3">
+      <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 lg:px-6">
+        <div className="mx-auto flex w-full max-w-[1480px] items-center justify-between gap-3">
+          {currentStep === 1 ? (
+            <div />
+          ) : (
+            <button onClick={handleBack} className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950">
+              <ArrowLeft size={16} />Atrás
+            </button>
+          )}
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           {draftSaved && (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">
+            <span className="hidden items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 sm:flex">
               <CheckCircle2 size={12} />Borrador guardado
             </span>
           )}
@@ -553,7 +603,7 @@ function CrearDocumentoPageInner() {
           <button
             onClick={handleGuardarAvanceClick}
             disabled={savingDraft}
-            className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-60"
+            className="hidden h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60 sm:flex"
           >
             {savingDraft ? (
               <><svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Guardando...</>
@@ -566,23 +616,24 @@ function CrearDocumentoPageInner() {
             <button
               onClick={handleEnviarDocumento}
               disabled={enviarSending}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(5,150,105,0.85)] transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {enviarSending ? (
                 <><svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Enviando...</>
               ) : (
-                <><Send size={15} />Enviar Documento</>
+                <><Send size={15} />Enviar documento</>
               )}
             </button>
           ) : (
             <button
               onClick={handleNext}
               disabled={!canGoNext}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm bg-primary hover:bg-primary/90 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {nextButtonLabel}<ArrowRight size={16} />
             </button>
           )}
+          </div>
         </div>
       </footer>
     </div>

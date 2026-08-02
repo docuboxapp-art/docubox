@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Users, MessageSquare, Activity, FileText, RefreshCw, Info, CheckCircle2, XCircle, Clock, Mail, Tag, Send, Eye, FilePlus, UserPlus, Download, Shield, AlertTriangle, PenLine, Bell, Calendar, StickyNote, Edit3, Upload, X, Save } from 'lucide-react';
+import { ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Users, MessageSquare, Activity, FileText, RefreshCw, Info, CheckCircle2, XCircle, Clock, Mail, Tag, Send, Eye, FilePlus, UserPlus, Download, Shield, AlertTriangle, PenLine, Bell, Calendar, StickyNote, Edit3, Upload, X, Save, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
+import { useSidebar } from '@/contexts/SidebarContext';
 import { sendDocumentCompletedToAllSigners } from '@/lib/emailNotifications';
 import { createNotification } from '@/lib/notificationsInApp';
 import { StepSubir } from '@/app/crear-documento/components/StepSubir';
@@ -303,7 +304,7 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
         </div>
       )}
       {error ? (
-        <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-4 bg-[#f0f0f0]">
+        <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-4 bg-gray-100">
           <FileText size={64} className="text-slate-300" strokeWidth={1} />
           <p className="text-sm text-slate-400">Vista previa no disponible</p>
           <p className="text-xs text-slate-300">No se pudo cargar el archivo PDF</p>
@@ -376,6 +377,7 @@ export default function VisorDocumentoPage() {
   const params = useParams();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { sidebarOpen } = useSidebar();
   const docId = params?.id as string;
 
   const [document, setDocument] = useState<DocumentData | null>(null);
@@ -391,6 +393,7 @@ export default function VisorDocumentoPage() {
     ubicacion: true,
   });
   const [activeTab, setActiveTab] = useState<'details' | 'participants' | 'comments' | 'activity' | 'fields' | 'vencimientos' | 'editar' | 'descargas'>('details');
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(true);
   const [participantes, setParticipantes] = useState<Participante[]>([]);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showChangesModal, setShowChangesModal] = useState(false);
@@ -469,6 +472,17 @@ export default function VisorDocumentoPage() {
   const [downloadingXml, setDownloadingXml] = useState(false);
   const [xmlPolling, setXmlPolling] = useState(false);
   const [xmlGenerating, setXmlGenerating] = useState(false);
+
+  useEffect(() => {
+    const desktopPanel = window.matchMedia('(min-width: 1280px)');
+    const syncPanelWithViewport = (event?: MediaQueryListEvent) => {
+      setIsSidePanelOpen(event ? event.matches : desktopPanel.matches);
+    };
+
+    syncPanelWithViewport();
+    desktopPanel.addEventListener('change', syncPanelWithViewport);
+    return () => desktopPanel.removeEventListener('change', syncPanelWithViewport);
+  }, []);
 
   // ── Activity logger helper ─────────────────────────────────────────────────
   const logActivity = useCallback(async (
@@ -2812,6 +2826,18 @@ export default function VisorDocumentoPage() {
       .toUpperCase();
   };
 
+  const formatDisplayName = (value?: string | null) => {
+    if (!value) return '—';
+    return value
+      .trim()
+      .toLocaleLowerCase('es-MX')
+      .replace(
+        /(^|[\s'-])([a-záéíóúüñ])/g,
+        (_, separator: string, letter: string) =>
+          `${separator}${letter.toLocaleUpperCase('es-MX')}`
+      );
+  };
+
   const formatNoteDate = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
@@ -3638,24 +3664,24 @@ export default function VisorDocumentoPage() {
   );
 
   const PaginationBar = ({ modal = false }: { modal?: boolean }) => (
-    <div className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-5 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}>
-      <div className="flex items-center bg-white border border-gray-200 rounded-full shadow-lg overflow-hidden select-none">
-        <button onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} className="p-2 px-3 hover:bg-gray-100 transition-colors text-gray-500 disabled:opacity-40" title="Reducir zoom">
+    <div className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}>
+      <div className="flex h-10 items-center overflow-hidden rounded-md border border-slate-200 bg-white/95 shadow-[0_8px_24px_rgba(15,23,42,0.12)] backdrop-blur select-none">
+        <button onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40" title="Reducir zoom">
           <ZoomOut size={14} />
         </button>
-        <span className="text-xs text-gray-400 px-1 min-w-[40px] text-center">{zoom}%</span>
-        <button onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} className="p-2 px-3 hover:bg-gray-100 transition-colors text-gray-500 disabled:opacity-40" title="Aumentar zoom">
+        <span className="min-w-[48px] border-x border-slate-100 px-2 text-center text-xs font-500 text-slate-600">{zoom}%</span>
+        <button onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40" title="Aumentar zoom">
           <ZoomIn size={14} />
         </button>
-        <div className="w-px h-5 bg-gray-200 mx-1" />
-        <button onClick={handlePrevPage} disabled={currentPage <= 1} className="p-2 px-3 hover:bg-gray-100 transition-colors text-gray-500 disabled:opacity-40" title="Página anterior">
+        <div className="h-5 w-px bg-slate-200" />
+        <button onClick={handlePrevPage} disabled={currentPage <= 1} className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40" title="Página anterior">
           <ChevronLeft size={14} />
         </button>
-        <div className="flex items-center gap-1 px-2">
-          <span className="text-xs text-gray-700 font-medium">{currentPage}</span>
-          <span className="text-xs text-gray-400 whitespace-nowrap">/ {totalPages}</span>
+        <div className="flex min-w-[54px] items-center justify-center gap-1 px-2">
+          <span className="text-xs font-600 text-slate-800">{currentPage}</span>
+          <span className="whitespace-nowrap text-xs text-slate-400">/ {totalPages}</span>
         </div>
-        <button onClick={handleNextPage} disabled={currentPage >= totalPages} className="p-2 px-3 hover:bg-gray-100 transition-colors text-gray-500 disabled:opacity-40" title="Página siguiente">
+        <button onClick={handleNextPage} disabled={currentPage >= totalPages} className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40" title="Página siguiente">
           <ChevronRight size={14} />
         </button>
       </div>
@@ -3666,32 +3692,35 @@ export default function VisorDocumentoPage() {
 
   return (
     <AppLayout>
-      <div className="-m-4 md:-m-6 flex flex-col" style={{ height: 'calc(100vh - 128px)' }}>
+      <div
+        className="-mx-4 -my-4 flex flex-col overflow-hidden bg-gray-100 sm:-mx-6 md:-my-6 lg:-mx-8 xl:-mx-10"
+        style={{ height: sidebarOpen ? 'calc(100dvh - 4rem)' : 'calc(100dvh - 6.5rem)' }}
+      >
 
         {/* Document Top Bar */}
-        <div className="bg-white border-b border-border px-4 md:px-6 py-3 flex items-center justify-between gap-3 flex-shrink-0">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 md:px-5">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             {document.estado !== 'completado' && (
-              <button onClick={() => router.back()} className="p-1.5 rounded-lg hover:bg-muted transition-colors text-foreground flex-shrink-0">
-                <ArrowLeft size={20} />
+              <button onClick={() => router.back()} className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950" title="Volver">
+                <ArrowLeft size={17} />
               </button>
             )}
             <div className="min-w-0">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <span className="text-base font-bold text-foreground truncate max-w-[200px] md:max-w-sm lg:max-w-lg">{document.nombre}</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="truncate text-[15px] font-700 text-slate-950 md:text-base">{document.nombre}</h1>
                 {estadoInfo && (
-                  <span className={`text-xs font-semibold px-2.5 py-0.5 rounded border ${estadoInfo.bg} ${estadoInfo.color} border-current flex-shrink-0`}>
+                  <span className={`hidden flex-shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-700 uppercase md:inline-flex ${estadoInfo.bg} ${estadoInfo.color} border-current`}>
                     {estadoInfo.label}
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-muted-foreground">
-                  Creado por: <span className="text-muted-foreground">{document.owner_nombre}</span>
+              <div className="mt-0.5 hidden min-w-0 items-center gap-2 xl:flex">
+                <span className="truncate text-xs text-slate-500">
+                  Creado por <span className="font-500 text-slate-600">{formatDisplayName(document.owner_nombre)}</span>
                 </span>
-                <span className="text-muted-foreground text-xs">·</span>
-                <span className="text-xs text-muted-foreground">
-                  Modificado el: {formatDate(document.updated_at)}
+                <span className="text-xs text-slate-300">•</span>
+                <span className="whitespace-nowrap text-xs text-slate-500">
+                  Modificado {formatDate(document.updated_at)}
                 </span>
               </div>
             </div>
@@ -3708,12 +3737,12 @@ export default function VisorDocumentoPage() {
             // Participation actions blocked when doc is en_espera or terminal
             const actionsBlocked = isEnEspera || isTerminal || iAlreadyActed;
             return (
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex flex-shrink-0 items-center gap-2">
                 {/* Cerrar button: only when document is completado */}
                 {document.estado === 'completado' && (
                   <button
                     onClick={() => router.push('/mis-documentos')}
-                    className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                    className="flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-3 text-sm font-600 text-white transition-colors hover:bg-blue-700"
                   >
                     <X size={16} />
                     <span>Cerrar</span>
@@ -3721,26 +3750,26 @@ export default function VisorDocumentoPage() {
                 )}
                 {/* Cancel button: only for owner when doc is en_proceso */}
                 {isOwner && isEnProgreso && (
-                  <button onClick={() => setShowCancelDocModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200">
+                  <button onClick={() => setShowCancelDocModal(true)} className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white text-sm font-500 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800 xl:w-auto xl:px-3" title="Cancelar documento">
                     <XCircle size={16} />
-                    <span className="hidden sm:inline">Cancelar</span>
+                    <span className="hidden xl:inline">Cancelar</span>
                   </button>
                 )}
                 {/* Participation action buttons: hidden when blocked */}
                 {!actionsBlocked && (
                   <>
-                    <button onClick={() => setShowRejectModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200">
+                    <button onClick={() => setShowRejectModal(true)} className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-white text-sm font-500 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 xl:w-auto xl:px-3" title="Rechazar documento">
                       <XCircle size={16} />
-                      <span className="hidden sm:inline">Rechazar</span>
+                      <span className="hidden xl:inline">Rechazar</span>
                     </button>
-                    <button onClick={() => setShowChangesModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-orange-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors border border-orange-200">
+                    <button onClick={() => setShowChangesModal(true)} className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-amber-200 bg-white text-sm font-500 text-amber-600 transition-colors hover:bg-amber-50 hover:text-amber-700 xl:w-auto xl:px-3" title="Solicitar cambios">
                       <RefreshCw size={16} />
-                      <span className="hidden sm:inline">Solicitar Cambios</span>
+                      <span className="hidden xl:inline">Solicitar cambios</span>
                     </button>
-                    <button onClick={() => router.push(`/firmar-documento/${document.id}`)} className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-green-500 rounded-lg hover:bg-green-600 transition-colors">
+                    <button onClick={() => router.push(`/firmar-documento/${document.id}`)} className="flex h-9 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-600 text-white transition-colors hover:bg-emerald-700" title="Aceptar y participar">
                       <CheckCircle2 size={16} />
-                      <span className="hidden sm:inline">Aceptar y participar</span>
-                      <span className="sm:hidden">Aceptar</span>
+                      <span className="hidden xl:inline">Aceptar y participar</span>
+                      <span className="xl:hidden">Aceptar</span>
                     </button>
                   </>
                 )}
@@ -3758,25 +3787,25 @@ export default function VisorDocumentoPage() {
         </div>
 
         {/* Body: pdf viewer + right panel */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className="relative flex flex-1 overflow-hidden bg-gray-100">
 
           {/* PDF Viewer Area */}
-          <div className="w-[70%] flex flex-col bg-[#f0f0f0] relative min-w-0 overflow-hidden">
-            <div className="absolute top-3 left-4 right-4 flex items-center justify-between z-10 pointer-events-none">
+          <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-gray-100">
+            <div className="pointer-events-none absolute left-4 right-4 top-3 z-10 flex items-center justify-between">
               <div className="pointer-events-auto">
-                <button onClick={() => setShowCampos((v) => !v)} className="flex items-center gap-2 bg-white border border-border rounded-full px-3 py-1.5 shadow-sm hover:shadow-md transition-all">
-                  <div className={`relative w-8 h-4 rounded-full transition-colors ${showCampos ? 'bg-primary' : 'bg-slate-300'}`}>
-                    <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${showCampos ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                <button onClick={() => setShowCampos((v) => !v)} aria-pressed={showCampos} className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur transition-colors hover:bg-white hover:text-slate-950">
+                  <div className={`relative h-4 w-7 rounded-full transition-colors ${showCampos ? 'bg-blue-600' : 'bg-slate-300'}`}>
+                    <div className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${showCampos ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
                   </div>
-                  <Eye size={13} className="text-muted-foreground" />
-                  <span className="text-xs font-medium text-foreground">Campos ({effectiveCampos.length})</span>
+                  <Eye size={14} className="text-slate-400" />
+                  <span className="text-xs font-600">Campos ({effectiveCampos.length})</span>
                 </button>
               </div>
               {document.file_url && (
                 <div className="pointer-events-auto">
-                  <button onClick={() => setShowFullscreenModal(true)} className="flex items-center gap-1.5 text-xs font-medium text-black bg-white border border-border rounded-full px-3 py-1.5 shadow-sm hover:shadow-md transition-all">
-                    <Maximize2 size={14} className="text-black" />
-                    Ver documento completo
+                  <button onClick={() => setShowFullscreenModal(true)} className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 text-xs font-600 text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur transition-colors hover:bg-white hover:text-slate-950" title="Ver documento completo">
+                    <Maximize2 size={14} />
+                    <span className="hidden sm:inline">Pantalla completa</span>
                   </button>
                 </div>
               )}
@@ -3784,8 +3813,8 @@ export default function VisorDocumentoPage() {
 
             <div className="flex-1 overflow-auto" style={{ paddingTop: '56px', paddingBottom: '72px' }}>
               {document.file_url ? (
-                <div className="flex items-start justify-center min-h-full min-w-full p-4">
-                  <div className="relative shadow-xl bg-white flex-shrink-0">
+                <div className="flex min-h-full min-w-full items-start justify-center p-4 md:p-6">
+                  <div className="relative flex-shrink-0 border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.12)]">
                     <PdfCanvas fileUrl={document.file_url} page={currentPage} zoom={zoom} onTotalPages={handleTotalPages} />
                     {showCampos && camposEnPaginaActual.length > 0 && (
                       <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
@@ -3805,23 +3834,40 @@ export default function VisorDocumentoPage() {
           </div>
 
           {/* Right side: icon tab strip + panel content */}
-          <div className="hidden md:flex w-[30%] flex-shrink-0">
-            <div className="w-12 bg-white border-l border-r border-border flex flex-col items-center py-3 gap-1">
+          <div className="hidden flex-shrink-0 md:flex">
+            <div className="z-30 flex w-14 flex-col items-center gap-1 border-x border-slate-200 bg-white px-2 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.04)]">
               {toolbarItems.map((item) => (
                 <button
                   key={item.key}
-                  onClick={() => setActiveTab(item.key)}
+                  onClick={() => {
+                    if (activeTab === item.key) {
+                      setIsSidePanelOpen((open) => !open);
+                    } else {
+                      setActiveTab(item.key);
+                      setIsSidePanelOpen(true);
+                    }
+                  }}
                   title={item.title}
-                  className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
-                    activeTab === item.key ? 'bg-blue-600 text-white shadow-sm' : 'text-foreground hover:bg-muted hover:text-foreground'
+                  className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${
+                    activeTab === item.key && isSidePanelOpen
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : 'border-transparent text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950'
                   }`}
                 >
-                  {item.icon}
+                  {React.cloneElement(item.icon as React.ReactElement<{ size?: number }>, { size: 17 })}
                 </button>
               ))}
+              <button
+                onClick={() => setIsSidePanelOpen((open) => !open)}
+                title={isSidePanelOpen ? 'Ocultar panel' : 'Mostrar panel'}
+                className="mt-auto flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-slate-400 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-800"
+              >
+                {isSidePanelOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+              </button>
             </div>
 
-            <div className="flex-1 bg-white border-l border-border flex flex-col overflow-hidden">
+            {isSidePanelOpen && (
+            <div className="document-viewer-panel absolute inset-y-0 right-14 z-20 flex w-[360px] max-w-[calc(100%-3.5rem)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50/70 shadow-[-12px_0_28px_rgba(15,23,42,0.10)] lg:static lg:z-auto lg:w-[360px] lg:shadow-none 2xl:w-[400px]">
               {activeTab === 'details' ? (
                 <>
                   <div className="px-4 py-3 border-b border-border flex-shrink-0">
@@ -3883,7 +3929,7 @@ export default function VisorDocumentoPage() {
                         <div className="p-4 flex flex-col gap-3">
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">CREADO POR</p>
-                            <p className="text-sm text-foreground">{document.owner_nombre}</p>
+                            <p className="text-sm text-foreground">{formatDisplayName(document.owner_nombre)}</p>
                           </div>
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA Y HORA DE CREACIÓN</p>
@@ -3891,7 +3937,7 @@ export default function VisorDocumentoPage() {
                           </div>
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">MODIFICADO POR</p>
-                            <p className="text-sm text-foreground">{document.owner_nombre}</p>
+                            <p className="text-sm text-foreground">{formatDisplayName(document.owner_nombre)}</p>
                           </div>
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA Y HORA DE MODIFICACIÓN</p>
@@ -4153,7 +4199,7 @@ export default function VisorDocumentoPage() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs font-bold text-foreground leading-tight mb-1.5 break-words whitespace-normal">
-                                    {p.nombre ? p.nombre.toUpperCase() : 'PARTICIPANTE'}
+                                    {p.nombre ? formatDisplayName(p.nombre) : 'Participante'}
                                   </p>
                                   {/* Main estado badge (terminal states) */}
                                   {mainBadge && (
@@ -4757,7 +4803,7 @@ export default function VisorDocumentoPage() {
                           <div className="flex flex-col items-center gap-3 py-4">
                             <RefreshCw size={24} className="animate-spin text-muted-foreground" />
                             <p className="text-sm text-center text-muted-foreground">
-                              {nom151Generating ? 'Generando constancia NOM-151…' : 'Constancia NOM-151 en proceso de generación automática…'}<br />
+                              {nom151Generating ? 'Generando constancia NOM-151…' : 'Constancia NOM-151 pendiente de generación automática…'}<br />
                               <span className="text-xs">Se genera automáticamente al completar el documento</span>
                             </p>
                           </div>
@@ -4813,7 +4859,7 @@ export default function VisorDocumentoPage() {
                           <div className="flex flex-col items-center gap-3 py-4">
                             <RefreshCw size={24} className="animate-spin text-muted-foreground" />
                             <p className="text-sm text-center text-muted-foreground">
-                              {xmlGenerating ? 'Generando XML de evidencia…' : 'XML de evidencia en proceso de generación automática…'}<br />
+                              {xmlGenerating ? 'Generando XML de evidencia…' : 'XML de evidencia pendiente de generación automática…'}<br />
                               <span className="text-xs">Se genera automáticamente al completar el documento</span>
                             </p>
                           </div>
@@ -5023,24 +5069,25 @@ export default function VisorDocumentoPage() {
                 </>
               )}
             </div>
+            )}
           </div>
         </div>
 
         {/* Fullscreen modal */}
         {showFullscreenModal && document?.file_url && (
-          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col">
-            <div className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
-              <span className="text-sm font-semibold text-foreground truncate max-w-md">{document.nombre}</span>
+          <div className="fixed inset-0 z-50 flex flex-col bg-gray-100">
+            <div className="flex h-16 flex-shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5">
+              <span className="max-w-md truncate text-sm font-600 text-slate-950">{document.nombre}</span>
               <button
                 onClick={() => setShowFullscreenModal(false)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+                className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-sm font-500 text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-950"
               >
                 <X size={14} />
                 Cerrar
               </button>
             </div>
-            <div className="flex-1 overflow-auto flex items-start justify-center p-4 relative">
-              <div className="relative shadow-xl bg-white flex-shrink-0">
+            <div className="relative flex flex-1 items-start justify-center overflow-auto p-6">
+              <div className="relative flex-shrink-0 border border-slate-700 bg-white shadow-[0_18px_48px_rgba(0,0,0,0.35)]">
                 <PdfCanvas fileUrl={document.file_url} page={currentPage} zoom={zoom} onTotalPages={handleTotalPages} />
                 {showCampos && camposEnPaginaActual.length > 0 && (
                   <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>

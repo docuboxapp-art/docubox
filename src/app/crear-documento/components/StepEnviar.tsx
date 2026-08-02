@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { useRouter } from 'next/navigation';
-import { FileText, Users, Info, Edit3, Folder, Clock, Lock, CheckCircle2, AlertTriangle, Mail, Phone, Bell, ShieldCheck, LayoutGrid, GitBranch, Shield } from 'lucide-react';
+import { FileText, Users, Edit3, Folder, Clock, Lock, CheckCircle2, AlertTriangle, Mail, Phone, Bell, ShieldCheck, LayoutGrid, GitBranch, Shield } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { PDFDocument } from 'pdf-lib';
@@ -135,7 +134,6 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   },
   ref
 ) {
-  const router = useRouter();
   const supabase = createClient();
   const { activeWorkspace } = useWorkspace();
   const [sending, setSending] = useState(false);
@@ -189,10 +187,13 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   // Countdown after send
   useEffect(() => {
     if (!sent) return;
-    if (countdown <= 0) { router.push('/documents-dashboard'); return; }
+    if (countdown <= 0) {
+      window.location.replace('/mis-documentos');
+      return;
+    }
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
-  }, [sent, countdown, router]);
+  }, [sent, countdown]);
 
   const handleEnviar = async () => {
     if (!file) return;
@@ -420,19 +421,19 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   // ── Success screen ──────────────────────────────────────────────────────────
   if (sent) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-emerald-600">
-        <div className="flex flex-col items-center w-full max-w-md px-4 text-center">
-          <div className="w-24 h-24 rounded-full bg-white/20 flex items-center justify-center mb-6 shadow-lg">
-            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-100 p-4">
+        <div className="flex w-full max-w-lg flex-col items-center rounded-lg border border-slate-200 bg-white px-8 py-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
+          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-white mb-3">¡Documento enviado!</h1>
-          <p className="text-white/90 text-base mb-8 leading-relaxed">Tu documento ha sido enviado exitosamente a todos los participantes.</p>
-          <div className="bg-white rounded-2xl shadow-xl px-6 py-5 w-full flex items-center justify-between">
-            <p className="text-sm text-gray-500">Redireccionando en <span className="font-bold text-emerald-600">{countdown}</span> segundo{countdown !== 1 ? 's' : ''}...</p>
-            <button onClick={() => router.push('/documents-dashboard')} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
-              Ir al Dashboard
+          <h1 className="text-2xl font-700 text-slate-950">Documento enviado</h1>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">El proceso se inició correctamente y los participantes recibirán sus notificaciones.</p>
+          <div className="mt-7 flex w-full items-center justify-between border-t border-slate-200 pt-5">
+            <p className="text-xs text-slate-500">Redirección automática en <span className="font-700 text-emerald-600">{countdown}</span> segundo{countdown !== 1 ? 's' : ''}</p>
+            <button onClick={() => window.location.replace('/mis-documentos')} className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-700 text-white transition-colors hover:bg-emerald-700">
+              Cerrar
             </button>
           </div>
         </div>
@@ -477,18 +478,36 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   }
 
   return (
-    <div className="max-w-3xl mx-auto w-full pb-8">
-      {/* Header */}
-      <div className="text-center mb-8">
-        <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
-          <CheckCircle2 size={28} className="text-emerald-600" />
+    <div className="mx-auto w-full max-w-[1180px] pb-8">
+      {/* Ready status */}
+      <div className="mb-5 flex flex-col gap-4 rounded-lg border border-emerald-200/80 bg-emerald-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+            <CheckCircle2 size={20} className="text-emerald-600" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-700 text-slate-950">Documento listo para enviar</h1>
+            <p className="mt-0.5 text-sm text-slate-600">Comprueba la información antes de iniciar el proceso.</p>
+          </div>
         </div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">¡Documento listo para enviar!</h1>
-        <p className="text-gray-500 text-sm">Revisa los detalles finales antes de iniciar el proceso de participación.</p>
+        <div className="flex items-center divide-x divide-emerald-200 text-center">
+          <div className="px-4 first:pl-0">
+            <p className="text-base font-700 tabular-nums text-slate-950">{participants.length}</p>
+            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">Participantes</p>
+          </div>
+          <div className="px-4">
+            <p className="text-base font-700 tabular-nums text-slate-950">{placedFields?.length ?? 0}</p>
+            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">Campos</p>
+          </div>
+          <div className="px-4 pr-0">
+            <p className="text-base font-700 tabular-nums text-slate-950">{pdfMetadata?.pageCount ?? '—'}</p>
+            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">Páginas</p>
+          </div>
+        </div>
       </div>
 
       {sendError && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <AlertTriangle size={16} className="text-red-500 shrink-0" />
           <p className="text-sm text-red-600">{sendError}</p>
         </div>
@@ -496,162 +515,161 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
 
       {/* Scan state messages */}
       {scanState === 'uploading' && (
-        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-center gap-3">
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
           <svg className="animate-spin h-4 w-4 text-blue-500 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
           <p className="text-sm text-blue-700 font-medium">Verificando seguridad del documento... (puede tardar entre 5 y 30 segundos)</p>
         </div>
       )}
       {scanState === 'error_tipo' && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <Shield size={16} className="text-red-500 shrink-0" />
           <p className="text-sm text-red-600">Tipo de archivo no permitido. Solo se aceptan PDF, Word, Excel, PNG y JPG.</p>
         </div>
       )}
       {scanState === 'error_grande' && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <AlertTriangle size={16} className="text-red-500 shrink-0" />
           <p className="text-sm text-red-600">El archivo supera el límite de 50MB.</p>
         </div>
       )}
       {scanState === 'error_infected' && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <Shield size={16} className="text-red-500 shrink-0" />
           <p className="text-sm text-red-600">Documento bloqueado por seguridad. Se detectó una amenaza. Si crees que es un error contacta a soporte.</p>
         </div>
       )}
       {scanState === 'error_invalido' && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <AlertTriangle size={16} className="text-red-500 shrink-0" />
           <p className="text-sm text-red-600">El PDF está dañado o no es válido.</p>
         </div>
       )}
       {scanState === 'error_red' && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <AlertTriangle size={16} className="text-red-500 shrink-0" />
           <p className="text-sm text-red-600">Error de conexión. Intenta de nuevo.</p>
         </div>
       )}
       {scanState === 'success' && (
-        <div className="mb-4 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center gap-2">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
           <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
           <p className="text-sm text-emerald-700 font-medium">Documento subido correctamente y verificado.</p>
         </div>
       )}
 
-      {/* Resumen del Documento */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4 shadow-sm">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2">
-            <FileText size={18} className="text-primary" />
-            <h2 className="text-base font-bold text-gray-900">Resumen del Documento</h2>
+      {/* Document overview */}
+      <section className="mb-4 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div>
+            <h2 className="text-base font-700 text-slate-950">Documento</h2>
+            <p className="mt-0.5 text-xs text-slate-500">Archivo y configuración general</p>
           </div>
-          <button onClick={() => onGoToStep(1)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-primary hover:bg-primary/5 transition-colors" title="Editar">
-            <Edit3 size={15} />
+          <button onClick={() => onGoToStep(1)} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar documento">
+            <Edit3 size={14} />
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-          <div className="flex items-start gap-3">
-            <FileText size={16} className="text-gray-400 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Nombre y Archivo</p>
-              <p className="text-sm font-bold text-gray-900">{docConfig.nombre || (file?.name.replace(/\.[^/.]+$/, '') ?? '—')}</p>
-              {file && <p className="text-xs text-primary mt-0.5">{file.name} ({formatFileSize(file.size)})</p>}
+        <div className="p-5">
+          <div className="flex min-w-0 items-center gap-3 border-b border-slate-100 pb-5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-primary">
+              <FileText size={20} />
             </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Clock size={16} className="text-gray-400 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Configuración de Retención</p>
-              <p className="text-sm font-semibold text-gray-900">Vencimiento: <span className={effectiveSecurity?.vencimientoEnabled ? 'text-gray-900' : 'text-red-500'}>{vencimientoLabel}</span></p>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-700 text-slate-950">{docConfig.nombre || (file?.name.replace(/\.[^/.]+$/, '') ?? 'Sin nombre')}</p>
+              <p className="mt-1 truncate text-xs text-slate-500">{file ? `${file.name} · ${formatFileSize(file.size)}` : 'Archivo no disponible'}</p>
             </div>
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-600 text-emerald-700">
+              <CheckCircle2 size={12} />Listo
+            </span>
           </div>
-          <div className="flex items-start gap-3">
-            <Folder size={16} className="text-gray-400 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Ubicación de Guardado</p>
-              <p className="text-sm font-bold text-gray-900">{carpetaNombre}</p>
+          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="flex items-start gap-2.5">
+              <Clock size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Vencimiento</p>
+                <p className="mt-1 truncate text-sm font-600 text-slate-800">{vencimientoLabel}</p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Lock size={16} className="text-gray-400 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Seguridad y Legal</p>
-              <p className="text-sm text-gray-700">{securityLabel}</p>
+            <div className="flex items-start gap-2.5">
+              <Folder size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Ubicación</p>
+                <p className="mt-1 truncate text-sm font-600 text-slate-800">{carpetaNombre}</p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Users size={16} className="text-gray-400 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Tipo de Participación</p>
-              <p className="text-sm font-semibold text-gray-900">{participationTypeLabel}</p>
+            <div className="flex items-start gap-2.5">
+              <Lock size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Seguridad</p>
+                <p className="mt-1 truncate text-sm font-600 text-slate-800">{securityLabel}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Users size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Participación</p>
+                <p className="mt-1 truncate text-sm font-600 text-slate-800">{participationTypeLabel}</p>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Participantes */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4 shadow-sm">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Users size={18} className="text-primary" />
-            <h2 className="text-base font-bold text-gray-900">Participantes</h2>
+      <section className="mb-4 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-700 text-slate-950">Participantes</h2>
+              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 tabular-nums text-slate-500">{participants.length}</span>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-500">Personas incluidas en el proceso y su configuración</p>
           </div>
-          <button onClick={() => onGoToStep(2)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-primary hover:bg-primary/5 transition-colors" title="Editar">
-            <Edit3 size={15} />
+          <button onClick={() => onGoToStep(2)} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar participantes">
+            <Edit3 size={14} />
           </button>
         </div>
-        <p className="text-xs text-primary mb-4">Lista de personas involucradas en el proceso</p>
-        <div className="space-y-3">
+        <div className="divide-y divide-slate-100">
           {participants.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No hay participantes configurados.</p>
+            <p className="px-5 py-8 text-center text-sm text-slate-400">No hay participantes configurados.</p>
           ) : (
             participants.map((p, idx) => {
               const initials = (p.name || '?').charAt(0).toUpperCase();
-              const colors = ['bg-blue-500', 'bg-violet-500', 'bg-emerald-500', 'bg-orange-500', 'bg-pink-500', 'bg-teal-500'];
+              const colors = ['bg-blue-100 text-blue-700', 'bg-violet-100 text-violet-700', 'bg-emerald-100 text-emerald-700', 'bg-orange-100 text-orange-700', 'bg-pink-100 text-pink-700', 'bg-teal-100 text-teal-700'];
               const colorClass = colors[idx % colors.length];
               return (
-                <div key={p.id} className="border border-gray-200 rounded-xl p-4 flex items-start gap-4">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 ${colorClass}`}>
+                <div key={p.id} className="flex items-start gap-4 px-5 py-4 transition-colors hover:bg-slate-50/60">
+                  <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-700 ${colorClass}`}>
                     {initials}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-gray-900">{p.name}</p>
-                    <p className="text-xs text-primary">{p.rolDocumento || 'Participante'}</p>
-                    <p className="text-xs text-gray-400">{p.email}</p>
-                    {/* Registered / unregistered badge */}
-                    <span className={`inline-flex items-center gap-1 mt-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${p.isNewUser ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                      {p.isNewUser ? (
-                        <>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                          Participante no registrado
-                        </>
-                      ) : (
-                        <>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                          Participante registrado
-                        </>
-                      )}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-700 text-slate-950">{p.name}</p>
+                      <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-600 ${p.isNewUser ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                        {p.isNewUser ? 'Sin registro' : 'Registrado'}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-500">{p.email}</p>
+                    <p className="mt-1 text-xs font-600 text-primary">{p.rolDocumento || 'Participante'}</p>
                   </div>
-                  <div className="text-right shrink-0 space-y-1">
+                  <div className="hidden shrink-0 space-y-2 text-right sm:block">
                     {p.acto && (
                       <div>
-                        <p className="text-xs text-gray-400">Acto / Rol</p>
-                        <p className="text-sm font-semibold text-gray-800">{p.acto}</p>
+                        <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Acto / rol</p>
+                        <p className="mt-0.5 text-sm font-600 text-slate-800">{p.acto}</p>
                       </div>
                     )}
                     {p.tipoFirma && p.tipoFirma.length > 0 && (
                       <div>
-                        <p className="text-xs text-gray-400">Método de Participación</p>
+                        <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Método</p>
                         <div className="flex items-center gap-1 justify-end">
                           <ShieldCheck size={13} className="text-primary" />
-                          <p className="text-xs font-medium text-gray-700">{p.tipoFirma.map(getFirmaLabel).join(', ')}</p>
+                          <p className="text-xs font-600 text-slate-700">{p.tipoFirma.map(getFirmaLabel).join(', ')}</p>
                         </div>
                       </div>
                     )}
                     {p.tipoNotificacion && p.tipoNotificacion.length > 0 && (
                       <div>
-                        <p className="text-xs text-gray-400">Notificaciones</p>
+                        <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Notificaciones</p>
                         <div className="flex items-center gap-1 justify-end flex-wrap">
                           {p.tipoNotificacion.map((n) => (
                             <span key={n} className="flex items-center gap-0.5 text-xs text-primary">
@@ -668,7 +686,7 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
             })
           )}
         </div>
-      </div>
+      </section>
 
       {/* Información Solicitada — only visible when there is content */}
       {(
@@ -676,17 +694,17 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         (participationOrder === 'mixto' && grupos && grupos.length > 0) ||
         participationOrder === 'condicional'
       ) && (
-      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Info size={18} className="text-primary" />
-            <h2 className="text-base font-bold text-gray-900">Información solicitada</h2>
+      <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div>
+            <h2 className="text-base font-700 text-slate-950">Información solicitada</h2>
+            <p className="mt-0.5 text-xs text-slate-500">Campos y reglas que se aplicarán durante el proceso</p>
           </div>
-          <button onClick={() => onGoToStep(3)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-primary hover:bg-primary/5 transition-colors" title="Editar">
-            <Edit3 size={15} />
+          <button onClick={() => onGoToStep(3)} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar campos">
+            <Edit3 size={14} />
           </button>
         </div>
-        <p className="text-xs text-gray-400 mb-4">Campos requeridos para cada participante</p>
+        <div className="p-5">
 
         {/* Agrupamiento (Mixto) */}
         {participationOrder === 'mixto' && grupos && grupos.length > 0 && (
@@ -699,7 +717,7 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
               {grupos.map((grupo, idx) => {
                 const grupoParticipants = participants.filter((p) => grupo.participantIds.includes(p.id));
                 return (
-                  <div key={grupo.id} className="border border-gray-200 rounded-lg p-3">
+                  <div key={grupo.id} className="rounded-lg border border-slate-200 bg-slate-50/50 p-3.5">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">{idx + 1}</span>
                       <p className="text-sm font-semibold text-gray-900">{grupo.nombre}</p>
@@ -740,7 +758,7 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
               <GitBranch size={15} className="text-primary" />
               <p className="text-sm font-semibold text-gray-800">Flujo de trabajo condicional</p>
             </div>
-            <div className="border border-blue-100 bg-blue-50 rounded-lg p-3">
+            <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-4">
               <p className="text-xs text-blue-700 mb-2 font-medium">Participantes en el flujo:</p>
               <ul className="space-y-1.5">
                 {participants.map((p, idx) => (
@@ -761,27 +779,25 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         {Object.keys(fieldsByParticipant).length === 0 ? (
           null
         ) : (
-          <div className="space-y-3">
+          <div className="divide-y divide-slate-100">
             {Object.entries(fieldsByParticipant).map(([pid, data], idx) => {
               const participantName = data.name;
               const participantFields = data.fields;
               const initials = (participantName || '?').charAt(0).toUpperCase();
-              const colors = ['bg-blue-500', 'bg-violet-500', 'bg-emerald-500', 'bg-orange-500', 'bg-pink-500', 'bg-teal-500'];
+              const colors = ['bg-blue-100 text-blue-700', 'bg-violet-100 text-violet-700', 'bg-emerald-100 text-emerald-700', 'bg-orange-100 text-orange-700', 'bg-pink-100 text-pink-700', 'bg-teal-100 text-teal-700'];
               const colorClass = colors[idx % colors.length];
               return (
-                <div key={pid} className="border border-gray-200 rounded-xl p-4">
+                <div key={pid} className="py-4 first:pt-0 last:pb-0">
                   <div className="flex items-center gap-2 mb-3">
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 ${colorClass}`}>
+                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-700 ${colorClass}`}>
                       {initials}
                     </div>
-                    <p className="text-sm font-bold text-gray-900">{participantName}</p>
+                    <p className="text-sm font-700 text-slate-900">{participantName}</p>
+                    <span className="ml-auto text-xs tabular-nums text-slate-400">{participantFields.length} campo{participantFields.length === 1 ? '' : 's'}</span>
                   </div>
-                  <ul className="space-y-1.5">
+                  <ul className="ml-9 flex flex-wrap gap-2">
                     {participantFields.map((label) => (
-                      <li key={label} className="flex items-center gap-2 text-sm text-gray-600">
-                        <div className="w-4 h-4 rounded-full border border-gray-300 flex items-center justify-center shrink-0">
-                          <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-                        </div>
+                      <li key={label} className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-600 text-slate-600">
                         {label}
                       </li>
                     ))}
@@ -791,7 +807,8 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
             })}
           </div>
         )}
-      </div>
+        </div>
+      </section>
       )}
     </div>
   );

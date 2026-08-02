@@ -601,8 +601,8 @@ function RequestCard({ req, onCancelled }: RequestCardProps) {
           onConfirm={handleSendReminder}
         />
       )}
-      <div className="w-full rounded-xl border border-border bg-white shadow-sm hover:shadow-md transition-shadow p-5">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+      <div className="w-full rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300 sm:p-5">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           {/* Left: document info */}
           <div className="flex-1 min-w-0">
             {/* Dates */}
@@ -776,7 +776,7 @@ function RequestCard({ req, onCancelled }: RequestCardProps) {
           </div>
 
           {/* Right: progress + actions */}
-          <div className="w-full lg:w-[330px] xl:w-[380px] shrink-0 flex flex-col gap-3">
+          <div className="flex w-full shrink-0 flex-col gap-3 border-t border-slate-100 pt-4 lg:w-[330px] lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0 xl:w-[380px]">
             <ParticipationProgressBar req={req} />
 
             {/* Action buttons */}
@@ -784,14 +784,14 @@ function RequestCard({ req, onCancelled }: RequestCardProps) {
               {isCancellable && (
                 <button
                   onClick={() => setShowCancelModal(true)}
-                  className="flex-1 px-3 py-2 rounded-lg border border-border text-sm font-500 text-foreground bg-white hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors"
+                  className="flex h-9 flex-1 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
                 >
                   Cancelar
                 </button>
               )}
               <button
                 onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-                className={`${isCancellable ? 'flex-1' : 'w-full'} flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-white text-sm font-600 hover:bg-primary/90 transition-colors`}
+                className={`${isCancellable ? 'flex-1' : 'w-full'} flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-700 text-white transition-colors hover:bg-primary/90`}
               >
                 <Eye size={12} />
                 Ver Documento
@@ -923,7 +923,7 @@ function RequestCardGrid({ req, onCancelled }: RequestCardProps) {
           onConfirm={handleSendReminder}
         />
       )}
-      <div className="bg-white rounded-xl border border-border shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col gap-3">
+      <div className="flex flex-col gap-3 rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300">
         {/* Top: date block */}
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center gap-1.5">
@@ -1603,7 +1603,7 @@ function KanbanCard({ req, onCancelled }: RequestCardProps) {
       {showCancelModal && (
         <CancelModal req={req} onClose={() => setShowCancelModal(false)} onConfirm={handleCancelConfirm} />
       )}
-      <div className={`bg-white rounded-lg border shadow-sm hover:shadow-md transition-shadow p-3 ${req.priority === 'Urgente' ? 'border-l-4 border-l-red-500 border-t-border border-r-border border-b-border' : 'border-border'}`}>
+      <div className={`rounded-lg border bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300 ${req.priority === 'Urgente' ? 'border-l-4 border-l-red-500 border-t-slate-200 border-r-slate-200 border-b-slate-200' : 'border-slate-200'}`}>
         {req.priority === 'Urgente' && (
           <div className="flex items-center gap-1 mb-2">
             <span className="inline-flex items-center gap-1 text-[10px] font-600 px-2 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">
@@ -1867,6 +1867,13 @@ export default function ParticipationRequestsPage() {
     });
   }, [requests, boardMonth, boardYear]);
 
+  const visibleRequestCount =
+    viewMode === 'lista'
+      ? filtered.length
+      : viewMode === 'tablero'
+        ? boardFiltered.length
+        : requests.length;
+
   function handleCancelled(id: string) {
     setRequests(prev =>
       prev.map(r => r.id === id ? { ...r, status: 'cancelado' as const } : r)
@@ -1928,10 +1935,10 @@ export default function ParticipationRequestsPage() {
   if (loadingData) {
     return (
       <AppLayout noPadding>
-        <div className="w-full max-w-none px-4 sm:px-6 lg:px-8 pt-2 pb-4 md:pb-6 min-h-[calc(100vh-8rem)] flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-muted-foreground">Cargando solicitudes...</p>
+        <div className="-mx-4 -my-4 flex min-h-[calc(100vh-4rem)] items-center justify-center bg-[#f6f8fb] px-4 md:-my-6">
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-slate-200/90 bg-white px-8 py-7 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <p className="text-sm text-slate-500">Cargando solicitudes...</p>
           </div>
         </div>
       </AppLayout>
@@ -1940,17 +1947,21 @@ export default function ParticipationRequestsPage() {
 
   return (
     <AppLayout noPadding>
-      <div className="w-full max-w-none px-4 sm:px-6 lg:px-8 pt-2 pb-4 md:pb-6 min-h-[calc(100vh-8rem)]">
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
+        <div className="mx-auto w-full max-w-[1600px]">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Send size={24} className="text-primary" />
-              Solicitudes Enviadas
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Monitorea el estado de todos los documentos enviados para firma.
+            <h1 className="text-2xl font-700 leading-tight text-slate-950">Solicitudes enviadas</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Monitorea el avance de tus documentos y participantes.
             </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 font-600">
+              {visibleRequestCount}{' '}
+              {visibleRequestCount === 1 ? 'solicitud' : 'solicitudes'}
+            </span>
           </div>
         </div>
 
@@ -1963,26 +1974,27 @@ export default function ParticipationRequestsPage() {
         )}
 
         {/* View toggle + Search row */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+        <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="flex flex-col items-start justify-between gap-3 p-3 sm:flex-row sm:items-center">
           {/* View mode buttons */}
-          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-xl border border-border">
+          <div className="flex h-9 items-center gap-0.5 rounded-md bg-slate-100 p-0.5">
             <button
               onClick={() => setViewMode('lista')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-600 transition-all duration-150 ${viewMode === 'lista' ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`flex h-8 items-center gap-1.5 rounded px-3 text-sm font-600 transition-colors ${viewMode === 'lista' ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]' : 'text-slate-500 hover:text-slate-800'}`}
             >
               <List size={15} />
               Lista
             </button>
             <button
               onClick={() => setViewMode('tablero')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-600 transition-all duration-150 ${viewMode === 'tablero' ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`flex h-8 items-center gap-1.5 rounded px-3 text-sm font-600 transition-colors ${viewMode === 'tablero' ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]' : 'text-slate-500 hover:text-slate-800'}`}
             >
               <LayoutGrid size={15} />
               Tablero
             </button>
             <button
               onClick={() => setViewMode('calendario')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-600 transition-all duration-150 ${viewMode === 'calendario' ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`flex h-8 items-center gap-1.5 rounded px-3 text-sm font-600 transition-colors ${viewMode === 'calendario' ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]' : 'text-slate-500 hover:text-slate-800'}`}
             >
               <CalendarDays size={15} />
               Calendario
@@ -1992,8 +2004,8 @@ export default function ParticipationRequestsPage() {
           {/* Right side */}
           {viewMode === 'tablero' ? (
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-500 text-muted-foreground">Periodo:</span>
-              <div className="flex items-center gap-2 border border-border rounded-lg px-3 py-1.5 bg-white">
+              <span className="text-xs font-600 text-slate-400">Periodo</span>
+              <div className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-2">
                 <button onClick={prevMonth} className="p-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground">
                   <ChevronLeft size={16} />
                 </button>
@@ -2007,11 +2019,11 @@ export default function ParticipationRequestsPage() {
             </div>
           ) : viewMode === 'calendario' ? (
             <div className="flex items-center gap-2">
-              <span className="text-sm font-500 text-muted-foreground">Periodo:</span>
+              <span className="text-xs font-600 text-slate-400">Periodo</span>
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setShowCalViewDropdown(v => !v)}
-                  className="flex items-center gap-2 border border-border rounded-lg px-3 py-1.5 bg-white text-sm font-500 text-foreground hover:bg-muted/40 transition-colors"
+                  className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
                 >
                   {calViewLabels[calView]}
                   <ChevronDown size={14} className="text-muted-foreground" />
@@ -2033,21 +2045,21 @@ export default function ParticipationRequestsPage() {
             </div>
           ) : (
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <div className="relative flex-1 sm:w-64">
+              <div className="relative min-w-[180px] flex-1 sm:w-72">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Buscar..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+                  className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
                 />
               </div>
               {/* Date sort dropdown */}
               <div className="relative" ref={dateSortRef}>
                 <button
                   onClick={() => setShowDateDropdown(v => !v)}
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm border border-border rounded-lg bg-white hover:border-primary/50 hover:text-primary transition-colors text-foreground"
+                  className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
                   title="Ordenar por fecha"
                 >
                   <ArrowUpDown size={15} />
@@ -2072,17 +2084,17 @@ export default function ParticipationRequestsPage() {
                 )}
               </div>
               {/* List / Grid toggle */}
-              <div className="flex items-center border border-border rounded-lg overflow-hidden bg-white">
+              <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
                 <button
                   onClick={() => setListLayout('list')}
-                  className={`p-2 transition-colors ${listLayout === 'list' ? 'bg-primary text-white' : 'text-muted-foreground hover:text-primary'}`}
+                  className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${listLayout === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
                   title="Vista lista"
                 >
                   <List size={16} />
                 </button>
                 <button
                   onClick={() => setListLayout('grid')}
-                  className={`p-2 transition-colors ${listLayout === 'grid' ? 'bg-primary text-white' : 'text-muted-foreground hover:text-primary'}`}
+                  className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${listLayout === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
                   title="Vista cuadrícula"
                 >
                   <LayoutGrid size={16} />
@@ -2092,22 +2104,19 @@ export default function ParticipationRequestsPage() {
           )}
         </div>
 
-        {/* Divider */}
-        <div className="border-t border-border mb-4" />
-
         {/* Status pill filters + Period filter for lista */}
         {viewMode !== 'tablero' && viewMode !== 'calendario' && (
-          <div className="flex flex-col gap-3 mb-5">
+          <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               {/* Main status filters */}
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {statusFilterOptions.map((opt) => (
                   <button
                     key={opt.value}
                     onClick={() => setStatusFilter(opt.value)}
-                    className={`px-4 py-1.5 rounded-full text-sm font-500 border transition-colors ${
+                    className={`flex h-8 items-center rounded-md border px-2.5 text-xs font-600 transition-colors ${
                       statusFilter === opt.value
-                        ? 'bg-primary text-white border-primary' : 'bg-white text-foreground border-border hover:border-primary/50 hover:text-primary'
+                        ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
                     {opt.label}
@@ -2123,9 +2132,9 @@ export default function ParticipationRequestsPage() {
                     <button
                       key={opt.value}
                       onClick={() => setTimeFilter(opt.value)}
-                      className={`px-3 py-1 rounded-full text-xs font-500 border transition-colors ${
-                        timeFilter === opt.value
-                          ? 'bg-primary/10 text-primary border-primary/40' : 'bg-white text-muted-foreground border-border hover:border-primary/40 hover:text-primary'
+                    className={`flex h-7 items-center rounded-md border px-2.5 text-xs font-600 transition-colors ${
+                      timeFilter === opt.value
+                          ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
                       }`}
                     >
                       {opt.label}
@@ -2136,30 +2145,33 @@ export default function ParticipationRequestsPage() {
             </div>
           </div>
         )}
+        </section>
 
         {/* ── Lista ── */}
         {viewMode === 'lista' && (
           <div className="flex-1 w-full min-w-0">
             {filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center bg-white rounded-xl border border-border">
-                <Send size={32} className="text-muted-foreground/40 mb-3" />
-                <p className="text-sm font-600 text-foreground">Sin resultados</p>
-                <p className="text-xs text-muted-foreground mt-1">No se encontraron solicitudes con los filtros aplicados.</p>
+              <div className="flex flex-col items-center justify-center rounded-lg border border-slate-200/90 bg-white py-16 text-center shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
+                  <Send size={19} />
+                </span>
+                <p className="text-sm font-700 text-slate-800">Sin resultados</p>
+                <p className="mt-1 text-xs text-slate-500">No se encontraron solicitudes con los filtros aplicados.</p>
               </div>
             ) : listLayout === 'grid' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {filtered.map((req) => (
                   <RequestCardGrid key={req.id} req={req} onCancelled={handleCancelled} />
                 ))}
               </div>
             ) : (
-              <div className="w-full space-y-4">
+              <div className="w-full space-y-3">
                 {filtered.map((req) => (
                   <RequestCard key={req.id} req={req} onCancelled={handleCancelled} />
                 ))}
               </div>
             )}
-            <p className="text-xs text-muted-foreground mt-3 text-right">
+            <p className="mt-3 text-right text-xs text-slate-400">
               Mostrando {filtered.length} de {requests.length} solicitudes
             </p>
           </div>
@@ -2173,12 +2185,12 @@ export default function ParticipationRequestsPage() {
               return (
                 <div
                   key={col.status}
-                  className={`flex-1 min-w-[220px] rounded-xl border border-border border-t-2 ${col.borderColor} ${col.bgColor} flex flex-col`}
+                  className={`flex min-w-[220px] flex-1 flex-col rounded-lg border border-slate-200/90 border-t-2 ${col.borderColor} ${col.bgColor}`}
                   style={{ minHeight: '480px' }}
                 >
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/60">
-                    <span className="text-sm font-600 text-foreground">{col.label}</span>
-                    <span className="text-sm font-500 text-muted-foreground">{colItems.length}</span>
+                  <div className="flex items-center justify-between border-b border-slate-200/70 bg-white/70 px-3 py-2.5">
+                    <span className="text-xs font-700 text-slate-700">{col.label}</span>
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded bg-white px-1.5 text-xs font-600 text-slate-500">{colItems.length}</span>
                   </div>
                   <div className="flex-1 flex flex-col items-center justify-center p-3 gap-2">
                     {colItems.length === 0 ? (
@@ -2203,7 +2215,7 @@ export default function ParticipationRequestsPage() {
         {/* ── Calendario ── */}
         {viewMode === 'calendario' && (
           <>
-            <div className="flex flex-wrap items-center gap-2 mb-5">
+            <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
               {([
                 { value: 'todos', label: 'Todos' },
                 { value: 'en-progreso', label: 'En Progreso' },
@@ -2217,9 +2229,9 @@ export default function ParticipationRequestsPage() {
                 <button
                   key={opt.value}
                   onClick={() => setCalFilter(opt.value)}
-                  className={`px-4 py-1.5 rounded-full text-sm font-500 border transition-colors ${
+                  className={`flex h-8 items-center rounded-md border px-2.5 text-xs font-600 transition-colors ${
                     calFilter === opt.value
-                      ? 'bg-primary text-white border-primary' : 'bg-white text-foreground border-border hover:border-primary/50 hover:text-primary'
+                      ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   {opt.label}
@@ -2227,9 +2239,9 @@ export default function ParticipationRequestsPage() {
               ))}
             </div>
 
-            <div className="bg-white rounded-xl border border-border overflow-hidden flex flex-col" style={{ minHeight: '600px' }}>
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-                <h2 className="text-base font-700 text-gray-800">{getCalTitle()}</h2>
+            <div className="flex flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]" style={{ minHeight: '600px' }}>
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                <h2 className="text-sm font-700 text-slate-800">{getCalTitle()}</h2>
                 <div className="flex items-center gap-1">
                   <button onClick={calPrev} className="p-1 rounded hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-800" aria-label="Período anterior">
                     <ChevronLeft size={16} />
@@ -2251,6 +2263,7 @@ export default function ParticipationRequestsPage() {
             </div>
           </>
         )}
+        </div>
       </div>
     </AppLayout>
   );

@@ -237,7 +237,7 @@ const TIME_LABELS: Record<TimeFilter, string> = {
 
 export default function ActivityAuditLog() {
   const { user } = useAuth();
-  const { currentWorkspace } = useWorkspace();
+  const { activeWorkspace } = useWorkspace();
 
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[]>([]);
@@ -359,7 +359,7 @@ export default function ActivityAuditLog() {
       setAuditLogEntries(uniqueEntries);
 
       // 2. Load expiration alerts from documentos
-      const workspaceId = currentWorkspace?.id;
+      const workspaceId = activeWorkspace?.id;
       if (workspaceId) {
         const alertQuery = supabase
           .from('documentos')
@@ -385,7 +385,7 @@ export default function ActivityAuditLog() {
     } finally {
       setLoading(false);
     }
-  }, [user, currentWorkspace, timeFilter]);
+  }, [user, activeWorkspace, timeFilter]);
 
   useEffect(() => {
     loadData();
@@ -407,23 +407,25 @@ export default function ActivityAuditLog() {
   const urgentCount = expirationAlerts.filter((a) => a.daysLeft >= 0 && a.daysLeft <= 3).length;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-[0_18px_45px_-35px_rgba(15,23,42,0.55)]">
+    <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-slate-200">
+      <div className="border-b border-slate-100 px-5 py-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h2 className="text-[13px] font-700 text-slate-900">Bitácora de actividad y auditoría</h2>
+          <h2 className="text-sm font-700 text-slate-950">Bitácora de actividad y auditoría</h2>
           <button
             onClick={loadData}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white hover:bg-slate-50 transition-colors text-slate-700 font-700 disabled:opacity-50"
+            className="flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             Actualizar
           </button>
         </div>
+      </div>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1 mt-4 border-b border-slate-200 -mb-4 pb-0">
+      {/* Tabs */}
+      <div className="px-5">
+        <div className="flex items-center gap-5">
           {(
             [
               { key: 'actividad', label: 'Actividad', count: filteredAuditLog.length },
@@ -438,7 +440,7 @@ export default function ActivityAuditLog() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              className={`flex items-center gap-1.5 border-b-2 px-0 py-2.5 text-sm font-600 transition-colors -mb-px ${
                 activeTab === tab.key
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -467,7 +469,7 @@ export default function ActivityAuditLog() {
       </div>
 
       {/* Filters bar */}
-      <div className="px-5 py-3 border-b border-slate-200 bg-slate-50/70 flex items-center gap-2 flex-wrap">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/60 px-5 py-3">
         {/* Search */}
         <div className="relative flex-1 min-w-[180px]">
           <Search
@@ -479,7 +481,7 @@ export default function ActivityAuditLog() {
             placeholder="Buscar eventos..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+            className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-3 text-xs transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
           />
         </div>
 
@@ -489,14 +491,14 @@ export default function ActivityAuditLog() {
             onClick={() => {
               setShowTimeDropdown((v) => !v);
             }}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-700 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 transition-colors text-slate-700"
+            className="flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
             <Calendar size={12} className="text-muted-foreground" />
             {TIME_LABELS[timeFilter]}
             <ChevronDown size={11} className="text-muted-foreground" />
           </button>
           {showTimeDropdown && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-border rounded-xl shadow-xl py-1 min-w-[160px]">
+            <div className="absolute left-0 top-full z-50 mt-1 min-w-[168px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
               {(Object.keys(TIME_LABELS) as TimeFilter[]).map((key) => (
                 <button
                   key={key}
@@ -515,7 +517,7 @@ export default function ActivityAuditLog() {
       </div>
 
       {/* Content */}
-      <div className="divide-y divide-border max-h-[480px] overflow-y-auto">
+      <div className="max-h-[480px] divide-y divide-slate-100 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-10">
             <svg
@@ -558,7 +560,7 @@ export default function ActivityAuditLog() {
                     return (
                       <div
                         key={item.id}
-                        className="px-5 py-3.5 hover:bg-slate-50/80 transition-colors"
+                        className="px-5 py-3.5 transition-colors hover:bg-slate-50/80"
                       >
                         <div className="flex items-start gap-3">
                           <div
@@ -744,7 +746,7 @@ export default function ActivityAuditLog() {
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 border-t border-border bg-muted/10 flex items-center justify-between">
+      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/40 px-5 py-3">
         <p className="text-[11px] text-muted-foreground">
           {activeTab === 'actividad' &&
             `${filteredAuditLog.length} evento${filteredAuditLog.length !== 1 ? 's' : ''} · ${TIME_LABELS[timeFilter]}`}
@@ -752,6 +754,6 @@ export default function ActivityAuditLog() {
             `${expirationAlerts.length} documento${expirationAlerts.length !== 1 ? 's' : ''} con vencimiento · ${urgentCount} urgente${urgentCount !== 1 ? 's' : ''} (≤72h)`}
         </p>
       </div>
-    </div>
+    </section>
   );
 }

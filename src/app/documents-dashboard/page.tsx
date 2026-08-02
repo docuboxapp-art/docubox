@@ -51,6 +51,15 @@ const DEFAULT_WIDGETS: WidgetDef[] = [
   { id: 'quickactions', label: 'Acciones Rápidas', column: 'right', order: 2 },
 ];
 
+const formatDisplayName = (name: string) =>
+  name
+    .trim()
+    .toLocaleLowerCase('es-MX')
+    .replace(
+      /(^|[\s-])([a-záéíóúüñ])/g,
+      (_, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase('es-MX')}`
+    );
+
 // ── Donut chart ───────────────────────────────────────────────────────────────
 
 function DonutChart({ used, total }: { used: number; total: number }) {
@@ -149,7 +158,7 @@ export default function DocumentsDashboardPage() {
       if (profile?.full_name) {
         // Show only first name
         const firstName = profile.full_name.trim().split(' ')[0];
-        setUserName(firstName);
+        setUserName(formatDisplayName(firstName));
       }
 
       // Load saved layout
@@ -317,7 +326,7 @@ export default function DocumentsDashboardPage() {
     const idx = widgets.findIndex((w) => w.id === id);
     if (idx === -1) return;
     const widget = widgets[idx];
-    const newWidgets = [...widgets];
+    let newWidgets = [...widgets];
 
     if (direction === 'left' || direction === 'right') {
       const newCol = direction === 'left' ? 'left' : 'right';
@@ -450,15 +459,17 @@ export default function DocumentsDashboardPage() {
             onDrop={() => handleDrop(w.id)}
           >
             <CustomizeOverlay />
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.65)] transition-all duration-200 p-5 flex flex-col">
-              <h3 className="text-[13px] font-700 text-slate-900 mb-4">Documentos disponibles</h3>
+            <section className="flex flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div className="border-b border-slate-100 px-5 py-4">
+                <h3 className="text-sm font-700 text-slate-950">Documentos disponibles</h3>
+              </div>
               <div className="flex-1 flex flex-col items-center justify-center">
                 <DonutChart used={metrics.docsUsed} total={metrics.docsTotal} />
               </div>
-              <button className="w-full mt-4 px-4 py-2.5 border border-slate-300 bg-white text-slate-950 text-sm font-800 rounded-xl hover:border-primary/40 hover:bg-primary/5 transition-all duration-150">
+              <button className="mx-5 mb-5 mt-4 h-9 rounded-md bg-slate-950 px-4 text-sm font-700 text-white transition-colors hover:bg-primary">
                 Comprar más
               </button>
-            </div>
+            </section>
           </div>
         );
 
@@ -471,8 +482,8 @@ export default function DocumentsDashboardPage() {
             onDrop={() => handleDrop(w.id)}
           >
             <CustomizeOverlay />
-            <div className="bg-white border border-emerald-200 rounded-2xl p-5 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.65)] transition-all duration-200 flex flex-col items-center justify-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center">
+            <section className="flex flex-col items-center justify-center gap-3 rounded-lg border border-slate-200/90 border-l-4 border-l-emerald-500 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-green-100">
                 <Gift size={20} className="text-green-600" />
               </div>
               <div className="text-center">
@@ -486,11 +497,11 @@ export default function DocumentsDashboardPage() {
                   <strong>{metrics.docsTotal}</strong> docs disponibles
                 </p>
               </div>
-              <button className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-700 rounded-xl transition-all duration-150 w-full justify-center shadow-[0_10px_25px_-15px_rgba(16,185,129,0.9)]">
+              <button className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 text-xs font-700 text-white transition-colors hover:bg-emerald-700 active:bg-emerald-800">
                 <Zap size={12} />
                 Mejorar Plan
               </button>
-            </div>
+            </section>
           </div>
         );
 
@@ -503,16 +514,18 @@ export default function DocumentsDashboardPage() {
             onDrop={() => handleDrop(w.id)}
           >
             <CustomizeOverlay />
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.65)] transition-all duration-200 flex flex-col">
-              <h3 className="text-[13px] font-700 text-slate-900 mb-3">Acciones rápidas</h3>
-              <div className="space-y-2 flex-1">
+            <section className="flex flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div className="border-b border-slate-100 px-4 py-4">
+                <h3 className="text-sm font-700 text-slate-950">Acciones rápidas</h3>
+              </div>
+              <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
                 {quickActions.map((action) => (
                   <Link
                     key={action.label}
                     href={action.href}
-                    className="flex items-center gap-3 border border-slate-200 hover:border-primary/30 hover:bg-primary/5 rounded-xl px-3 py-3 transition-all duration-150 group"
+                    className="group flex items-center gap-3 px-1 py-3 transition-colors duration-150 hover:bg-slate-50"
                   >
-                    <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
                       {action.icon}
                     </div>
                     <div className="min-w-0">
@@ -530,7 +543,7 @@ export default function DocumentsDashboardPage() {
                   </Link>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
         );
 
@@ -612,35 +625,34 @@ export default function DocumentsDashboardPage() {
 
   return (
     <AppLayout topBanner={<VerificationProgressBar />}>
-      {/* Main content grid — 70% left / 30% right */}
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-8rem)] bg-[#f8fafc] px-4 py-5 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 xl:-mx-10 xl:px-10 md:-my-6 md:py-6">
-        <div className="mx-auto grid w-full max-w-[1680px] grid-cols-1 gap-6 xl:grid-cols-[minmax(0,7fr)_minmax(360px,3fr)]">
+      {/* Main content grid — widgets remain unchanged */}
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-8rem)] bg-[#f6f8fb] px-4 py-4 sm:-mx-6 sm:px-5 md:-my-6 lg:-mx-8 lg:px-6 xl:-mx-10 xl:px-7">
+        <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
           {/* ── Left column (70%) ── */}
-          <div className="space-y-5 min-w-0">
+          <div className="min-w-0 space-y-4">
             {/* Greeting + actions */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <p className="text-base text-slate-500">{greeting},</p>
-                <h1 className="mt-1 text-2xl sm:text-3xl font-800 text-slate-950 flex items-center gap-2 tracking-normal leading-tight">
+                <h1 className="flex items-center gap-2 text-2xl font-700 leading-tight tracking-normal text-slate-950">
                   {loadingData ? (
-                    <span className="inline-block w-28 h-7 bg-slate-200 rounded animate-pulse" />
+                    <span className="inline-block h-7 w-48 animate-pulse rounded bg-slate-200" />
                   ) : (
-                    userName || 'Usuario'
+                    `${greeting}, ${userName || 'Usuario'}`
                   )}
                 </h1>
-                <p className="text-sm text-slate-500 mt-2">
+                <p className="mt-1 text-sm text-slate-500">
                   Panel principal de tu espacio de trabajo
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 <Link
                   href="/crear-documento"
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-white text-sm font-700 rounded-xl hover:bg-primary-700 active:bg-primary-800 transition-all duration-150 shadow-[0_12px_24px_-18px_rgba(37,99,235,0.8)]"
+                  className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-all duration-150 hover:bg-primary-700 active:bg-primary-800"
                 >
                   <Plus size={15} />
                   Crear Documento
                 </Link>
-                <button className="flex items-center gap-1.5 px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-sm font-600 text-slate-700 hover:bg-primary/5 hover:text-primary hover:border-primary/30 transition-all duration-150">
+                <button className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-all duration-150 hover:border-primary/30 hover:bg-primary/5 hover:text-primary">
                   <LayoutGrid size={14} />
                   Apps
                 </button>
@@ -652,7 +664,7 @@ export default function DocumentsDashboardPage() {
                       setCustomizing(true);
                     }
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-2.5 border rounded-xl text-sm font-600 transition-all duration-150 ${
+                  className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-600 transition-all duration-150 ${
                     customizing
                       ? 'border-primary bg-primary/10 text-primary'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-primary/5 hover:text-primary hover:border-primary/30'
@@ -664,7 +676,7 @@ export default function DocumentsDashboardPage() {
                 {customizing && (
                   <button
                     onClick={() => setShowAddPanel((v) => !v)}
-                    className="flex items-center gap-1.5 px-3 py-2.5 border border-emerald-200 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-700 hover:bg-emerald-100 transition-all duration-150"
+                    className="flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-700 text-emerald-700 transition-all duration-150 hover:bg-emerald-100"
                   >
                     <PlusSquare size={14} />
                     Añadir widget
@@ -701,7 +713,7 @@ export default function DocumentsDashboardPage() {
           </div>
 
           {/* ── Right column (30%) ── */}
-          <div className="flex flex-col gap-4 w-full min-w-0">
+          <div className="flex w-full min-w-0 flex-col gap-4 xl:pt-0">
             {rightWidgets.map((w) => renderWidget(w))}
           </div>
         </div>

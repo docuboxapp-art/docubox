@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, Search, FileText, Clock, CheckCircle, AlertCircle, MoreHorizontal, Eye, Edit, Copy, Trash2, Tag, Grid3X3, List, BookOpen, X } from 'lucide-react';
+import { Plus, Search, FileText, Clock, CheckCircle, AlertCircle, MoreHorizontal, Eye, Edit, Copy, Trash2, Tag, Grid3X3, List, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
 
@@ -25,6 +25,7 @@ interface Plantilla {
   grupo_tipo?: { id: string; nombre: string } | null;
   area_responsable?: string;
   tipo_plantilla?: string;
+  estado_plantilla?: string;
   numero_oficio?: string;
   etiquetas_ids?: string[];
 }
@@ -69,11 +70,11 @@ function DeleteConfirmModal({
   isDeleting: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-[2px]">
+      <div className="w-full max-w-sm overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
         <div className="p-6">
           <div className="flex items-start gap-4 mb-4">
-            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-50">
               <Trash2 size={20} className="text-red-600" />
             </div>
             <div>
@@ -89,7 +90,7 @@ function DeleteConfirmModal({
               type="button"
               onClick={onCancel}
               disabled={isDeleting}
-              className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-60"
+              className="h-9 flex-1 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
               Cancelar
             </button>
@@ -97,7 +98,7 @@ function DeleteConfirmModal({
               type="button"
               onClick={onConfirm}
               disabled={isDeleting}
-              className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+              className="flex h-9 flex-1 items-center justify-center gap-2 rounded-md bg-red-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
             >
               {isDeleting ? (
                 <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Eliminando...</>
@@ -130,10 +131,11 @@ function TemplateCard({
   const catColor = CATEGORY_COLORS[plantilla.category || ''] || 'bg-gray-100 text-gray-600';
 
   return (
-    <div className="bg-white rounded-xl border border-border hover:border-primary/40 hover:shadow-md transition-all duration-200 flex flex-col overflow-hidden group">
+    <article className="group flex min-h-[282px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
       {/* Preview area */}
-      <div className="relative bg-gradient-to-br from-gray-50 to-gray-100 h-40 flex items-center justify-center border-b border-border">
-        <div className="w-24 bg-white rounded shadow-sm p-2 flex flex-col gap-1.5">
+      <div className="relative flex h-36 items-center justify-center border-b border-slate-200 bg-slate-50">
+        <div className="flex h-[106px] w-[82px] flex-col gap-1.5 rounded-sm border border-slate-200 bg-white p-2.5 shadow-sm transition-transform duration-200 group-hover:-translate-y-0.5">
+          <div className="mb-0.5 h-2 w-7 rounded-sm bg-blue-500" />
           <div className="h-1.5 bg-gray-300 rounded w-full" />
           <div className="h-1.5 bg-gray-200 rounded w-4/5" />
           <div className="h-1.5 bg-gray-200 rounded w-3/5" />
@@ -143,16 +145,16 @@ function TemplateCard({
           <div className="h-1.5 bg-blue-200 rounded w-full border border-dashed border-blue-300" />
           <div className="h-1.5 bg-gray-200 rounded w-2/3" />
         </div>
-        <div className="absolute top-2 right-2">
-          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusCfg.color}`}>
+        <div className="absolute right-2.5 top-2.5">
+          <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${statusCfg.color}`}>
             <StatusIcon size={10} />
             {statusCfg.label}
           </span>
         </div>
-        <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/5 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+        <div className="absolute inset-0 flex items-center justify-center bg-blue-50/70 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             onClick={() => onEdit(plantilla.id)}
-            className="bg-white text-primary border border-primary/20 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm hover:bg-primary/5 transition-colors flex items-center gap-1"
+            className="flex h-8 items-center gap-1.5 rounded-md border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50"
           >
             <Edit size={12} />
             Editar
@@ -161,20 +163,21 @@ function TemplateCard({
       </div>
 
       {/* Content */}
-      <div className="p-4 flex flex-col flex-1">
+      <div className="flex flex-1 flex-col p-4">
         <div className="flex items-start justify-between gap-2 mb-1">
           <h3 className="text-sm font-semibold text-foreground leading-tight line-clamp-2 flex-1">{getPlantillaName(plantilla)}</h3>
           <div className="relative flex-shrink-0">
             <button
               onClick={() => setMenuOpen(!menuOpen)}
-              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              title="Más acciones"
             >
               <MoreHorizontal size={14} />
             </button>
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-0 top-6 z-20 bg-white border border-border rounded-lg shadow-lg py-1 w-40">
+                <div className="absolute right-0 top-8 z-20 w-40 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
                   <button onClick={() => { onEdit(plantilla.id); setMenuOpen(false); }} className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-muted flex items-center gap-2">
                     <Edit size={12} /> Editar
                   </button>
@@ -210,7 +213,7 @@ function TemplateCard({
           )}
         </div>
 
-        <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-2 mt-auto">
+        <div className="mt-auto flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-500">
           <span className="flex items-center gap-1">
             <FileText size={10} />
             {getPlantillaFields(plantilla).length} campos
@@ -221,7 +224,7 @@ function TemplateCard({
           </span>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -332,101 +335,103 @@ export default function PlantillasGalleryPage() {
 
   return (
     <AppLayout noPadding>
-      <div className="w-full max-w-none px-4 sm:px-6 lg:px-8 pt-2 pb-4 md:pb-6 min-h-[calc(100vh-8rem)]">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <BookOpen size={24} className="text-primary" />
-              Plantillas
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">Gestiona y crea plantillas de documentos reutilizables</p>
-          </div>
-          <div className="flex items-center gap-2">
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
+        <div className="mx-auto w-full max-w-[1600px]">
+          <header className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-700 text-slate-950">Plantillas</h1>
+              <p className="mt-1 text-sm text-slate-500">Crea y administra formatos reutilizables para tus documentos.</p>
+            </div>
             <Link
               href="/plantillas/nueva"
-              className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-colors hover:bg-primary/90"
             >
               <Plus size={16} />
               Nueva plantilla
             </Link>
-          </div>
-        </div>
+          </header>
 
         {/* Toolbar row */}
-        <div className="flex items-center gap-3 mb-3 flex-wrap">
-          <div className="flex-1 relative min-w-[160px]">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="relative min-w-[220px] flex-1">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar plantillas..."
+              placeholder="Buscar por nombre o descripción..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+              className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/60 pl-9 pr-4 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             />
           </div>
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-3 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground"
+            className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            aria-label="Filtrar por estado"
           >
             <option value="">Todos los estados</option>
             <option value="published">Publicadas</option>
             <option value="draft">Borradores</option>
             <option value="archived">Archivadas</option>
           </select>
-          <div className="flex items-center border border-border rounded-lg overflow-hidden bg-white">
+          <div className="flex h-9 items-center rounded-md border border-slate-200 bg-white p-0.5" aria-label="Tipo de vista">
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-2 transition-colors ${viewMode === 'grid' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+              className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'grid' ? 'bg-blue-50 text-blue-700' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
               title="Vista cuadrícula"
+              aria-pressed={viewMode === 'grid'}
             >
-              <Grid3X3 size={16} />
+              <Grid3X3 size={15} />
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`p-2 transition-colors ${viewMode === 'list' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+              className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'list' ? 'bg-blue-50 text-blue-700' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
               title="Vista lista"
+              aria-pressed={viewMode === 'list'}
             >
-              <List size={16} />
+              <List size={15} />
             </button>
           </div>
         </div>
 
         {/* Grid / List */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center gap-3 text-sm text-slate-500">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+              Cargando plantillas...
+            </div>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
-              <FileText size={28} className="text-muted-foreground" />
+          <div className="flex min-h-[320px] flex-col items-center justify-center rounded-lg border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-blue-50">
+              <FileText size={22} className="text-blue-600" />
             </div>
-            <h3 className="text-base font-semibold text-foreground mb-1">No se encontraron plantillas</h3>
-            <p className="text-sm text-muted-foreground mb-4">
+            <h3 className="mb-1 text-base font-semibold text-slate-900">No se encontraron plantillas</h3>
+            <p className="mb-4 text-sm text-slate-500">
               {search || filterStatus ? 'Intenta con otros filtros' : 'Crea tu primera plantilla para comenzar'}
             </p>
             <Link
               href="/plantillas/nueva"
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg bg-primary hover:bg-primary/90 transition-colors"
+              className="flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
             >
               <Plus size={15} />
               Nueva plantilla
             </Link>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {/* New template card */}
             <Link
               href="/plantillas/nueva"
-              className="bg-white rounded-xl border-2 border-dashed border-border hover:border-primary/40 hover:bg-primary/5 transition-all duration-200 flex flex-col items-center justify-center gap-3 h-64 group"
+              className="group flex min-h-[282px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/30 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-400 hover:bg-blue-50 hover:shadow-sm"
             >
-              <div className="w-12 h-12 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
-                <Plus size={22} className="text-primary" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-blue-200 bg-white shadow-sm transition-colors group-hover:border-blue-300">
+                <Plus size={20} className="text-blue-600" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-semibold text-foreground group-hover:text-primary">Nueva plantilla</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Crear desde cero</p>
+                <p className="text-sm font-semibold text-slate-900 group-hover:text-blue-700">Nueva plantilla</p>
+                <p className="mt-0.5 text-xs text-slate-500">Crear desde cero</p>
               </div>
             </Link>
             {filtered.map((p) => (
@@ -434,28 +439,28 @@ export default function PlantillasGalleryPage() {
             ))}
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-border overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 border-b border-border">
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50/80">
                 <tr>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Nombre</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tipo</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estado</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Actualizado</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Nombre</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Tipo</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Estado</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Actualizado</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody className="divide-y divide-slate-100">
                 {filtered.map((p) => {
                   const statusKey = getPlantillaStatus(p);
                   const statusCfg = STATUS_CONFIG[statusKey] || STATUS_CONFIG['draft'];
                   const StatusIcon = statusCfg.icon;
                   return (
-                    <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                    <tr key={p.id} className="transition-colors hover:bg-slate-50/70">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <FileText size={14} className="text-primary" />
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-blue-50">
+                            <FileText size={14} className="text-blue-600" />
                           </div>
                           <div>
                             <p className="font-medium text-foreground text-sm">{getPlantillaName(p)}</p>
@@ -483,14 +488,15 @@ export default function PlantillasGalleryPage() {
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => handleEdit(p.id)}
-                            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-primary border border-primary/20 rounded-lg hover:bg-primary/5 transition-colors"
+                            className="flex h-8 items-center gap-1.5 rounded-md border border-blue-200 px-2.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50"
                           >
                             <Edit size={11} />
                             Editar
                           </button>
                           <button
                             onClick={() => setDeleteTarget(p)}
-                            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-700"
+                            title="Eliminar plantilla"
                           >
                             <Trash2 size={11} />
                           </button>
@@ -503,6 +509,7 @@ export default function PlantillasGalleryPage() {
             </table>
           </div>
         )}
+        </div>
       </div>
 
       {/* Delete confirmation modal */}
@@ -518,7 +525,7 @@ export default function PlantillasGalleryPage() {
       {/* Toast */}
       {toast && (
         <div
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg"
           style={{
             backgroundColor: toast.type === 'success' ? '#ECFDF5' : '#FEF2F2',
             color: toast.type === 'success' ? '#065F46' : '#991B1B',

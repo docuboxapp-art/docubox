@@ -1467,28 +1467,34 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
     <div className="w-full flex gap-6">
       {/* LEFT PANEL — scrollable independently */}
       <div className="w-[38%] flex flex-col gap-4 overflow-y-auto max-h-[calc(100vh-220px)]">
-        {/* Ajustes de Campos */}
-        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Ajustes de Campos</h2>
-          <label className={`flex items-center gap-2.5 ${isCondicional ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
-            <input type="checkbox" checked={isCondicional ? true : fixarCampos} onChange={(e) => { if (!isCondicional) { if (!e.target.checked && placedFields.length > 0) { setShowDeleteConfirm(true); } else { setFixarCampos(e.target.checked); } } }} disabled={isCondicional} className="w-4 h-4 rounded accent-primary cursor-pointer disabled:cursor-not-allowed" />
-            <span className="text-sm font-medium text-primary">Fijar campos para participantes</span>
-            <Info size={14} className="text-gray-400" />
+        {/* Field settings */}
+        <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="mb-4">
+            <h2 className="text-base font-700 text-slate-950">Configuración de campos</h2>
+            <p className="mt-1 text-sm leading-5 text-slate-500">Define si los participantes deben completar información dentro del documento.</p>
+          </div>
+          <label className={`flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3.5 transition-colors ${isCondicional ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:border-slate-300 hover:bg-slate-50'}`}>
+            <input type="checkbox" checked={isCondicional ? true : fixarCampos} onChange={(e) => { if (!isCondicional) { if (!e.target.checked && placedFields.length > 0) { setShowDeleteConfirm(true); } else { setFixarCampos(e.target.checked); } } }} disabled={isCondicional} className="mt-0.5 h-4 w-4 shrink-0 rounded accent-primary cursor-pointer disabled:cursor-not-allowed" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-600 text-slate-800">Asignar campos a participantes</span>
+              <span className="mt-0.5 block text-xs leading-5 text-slate-500">Coloca firmas, texto y otros datos en la vista previa.</span>
+            </span>
+            <Info size={14} className="mt-0.5 shrink-0 text-slate-400" />
           </label>
           {isCondicional ? (
             <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex gap-2">
               <Info size={16} className="text-blue-500 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-blue-700">Modo Condicional</p>
-                <p className="text-xs text-blue-600 mt-0.5">En el modo Condicional, la opción de fijar campos es obligatoria para asegurar el correcto funcionamiento del flujo de trabajo.</p>
+                <p className="text-sm font-600 text-blue-700">Modo condicional</p>
+                <p className="mt-0.5 text-xs leading-5 text-blue-600">La asignación de campos es obligatoria para asegurar el funcionamiento correcto del flujo de trabajo.</p>
               </div>
             </div>
           ) : fixarCampos ? (
             <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex gap-2">
               <Info size={16} className="text-blue-500 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-blue-700">Campos Obligatorios</p>
-                <p className="text-xs text-blue-600 mt-0.5">Todos los campos colocados en el documento serán obligatorios para los participantes.</p>
+                <p className="text-sm font-600 text-blue-700">Campos obligatorios</p>
+                <p className="mt-0.5 text-xs leading-5 text-blue-600">Los participantes deberán completar todos los campos asignados en el documento.</p>
               </div>
             </div>
           ) : null}
@@ -1496,8 +1502,11 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
 
         {/* Campos por Participante — only visible when fixarCampos is active */}
         {(fixarCampos || isCondicional) && (
-        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Campos por Participante</h2>
+        <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="mb-4">
+            <h2 className="text-base font-700 text-slate-950">Campos por participante</h2>
+            <p className="mt-1 text-sm leading-5 text-slate-500">Selecciona una persona y coloca los campos que deberá completar.</p>
+          </div>
 
           {/* Participant selector */}
           <div className="relative mb-4">
@@ -1540,7 +1549,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
           <div className="border border-gray-200 rounded-lg overflow-hidden mb-2">
             <button type="button" onClick={() => setCamposParticipanteOpen((v) => !v)} className="w-full flex items-center gap-1.5 px-4 py-3.5 text-left hover:bg-gray-50 transition-colors">
               <div className="flex items-center gap-2 w-full">
-                <span className="flex-1 text-sm font-bold text-gray-800">Campos del Participante</span>
+                <span className="flex-1 text-sm font-600 text-gray-800">Campos del participante</span>
                 <ChevronDown size={16} className={`text-gray-400 transition-transform ${camposParticipanteOpen ? 'rotate-180' : ''}`} />
               </div>
             </button>
@@ -1557,7 +1566,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
           <div className="border border-gray-200 rounded-lg overflow-hidden">
             <button type="button" onClick={() => setCamposGeneralesOpen((v) => !v)} className="w-full flex items-center gap-1.5 px-4 py-3.5 text-left hover:bg-gray-50 transition-colors">
               <div className="flex items-center gap-2 w-full">
-                <span className="flex-1 text-sm font-bold text-gray-800">Campos Generales</span>
+                <span className="flex-1 text-sm font-600 text-gray-800">Campos generales</span>
                 <ChevronDown size={16} className={`text-gray-400 transition-transform ${camposGeneralesOpen ? 'rotate-180' : ''}`} />
               </div>
             </button>
@@ -1628,9 +1637,9 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
       <div className="flex-1 flex flex-col min-h-0" style={{ maxHeight: 'calc(100vh - 220px)' }}>
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-full overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
-            <span className="text-sm font-semibold text-gray-700">Vista previa del documento</span>
+            <h2 className="text-base font-700 text-slate-950">Vista previa del documento</h2>
             <div className="flex items-center gap-2">
-              {(fixarCampos || isCondicional) && <span className="text-xs text-primary bg-primary/10 px-2.5 py-1 rounded-full font-medium mr-2">Arrastra campos aquí</span>}
+              {(fixarCampos || isCondicional) && <span className="mr-2 rounded-md bg-primary/10 px-2.5 py-1 text-xs font-600 text-primary">Arrastra los campos al documento</span>}
               <button onClick={() => { const next = Math.max(50, zoomLevel - 25); setZoomLevel(next); setDisplayZoom(next); }} disabled={zoomLevel <= 50} title="Reducir zoom" className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><ZoomOut size={14} /></button>
               <button onClick={() => { setZoomLevel(100); setDisplayZoom(100); }} title="Restablecer zoom" className="min-w-[48px] h-8 px-2 flex items-center justify-center rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors">{displayZoom}%</button>
               <button onClick={() => { const next = Math.min(200, zoomLevel + 25); setZoomLevel(next); setDisplayZoom(next); }} disabled={zoomLevel >= 200} title="Aumentar zoom" className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><ZoomIn size={14} /></button>
@@ -1686,7 +1695,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
             <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
               <ChevronDown size={14} className="rotate-90" />
             </button>
-            <span className="text-sm text-gray-600 font-medium">Pág {currentPage} / {totalPages}</span>
+            <span className="text-sm font-600 text-slate-600">Página {currentPage} de {totalPages}</span>
             <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
               <ChevronDown size={14} className="-rotate-90" />
             </button>

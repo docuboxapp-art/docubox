@@ -746,11 +746,11 @@ export default function VerificationProgressBar() {
   };
 
   return (
-    <div className="w-full bg-[#f8fafc] px-4 pt-4 sm:px-6 lg:px-8 xl:px-10">
+    <div className="w-full bg-[#f6f8fb] px-4 pt-4 sm:px-6 lg:px-8 xl:px-10">
       {/* ── Collapsed bar (always visible) ── */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="mx-auto flex w-full max-w-[1680px] items-center justify-between rounded-2xl border border-amber-200 bg-white px-5 py-3.5 text-left shadow-[0_18px_45px_-35px_rgba(245,158,11,0.8)] transition-colors duration-150 hover:bg-amber-50/30"
+        className="mx-auto flex w-full max-w-[1600px] items-center justify-between rounded-lg border border-amber-200/80 bg-white px-4 py-3 text-left shadow-[0_6px_20px_-18px_rgba(15,23,42,0.5)] transition-colors duration-150 hover:bg-amber-50/30 sm:px-5"
       >
         <div className="flex items-center gap-2.5">
           {loading ? (
@@ -786,7 +786,7 @@ export default function VerificationProgressBar() {
 
       {/* ── Expanded panel ── */}
       {expanded && (
-        <div className="mx-auto mt-2 max-w-[1680px] rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.45)] space-y-3">
+        <div className="mx-auto mt-2 max-w-[1600px] space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-[0_6px_20px_-18px_rgba(15,23,42,0.45)]">
           {/* Required steps */}
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">

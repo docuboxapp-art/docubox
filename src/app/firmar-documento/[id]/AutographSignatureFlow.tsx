@@ -2095,7 +2095,9 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
   const [enrollmentHasIne, setEnrollmentHasIne] = useState(false);
 
   // OTP
+  const otpInputRef = useRef<HTMLInputElement>(null);
   const [otpCode, setOtpCode] = useState('');
+  const [otpInputFocused, setOtpInputFocused] = useState(false);
   const [otpSending, setOtpSending] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otpExpiresAt, setOtpExpiresAt] = useState<Date | null>(null);
@@ -2867,14 +2869,48 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
               No se encontró correo electrónico. El código OTP no puede enviarse.
             </p>
           )}
-          <input
-            type="text"
-            value={otpCode}
-            onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').substring(0, 6))}
-            placeholder="Ingresa el código de 6 dígitos"
-            maxLength={6}
-            className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 text-center tracking-widest font-mono ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-white border-slate-200'}`}
-          />
+          <div
+            className="relative"
+            onClick={() => otpInputRef.current?.focus()}
+          >
+            <input
+              ref={otpInputRef}
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              aria-label="Código OTP de 6 dígitos"
+              value={otpCode}
+              onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').substring(0, 6))}
+              onFocus={() => setOtpInputFocused(true)}
+              onBlur={() => setOtpInputFocused(false)}
+              maxLength={6}
+              className="absolute inset-0 z-10 h-full w-full cursor-text opacity-0"
+            />
+            <div className="grid grid-cols-6 gap-2" aria-hidden="true">
+              {Array.from({ length: 6 }, (_, index) => {
+                const isActive = otpInputFocused && index === Math.min(otpCode.length, 5);
+                const hasValue = Boolean(otpCode[index]);
+                return (
+                  <div
+                    key={index}
+                    className={`flex h-12 min-w-0 items-center justify-center rounded-lg border text-lg font-semibold tabular-nums transition-colors ${
+                      isActive
+                        ? 'border-primary ring-2 ring-primary/20'
+                        : hasValue
+                          ? isDark
+                            ? 'border-blue-500 bg-blue-950/30 text-gray-100'
+                            : 'border-blue-400 bg-blue-50/60 text-slate-950'
+                          : isDark
+                            ? 'border-gray-600 bg-gray-700 text-gray-100'
+                            : 'border-slate-200 bg-white text-slate-950'
+                    }`}
+                  >
+                    {otpCode[index] ?? ''}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
           {otpError && (
             <div className="flex items-center gap-2 text-xs text-red-500">
               <AlertTriangle size={12} />
@@ -2900,7 +2936,7 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
           <button
             type="button"
             onClick={handleOtpConfirm}
-            disabled={otpCode.trim().length < 4}
+            disabled={otpCode.trim().length !== 6}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Check size={14} />

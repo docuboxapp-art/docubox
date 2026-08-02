@@ -96,23 +96,25 @@ export default function DocumentosSinRevisionWidget() {
   const docs = activeTab === 'no_revisados_por_mi' ? propiosDocs : participantesDocs;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-[0_18px_45px_-35px_rgba(15,23,42,0.55)] transition-all duration-200">
-      <div className="px-5 pt-4 pb-0 border-b border-border">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-[13px] font-700 text-slate-900">Documentos sin revisión</h2>
+    <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-700 text-slate-950">Documentos sin revisión</h2>
           <button
             onClick={loadDocs}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white hover:bg-slate-50 transition-colors text-slate-700 font-700 disabled:opacity-50"
+            className="flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             Actualizar
           </button>
         </div>
-        <div className="flex items-center gap-0">
+      </div>
+      <div className="px-5">
+        <div className="grid grid-cols-2">
           <button
             onClick={() => setActiveTab('no_revisados_por_mi')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`flex min-w-0 items-center justify-center gap-1 border-b-2 px-2 py-2.5 text-center text-[11px] font-600 leading-tight transition-colors -mb-px ${
               activeTab === 'no_revisados_por_mi'
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -127,7 +129,7 @@ export default function DocumentosSinRevisionWidget() {
           </button>
           <button
             onClick={() => setActiveTab('no_revisados_por_participantes')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`flex min-w-0 items-center justify-center gap-1 border-b-2 px-2 py-2.5 text-center text-[11px] font-600 leading-tight transition-colors -mb-px ${
               activeTab === 'no_revisados_por_participantes'
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -142,7 +144,7 @@ export default function DocumentosSinRevisionWidget() {
           </button>
         </div>
       </div>
-      <div className="p-5">
+      <div className="p-4">
         {loading ? (
           <div className="flex items-center gap-2 py-2">
             <svg
@@ -174,11 +176,11 @@ export default function DocumentosSinRevisionWidget() {
               : 'Todos los participantes han revisado los documentos.'}
           </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="divide-y divide-slate-100">
             {docs.map((doc) => (
               <div
                 key={doc.id}
-                className="flex items-center gap-3 px-3 py-3 rounded-xl border border-slate-200 hover:border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer group"
+                className="group flex cursor-pointer items-center gap-3 px-1 py-3 transition-colors hover:bg-slate-50"
                 onClick={() => router.push(`/visor-documento/${doc.id}`)}
               >
                 <FileText size={16} className="text-amber-500 flex-shrink-0" />
@@ -199,6 +201,6 @@ export default function DocumentosSinRevisionWidget() {
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

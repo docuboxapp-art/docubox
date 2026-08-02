@@ -1760,14 +1760,10 @@ function FileUploadedLayout({
 
   return (
     <div className="w-full">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Crear Nuevo Documento</h1>
-        <p className="text-gray-500">Comienza subiendo tu archivo y configurando las opciones iniciales.</p>
-      </div>
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <div className="flex flex-col gap-5">
-          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">Archivo Cargado</h2>
+          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <h2 className="mb-4 text-base font-700 text-slate-950">Archivo cargado</h2>
             <div className="border border-gray-200 rounded-lg p-4 flex gap-4 items-start mb-4">
               <div className="w-20 h-28 bg-gray-100 rounded border border-gray-200 flex items-center justify-center shrink-0 overflow-hidden">
                 {thumbnailUrl ? (
@@ -1797,7 +1793,7 @@ function FileUploadedLayout({
             {/* Guardar avance button removed */}
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <h2 className="text-lg font-semibold text-gray-900 mb-1">Configuración del documento</h2>
             <p className="text-sm text-gray-400 mb-4">Configura la seguridad y propiedades de tu documento.</p>
             {/* Tabs — Configuración general FIRST (default), Seguridad y protección SECOND */}
@@ -2068,8 +2064,8 @@ function FileUploadedLayout({
           </div>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm h-fit">
-          <h2 className="text-lg font-semibold text-gray-900 mb-5">Propiedades del documento</h2>
+        <div className="h-fit rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <h2 className="mb-5 text-base font-700 text-slate-950">Propiedades del documento</h2>
           <div className="space-y-4">
             {/* Nombre del documento */}
             <div>
@@ -2262,25 +2258,21 @@ export function StepSubir({
 
   return (
     <div className="w-full">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Crear Nuevo Documento</h1>
-        <p className="text-gray-500">Comienza subiendo tu archivo y configurando las opciones iniciales.</p>
-      </div>
-      <div className={`grid grid-cols-1 ${plantillasEnabled ? 'md:grid-cols-2' : ''} gap-6`}>
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="px-6 pt-5 pb-3 border-b border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Subir Documento</h2>
+      <div className={`grid grid-cols-1 ${plantillasEnabled ? 'xl:grid-cols-2' : ''} gap-5`}>
+        <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h2 className="mb-0.5 text-base font-700 text-slate-950">Subir documento</h2>
             <p className="text-sm text-gray-500">Selecciona el origen de tu archivo.</p>
           </div>
           <div className="flex min-h-[320px]">
-            <div className="w-52 shrink-0 border-r border-gray-100 bg-gray-50/60 py-2">
+            <div className="w-44 shrink-0 border-r border-slate-100 bg-slate-50/70 py-2 sm:w-52">
               {tabs.map((tab) => {
                 const IconComp = tab.icon;
                 const isActive = activeTab === tab.id;
                 const isDisabled = !tab.active;
                 return (
                   <button key={tab.id} onClick={() => { if (!isDisabled) setActiveTab(tab.id); }} disabled={isDisabled} title={isDisabled ? 'Próximamente' : undefined}
-                    className={`w-full flex items-center gap-2.5 px-3 py-3 text-left transition-colors relative group ${isDisabled ? 'opacity-40 cursor-not-allowed' : isActive ? 'bg-white text-primary font-semibold border-r-2 border-primary' : 'text-gray-600 hover:text-gray-900'}`}
+                    className={`group relative flex w-full items-center gap-2.5 px-3 py-3 text-left transition-colors ${isDisabled ? 'cursor-not-allowed opacity-40' : isActive ? 'border-r-2 border-primary bg-white font-semibold text-primary' : 'text-slate-600 hover:bg-white/70 hover:text-slate-950'}`}
                   >
                     <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isActive ? 'bg-primary text-white' : isDisabled ? 'bg-gray-200 text-gray-500' : 'bg-gray-200 text-gray-600'}`}>{tabs.indexOf(tab) + 1}</span>
                     <span className="text-[15px] leading-tight">{tab.label}</span>
@@ -2292,7 +2284,7 @@ export function StepSubir({
               {activeTab === 'computadora' && (
                 <div className="p-4 flex flex-col h-full">
                   <div onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
-                    className={`border-2 border-dashed rounded-lg flex flex-col items-center justify-center py-10 px-4 transition-colors cursor-pointer mb-3 ${dragging ? 'border-primary bg-primary/5' : 'border-gray-300 hover:border-primary/60'}`}
+                    className={`mb-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-4 py-10 transition-colors ${dragging ? 'border-primary bg-primary/5' : 'border-slate-300 bg-slate-50/40 hover:border-primary/60 hover:bg-primary/[0.02]'}`}
                     onClick={() => inputRef.current?.click()}>
                     <Upload size={32} className="text-gray-400 mb-3" />
                     <p className="text-sm text-primary font-medium text-center">Arrastra un archivo para subir</p>
@@ -2320,7 +2312,7 @@ export function StepSubir({
           </div>
         </div>
         {plantillasEnabled && (
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+          <div className="flex flex-col justify-between rounded-lg border border-slate-200/90 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div>
               <div className="flex items-start gap-3 mb-4">
                 <div className="mt-0.5"><ExternalLink size={22} className="text-primary" /></div>

@@ -19,6 +19,7 @@ const SidebarContext = createContext<SidebarContextValue>({
 
 const STORAGE_KEY = 'docubox-nav-mode';
 const COLLAPSED_KEY = 'docubox-sidebar-collapsed';
+const SIDEBAR_NAV_ENABLED = false;
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpenState] = useState<boolean>(false);
@@ -28,6 +29,12 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
   // On mount: restore from localStorage
   useEffect(() => {
+    if (!SIDEBAR_NAV_ENABLED) {
+      setSidebarOpenState(false);
+      localStorage.setItem(STORAGE_KEY, 'topbar');
+      return;
+    }
+
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored !== null) {
       setSidebarOpenState(stored === 'sidebar');
@@ -61,8 +68,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setSidebarOpen = useCallback(async (open: boolean) => {
-    setSidebarOpenState(open);
-    const mode = open ? 'sidebar' : 'topbar';
+    const resolvedOpen = SIDEBAR_NAV_ENABLED ? open : false;
+    setSidebarOpenState(resolvedOpen);
+    const mode = resolvedOpen ? 'sidebar' : 'topbar';
     localStorage.setItem(STORAGE_KEY, mode);
     const { data: { user } } = await supabaseRef.current.auth.getUser();
     if (!user) return;

@@ -18,7 +18,7 @@ function getSupabase(): SupabaseClient {
 }
 
 type EmailType =
-  | 'signature_request' |'document_completed' |'certificate_expiry' |'document_expired' |'action_required' |'participant_invitation' |'participation_completed' |'owner_participant_signed' |'owner_participant_approved' |'owner_participant_cancelled' |'owner_participant_rejected' |'new_device_login';
+  | 'signature_request' |'document_completed' |'certificate_expiry' |'document_expired' |'action_required' |'participant_invitation' |'participation_completed' |'owner_participant_signed' |'owner_participant_approved' |'owner_participant_cancelled' |'owner_participant_rejected' |'new_device_login' |'login_otp';
 
 interface SendEmailParams {
   type: EmailType;
@@ -48,6 +48,8 @@ interface SendEmailParams {
   city?: string;
   country?: string;
   loginTime?: string;
+  // login_otp extras
+  otpCode?: string;
   // document_completed evidence extras
   documentId?: string;
   xmlEvidenciaPath?: string;

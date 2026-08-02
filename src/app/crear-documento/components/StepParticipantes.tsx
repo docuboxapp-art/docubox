@@ -973,15 +973,11 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
 
   return (
     <div className="w-full">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">¿Quién va a participar?</h1>
-        <p className="text-gray-500">Configura los participantes y sus roles en el documento.</p>
-      </div>
       {!mode && (
-        <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+        <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {PARTICIPANT_OPTIONS.map((option) => (
-              <button key={option.id} onClick={() => handleModeChange(option.id)} className="flex flex-col items-center justify-center gap-3 p-8 rounded-xl border-2 border-gray-200 bg-white hover:border-primary/40 hover:bg-gray-50 transition-all cursor-pointer text-center">
+              <button key={option.id} onClick={() => handleModeChange(option.id)} className="flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/[0.02]">
                 <span className="text-gray-700">{option.icon}</span>
                 <span className="text-sm font-bold text-gray-900">{option.title}</span>
                 <span className="text-xs text-gray-500">{option.description}</span>
@@ -991,9 +987,9 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
         </div>
       )}
       {mode && (
-        <div className="grid gap-6" style={{ gridTemplateColumns: '30% 70%' }}>
-          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm h-fit">
-            <h2 className="text-lg font-semibold text-gray-900 mb-5">Configuración</h2>
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(260px,30%)_minmax(0,1fr)]">
+          <div className="h-fit rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <h2 className="mb-5 text-base font-700 text-slate-950">Configuracion</h2>
             <div className="border border-gray-200 rounded-lg px-4 py-3 flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <User size={20} className="text-primary" />
@@ -1028,8 +1024,8 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
               </div>
             </div>
           </div>
-          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Lista de Participantes</h2>
+          <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <h2 className="mb-4 text-base font-700 text-slate-950">Lista de participantes</h2>
 
             {/* Sequential drag hint banner */}
             {isSecuencial && (
@@ -1038,7 +1034,7 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
               </div>
             )}
 
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200">

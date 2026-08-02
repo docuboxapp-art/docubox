@@ -2820,7 +2820,7 @@ export default function MiPerfilPage() {
                   <div className="flex flex-col gap-1 bg-yellow-50 border border-yellow-100 rounded-xl p-4">
                     <div className="flex items-center gap-2 text-yellow-600 mb-1">
                       <Clock size={16} />
-                      <span className="text-xs font-600 uppercase tracking-wide">En Proceso</span>
+                      <span className="text-xs font-600 uppercase tracking-wide">En progreso</span>
                     </div>
                     <span className="text-2xl font-700 text-yellow-700">{enProceso}</span>
                     <span className="text-xs text-yellow-500">Pendientes de firma</span>
