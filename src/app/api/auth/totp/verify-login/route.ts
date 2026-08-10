@@ -10,6 +10,11 @@ const supabaseAdmin = createClient(
 function decryptSecret(encrypted: string): string {
   try {
     const decoded = Buffer.from(encrypted, 'base64').toString('utf-8');
+    const key = process.env.DOCUBOX_INTERNAL_SIGNING_KEY || 'docubox-totp-key';
+    const prefix = `${key}:`;
+    if (decoded.startsWith(prefix)) return decoded.slice(prefix.length);
+
+    // Compatibility with secrets stored before the prefixed format was enforced.
     const colonIdx = decoded.indexOf(':');
     return colonIdx >= 0 ? decoded.slice(colonIdx + 1) : decoded;
   } catch {
@@ -48,7 +53,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!/^\d{6}$/.test(code)) {
-      return NextResponse.json({ error: 'El código debe ser de 6 dígitos numéricos' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'El código debe ser de 6 dígitos numéricos' },
+        { status: 400 }
+      );
     }
 
     // Get TOTP settings
@@ -66,11 +74,19 @@ export async function POST(req: NextRequest) {
     // Check lockout
     if (totpSettings.locked_until && new Date(totpSettings.locked_until) > new Date()) {
       const unlockAt = new Date(totpSettings.locked_until);
-      await logSecurityEvent(userId, 'LOGIN_TOTP_LOCKED', 'Intento de login bloqueado por demasiados intentos fallidos', req);
-      return NextResponse.json({
-        error: `Cuenta bloqueada temporalmente. Intenta después de las ${unlockAt.toLocaleTimeString('es-MX')}.`,
-        locked: true,
-      }, { status: 429 });
+      await logSecurityEvent(
+        userId,
+        'LOGIN_TOTP_LOCKED',
+        'Intento de login bloqueado por demasiados intentos fallidos',
+        req
+      );
+      return NextResponse.json(
+        {
+          error: `Cuenta bloqueada temporalmente. Intenta después de las ${unlockAt.toLocaleTimeString('es-MX')}.`,
+          locked: true,
+        },
+        { status: 429 }
+      );
     }
 
     // Decrypt and verify
@@ -87,17 +103,23 @@ export async function POST(req: NextRequest) {
         updateData.failed_attempts = 0;
       }
 
-      await supabaseAdmin
-        .from('user_totp_settings')
-        .update(updateData)
-        .eq('user_id', userId);
+      await supabaseAdmin.from('user_totp_settings').update(updateData).eq('user_id', userId);
 
-      await logSecurityEvent(userId, 'LOGIN_TOTP_FAILED', 'Código TOTP incorrecto en inicio de sesión', req, { attempts: newAttempts });
+      await logSecurityEvent(
+        userId,
+        'LOGIN_TOTP_FAILED',
+        'Código TOTP incorrecto en inicio de sesión',
+        req,
+        { attempts: newAttempts }
+      );
 
-      return NextResponse.json({
-        error: 'Código incorrecto. Verifica tu app autenticadora e intenta nuevamente.',
-        attemptsLeft: Math.max(0, 5 - newAttempts),
-      }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: 'Código incorrecto. Verifica tu app autenticadora e intenta nuevamente.',
+          attemptsLeft: Math.max(0, 5 - newAttempts),
+        },
+        { status: 400 }
+      );
     }
 
     // Success

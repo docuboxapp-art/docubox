@@ -16,6 +16,19 @@ function encryptSecret(secret: string): string {
   return Buffer.from(combined).toString('base64');
 }
 
+function decryptSecret(encrypted: string): string | null {
+  try {
+    const key = process.env.DOCUBOX_INTERNAL_SIGNING_KEY || 'docubox-totp-key';
+    const decoded = Buffer.from(encrypted, 'base64').toString('utf-8');
+    const prefix = `${key}:`;
+    if (!decoded.startsWith(prefix)) return null;
+    const secret = decoded.slice(prefix.length);
+    return /^[A-Z2-7]+=*$/.test(secret) ? secret : null;
+  } catch {
+    return null;
+  }
+}
+
 async function logSecurityEvent(
   userId: string,
   eventType: string,
@@ -46,14 +59,41 @@ export async function POST(req: NextRequest) {
     }
     const token = authHeader.slice(7);
 
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    // Generate TOTP secret
+    // Reuse a recent pending setup so retries cannot leave the QR and DB with different secrets.
+    const { data: pendingSettings } = await supabaseAdmin
+      .from('user_totp_settings')
+      .select('secret_encrypted, is_enabled, updated_at, locked_until')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (
+      pendingSettings?.locked_until &&
+      new Date(pendingSettings.locked_until).getTime() > Date.now()
+    ) {
+      return NextResponse.json(
+        { error: 'La configuración está bloqueada temporalmente por varios intentos fallidos.' },
+        { status: 429 }
+      );
+    }
+
     authenticator.options = { digits: 6, step: 30, algorithm: 'sha1' };
-    const secret = authenticator.generateSecret(20);
+    const pendingSecret = pendingSettings?.secret_encrypted
+      ? decryptSecret(pendingSettings.secret_encrypted)
+      : null;
+    const pendingAge = pendingSettings?.updated_at
+      ? Date.now() - new Date(pendingSettings.updated_at).getTime()
+      : Number.POSITIVE_INFINITY;
+    const canReusePendingSecret =
+      !pendingSettings?.is_enabled && Boolean(pendingSecret) && pendingAge < 10 * 60 * 1000;
+    const secret = canReusePendingSecret ? pendingSecret! : authenticator.generateSecret(20);
 
     // Build otpauth URL
     const accountName = user.email || user.id;
@@ -67,33 +107,40 @@ export async function POST(req: NextRequest) {
       margin: 2,
     });
 
-    // Save encrypted secret (pending confirmation)
-    const encryptedSecret = encryptSecret(secret);
-    const { error: upsertError } = await supabaseAdmin
-      .from('user_totp_settings')
-      .upsert(
-        {
-          user_id: user.id,
-          secret_encrypted: encryptedSecret,
-          is_enabled: false,
-          failed_attempts: 0,
-          locked_until: null,
-        },
-        { onConflict: 'user_id' }
-      );
+    // Only replace the pending secret when starting a genuinely new setup.
+    const { error: upsertError } = canReusePendingSecret
+      ? { error: null }
+      : await supabaseAdmin.from('user_totp_settings').upsert(
+          {
+            user_id: user.id,
+            secret_encrypted: encryptSecret(secret),
+            is_enabled: false,
+            failed_attempts: 0,
+            locked_until: null,
+          },
+          { onConflict: 'user_id' }
+        );
 
     if (upsertError) {
       return NextResponse.json({ error: 'Error al guardar configuración TOTP' }, { status: 500 });
     }
 
     // Log event
-    await logSecurityEvent(user.id, 'TOTP_SETUP_STARTED', 'Inicio de configuración de app autenticadora', req);
+    await logSecurityEvent(
+      user.id,
+      'TOTP_SETUP_STARTED',
+      'Inicio de configuración de app autenticadora',
+      req,
+      { reusedPendingSetup: canReusePendingSecret }
+    );
 
     return NextResponse.json({
       qrCodeUrl,
       manualSecret: secret,
       issuer,
       accountName,
+      reusedPendingSetup: canReusePendingSecret,
+      serverTime: new Date().toISOString(),
     });
   } catch (err) {
     console.error('[TOTP Setup]', err);

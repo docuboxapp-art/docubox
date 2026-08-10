@@ -181,6 +181,7 @@ export default function TopNav() {
     pathname.startsWith('/expedientes') ||
     pathname === '/reportes' ||
     pathname === '/app-market' ||
+    pathname === '/mi-perfil' ||
     pathname === '/contactos' ||
     pathname.startsWith('/configuracion/verificacion-identidad') ||
     pathname.startsWith('/visor-documento/');

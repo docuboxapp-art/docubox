@@ -232,7 +232,7 @@ export function useWebAuthn() {
   const registerDesktop = useCallback(async (deviceName: string): Promise<{ success: boolean; credentialId?: string }> => {
     setLoading(true);
     setError(null);
-    const { context, os, browser, deviceCategory, deviceType } = await checkSupport();
+    const { context, os, browser, deviceType } = await checkSupport();
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('No hay sesión activa.');
@@ -250,8 +250,7 @@ export function useWebAuthn() {
       const options = await optRes.json();
 
       // 2. Ejecutar registro biométrico
-      let credential;
-      credential = await startRegistration({ optionsJSON: options });
+      const credential = await startRegistration({ optionsJSON: options });
 
       // 3. Verificar registro
       const verRes = await fetch('/api/webauthn/register-verify', {
@@ -336,8 +335,7 @@ export function useWebAuthn() {
       const options = await optRes.json();
 
       // 3. Ejecutar registro biométrico
-      let credential;
-      credential = await startRegistration({ optionsJSON: options });
+      const credential = await startRegistration({ optionsJSON: options });
 
       // 4. Verificar registro QR
       const verRes = await fetch('/api/webauthn/register-verify-qr', {
@@ -378,8 +376,7 @@ export function useWebAuthn() {
       const options = await optRes.json();
 
       // 2. Ejecutar autenticación biométrica
-      let credential;
-      credential = await startAuthentication({ optionsJSON: options });
+      const credential = await startAuthentication({ optionsJSON: options });
 
       // 3. Verificar autenticación
       const verRes = await fetch('/api/webauthn/auth-verify', {
@@ -392,7 +389,19 @@ export function useWebAuthn() {
         throw new Error(e.error || 'Error al verificar autenticación.');
       }
       const result = await verRes.json();
-      return { success: true, session: result.session };
+      if (!result?.tokenHash) {
+        throw new Error('No se pudo crear la sesión. Intenta de nuevo.');
+      }
+
+      const { data: authData, error: sessionError } = await supabase.auth.verifyOtp({
+        token_hash: result.tokenHash,
+        type: 'magiclink',
+      });
+      if (sessionError || !authData.session) {
+        throw new Error('No se pudo iniciar la sesión. Intenta de nuevo.');
+      }
+
+      return { success: true, session: authData.session };
     } catch (err) {
       const msg = translateError(err, context, os);
       setError(msg);
@@ -424,7 +433,7 @@ export function useWebAuthn() {
       const options = await optRes.json();
 
       // 2. Ejecutar autenticación biométrica
-      let credential = await startAuthentication({ optionsJSON: options });
+      const credential = await startAuthentication({ optionsJSON: options });
 
       // 3. Verificar step-up
       const verRes = await fetch('/api/webauthn/stepup-verify', {
@@ -465,12 +474,19 @@ export function useWebAuthn() {
   // ── revokeCredential ────────────────────────────────────────────────────────
   const revokeCredential = useCallback(async (credentialId: string): Promise<boolean> => {
     try {
-      const { error: dbError } = await supabase
-        .from('webauthn_credentials')
-        .update({ is_active: false })
-        .eq('id', credentialId);
-      return !dbError;
-    } catch {
+      setError(null);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('La sesión no es válida. Inicia sesión nuevamente.');
+
+      const response = await fetch(`/api/webauthn/credentials/${encodeURIComponent(credentialId)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'No fue posible revocar el dispositivo.');
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No fue posible revocar el dispositivo.');
       return false;
     }
   }, [supabase]);

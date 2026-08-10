@@ -632,7 +632,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         return;
       }
       const options = await optRes.json();
-      const credential = await startAuthentication(options);
+      const credential = await startAuthentication({ optionsJSON: options });
       const verifyRes = await fetch('/api/webauthn/auth-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -666,17 +666,23 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       }
       const verifyData = await verifyRes.json();
 
-      // Set Supabase session from biometric auth response
-      if (verifyData?.session?.access_token && verifyData?.session?.refresh_token) {
-        try {
-          const supabase = createClient();
-          await supabase.auth.setSession({
-            access_token: verifyData.session.access_token,
-            refresh_token: verifyData.session.refresh_token,
-          });
-        } catch {
-          /* non-blocking */
-        }
+      // Exchange the one-time token only after WebAuthn verification succeeds.
+      if (!verifyData?.tokenHash) {
+        setBiometricError('No se pudo crear la sesión. Intenta de nuevo.');
+        setBiometricLoading(false);
+        return;
+      }
+
+      const supabase = createClient();
+      const { error: sessionError } = await supabase.auth.verifyOtp({
+        token_hash: verifyData.tokenHash,
+        type: 'magiclink',
+      });
+      if (sessionError) {
+        console.error('[handleBiometricLogin] verifyOtp error:', sessionError);
+        setBiometricError('No se pudo iniciar la sesión. Intenta de nuevo.');
+        setBiometricLoading(false);
+        return;
       }
 
       try {

@@ -10,6 +10,11 @@ const supabaseAdmin = createClient(
 function decryptSecret(encrypted: string): string {
   try {
     const decoded = Buffer.from(encrypted, 'base64').toString('utf-8');
+    const key = process.env.DOCUBOX_INTERNAL_SIGNING_KEY || 'docubox-totp-key';
+    const prefix = `${key}:`;
+    if (decoded.startsWith(prefix)) return decoded.slice(prefix.length);
+
+    // Compatibility with secrets stored before the prefixed format was enforced.
     const colonIdx = decoded.indexOf(':');
     return colonIdx >= 0 ? decoded.slice(colonIdx + 1) : decoded;
   } catch {
@@ -46,7 +51,10 @@ export async function POST(req: NextRequest) {
     }
     const token = authHeader.slice(7);
 
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
@@ -55,7 +63,10 @@ export async function POST(req: NextRequest) {
     const { code } = body;
 
     if (!code || !/^\d{6}$/.test(code)) {
-      return NextResponse.json({ error: 'El código debe ser de 6 dígitos numéricos' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'El código debe ser de 6 dígitos numéricos' },
+        { status: 400 }
+      );
     }
 
     // Get TOTP settings
@@ -66,16 +77,22 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (fetchError || !totpSettings) {
-      return NextResponse.json({ error: 'No se encontró configuración TOTP. Inicia el proceso de configuración.' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'No se encontró configuración TOTP. Inicia el proceso de configuración.' },
+        { status: 404 }
+      );
     }
 
     // Check lockout
     if (totpSettings.locked_until && new Date(totpSettings.locked_until) > new Date()) {
       const unlockAt = new Date(totpSettings.locked_until);
-      return NextResponse.json({
-        error: `Demasiados intentos fallidos. Intenta nuevamente después de las ${unlockAt.toLocaleTimeString('es-MX')}.`,
-        locked: true,
-      }, { status: 429 });
+      return NextResponse.json(
+        {
+          error: `Demasiados intentos fallidos. Intenta nuevamente después de las ${unlockAt.toLocaleTimeString('es-MX')}.`,
+          locked: true,
+        },
+        { status: 429 }
+      );
     }
 
     // Decrypt and verify
@@ -84,6 +101,28 @@ export async function POST(req: NextRequest) {
     const isValid = authenticator.verify({ token: code, secret });
 
     if (!isValid) {
+      // Diagnose clock drift without accepting a code outside the normal security window.
+      authenticator.options = { digits: 6, step: 30, algorithm: 'sha1', window: 10 };
+      const clockDelta = authenticator.checkDelta(code, secret);
+      if (clockDelta !== null && Math.abs(clockDelta) > 1) {
+        await logSecurityEvent(
+          user.id,
+          'TOTP_SETUP_FAILED',
+          'Hora del dispositivo desincronizada durante configuración TOTP',
+          req,
+          { reason: 'clock_skew', deltaSteps: clockDelta }
+        );
+        return NextResponse.json(
+          {
+            error:
+              'La hora de tu teléfono no coincide con la hora segura. Activa la fecha y hora automáticas y usa el código nuevo.',
+            errorCode: 'CLOCK_SKEW',
+            serverTime: new Date().toISOString(),
+          },
+          { status: 400 }
+        );
+      }
+
       const newAttempts = (totpSettings.failed_attempts || 0) + 1;
       const updateData: Record<string, unknown> = { failed_attempts: newAttempts };
 
@@ -92,17 +131,26 @@ export async function POST(req: NextRequest) {
         updateData.failed_attempts = 0;
       }
 
-      await supabaseAdmin
-        .from('user_totp_settings')
-        .update(updateData)
-        .eq('user_id', user.id);
+      await supabaseAdmin.from('user_totp_settings').update(updateData).eq('user_id', user.id);
 
-      await logSecurityEvent(user.id, 'TOTP_SETUP_FAILED', 'Código TOTP incorrecto durante configuración', req, { attempts: newAttempts });
+      await logSecurityEvent(
+        user.id,
+        'TOTP_SETUP_FAILED',
+        'Código TOTP incorrecto durante configuración',
+        req,
+        { attempts: newAttempts }
+      );
 
-      return NextResponse.json({
-        error: 'El código no es válido o expiró. Intenta nuevamente.',
-        attemptsLeft: Math.max(0, 5 - newAttempts),
-      }, { status: 400 });
+      return NextResponse.json(
+        {
+          error:
+            'El código no coincide con la configuración actual. Usa la entrada Docubox más reciente o vuelve a escanear el QR.',
+          errorCode: 'CODE_MISMATCH',
+          attemptsLeft: Math.max(0, 5 - newAttempts),
+          serverTime: new Date().toISOString(),
+        },
+        { status: 400 }
+      );
     }
 
     // Activate TOTP
@@ -116,9 +164,17 @@ export async function POST(req: NextRequest) {
       })
       .eq('user_id', user.id);
 
-    await logSecurityEvent(user.id, 'TOTP_ENABLED', 'App autenticadora activada correctamente', req);
+    await logSecurityEvent(
+      user.id,
+      'TOTP_ENABLED',
+      'App autenticadora activada correctamente',
+      req
+    );
 
-    return NextResponse.json({ success: true, message: 'App autenticadora activada correctamente.' });
+    return NextResponse.json({
+      success: true,
+      message: 'App autenticadora activada correctamente.',
+    });
   } catch (err) {
     console.error('[TOTP Verify Setup]', err);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

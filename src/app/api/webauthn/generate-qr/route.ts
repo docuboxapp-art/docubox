@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getWebAuthnRequestConfig } from '@/lib/webauthn/request-config';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmamax4272.builtwithrocket.new';
 const QR_TTL_SECONDS = 300;
 
 function getAdminClient() {
@@ -18,7 +18,10 @@ export async function POST(req: NextRequest) {
 
     const supabase = getAdminClient();
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(token);
     if (authError || !user) return NextResponse.json({ error: 'No autorizado.' }, { status: 401 });
 
     // Generate unique QR token
@@ -39,7 +42,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Error al generar el código QR.' }, { status: 500 });
     }
 
-    const qrUrl = `${SITE_URL}/register-device?token=${qrToken}`;
+    const { origin } = getWebAuthnRequestConfig(req);
+    const qrUrl = `${origin}/register-device?token=${qrToken}`;
 
     return NextResponse.json({ token: qrToken, qrUrl, expiresIn: QR_TTL_SECONDS });
   } catch (err) {

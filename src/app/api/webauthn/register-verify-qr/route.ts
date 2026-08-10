@@ -1,23 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyRegistrationResponse } from '@simplewebauthn/server';
 import { createClient } from '@supabase/supabase-js';
+import { getWebAuthnChallengeKey, getWebAuthnRequestConfig } from '@/lib/webauthn/request-config';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-function getRpId(): string {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'firmamax4272.builtwithrocket.new';
-  try {
-    return new URL(siteUrl).hostname;
-  } catch {
-    return siteUrl;
-  }
-}
-
-function getExpectedOrigin(): string {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmamax4272.builtwithrocket.new';
-  return siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`;
-}
 
 function getAdminClient() {
   return createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
@@ -26,7 +13,8 @@ function getAdminClient() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { credential, token, deviceName, deviceType, context, os, browser, deviceCategory, registeredFrom } = body;
+    const { credential, token, deviceName, deviceType, context, os, browser, deviceCategory } =
+      body;
 
     if (!token || !credential) {
       return NextResponse.json({ error: 'Datos incompletos.' }, { status: 400 });
@@ -45,13 +33,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Enlace inválido o ya utilizado.' }, { status: 400 });
     }
     if (new Date(qrRow.expires_at) < new Date()) {
-      return NextResponse.json({ error: 'El código QR expiró. Genera uno nuevo.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'El código QR expiró. Genera uno nuevo.' },
+        { status: 400 }
+      );
     }
 
     const userId = qrRow.user_id;
+    const { origin, rpId } = getWebAuthnRequestConfig(req);
 
     // Retrieve challenge
-    const challengeKey = `reg:qr:${token}`;
+    const challengeKey = getWebAuthnChallengeKey('reg:qr', token, rpId);
     const { data: challengeRow } = await supabase
       .from('webauthn_challenges')
       .select('challenge, expires_at')
@@ -69,13 +61,16 @@ export async function POST(req: NextRequest) {
       verification = await verifyRegistrationResponse({
         response: credential,
         expectedChallenge: challengeRow.challenge,
-        expectedOrigin: getExpectedOrigin(),
-        expectedRPID: getRpId(),
+        expectedOrigin: origin,
+        expectedRPID: rpId,
         requireUserVerification: true,
       });
     } catch (verifyErr) {
       console.error('[webauthn/register-verify-qr] verification failed:', verifyErr);
-      return NextResponse.json({ error: 'Verificación biométrica fallida. Intenta de nuevo.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Verificación biométrica fallida. Intenta de nuevo.' },
+        { status: 400 }
+      );
     }
 
     if (!verification.verified || !verification.registrationInfo) {

@@ -1,20 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
-
-function getRpId(): string {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'firmamax4272.builtwithrocket.new';
-  try {
-    return new URL(siteUrl).hostname;
-  } catch {
-    return siteUrl;
-  }
-}
-
-function getExpectedOrigin(): string {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmamax4272.builtwithrocket.new';
-  return siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`;
-}
+import { getWebAuthnChallengeKey, getWebAuthnRequestConfig } from '@/lib/webauthn/request-config';
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,9 +27,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Usuario no encontrado.' }, { status: 404 });
     }
     const userId = profile.id;
+    const { origin, rpId } = getWebAuthnRequestConfig(req);
 
     // Retrieve challenge
-    const challengeKey = `webauthn:auth:${userId}`;
+    const challengeKey = getWebAuthnChallengeKey('webauthn:auth', userId, rpId);
     const { data: challengeRow } = await supabaseAdmin
       .from('webauthn_challenges')
       .select('challenge, expires_at')
@@ -73,12 +61,16 @@ export async function POST(req: NextRequest) {
     // public_key is stored as a base64 string inserted into a BYTEA column.
     // Supabase returns BYTEA as a hex string prefixed with \x (e.g. "\x6147567a...").
     // We need to: hex → UTF-8 string (which is the base64) → Uint8Array (the actual key bytes).
-    let publicKeyBytes: Uint8Array;
+    let publicKeyBytes: Uint8Array<ArrayBuffer>;
     const rawKey = credRow.public_key as string | Uint8Array | Buffer;
 
     if (typeof rawKey === 'string') {
       let base64Str: string;
-      if (rawKey.startsWith('\\x') || rawKey.startsWith('\x00') || /^[0-9a-fA-F]+$/.test(rawKey.replace(/^\\x/, ''))) {
+      if (
+        rawKey.startsWith('\\x') ||
+        rawKey.startsWith('\x00') ||
+        /^[0-9a-fA-F]+$/.test(rawKey.replace(/^\\x/, ''))
+      ) {
         // Hex-encoded BYTEA from Supabase: strip \x prefix and decode hex to get the base64 string
         const hex = rawKey.startsWith('\\x') ? rawKey.slice(2) : rawKey;
         let decoded = '';
@@ -101,7 +93,9 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < base64Str.length; i++) publicKeyBytes[i] = base64Str.charCodeAt(i);
       }
     } else {
-      publicKeyBytes = new Uint8Array(rawKey as ArrayBuffer);
+      const copiedKey = new Uint8Array(rawKey.byteLength);
+      copiedKey.set(rawKey);
+      publicKeyBytes = copiedKey;
     }
 
     let verification;
@@ -109,8 +103,8 @@ export async function POST(req: NextRequest) {
       verification = await verifyAuthenticationResponse({
         response: credential,
         expectedChallenge: challengeRow.challenge,
-        expectedOrigin: getExpectedOrigin(),
-        expectedRPID: getRpId(),
+        expectedOrigin: origin,
+        expectedRPID: rpId,
         credential: {
           id: credRow.credential_id,
           publicKey: publicKeyBytes,
@@ -120,7 +114,10 @@ export async function POST(req: NextRequest) {
       });
     } catch (verifyErr) {
       console.error('[webauthn/auth-verify] verification failed:', verifyErr);
-      return NextResponse.json({ error: 'Autenticación biométrica fallida. Intenta de nuevo.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Autenticación biométrica fallida. Intenta de nuevo.' },
+        { status: 400 }
+      );
     }
 
     if (!verification.verified) {
@@ -138,7 +135,10 @@ export async function POST(req: NextRequest) {
         context: 'browser_desktop',
         success: false,
       });
-      return NextResponse.json({ error: 'Alerta de seguridad: posible clonación de dispositivo.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Alerta de seguridad: posible clonación de dispositivo.' },
+        { status: 400 }
+      );
     }
 
     // Update sign_count and last_used_at
@@ -151,30 +151,44 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from('webauthn_challenges').delete().eq('key', challengeKey);
 
     // Audit log
-    await supabaseAdmin.from('webauthn_audit').insert({
+    const { error: auditError } = await supabaseAdmin.from('webauthn_audit').insert({
       user_id: userId,
       credential_id: credRow.credential_id,
       event_type: 'login',
       context: 'browser_desktop',
       success: true,
       ip: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || null,
-    }).catch(() => {/* non-blocking */});
-
-    // Create Supabase session
-    const { data: sessionData, error: sessionError } = await supabaseAdmin.auth.admin.createSession({ user_id: userId });
-    if (sessionError || !sessionData?.session) {
-      console.error('[webauthn/auth-verify] session creation failed:', sessionError);
-      return NextResponse.json({ error: 'No se pudo crear la sesión. Intenta de nuevo.' }, { status: 500 });
+    });
+    if (auditError) {
+      console.warn('[webauthn/auth-verify] audit log failed:', auditError.message);
     }
 
-    return NextResponse.json({
+    // Generate a one-time token that the verified browser exchanges for its session.
+    const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+      type: 'magiclink',
+      email: email.trim().toLowerCase(),
+    });
+    if (linkError || !linkData?.properties?.hashed_token) {
+      console.error('[webauthn/auth-verify] session token generation failed:', linkError);
+      return NextResponse.json(
+        { error: 'No se pudo crear la sesión. Intenta de nuevo.' },
+        { status: 500 }
+      );
+    }
+
+    const successResponse = NextResponse.json({
       success: true,
       userId,
-      session: {
-        access_token: sessionData.session.access_token,
-        refresh_token: sessionData.session.refresh_token,
-      },
+      tokenHash: linkData.properties.hashed_token,
     });
+    successResponse.cookies.set('docubox_session_start', Math.floor(Date.now() / 1000).toString(), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 10 * 60 * 60 + 300,
+    });
+    return successResponse;
   } catch (err) {
     console.error('[webauthn/auth-verify]', err);
     return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });

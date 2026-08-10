@@ -1,25 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateRegistrationOptions } from '@simplewebauthn/server';
 import { createClient } from '@supabase/supabase-js';
+import { getWebAuthnChallengeKey, getWebAuthnRequestConfig } from '@/lib/webauthn/request-config';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const RP_NAME = 'DOCUBOX';
 const CHALLENGE_TTL_SECONDS = 300;
-
-function getRpId(): string {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'firmamax4272.builtwithrocket.new';
-  try {
-    return new URL(siteUrl).hostname;
-  } catch {
-    return siteUrl;
-  }
-}
-
-function getExpectedOrigin(): string {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmamax4272.builtwithrocket.new';
-  return siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`;
-}
 
 function getAdminClient() {
   return createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
@@ -34,11 +21,13 @@ export async function POST(req: NextRequest) {
     const supabase = getAdminClient();
 
     // Verify JWT and get user
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(token);
     if (authError || !user) return NextResponse.json({ error: 'No autorizado.' }, { status: 401 });
 
-    const body = await req.json();
-    const { deviceName, context, os, browser, deviceCategory } = body;
+    const { rpId } = getWebAuthnRequestConfig(req);
 
     // Count active credentials
     const { count } = await supabase
@@ -50,7 +39,10 @@ export async function POST(req: NextRequest) {
     const deviceCount = count ?? 0;
     const PLAN_LIMIT = 10; // Default generous limit
     if (deviceCount >= PLAN_LIMIT) {
-      return NextResponse.json({ error: 'Alcanzaste el límite de dispositivos de tu plan.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Alcanzaste el límite de dispositivos de tu plan.' },
+        { status: 400 }
+      );
     }
 
     // Get existing credential IDs to exclude
@@ -67,7 +59,7 @@ export async function POST(req: NextRequest) {
 
     // Generate registration options
     const options = await generateRegistrationOptions({
-      rpID: getRpId(),
+      rpID: rpId,
       rpName: RP_NAME,
       userID: new TextEncoder().encode(user.id),
       userName: user.email || user.id,
@@ -83,11 +75,14 @@ export async function POST(req: NextRequest) {
 
     // Store challenge in DB (TTL via expires_at)
     const expiresAt = new Date(Date.now() + CHALLENGE_TTL_SECONDS * 1000).toISOString();
-    const challengeKey = `reg:${user.id}`;
+    const challengeKey = getWebAuthnChallengeKey('reg', user.id, rpId);
 
     await supabase
       .from('webauthn_challenges')
-      .upsert({ key: challengeKey, challenge: options.challenge, expires_at: expiresAt }, { onConflict: 'key' });
+      .upsert(
+        { key: challengeKey, challenge: options.challenge, expires_at: expiresAt },
+        { onConflict: 'key' }
+      );
 
     return NextResponse.json(options);
   } catch (err) {

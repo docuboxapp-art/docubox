@@ -1,15 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateAuthenticationOptions } from '@simplewebauthn/server';
-
-function getRpId(): string {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'firmamax4272.builtwithrocket.new';
-  try {
-    return new URL(siteUrl).hostname;
-  } catch {
-    return siteUrl;
-  }
-}
+import { getWebAuthnChallengeKey, getWebAuthnRequestConfig } from '@/lib/webauthn/request-config';
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,10 +24,14 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (!profile?.id) {
-      return NextResponse.json({ error: 'No se encontraron dispositivos registrados.' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'No se encontraron dispositivos registrados.' },
+        { status: 404 }
+      );
     }
 
     const userId = profile.id;
+    const { rpId } = getWebAuthnRequestConfig(req);
 
     // Fetch active credentials
     const { data: creds } = await supabaseAdmin
@@ -45,7 +41,10 @@ export async function POST(req: NextRequest) {
       .eq('is_active', true);
 
     if (!creds || creds.length === 0) {
-      return NextResponse.json({ error: 'No se encontraron dispositivos registrados.' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'No se encontraron dispositivos registrados.' },
+        { status: 404 }
+      );
     }
 
     // Build allowCredentials list
@@ -55,7 +54,7 @@ export async function POST(req: NextRequest) {
     }));
 
     const options = await generateAuthenticationOptions({
-      rpID: getRpId(),
+      rpID: rpId,
       userVerification: 'required',
       allowCredentials,
       timeout: 60000,
@@ -63,7 +62,7 @@ export async function POST(req: NextRequest) {
 
     // Persist challenge in webauthn_challenges table (TTL 5 min)
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-    const challengeKey = `webauthn:auth:${userId}`;
+    const challengeKey = getWebAuthnChallengeKey('webauthn:auth', userId, rpId);
 
     // Upsert challenge
     await supabaseAdmin
