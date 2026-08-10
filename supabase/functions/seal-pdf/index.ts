@@ -5,6 +5,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { PDFDocument, rgb, StandardFonts } from 'https://esm.sh/pdf-lib@1.17.1';
+import { userCanAccessDocument } from '../_shared/document-access.ts';
 
 declare const Deno: {
   env: {
@@ -257,6 +258,14 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
+    const authHeader = req.headers.get('Authorization')
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader?.replace('Bearer ', '') || ''
+    )
+    if (authError || !user) {
+      return new Response('Unauthorized', { status: 401, headers: corsHeaders })
+    }
+
     const body = await req.json()
     const {
       document_id,
@@ -271,6 +280,10 @@ serve(async (req) => {
       participants = [],
       campos_solicitados = [],
     } = body
+
+    if (!await userCanAccessDocument(supabase, user, document_id, { ownerOrAdminOnly: true })) {
+      return new Response('Forbidden', { status: 403, headers: corsHeaders })
+    }
 
     console.log('[seal-pdf] ▶ Inicio del proceso', {
       document_id,

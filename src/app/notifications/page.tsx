@@ -4,8 +4,22 @@ import React, { Suspense, useState, useRef, useEffect, useCallback } from 'react
 import AppLayout from '@/components/AppLayout';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Search, ChevronDown, FileText, CheckSquare, Send, AlertTriangle, Info,
-  Check, Trash2, RefreshCw, X, Eye, BookOpen, ExternalLink
+  Search,
+  ChevronDown,
+  FileText,
+  CheckSquare,
+  Send,
+  AlertTriangle,
+  Info,
+  Check,
+  Trash2,
+  RefreshCw,
+  X,
+  Eye,
+  BookOpen,
+  ExternalLink,
+  Bell,
+  Inbox,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -47,7 +61,11 @@ function formatRelativeTime(dateStr: string): string {
     if (hours < 24) return `hace ${hours} hora${hours !== 1 ? 's' : ''}`;
     const days = Math.floor(hours / 24);
     if (days < 7) return `hace ${days} día${days !== 1 ? 's' : ''}`;
-    return new Date(dateStr).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+    return new Date(dateStr).toLocaleDateString('es-MX', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
   } catch {
     return dateStr;
   }
@@ -56,8 +74,11 @@ function formatRelativeTime(dateStr: string): string {
 function formatFullDate(dateStr: string): string {
   try {
     return new Date(dateStr).toLocaleDateString('es-MX', {
-      day: 'numeric', month: 'long', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   } catch {
     return dateStr;
@@ -73,8 +94,27 @@ interface DetailModalProps {
   onDelete: (id: string) => Promise<void>;
 }
 
-function NotificationDetailModal({ notification: n, onClose, onMarkRead, onMarkUnread, onDelete }: DetailModalProps) {
+function NotificationDetailModal({
+  notification: n,
+  onClose,
+  onMarkRead,
+  onMarkUnread,
+  onDelete,
+}: DetailModalProps) {
   const router = useRouter();
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [onClose]);
 
   const priorityConfig: Record<string, { label: string; cls: string }> = {
     alta: { label: 'Alta', cls: 'bg-red-50 text-red-600 border border-red-200' },
@@ -118,23 +158,35 @@ function NotificationDetailModal({ notification: n, onClose, onMarkRead, onMarkU
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="notification-detail-title"
+    >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-950/35 backdrop-blur-[2px]" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="relative w-full max-w-[560px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.18)] dark:border-slate-700 dark:bg-slate-900">
         {/* Header */}
-        <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-border">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${n.read ? 'bg-muted' : 'bg-primary/10'}`}>
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+          <div className="flex min-w-0 items-center gap-3">
+            <div
+              className={`flex h-10 w-10 flex-none items-center justify-center rounded-lg ${n.read ? 'bg-slate-100 dark:bg-slate-800' : 'bg-blue-50 dark:bg-blue-950/50'}`}
+            >
               {typeIcons[n.type] ?? typeIcons.info}
             </div>
-            <div>
-              <h2 className="text-base font-700 text-foreground leading-tight">{n.title}</h2>
+            <div className="min-w-0">
+              <h2
+                id="notification-detail-title"
+                className="text-base font-700 leading-snug text-slate-950 dark:text-white"
+              >
+                {n.title}
+              </h2>
               {!n.read && (
-                <span className="inline-flex items-center gap-1 text-xs text-primary font-500 mt-0.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+                <span className="mt-1 inline-flex items-center gap-1.5 text-xs font-600 text-primary">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" />
                   No leída
                 </span>
               )}
@@ -142,54 +194,63 @@ function NotificationDetailModal({ notification: n, onClose, onMarkRead, onMarkU
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="flex h-9 w-9 flex-none items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:hover:bg-slate-800 dark:hover:text-white"
+            aria-label="Cerrar detalle"
           >
             <X size={18} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5 space-y-4">
+        <div className="space-y-5 px-5 py-5">
           {/* Meta row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-muted/40 rounded-xl p-3">
-              <p className="text-xs text-muted-foreground font-500 mb-1">Tipo de notificación</p>
-              <span className={`inline-flex items-center gap-1.5 text-xs font-600 px-2 py-0.5 rounded-full ${typeColorCls[n.type] ?? typeColorCls.info}`}>
+          <div className="grid grid-cols-2 divide-x divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+            <div className="p-3.5">
+              <p className="mb-1.5 text-xs font-600 text-slate-500">Tipo</p>
+              <span
+                className={`inline-flex items-center gap-1.5 text-xs font-600 px-2 py-0.5 rounded-full ${typeColorCls[n.type] ?? typeColorCls.info}`}
+              >
                 {typeIcons[n.type]}
                 {typeLabels[n.type] ?? 'Info'}
               </span>
             </div>
-            <div className="bg-muted/40 rounded-xl p-3">
-              <p className="text-xs text-muted-foreground font-500 mb-1">Prioridad</p>
-              <span className={`inline-flex text-xs font-600 px-2 py-0.5 rounded-full ${priorityConfig[n.priority]?.cls ?? ''}`}>
+            <div className="p-3.5">
+              <p className="mb-1.5 text-xs font-600 text-slate-500">Prioridad</p>
+              <span
+                className={`inline-flex text-xs font-600 px-2 py-0.5 rounded-full ${priorityConfig[n.priority]?.cls ?? ''}`}
+              >
                 {priorityConfig[n.priority]?.label ?? n.priority}
               </span>
             </div>
           </div>
 
           {/* Description */}
-          <div className="bg-muted/40 rounded-xl p-4">
-            <p className="text-xs text-muted-foreground font-500 mb-1.5">Detalle de la notificación</p>
-            <p className="text-sm text-foreground leading-relaxed">{n.description}</p>
+          <div>
+            <p className="mb-1.5 text-xs font-600 text-slate-500">Detalle</p>
+            <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+              {n.description}
+            </p>
           </div>
 
           {/* Date */}
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-start gap-2 border-t border-slate-100 pt-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
             <Info size={14} className="flex-shrink-0" />
             <span>
-              <span className="font-500 text-foreground">Fecha de creación:</span>{' '}
+              <span className="font-600 text-slate-700 dark:text-slate-200">Fecha:</span>{' '}
               {formatRelativeTime(n.created_at)}
-              <span className="text-xs ml-1 text-muted-foreground/70">({formatFullDate(n.created_at)})</span>
+              <span className="text-xs ml-1 text-muted-foreground/70">
+                ({formatFullDate(n.created_at)})
+              </span>
             </span>
           </div>
         </div>
 
         {/* Actions footer */}
-        <div className="px-6 pb-5 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-slate-50/60 px-5 py-4 dark:border-slate-700 dark:bg-slate-950/40">
           {/* Contextual action */}
           <button
             onClick={handleContextualAction}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-600 rounded-lg hover:bg-primary/90 transition-colors"
+            className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white transition-colors hover:bg-primary/90"
           >
             <ExternalLink size={14} />
             {contextualActionLabel()}
@@ -198,16 +259,22 @@ function NotificationDetailModal({ notification: n, onClose, onMarkRead, onMarkU
           {/* Mark read / unread */}
           {n.read ? (
             <button
-              onClick={async () => { await onMarkUnread(n.id); onClose(); }}
-              className="flex items-center gap-2 px-4 py-2 border border-border text-sm font-500 rounded-lg text-foreground hover:bg-muted transition-colors"
+              onClick={async () => {
+                await onMarkUnread(n.id);
+                onClose();
+              }}
+              className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-500 text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <BookOpen size={14} />
               Marcar como no leída
             </button>
           ) : (
             <button
-              onClick={async () => { await onMarkRead(n.id); onClose(); }}
-              className="flex items-center gap-2 px-4 py-2 border border-border text-sm font-500 rounded-lg text-foreground hover:bg-muted transition-colors"
+              onClick={async () => {
+                await onMarkRead(n.id);
+                onClose();
+              }}
+              className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-500 text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <Check size={14} />
               Marcar como leída
@@ -216,8 +283,11 @@ function NotificationDetailModal({ notification: n, onClose, onMarkRead, onMarkU
 
           {/* Delete */}
           <button
-            onClick={async () => { await onDelete(n.id); onClose(); }}
-            className="flex items-center gap-2 px-4 py-2 border border-destructive/30 text-sm font-500 rounded-lg text-destructive hover:bg-destructive/5 transition-colors ml-auto"
+            onClick={async () => {
+              await onDelete(n.id);
+              onClose();
+            }}
+            className="ml-auto flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-500 text-destructive transition-colors hover:bg-destructive/5"
           >
             <Trash2 size={14} />
             Eliminar
@@ -289,18 +359,26 @@ function NotificationsContent() {
     const supabase = createClient();
     const channel = supabase
       .channel('notifications-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, () => {
-        loadNotifications();
-      })
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+        () => {
+          loadNotifications();
+        }
+      )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user, loadNotifications]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (typeRef.current && !typeRef.current.contains(e.target as Node)) setTypeOpen(false);
-      if (priorityRef.current && !priorityRef.current.contains(e.target as Node)) setPriorityOpen(false);
-      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) setActionsOpen(false);
+      if (priorityRef.current && !priorityRef.current.contains(e.target as Node))
+        setPriorityOpen(false);
+      if (actionsRef.current && !actionsRef.current.contains(e.target as Node))
+        setActionsOpen(false);
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -311,7 +389,12 @@ function NotificationsContent() {
     if (tab === 'read' && !n.read) return false;
     if (typeFilter !== 'todos' && n.type !== typeFilter) return false;
     if (priorityFilter !== 'todas' && n.priority !== priorityFilter) return false;
-    if (search && !n.title.toLowerCase().includes(search.toLowerCase()) && !n.description.toLowerCase().includes(search.toLowerCase())) return false;
+    if (
+      search &&
+      !n.title.toLowerCase().includes(search.toLowerCase()) &&
+      !n.description.toLowerCase().includes(search.toLowerCase())
+    )
+      return false;
     return true;
   });
 
@@ -326,23 +409,23 @@ function NotificationsContent() {
   };
 
   const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
   };
 
   // ── Single notification actions ──
   const markOneRead = async (id: string) => {
     const supabase = createClient();
     await supabase.from('notifications').update({ read: true }).eq('id', id);
-    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     // Update detail modal if open
-    setDetailNotif((prev) => prev?.id === id ? { ...prev, read: true } : prev);
+    setDetailNotif((prev) => (prev?.id === id ? { ...prev, read: true } : prev));
   };
 
   const markOneUnread = async (id: string) => {
     const supabase = createClient();
     await supabase.from('notifications').update({ read: false }).eq('id', id);
-    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: false } : n));
-    setDetailNotif((prev) => prev?.id === id ? { ...prev, read: false } : prev);
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: false } : n)));
+    setDetailNotif((prev) => (prev?.id === id ? { ...prev, read: false } : prev));
   };
 
   const deleteOne = async (id: string) => {
@@ -364,7 +447,9 @@ function NotificationsContent() {
     if (!selectedIds.length) return;
     const supabase = createClient();
     await supabase.from('notifications').update({ read: true }).in('id', selectedIds);
-    setNotifications((prev) => prev.map((n) => selectedIds.includes(n.id) ? { ...n, read: true } : n));
+    setNotifications((prev) =>
+      prev.map((n) => (selectedIds.includes(n.id) ? { ...n, read: true } : n))
+    );
     setSelectedIds([]);
     setActionsOpen(false);
   };
@@ -373,7 +458,9 @@ function NotificationsContent() {
     if (!selectedIds.length) return;
     const supabase = createClient();
     await supabase.from('notifications').update({ read: false }).in('id', selectedIds);
-    setNotifications((prev) => prev.map((n) => selectedIds.includes(n.id) ? { ...n, read: false } : n));
+    setNotifications((prev) =>
+      prev.map((n) => (selectedIds.includes(n.id) ? { ...n, read: false } : n))
+    );
     setSelectedIds([]);
     setActionsOpen(false);
   };
@@ -390,7 +477,11 @@ function NotificationsContent() {
   const markAllRead = async () => {
     if (!user) return;
     const supabase = createClient();
-    await supabase.from('notifications').update({ read: true }).eq('user_id', user.id).eq('read', false);
+    await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('user_id', user.id)
+      .eq('read', false);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setActionsOpen(false);
   };
@@ -398,295 +489,375 @@ function NotificationsContent() {
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
-    <AppLayout noPadding>
-      <div className="px-4 sm:px-6 lg:px-8 pt-2 pb-4 md:pb-6 w-full min-h-[calc(100vh-8rem)]">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Info size={24} className="text-primary" />
-              Notificaciones
-              {unreadCount > 0 && (
-                <span className="ml-1 bg-primary text-white text-xs font-700 px-2 py-0.5 rounded-full tabular-nums">
-                  {unreadCount}
-                </span>
-              )}
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">Tu centro de alertas para documentos, seguridad y sistema.</p>
-          </div>
-          <button
-            onClick={loadNotifications}
-            className="flex items-center gap-2 px-3 py-2 text-sm border border-border rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            Actualizar
-          </button>
-        </div>
-
-        {/* Card container */}
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          {/* Search + Filters row */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-            <div className="flex-1 flex items-center gap-2 border border-border rounded-lg px-3 py-2 bg-white focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 transition-all duration-150">
-              <Search size={15} className="text-muted-foreground flex-shrink-0" />
-              <input
-                type="text"
-                placeholder="Buscar por palabra clave..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="flex-1 text-sm outline-none text-foreground placeholder-muted-foreground bg-transparent"
-              />
+    <AppLayout>
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-8rem)] bg-[#f6f8fb] px-4 py-4 sm:-mx-6 sm:px-5 md:-my-6 lg:-mx-8 lg:px-6 xl:-mx-10 xl:px-7 dark:bg-background">
+        <div className="mx-auto w-full max-w-[1600px]">
+          {/* Header */}
+          <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="flex items-center gap-2 text-2xl font-700 text-slate-950 dark:text-white">
+                Notificaciones
+                {unreadCount > 0 && (
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-50 px-1.5 text-xs font-700 tabular-nums text-primary ring-1 ring-blue-100 dark:bg-blue-950/50 dark:ring-blue-900">
+                    {unreadCount}
+                  </span>
+                )}
+              </h1>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Consulta y administra las novedades de tu espacio de trabajo.
+              </p>
             </div>
-
-            {/* Type dropdown */}
-            <div className="relative" ref={typeRef}>
-              <button
-                onClick={() => { setTypeOpen(!typeOpen); setPriorityOpen(false); }}
-                className="flex items-center gap-2 border border-border rounded-lg px-3 py-2 text-sm text-foreground bg-white hover:bg-primary/5 hover:border-primary/30 hover:text-primary whitespace-nowrap transition-all duration-150"
-              >
-                {typeFilter === 'todos' ? 'Todos los tipos' : typeLabels[typeFilter]}
-                <ChevronDown size={14} className="text-muted-foreground" />
-              </button>
-              {typeOpen && (
-                <div className="absolute right-0 top-full mt-1 bg-white border border-border rounded-xl shadow-lg z-20 min-w-[160px] overflow-hidden">
-                  {[
-                    { value: 'todos', label: 'Todos los tipos' },
-                    { value: 'document', label: 'Documento' },
-                    { value: 'task', label: 'Tarea' },
-                    { value: 'request', label: 'Solicitud' },
-                    { value: 'alert', label: 'Alerta' },
-                    { value: 'info', label: 'Información' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => { setTypeFilter(opt.value); setTypeOpen(false); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-primary/5 hover:text-primary transition-all duration-100 ${typeFilter === opt.value ? 'text-primary font-600 bg-primary/5' : 'text-foreground'}`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Priority dropdown */}
-            <div className="relative" ref={priorityRef}>
-              <button
-                onClick={() => { setPriorityOpen(!priorityOpen); setTypeOpen(false); }}
-                className="flex items-center gap-2 border border-border rounded-lg px-3 py-2 text-sm text-foreground bg-white hover:bg-primary/5 hover:border-primary/30 hover:text-primary whitespace-nowrap transition-all duration-150"
-              >
-                {priorityFilter === 'todas' ? 'Todas las prioridades' : priorityFilter.charAt(0).toUpperCase() + priorityFilter.slice(1)}
-                <ChevronDown size={14} className="text-muted-foreground" />
-              </button>
-              {priorityOpen && (
-                <div className="absolute right-0 top-full mt-1 bg-white border border-border rounded-xl shadow-lg z-20 min-w-[180px] overflow-hidden">
-                  {[
-                    { value: 'todas', label: 'Todas las prioridades' },
-                    { value: 'alta', label: 'Alta' },
-                    { value: 'media', label: 'Media' },
-                    { value: 'baja', label: 'Baja' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => { setPriorityFilter(opt.value); setPriorityOpen(false); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-primary/5 hover:text-primary transition-all duration-100 ${priorityFilter === opt.value ? 'text-primary font-600 bg-primary/5' : 'text-foreground'}`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <button
+              onClick={loadNotifications}
+              className="flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+              Actualizar
+            </button>
           </div>
 
-          {/* Tabs + Actions row */}
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-            <div className="flex items-center gap-1">
-              {[
-                { key: 'all', label: 'Todas' },
-                { key: 'unread', label: 'No Leídas' },
-                { key: 'read', label: 'Leídas' },
-              ].map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key as 'all' | 'unread' | 'read')}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-500 transition-all duration-150 ${
-                    tab === t.key ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground hover:bg-primary/5 hover:text-primary'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+          {/* Search and filters */}
+          <section className="mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-slate-700 dark:bg-slate-900">
+            {/* Search + Filters row */}
+            <div className="flex flex-wrap items-center gap-2 p-3">
+              <div className="flex h-9 min-w-[220px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-50/70 px-3 transition-colors focus-within:border-primary focus-within:bg-white focus-within:ring-2 focus-within:ring-primary/10 dark:border-slate-700 dark:bg-slate-800/70">
+                <Search size={15} className="flex-shrink-0 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar por palabra clave..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-200"
+                />
+              </div>
 
-            {/* Actions dropdown */}
-            <div className="flex items-center gap-2">
-              {selectedIds.length > 0 && (
-                <span className="text-xs text-primary font-600 bg-primary/10 px-2 py-0.5 rounded-full">
-                  {selectedIds.length} seleccionadas
-                </span>
-              )}
-              <div className="relative" ref={actionsRef}>
+              {/* Type dropdown */}
+              <div className="relative flex-1 sm:flex-none" ref={typeRef}>
                 <button
-                  onClick={() => setActionsOpen(!actionsOpen)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-sm text-foreground bg-white hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-150"
+                  onClick={() => {
+                    setTypeOpen(!typeOpen);
+                    setPriorityOpen(false);
+                  }}
+                  className="flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 sm:w-auto"
                 >
-                  Acciones
-                  <ChevronDown size={13} className="text-muted-foreground" />
+                  {typeFilter === 'todos' ? 'Todos los tipos' : typeLabels[typeFilter]}
+                  <ChevronDown size={14} className="text-muted-foreground" />
                 </button>
-                {actionsOpen && (
-                  <div className="absolute right-0 top-full mt-1 bg-white border border-border rounded-xl shadow-lg z-20 min-w-[220px] overflow-hidden">
-                    {/* Bulk: mark as read — show when selection has unread items */}
-                    {(allSelectedUnread || hasMixedSelection || selectedIds.length === 0) && (
+                {typeOpen && (
+                  <div className="absolute right-0 top-full z-20 mt-1 min-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)] dark:border-slate-700 dark:bg-slate-900">
+                    {[
+                      { value: 'todos', label: 'Todos los tipos' },
+                      { value: 'document', label: 'Documento' },
+                      { value: 'task', label: 'Tarea' },
+                      { value: 'request', label: 'Solicitud' },
+                      { value: 'alert', label: 'Alerta' },
+                      { value: 'info', label: 'Información' },
+                    ].map((opt) => (
                       <button
-                        onClick={markSelectedRead}
-                        disabled={selectedIds.length === 0}
-                        className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 hover:text-primary transition-all duration-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                        key={opt.value}
+                        onClick={() => {
+                          setTypeFilter(opt.value);
+                          setTypeOpen(false);
+                        }}
+                        className={`w-full px-3 py-2 text-left text-sm transition-colors hover:bg-blue-50 hover:text-primary dark:hover:bg-blue-950/30 ${typeFilter === opt.value ? 'bg-blue-50 font-600 text-primary dark:bg-blue-950/30' : 'text-slate-700 dark:text-slate-200'}`}
                       >
-                        <Check size={14} />
-                        Marcar seleccionadas como leídas
+                        {opt.label}
                       </button>
-                    )}
-                    {/* Bulk: mark as unread — show when selection has read items */}
-                    {(allSelectedRead || hasMixedSelection) && (
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Priority dropdown */}
+              <div className="relative flex-1 sm:flex-none" ref={priorityRef}>
+                <button
+                  onClick={() => {
+                    setPriorityOpen(!priorityOpen);
+                    setTypeOpen(false);
+                  }}
+                  className="flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 sm:w-auto"
+                >
+                  {priorityFilter === 'todas'
+                    ? 'Todas las prioridades'
+                    : priorityFilter.charAt(0).toUpperCase() + priorityFilter.slice(1)}
+                  <ChevronDown size={14} className="text-muted-foreground" />
+                </button>
+                {priorityOpen && (
+                  <div className="absolute right-0 top-full z-20 mt-1 min-w-[190px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)] dark:border-slate-700 dark:bg-slate-900">
+                    {[
+                      { value: 'todas', label: 'Todas las prioridades' },
+                      { value: 'alta', label: 'Alta' },
+                      { value: 'media', label: 'Media' },
+                      { value: 'baja', label: 'Baja' },
+                    ].map((opt) => (
                       <button
-                        onClick={markSelectedUnread}
-                        disabled={selectedIds.length === 0}
-                        className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 hover:text-primary transition-all duration-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                        key={opt.value}
+                        onClick={() => {
+                          setPriorityFilter(opt.value);
+                          setPriorityOpen(false);
+                        }}
+                        className={`w-full px-3 py-2 text-left text-sm transition-colors hover:bg-blue-50 hover:text-primary dark:hover:bg-blue-950/30 ${priorityFilter === opt.value ? 'bg-blue-50 font-600 text-primary dark:bg-blue-950/30' : 'text-slate-700 dark:text-slate-200'}`}
                       >
-                        <BookOpen size={14} />
-                        Marcar seleccionadas como no leídas
+                        {opt.label}
                       </button>
-                    )}
-                    <button
-                      onClick={markAllRead}
-                      className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 hover:text-primary transition-all duration-100 flex items-center gap-2"
-                    >
-                      <Check size={14} />
-                      Marcar todas como leídas
-                    </button>
-                    <div className="border-t border-border my-1" />
-                    <button
-                      onClick={deleteSelected}
-                      disabled={selectedIds.length === 0}
-                      className="w-full text-left px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-all duration-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      <Trash2 size={14} />
-                      Eliminar seleccionadas
-                    </button>
+                    ))}
                   </div>
                 )}
               </div>
             </div>
-          </div>
 
-          {/* Table header */}
-          <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-3 px-4 py-2 border-b border-border bg-muted/20">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleSelectAll}
-              className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
-            />
-            <span className="text-xs font-600 uppercase tracking-wide text-muted-foreground">Notificación</span>
-            <span className="text-xs font-600 uppercase tracking-wide text-muted-foreground">Tipo</span>
-            <span className="text-xs font-600 uppercase tracking-wide text-muted-foreground">Prioridad</span>
-            <span className="text-xs font-600 uppercase tracking-wide text-muted-foreground">Tiempo</span>
-            <span className="text-xs font-600 uppercase tracking-wide text-muted-foreground">Acción</span>
-          </div>
-
-          {/* Notification rows */}
-          <div className="divide-y divide-border">
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-3">
-                <svg className="animate-spin h-6 w-6 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                <p className="text-sm text-muted-foreground">Cargando notificaciones...</p>
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-3">
-                <Info size={36} className="text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground">
-                  {notifications.length === 0
-                    ? 'No tienes notificaciones aún.'
-                    : 'No hay notificaciones que coincidan con los filtros.'}
-                </p>
-              </div>
-            ) : (
-              filtered.map((n) => (
-                <div
-                  key={n.id}
-                  onClick={() => toggleSelect(n.id)}
-                  className={`grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-3 px-4 py-3.5 cursor-pointer transition-all duration-150 group ${
-                    selectedIds.includes(n.id)
-                      ? 'bg-primary/5 border-l-2 border-l-primary'
-                      : n.read
-                      ? 'hover:bg-muted/40' :'bg-primary/[0.02] hover:bg-primary/5'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(n.id)}
-                    onChange={() => toggleSelect(n.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
-                  />
-                  <div className="flex items-start gap-3 min-w-0">
-                    {!n.read && <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1.5" />}
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${n.read ? 'bg-muted' : 'bg-primary/10'}`}>
-                      {typeIcons[n.type] ?? typeIcons.info}
-                    </div>
-                    <div className="min-w-0">
-                      <p className={`text-sm leading-tight ${!n.read ? 'font-600 text-foreground' : 'font-500 text-foreground'} group-hover:text-primary transition-colors duration-150`}>
-                        {n.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{n.description}</p>
-                    </div>
-                  </div>
-                  <span className={`text-xs font-500 px-2 py-0.5 rounded-full whitespace-nowrap ${
-                    n.type === 'document' ? 'bg-blue-50 text-blue-600' :
-                    n.type === 'task' ? 'bg-green-50 text-green-600' :
-                    n.type === 'request' ? 'bg-purple-50 text-purple-600' :
-                    n.type === 'alert' ? 'bg-red-50 text-red-600' : 'bg-muted text-muted-foreground'
-                  }`}>
-                    {typeLabels[n.type] ?? 'Info'}
-                  </span>
-                  <span className={`text-xs font-600 px-2 py-0.5 rounded-full whitespace-nowrap ${
-                    n.priority === 'alta' ? 'bg-red-50 text-red-600 border border-red-200' :
-                    n.priority === 'media' ? 'bg-amber-50 text-amber-600 border border-amber-200' : 'bg-primary/10 text-primary border border-primary/20'
-                  }`}>
-                    {n.priority.charAt(0).toUpperCase() + n.priority.slice(1)}
-                  </span>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">{formatRelativeTime(n.created_at)}</span>
-
-                  {/* Ver detalle button */}
+            {/* Tabs + Actions row */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-3 dark:border-slate-700">
+              <div className="flex min-w-0 items-center gap-4 overflow-x-auto">
+                {[
+                  { key: 'all', label: 'Todas' },
+                  { key: 'unread', label: 'No Leídas' },
+                  { key: 'read', label: 'Leídas' },
+                ].map((t) => (
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDetailNotif(n);
-                    }}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-500 text-primary border border-primary/30 rounded-lg bg-primary/5 hover:bg-primary hover:text-white transition-all duration-150 whitespace-nowrap"
+                    key={t.key}
+                    onClick={() => setTab(t.key as 'all' | 'unread' | 'read')}
+                    className={`h-11 whitespace-nowrap border-b-2 px-1 text-sm font-600 transition-colors ${
+                      tab === t.key
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                    }`}
                   >
-                    <Eye size={12} />
-                    Ver detalle
+                    {t.label}
                   </button>
-                </div>
-              ))
-            )}
-          </div>
+                ))}
+              </div>
 
-          {/* Footer */}
-          <div className="px-4 py-3 border-t border-border flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">{filtered.length} notificación{filtered.length !== 1 ? 'es' : ''}</p>
-            <button
-              onClick={markAllRead}
-              className="text-xs font-500 text-primary hover:text-primary-700 hover:underline transition-colors duration-150"
-            >
-              Marcar todas como leídas
-            </button>
-          </div>
+              {/* Actions dropdown */}
+              <div className="flex items-center gap-2">
+                {selectedIds.length > 0 && (
+                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-600 text-primary dark:bg-blue-950/50">
+                    {selectedIds.length} seleccionadas
+                  </span>
+                )}
+                <div className="relative" ref={actionsRef}>
+                  <button
+                    onClick={() => setActionsOpen(!actionsOpen)}
+                    className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    Acciones
+                    <ChevronDown size={13} className="text-muted-foreground" />
+                  </button>
+                  {actionsOpen && (
+                    <div className="absolute right-0 top-full z-20 mt-1 min-w-[240px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)] dark:border-slate-700 dark:bg-slate-900">
+                      {/* Bulk: mark as read — show when selection has unread items */}
+                      {(allSelectedUnread || hasMixedSelection || selectedIds.length === 0) && (
+                        <button
+                          onClick={markSelectedRead}
+                          disabled={selectedIds.length === 0}
+                          className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 hover:text-primary transition-all duration-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          <Check size={14} />
+                          Marcar seleccionadas como leídas
+                        </button>
+                      )}
+                      {/* Bulk: mark as unread — show when selection has read items */}
+                      {(allSelectedRead || hasMixedSelection) && (
+                        <button
+                          onClick={markSelectedUnread}
+                          disabled={selectedIds.length === 0}
+                          className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 hover:text-primary transition-all duration-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          <BookOpen size={14} />
+                          Marcar seleccionadas como no leídas
+                        </button>
+                      )}
+                      <button
+                        onClick={markAllRead}
+                        className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 hover:text-primary transition-all duration-100 flex items-center gap-2"
+                      >
+                        <Check size={14} />
+                        Marcar todas como leídas
+                      </button>
+                      <div className="border-t border-border my-1" />
+                      <button
+                        onClick={deleteSelected}
+                        disabled={selectedIds.length === 0}
+                        className="w-full text-left px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-all duration-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        <Trash2 size={14} />
+                        Eliminar seleccionadas
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Notifications list */}
+          <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-slate-700 dark:bg-slate-900">
+            {/* Table header */}
+            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-2.5 dark:border-slate-700 dark:bg-slate-800/60 md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto]">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
+              />
+              <span className="text-xs font-600 text-slate-500">Notificación</span>
+              <span className="hidden text-xs font-600 text-slate-500 md:block">Tipo</span>
+              <span className="hidden text-xs font-600 text-slate-500 md:block">Prioridad</span>
+              <span className="hidden text-xs font-600 text-slate-500 md:block">Tiempo</span>
+              <span className="text-xs font-600 text-slate-500">Acción</span>
+            </div>
+
+            {/* Notification rows */}
+            <div className="divide-y divide-border">
+              {loading ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-20">
+                  <svg
+                    className="h-6 w-6 animate-spin text-primary"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                  <p className="text-sm text-muted-foreground">Cargando notificaciones...</p>
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 px-6 py-20 text-center">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-50 text-slate-400 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+                    {notifications.length === 0 ? <Bell size={20} /> : <Inbox size={20} />}
+                  </div>
+                  <p className="text-sm font-600 text-slate-700 dark:text-slate-200">
+                    {notifications.length === 0
+                      ? 'No tienes notificaciones pendientes'
+                      : 'No encontramos resultados'}
+                  </p>
+                  <p className="max-w-sm text-sm text-slate-500 dark:text-slate-400">
+                    {notifications.length === 0
+                      ? 'Cuando ocurra algo importante en tu espacio, aparecerá aquí.'
+                      : 'Prueba cambiando la búsqueda o los filtros seleccionados.'}
+                  </p>
+                </div>
+              ) : (
+                filtered.map((n) => (
+                  <div
+                    key={n.id}
+                    onClick={() => toggleSelect(n.id)}
+                    className={`group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 transition-colors md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] ${
+                      selectedIds.includes(n.id)
+                        ? 'bg-blue-50/70 shadow-[inset_2px_0_0_#2563eb] dark:bg-blue-950/30'
+                        : n.read
+                          ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                          : 'bg-blue-50/25 hover:bg-blue-50/60 dark:bg-blue-950/10 dark:hover:bg-blue-950/25'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(n.id)}
+                      onChange={() => toggleSelect(n.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
+                    />
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div
+                        className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${n.read ? 'bg-slate-100 dark:bg-slate-800' : 'bg-blue-50 ring-1 ring-blue-100 dark:bg-blue-950/50 dark:ring-blue-900'}`}
+                      >
+                        {typeIcons[n.type] ?? typeIcons.info}
+                      </div>
+                      <div className="min-w-0">
+                        <p
+                          className={`flex items-center gap-2 text-sm leading-tight text-slate-800 dark:text-slate-100 ${!n.read ? 'font-700' : 'font-500'}`}
+                        >
+                          <span className="truncate">{n.title}</span>
+                          {!n.read && (
+                            <span className="h-1.5 w-1.5 flex-none rounded-full bg-primary" />
+                          )}
+                        </p>
+                        <p className="mt-1 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+                          {n.description}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 md:hidden">
+                          <span className="text-[11px] font-600 text-slate-500">
+                            {typeLabels[n.type] ?? 'Info'}
+                          </span>
+                          <span className="text-[11px] text-slate-400">·</span>
+                          <span className="text-[11px] text-slate-500">
+                            {formatRelativeTime(n.created_at)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <span
+                      className={`hidden whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-500 md:inline-flex ${
+                        n.type === 'document'
+                          ? 'bg-blue-50 text-blue-600'
+                          : n.type === 'task'
+                            ? 'bg-green-50 text-green-600'
+                            : n.type === 'request'
+                              ? 'bg-purple-50 text-purple-600'
+                              : n.type === 'alert'
+                                ? 'bg-red-50 text-red-600'
+                                : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {typeLabels[n.type] ?? 'Info'}
+                    </span>
+                    <span
+                      className={`hidden whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-600 md:inline-flex ${
+                        n.priority === 'alta'
+                          ? 'bg-red-50 text-red-600 border border-red-200'
+                          : n.priority === 'media'
+                            ? 'bg-amber-50 text-amber-600 border border-amber-200'
+                            : 'bg-primary/10 text-primary border border-primary/20'
+                      }`}
+                    >
+                      {n.priority.charAt(0).toUpperCase() + n.priority.slice(1)}
+                    </span>
+                    <span className="hidden whitespace-nowrap text-xs text-slate-500 md:block">
+                      {formatRelativeTime(n.created_at)}
+                    </span>
+
+                    {/* Ver detalle button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDetailNotif(n);
+                      }}
+                      className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-blue-950/30"
+                    >
+                      <Eye size={13} />
+                      <span className="hidden sm:inline">Ver detalle</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+              <p className="text-xs text-slate-500">
+                {filtered.length} notificación{filtered.length !== 1 ? 'es' : ''}
+              </p>
+              <button
+                onClick={markAllRead}
+                disabled={unreadCount === 0}
+                className="text-xs font-600 text-primary transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:text-slate-400"
+              >
+                Marcar todas como leídas
+              </button>
+            </div>
+          </section>
         </div>
       </div>
 

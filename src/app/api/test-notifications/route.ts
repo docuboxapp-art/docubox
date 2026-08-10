@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isInternalAdminRequest } from '@/lib/security/internal-admin';
 
 const TEST_EMAIL = 'luishb.mzt@gmail.com';
 const TEST_PHONE = '+526691074369';
@@ -164,6 +165,9 @@ function buildEdgePayload(templateType: string, recipient: string, recipientName
 }
 
 export async function POST(request: Request) {
+  if (!isInternalAdminRequest(request)) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
   const body = await request.json().catch(() => ({}));
   const testMode: boolean = body.testMode === true;
   const testTarget: string = body.testTarget || 'all';

@@ -1,94 +1,40 @@
 'use client';
 
-import React, { createContext, useContext, useReducer, useCallback, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useReducer } from 'react';
+import {
+  DEFAULT_SECTION_ID,
+  createDefaultFormTemplate,
+  createDefaultSection,
+  getFieldTypeLabel,
+  normalizeFormTemplate,
+  type FieldOption,
+  type FieldType,
+  type FormField,
+  type FormSection,
+  type FormTemplate,
+  type PdfSchema,
+  type SignatureType,
+  type ConditionalRule,
+  type PdfMapping,
+} from '@/lib/forms/schema';
 
-// ── Types ─────────────────────────────────────────────────────
-export type FieldType =
-  | 'text' | 'textarea' | 'number' | 'email' | 'phone' | 'date' | 'time' |'checkbox' | 'checkbox_group' | 'radio' | 'select' | 'estado_mx'
-  | 'rfc'| 'curp' | 'nss' | 'clave_elector' |'firma_autografa'| 'firma_click' | 'consentimiento' | 'iniciales' |'imagen' | 'documento'
-  | 'divider' | 'texto_bloque' | 'imagen_estatica' | 'columnas';
-
-export interface ConditionalRule {
-  fieldId: string;
-  operator: 'eq' | 'neq' | 'contains' | 'empty' | 'not_empty';
-  value: string;
-}
-
-export interface FieldOption {
-  label: string;
-  value: string;
-}
-
-export interface PdfMapping {
-  x: number;
-  y: number;
-  page: number;
-  fontSize: number;
-  color: string;
-}
-
-export interface FormField {
-  id: string;
-  type: FieldType;
-  label: string;
-  slug: string;
-  placeholder?: string;
-  description?: string;
-  required: boolean;
-  readOnly: boolean;
-  conditionalVisible: boolean;
-  conditionalRule?: ConditionalRule;
-  // Validation
-  minLength?: number;
-  maxLength?: number;
-  minValue?: number;
-  maxValue?: number;
-  regex?: string;
-  regexError?: string;
-  // Options (for select, radio, checkbox_group)
-  options?: FieldOption[];
-  // Assignment
-  assignedTo?: 'signer1' | 'signer2' | 'all' | 'any';
-  // PDF mapping
-  pdfMapping?: PdfMapping;
-  // Position (visual mode)
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  // Section grouping
-  sectionId?: string;
-}
-
-export interface FormSection {
-  id: string;
-  title: string;
-  collapsed: boolean;
-  fieldIds: string[];
-}
-
-export interface FormTemplate {
-  id?: string;
-  name: string;
-  description: string;
-  status: 'draft' | 'published' | 'archived';
-  schema: FormField[];
-  sections: FormSection[];
-  settings: {
-    mode: 'scroll' | 'multistep';
-    multiStep: boolean;
-    language: string;
-    expirationHours: number;
-    redirectAfterSubmit?: string;
-  };
-  pdfBasePath?: string;
-  workspaceId?: string;
-}
+export type {
+  FieldOption,
+  FieldType,
+  FormField,
+  FormSection,
+  FormTemplate,
+  PdfSchema,
+  SignatureType,
+  ConditionalRule,
+  PdfMapping,
+};
 
 interface FormBuilderState {
   template: FormTemplate;
   selectedFieldId: string | null;
-  canvasMode: 'list' | 'visual';
+  selectedSectionId: string | null;
+  canvasMode: 'list' | 'preview' | 'pdf';
   isDirty: boolean;
   isSaving: boolean;
   lastSaved: Date | null;
@@ -97,13 +43,16 @@ interface FormBuilderState {
 type FormBuilderAction =
   | { type: 'SET_TEMPLATE'; payload: FormTemplate }
   | { type: 'SET_TEMPLATE_META'; payload: Partial<FormTemplate> }
+  | { type: 'SET_SETTINGS'; payload: Partial<FormTemplate['settings']> }
+  | { type: 'SET_PDF_SCHEMA'; payload: Partial<PdfSchema> }
   | { type: 'ADD_FIELD'; payload: { field: FormField; afterId?: string } }
   | { type: 'UPDATE_FIELD'; payload: { id: string; updates: Partial<FormField> } }
   | { type: 'DELETE_FIELD'; payload: string }
   | { type: 'DUPLICATE_FIELD'; payload: string }
   | { type: 'REORDER_FIELDS'; payload: FormField[] }
   | { type: 'SELECT_FIELD'; payload: string | null }
-  | { type: 'SET_CANVAS_MODE'; payload: 'list' | 'visual' }
+  | { type: 'SELECT_SECTION'; payload: string | null }
+  | { type: 'SET_CANVAS_MODE'; payload: 'list' | 'preview' | 'pdf' }
   | { type: 'SET_DIRTY'; payload: boolean }
   | { type: 'SET_SAVING'; payload: boolean }
   | { type: 'SET_LAST_SAVED'; payload: Date }
@@ -111,23 +60,12 @@ type FormBuilderAction =
   | { type: 'UPDATE_SECTION'; payload: { id: string; updates: Partial<FormSection> } }
   | { type: 'DELETE_SECTION'; payload: string };
 
-const defaultTemplate: FormTemplate = {
-  name: 'Nuevo Formulario',
-  description: '',
-  status: 'draft',
-  schema: [],
-  sections: [],
-  settings: {
-    mode: 'scroll',
-    multiStep: false,
-    language: 'es',
-    expirationHours: 72,
-  },
-};
+const defaultTemplate = createDefaultFormTemplate();
 
 const initialState: FormBuilderState = {
   template: defaultTemplate,
   selectedFieldId: null,
+  selectedSectionId: defaultTemplate.sections[0].id,
   canvasMode: 'list',
   isDirty: false,
   isSaving: false,
@@ -136,66 +74,136 @@ const initialState: FormBuilderState = {
 
 function reducer(state: FormBuilderState, action: FormBuilderAction): FormBuilderState {
   switch (action.type) {
-    case 'SET_TEMPLATE':
-      return { ...state, template: action.payload, isDirty: false };
-
-    case 'SET_TEMPLATE_META':
+    case 'SET_TEMPLATE': {
+      const template = normalizeFormTemplate(action.payload);
       return {
         ...state,
-        template: { ...state.template, ...action.payload },
+        template,
+        selectedFieldId: null,
+        selectedSectionId: template.sections[0]?.id || null,
+        isDirty: false,
+      };
+    }
+
+    case 'SET_TEMPLATE_META':
+      return { ...state, template: { ...state.template, ...action.payload }, isDirty: true };
+
+    case 'SET_SETTINGS':
+      return {
+        ...state,
+        template: {
+          ...state.template,
+          settings: { ...state.template.settings, ...action.payload },
+        },
+        isDirty: true,
+      };
+
+    case 'SET_PDF_SCHEMA':
+      return {
+        ...state,
+        template: {
+          ...state.template,
+          settings: {
+            ...state.template.settings,
+            pdfSchema: { ...state.template.settings.pdfSchema, ...action.payload },
+          },
+        },
         isDirty: true,
       };
 
     case 'ADD_FIELD': {
-      const { field, afterId } = action.payload;
-      let schema = [...state.template.schema];
-      if (afterId) {
-        const idx = schema.findIndex((f) => f.id === afterId);
-        schema.splice(idx + 1, 0, field);
-      } else {
-        schema.push(field);
-      }
+      const sectionId =
+        state.selectedSectionId || state.template.sections.at(-1)?.id || DEFAULT_SECTION_ID;
+      const field = {
+        ...action.payload.field,
+        sectionId,
+        pdf: {
+          ...action.payload.field.pdf,
+          show: action.payload.field.pdf?.show ?? true,
+          sectionId,
+          label: action.payload.field.pdf?.label || action.payload.field.label,
+          order: state.template.schema.length,
+        },
+      };
+      const schema = [...state.template.schema];
+      const afterIndex = action.payload.afterId
+        ? schema.findIndex((item) => item.id === action.payload.afterId)
+        : -1;
+      if (afterIndex >= 0) schema.splice(afterIndex + 1, 0, field);
+      else schema.push(field);
+
+      const sections = state.template.sections.map((section) =>
+        section.id === sectionId
+          ? { ...section, fieldIds: [...section.fieldIds, field.id] }
+          : section
+      );
       return {
         ...state,
-        template: { ...state.template, schema },
+        template: { ...state.template, schema, sections },
         selectedFieldId: field.id,
         isDirty: true,
       };
     }
 
     case 'UPDATE_FIELD': {
-      const schema = state.template.schema.map((f) =>
-        f.id === action.payload.id ? { ...f, ...action.payload.updates } : f
+      const previous = state.template.schema.find((field) => field.id === action.payload.id);
+      const schema = state.template.schema.map((field) =>
+        field.id === action.payload.id ? { ...field, ...action.payload.updates } : field
       );
-      return { ...state, template: { ...state.template, schema }, isDirty: true };
+      let sections = state.template.sections;
+      const nextSectionId = action.payload.updates.sectionId;
+      if (previous && nextSectionId && nextSectionId !== previous.sectionId) {
+        sections = sections.map((section) => ({
+          ...section,
+          fieldIds:
+            section.id === nextSectionId
+              ? [...section.fieldIds.filter((id) => id !== previous.id), previous.id]
+              : section.fieldIds.filter((id) => id !== previous.id),
+        }));
+      }
+      return { ...state, template: { ...state.template, schema, sections }, isDirty: true };
     }
 
-    case 'DELETE_FIELD': {
-      const schema = state.template.schema.filter((f) => f.id !== action.payload);
+    case 'DELETE_FIELD':
       return {
         ...state,
-        template: { ...state.template, schema },
+        template: {
+          ...state.template,
+          schema: state.template.schema.filter((field) => field.id !== action.payload),
+          sections: state.template.sections.map((section) => ({
+            ...section,
+            fieldIds: section.fieldIds.filter((id) => id !== action.payload),
+          })),
+        },
         selectedFieldId: state.selectedFieldId === action.payload ? null : state.selectedFieldId,
         isDirty: true,
       };
-    }
 
     case 'DUPLICATE_FIELD': {
-      const idx = state.template.schema.findIndex((f) => f.id === action.payload);
-      if (idx === -1) return state;
-      const original = state.template.schema[idx];
+      const index = state.template.schema.findIndex((field) => field.id === action.payload);
+      if (index < 0) return state;
+      const original = state.template.schema[index];
+      const copyId = crypto.randomUUID();
       const copy: FormField = {
         ...original,
-        id: crypto.randomUUID(),
+        id: copyId,
         label: `${original.label} (copia)`,
         slug: `${original.slug}_copia`,
+        pdf: { ...original.pdf, show: original.pdf?.show ?? true, order: index + 1 },
       };
       const schema = [...state.template.schema];
-      schema.splice(idx + 1, 0, copy);
+      schema.splice(index + 1, 0, copy);
+      const sections = state.template.sections.map((section) => {
+        if (section.id !== copy.sectionId) return section;
+        const fieldIndex = section.fieldIds.indexOf(original.id);
+        const fieldIds = [...section.fieldIds];
+        fieldIds.splice(fieldIndex + 1, 0, copyId);
+        return { ...section, fieldIds };
+      });
       return {
         ...state,
-        template: { ...state.template, schema },
-        selectedFieldId: copy.id,
+        template: { ...state.template, schema, sections },
+        selectedFieldId: copyId,
         isDirty: true,
       };
     }
@@ -203,12 +211,27 @@ function reducer(state: FormBuilderState, action: FormBuilderAction): FormBuilde
     case 'REORDER_FIELDS':
       return {
         ...state,
-        template: { ...state.template, schema: action.payload },
+        template: {
+          ...state.template,
+          schema: action.payload.map((field, index) => ({
+            ...field,
+            pdf: { ...field.pdf, show: field.pdf?.show ?? true, order: index },
+          })),
+        },
         isDirty: true,
       };
 
     case 'SELECT_FIELD':
-      return { ...state, selectedFieldId: action.payload };
+      return {
+        ...state,
+        selectedFieldId: action.payload,
+        selectedSectionId:
+          state.template.schema.find((field) => field.id === action.payload)?.sectionId ||
+          state.selectedSectionId,
+      };
+
+    case 'SELECT_SECTION':
+      return { ...state, selectedSectionId: action.payload, selectedFieldId: null };
 
     case 'SET_CANVAS_MODE':
       return { ...state, canvasMode: action.payload };
@@ -222,24 +245,51 @@ function reducer(state: FormBuilderState, action: FormBuilderAction): FormBuilde
     case 'SET_LAST_SAVED':
       return { ...state, lastSaved: action.payload, isDirty: false };
 
-    case 'ADD_SECTION': {
+    case 'ADD_SECTION':
       return {
         ...state,
         template: { ...state.template, sections: [...state.template.sections, action.payload] },
+        selectedSectionId: action.payload.id,
+        selectedFieldId: null,
         isDirty: true,
       };
-    }
 
-    case 'UPDATE_SECTION': {
-      const sections = state.template.sections.map((s) =>
-        s.id === action.payload.id ? { ...s, ...action.payload.updates } : s
-      );
-      return { ...state, template: { ...state.template, sections }, isDirty: true };
-    }
+    case 'UPDATE_SECTION':
+      return {
+        ...state,
+        template: {
+          ...state.template,
+          sections: state.template.sections.map((section) =>
+            section.id === action.payload.id ? { ...section, ...action.payload.updates } : section
+          ),
+        },
+        isDirty: true,
+      };
 
     case 'DELETE_SECTION': {
-      const sections = state.template.sections.filter((s) => s.id !== action.payload);
-      return { ...state, template: { ...state.template, sections }, isDirty: true };
+      if (state.template.sections.length === 1) return state;
+      const remaining = state.template.sections.filter((section) => section.id !== action.payload);
+      const targetId = remaining[0].id;
+      const movedIds = state.template.sections.find((section) => section.id === action.payload)?.fieldIds || [];
+      return {
+        ...state,
+        template: {
+          ...state.template,
+          schema: state.template.schema.map((field) =>
+            field.sectionId === action.payload
+              ? { ...field, sectionId: targetId, pdf: { ...field.pdf, show: field.pdf?.show ?? true, sectionId: targetId } }
+              : field
+          ),
+          sections: remaining.map((section, index) => ({
+            ...section,
+            order: index,
+            fieldIds: section.id === targetId ? [...section.fieldIds, ...movedIds] : section.fieldIds,
+          })),
+        },
+        selectedSectionId: targetId,
+        selectedFieldId: null,
+        isDirty: true,
+      };
     }
 
     default:
@@ -247,7 +297,6 @@ function reducer(state: FormBuilderState, action: FormBuilderAction): FormBuilde
   }
 }
 
-// ── Context ───────────────────────────────────────────────────
 interface FormBuilderContextValue {
   state: FormBuilderState;
   dispatch: React.Dispatch<FormBuilderAction>;
@@ -256,53 +305,53 @@ interface FormBuilderContextValue {
   deleteField: (id: string) => void;
   duplicateField: (id: string) => void;
   selectField: (id: string | null) => void;
+  addSection: () => void;
   selectedField: FormField | null;
+  selectedSection: FormSection | null;
 }
 
 const FormBuilderContext = createContext<FormBuilderContextValue | null>(null);
 
 export function useFormBuilder() {
-  const ctx = useContext(FormBuilderContext);
-  if (!ctx) throw new Error('useFormBuilder must be used within FormBuilderProvider');
-  return ctx;
+  const context = useContext(FormBuilderContext);
+  if (!context) throw new Error('useFormBuilder must be used within FormBuilderProvider');
+  return context;
 }
 
 function createDefaultField(type: FieldType): FormField {
   const id = crypto.randomUUID();
-  const labelMap: Partial<Record<FieldType, string>> = {
-    text: 'Texto corto', textarea: 'Texto largo', number: 'Número',
-    email: 'Correo electrónico', phone: 'Teléfono', date: 'Fecha', time: 'Hora',
-    checkbox: 'Casilla de verificación', checkbox_group: 'Grupo de casillas',
-    radio: 'Botones de opción', select: 'Desplegable', estado_mx: 'Estado (México)',
-    rfc: 'RFC', curp: 'CURP', nss: 'NSS', clave_elector: 'Clave de Elector',
-    firma_autografa: 'Firma Autógrafa', firma_click: 'Firma Click-to-Sign',
-    consentimiento: 'Consentimiento', iniciales: 'Iniciales',
-    imagen: 'Carga de Imagen', documento: 'Carga de Documento',
-    divider: 'Separador', texto_bloque: 'Bloque de Texto',
-    imagen_estatica: 'Imagen Estática', columnas: 'Columnas',
+  const label = getFieldTypeLabel(type);
+  const optionTypes: FieldType[] = ['select', 'radio', 'checkbox_group', 'yes_no'];
+  const options: FieldOption[] =
+    type === 'yes_no'
+      ? [{ label: 'Sí', value: 'si' }, { label: 'No', value: 'no' }]
+      : [{ label: 'Opción 1', value: 'opcion_1' }, { label: 'Opción 2', value: 'opcion_2' }];
+  const signatureTypes: Partial<Record<FieldType, SignatureType[]>> = {
+    firma_efirma: ['efirma_sat'],
+    firma_autografa: ['autografa_digital'],
+    firma_click: ['click_sign'],
+    signature_block: ['efirma_sat', 'autografa_digital', 'click_sign'],
   };
-  const label = labelMap[type] || 'Campo';
-  const slug = label.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + id.slice(0, 4);
-
-  const defaultOptions: FieldOption[] = [
-    { label: 'Opción 1', value: 'opcion_1' },
-    { label: 'Opción 2', value: 'opcion_2' },
-  ];
 
   return {
     id,
     type,
     label,
-    slug,
+    slug: `${label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')}_${id.slice(0, 4)}`,
     placeholder: '',
     description: '',
-    required: false,
+    required: ['consentimiento', 'declaration', 'signature_block'].includes(type),
     readOnly: false,
+    editableBeforeSign: true,
     conditionalVisible: false,
     assignedTo: 'any',
-    options: ['select', 'radio', 'checkbox_group'].includes(type) ? defaultOptions : undefined,
+    options: optionTypes.includes(type) ? options : undefined,
+    pdf: { show: true, label, order: 0 },
+    signature: signatureTypes[type]
+      ? { signerRole: 'Participante', allowedTypes: signatureTypes[type]!, requireOtp: true, requireEvidence: true }
+      : undefined,
     width: 300,
-    height: type === 'firma_autografa' ? 120 : 40,
+    height: ['firma_autografa', 'signature_block'].includes(type) ? 120 : 40,
   };
 }
 
@@ -310,31 +359,24 @@ export function FormBuilderProvider({ children }: { children: React.ReactNode })
   const [state, dispatch] = useReducer(reducer, initialState);
 
   const addField = useCallback((type: FieldType, afterId?: string) => {
-    const field = createDefaultField(type);
-    dispatch({ type: 'ADD_FIELD', payload: { field, afterId } });
+    dispatch({ type: 'ADD_FIELD', payload: { field: createDefaultField(type), afterId } });
   }, []);
-
   const updateField = useCallback((id: string, updates: Partial<FormField>) => {
     dispatch({ type: 'UPDATE_FIELD', payload: { id, updates } });
   }, []);
+  const deleteField = useCallback((id: string) => dispatch({ type: 'DELETE_FIELD', payload: id }), []);
+  const duplicateField = useCallback((id: string) => dispatch({ type: 'DUPLICATE_FIELD', payload: id }), []);
+  const selectField = useCallback((id: string | null) => dispatch({ type: 'SELECT_FIELD', payload: id }), []);
+  const addSection = useCallback(() => {
+    dispatch({ type: 'ADD_SECTION', payload: createDefaultSection(state.template.sections.length, `Sección ${state.template.sections.length + 1}`) });
+  }, [state.template.sections.length]);
 
-  const deleteField = useCallback((id: string) => {
-    dispatch({ type: 'DELETE_FIELD', payload: id });
-  }, []);
-
-  const duplicateField = useCallback((id: string) => {
-    dispatch({ type: 'DUPLICATE_FIELD', payload: id });
-  }, []);
-
-  const selectField = useCallback((id: string | null) => {
-    dispatch({ type: 'SELECT_FIELD', payload: id });
-  }, []);
-
-  const selectedField = state.template.schema.find((f) => f.id === state.selectedFieldId) ?? null;
+  const selectedField = state.template.schema.find((field) => field.id === state.selectedFieldId) || null;
+  const selectedSection = state.template.sections.find((section) => section.id === state.selectedSectionId) || null;
 
   return (
     <FormBuilderContext.Provider
-      value={{ state, dispatch, addField, updateField, deleteField, duplicateField, selectField, selectedField }}
+      value={{ state, dispatch, addField, updateField, deleteField, duplicateField, selectField, addSection, selectedField, selectedSection }}
     >
       {children}
     </FormBuilderContext.Provider>

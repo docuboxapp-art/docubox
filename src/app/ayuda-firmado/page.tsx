@@ -126,7 +126,10 @@ export default function AyudaFirmadoPage() {
       {/* Header */}
       <header className="border-b border-border bg-white sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <Link
+            href="/documents-dashboard"
+            className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
             <ArrowLeft size={16} />
             <span>Volver</span>
           </Link>
@@ -145,7 +148,8 @@ export default function AyudaFirmadoPage() {
             Centro de ayuda para participantes
           </h1>
           <p className="text-base text-muted-foreground max-w-xl mx-auto">
-            Todo lo que necesitas saber para firmar o aprobar documentos en Docubox de forma rápida y segura.
+            Todo lo que necesitas saber para firmar o aprobar documentos en Docubox de forma rápida
+            y segura.
           </p>
         </div>
 
@@ -166,7 +170,9 @@ export default function AyudaFirmadoPage() {
                 <div className="absolute -top-3 -left-2 w-6 h-6 rounded-full bg-foreground text-white text-xs font-700 flex items-center justify-center">
                   {index + 1}
                 </div>
-                <div className={`w-10 h-10 rounded-xl ${step.color} flex items-center justify-center mb-3`}>
+                <div
+                  className={`w-10 h-10 rounded-xl ${step.color} flex items-center justify-center mb-3`}
+                >
                   {step.icon}
                 </div>
                 <h3 className="text-sm font-700 text-foreground mb-1">{step.title}</h3>
@@ -228,10 +234,7 @@ export default function AyudaFirmadoPage() {
 
           <div className="space-y-2">
             {faqs.map((faq, index) => (
-              <div
-                key={`faq-${index}`}
-                className="border border-border rounded-xl overflow-hidden"
-              >
+              <div key={`faq-${index}`} className="border border-border rounded-xl overflow-hidden">
                 <button
                   onClick={() => toggleFaq(index)}
                   className="w-full flex items-center justify-between p-4 text-left hover:bg-muted/30 transition-colors"
@@ -245,7 +248,9 @@ export default function AyudaFirmadoPage() {
                 </button>
                 {openFaq === index && (
                   <div className="px-4 pb-4 border-t border-border bg-muted/20">
-                    <p className="text-sm text-muted-foreground leading-relaxed pt-3">{faq.answer}</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed pt-3">
+                      {faq.answer}
+                    </p>
                   </div>
                 )}
               </div>

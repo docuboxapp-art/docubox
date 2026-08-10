@@ -68,7 +68,12 @@ function PhoneUploadTab({ onFileReceived }: { onFileReceived: (file: File) => vo
     setError(null);
     setReceived(false);
     try {
-      const res = await fetch('/api/mobile-upload/create-session', { method: 'POST' });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('La sesion no es valida.');
+      const res = await fetch('/api/mobile-upload/create-session', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al generar QR');
       setSessionToken(data.token);
@@ -98,7 +103,9 @@ function PhoneUploadTab({ onFileReceived }: { onFileReceived: (file: File) => vo
         (payload: any) => {
           const row = payload.new;
           if (row.status === 'completed') {
-            fetch(`/api/mobile-upload/get-file?token=${sessionToken}`)
+            supabase.auth.getSession().then(({ data: { session } }) => fetch(`/api/mobile-upload/get-file?token=${sessionToken}`, {
+              headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+            }))
               .then((r) => r.json())
               .then((data) => {
                 if (data.fileData) {
@@ -1499,7 +1506,7 @@ function FileUploadedLayout({
   viewMode: 'split' | 'stacked';
   onGuardarAvance: () => void;
   savingDraft: boolean;
-  onSecurityChange?: (s: import('./types').SecuritySettings & { urgente: boolean; publico: boolean; selloDigital: boolean; estampaAutenticacion: boolean; metadatosAdicionales: boolean; leyendasDocumento: boolean }) => void;
+  onSecurityChange?: (s: import('./types').SecuritySettings & { urgente: boolean; publico: boolean; selloDigital: boolean; selloUbicacion: 'calce' | 'libre'; estampaAutenticacion: boolean; metadatosAdicionales: boolean; leyendasDocumento: boolean }) => void;
   documentoId?: string;
   onPdfMetadata?: (meta: { pageCount: number; title?: string; author?: string; creationDate?: string }) => void;
 }) {
@@ -1540,6 +1547,7 @@ function FileUploadedLayout({
   const [urgente, setUrgente] = useState(false);
   const [publico, setPublico] = useState(false);
   const [selloDigital, setSelloDigital] = useState(false);
+  const [selloUbicacion, setSelloUbicacion] = useState<'calce' | 'libre'>('calce');
   const [estampaAutenticacion, setEstampaAutenticacion] = useState(false);
   const [metadatosAdicionales, setMetadatosAdicionales] = useState(false);
   const [leyendasDocumento, setLeyendasDocumento] = useState(false);
@@ -1589,6 +1597,7 @@ function FileUploadedLayout({
       urgente,
       publico,
       selloDigital,
+      selloUbicacion,
       estampaAutenticacion,
       metadatosAdicionales,
       leyendasDocumento,
@@ -1597,7 +1606,7 @@ function FileUploadedLayout({
       proteccionParticipacionEnabled: proteccionParticipacion,
     } as any);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vencimiento, vencimientoSolicitud, vencimientoCompletar, incluirHoraVencimiento, presetVencimiento, fechaVencimientoPersonalizado, horaVencimiento, zonaHoraria, diasHabiles, recordatorioEnabled, recordatorioCuando, codigoAcceso, codigoAccesoValue, proteccionFirmado, proteccionParticipacion, impedirImpresion, evitarCopiaTexto, impedirModificacion, impedirExtraccion, evitarMontaje, urgente, publico, selloDigital, estampaAutenticacion, metadatosAdicionales, leyendasDocumento]);
+  }, [vencimiento, vencimientoSolicitud, vencimientoCompletar, incluirHoraVencimiento, presetVencimiento, fechaVencimientoPersonalizado, horaVencimiento, zonaHoraria, diasHabiles, recordatorioEnabled, recordatorioCuando, codigoAcceso, codigoAccesoValue, proteccionFirmado, proteccionParticipacion, impedirImpresion, evitarCopiaTexto, impedirModificacion, impedirExtraccion, evitarMontaje, urgente, publico, selloDigital, selloUbicacion, estampaAutenticacion, metadatosAdicionales, leyendasDocumento]);
 
   const isPdf = file.name.toLowerCase().endsWith('.pdf');
   const fileSizeKB = (file.size / 1024).toFixed(2);
@@ -1816,14 +1825,46 @@ function FileUploadedLayout({
                 </label>
                 <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
                   <input type="checkbox" checked={publico} onChange={(e) => setPublico(e.target.checked)} className="w-4 h-4 rounded border-gray-300 accent-primary" />
-                  <span className="text-sm text-gray-700 flex-1 font-normal">Hacer público el documento</span>
-                  <InfoTooltip text="Permite que cualquier persona con el enlace pueda ver el documento, sin necesidad de autenticarse." />
+                  <span className="text-sm text-gray-700 flex-1 font-normal">Publicar al completar en el portal de verificación</span>
+                  <InfoTooltip text="Cuando el documento quede completado, habilita una ficha pública verificable y un código QR. Antes de completarse no será visible públicamente." />
                 </label>
-                <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
-                  <input type="checkbox" checked={selloDigital} onChange={(e) => setSelloDigital(e.target.checked)} className="w-4 h-4 rounded border-gray-300 accent-primary" />
-                  <span className="text-sm text-gray-700 flex-1 font-normal">Agregar sello digital y cadena original</span>
-                  <InfoTooltip text="Incorpora un sello digital con cadena original al documento para garantizar su autenticidad e integridad conforme a la normativa NOM-151." />
-                </label>
+                <div>
+                  <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
+                    <input type="checkbox" checked={selloDigital} onChange={(e) => setSelloDigital(e.target.checked)} className="w-4 h-4 rounded border-gray-300 accent-primary" />
+                    <span className="text-sm text-gray-700 flex-1 font-normal">Agregar sello digital y cadena original</span>
+                    <InfoTooltip text="Genera la cadena original, el sello digital y la evidencia criptográfica con valores reales cuando el documento quede completado." />
+                  </label>
+                  {selloDigital && (
+                    <div className="ml-10 mr-3 mb-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                      <p className="mb-2.5 text-xs font-semibold text-slate-700">Ubicación de la certificación</p>
+                      <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-white p-1" role="radiogroup" aria-label="Ubicación de sellos y cadenas">
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={selloUbicacion === 'calce'}
+                          onClick={() => setSelloUbicacion('calce')}
+                          className={`min-h-9 rounded-md px-3 text-xs font-semibold transition-colors ${selloUbicacion === 'calce' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                          Al calce
+                        </button>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={selloUbicacion === 'libre'}
+                          onClick={() => setSelloUbicacion('libre')}
+                          className={`min-h-9 rounded-md px-3 text-xs font-semibold transition-colors ${selloUbicacion === 'libre' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                          En cualquier parte
+                        </button>
+                      </div>
+                      <p className="mt-2.5 text-xs leading-5 text-slate-500">
+                        {selloUbicacion === 'calce'
+                          ? 'Se integrará automáticamente en el anexo final de certificación, sin cubrir el contenido original.'
+                          : 'En el paso 3 podrás colocar la cadena original, el sello digital, la estampa de tiempo y la cadena de evidencia.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
                 <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
                   <input type="checkbox" checked={estampaAutenticacion} onChange={(e) => setEstampaAutenticacion(e.target.checked)} className="w-4 h-4 rounded border-gray-300 accent-primary" />
                   <span className="text-sm text-gray-700 flex-1 font-normal">Agregar estampa en documento</span>
@@ -2204,7 +2245,7 @@ export function StepSubir({
   viewMode: 'split' | 'stacked';
   onGuardarAvance: () => void;
   savingDraft: boolean;
-  onSecurityChange?: (s: import('./types').SecuritySettings & { urgente: boolean; publico: boolean; selloDigital: boolean; estampaAutenticacion: boolean; metadatosAdicionales: boolean }) => void;
+  onSecurityChange?: (s: import('./types').SecuritySettings & { urgente: boolean; publico: boolean; selloDigital: boolean; selloUbicacion: 'calce' | 'libre'; estampaAutenticacion: boolean; metadatosAdicionales: boolean }) => void;
   documentoId?: string;
   onPdfMetadata?: (meta: { pageCount: number; title?: string; author?: string; creationDate?: string }) => void;
 }) {

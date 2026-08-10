@@ -4902,6 +4902,46 @@ export default function FirmarDocumentoPage() {
         : savedSignatureType === 'efirma' ? 'e.firma (SAT)'
         : savedSignatureType === 'firma_electronica'? 'Firma Electrónica Digital' :'Firma Autógrafa Digital';
 
+      // Validate and persist the cryptographic signature before changing any
+      // participant or document state. A provider failure must leave the
+      // workflow pending instead of producing a false "signed" state.
+      let serverEfirmaSignedAt: string | null = null;
+      if (isEfirmaSAT && myRole === 'firmante') {
+        const { data: { session } } = await supabase.auth.getSession();
+        const accessToken = session?.access_token;
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        if (!accessToken || !supabaseUrl || !efirmaCerB64 || !efirmaKeyB64 || !efirmaPassword) {
+          throw new Error('No fue posible conservar la evidencia criptografica de la e.firma.');
+        }
+        const signRes = await fetch(`${supabaseUrl}/functions/v1/sign-efirma`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            document_id: document.id,
+            cer_b64: efirmaCerB64,
+            key_b64: efirmaKeyB64,
+            password: efirmaPassword,
+            session_evidence: {
+              user_agent: navigator.userAgent,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              geo: coordinates ? { latitude: coordinates.lat, longitude: coordinates.lng, accuracy_meters: 0, source: 'browser_api' } : null,
+            },
+            device_fingerprint: { fingerprint_id: signatureHash },
+          }),
+        });
+        const signData = await signRes.json().catch(() => ({}));
+        if (!signRes.ok || !signData?.evidence_id) {
+          throw new Error(signData?.error || 'La e.firma no supero la validacion criptografica.');
+        }
+        serverEfirmaSignedAt = signData.signed_at || null;
+        setEfirmaCerB64(null);
+        setEfirmaKeyB64(null);
+        setEfirmaPassword(null);
+      }
+
       const responsePayload = {
         documento_id: document.id,
         participante_email: user.email || '',
@@ -5042,98 +5082,11 @@ export default function FirmarDocumentoPage() {
         efirmaRfc: isEfirmaSAT ? (profileEfirma?.rfc || userProfile.rfc || null) : null,
         efirmaNombre: isEfirmaSAT ? (profileEfirma?.nombre || userProfile.nombre_completo || null) : null,
         efirmaVigenciaFin: isEfirmaSAT ? (profileEfirma?.vigenciaFin || null) : null,
+        serverTimestamp: serverEfirmaSignedAt,
         nubariumEstado: isEfirmaSAT ? (nubariumValidationResult?.estado || null) : null,
         nubariumFechaConsulta: isEfirmaSAT ? (nubariumValidationResult?.fechaConsulta || null) : null,
         nubariumCodigoValidacion: isEfirmaSAT ? (nubariumValidationResult?.codigoValidacion || null) : null,
       });
-
-      // ── Persist e.firma evidence to signature_evidence table ──────────────
-      if (isEfirmaSAT && myRole === 'firmante') {
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const accessToken = session?.access_token;
-          if (accessToken) {
-            // Try sign-efirma Edge Function first (full cryptographic evidence)
-            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-            if (supabaseUrl && efirmaCerB64 && efirmaKeyB64 && efirmaPassword) {
-              try {
-                const signRes = await fetch(`${supabaseUrl}/functions/v1/sign-efirma`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}`,
-                  },
-                  body: JSON.stringify({
-                    document_id: document.id,
-                    cer_b64: efirmaCerB64,
-                    key_b64: efirmaKeyB64,
-                    password: efirmaPassword,
-                    cert_info: efirmaCertInfo,
-                    session_evidence: {
-                      user_agent: navigator.userAgent,
-                      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                      geo: coordinates ? { latitude: coordinates.lat, longitude: coordinates.lng, accuracy_meters: 0, source: 'browser_api' } : null,
-                    },
-                    device_fingerprint: { fingerprint_id: signatureHash },
-                    frames_manifest: null,
-                  }),
-                });
-                if (signRes.ok) {
-                  const signData = await signRes.json();
-                  if (signData?.evidence_id) {
-                    setSignatureEvidence((prev) => prev ? { ...prev, serverTimestamp: signData.signed_at } : prev);
-                  }
-                  // Clear sensitive data from memory
-                  setEfirmaCerB64(null);
-                  setEfirmaKeyB64(null);
-                  setEfirmaPassword(null);
-                }
-              } catch { /* non-critical, fall through to legacy */ }
-            }
-
-            // Legacy fallback: persist-efirma-evidence API route
-            if (efirmaCerB64 !== null) {
-              // Collect session evidence for the legacy path
-              const { deviceFingerprint: legacyFp, sessionEvidence: legacySe } = await collectAllEvidence().catch(() => ({ deviceFingerprint: null, sessionEvidence: null }));
-
-              const efirmaResp = await fetch('/api/firma/persist-efirma-evidence', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-                body: JSON.stringify({
-                  documentId: document.id,
-                  signatureHash,
-                  ipAddress,
-                  geoLatitude: coordinates?.lat ?? null,
-                  geoLongitude: coordinates?.lng ?? null,
-                  capturedAt: now,
-                  efirmaSerial: efirmaCertInfo?.cert_serial || profileEfirma?.serial || null,
-                  efirmaRfc: efirmaCertInfo?.cert_rfc || profileEfirma?.rfc || userProfile.rfc || null,
-                  efirmaNombre: efirmaCertInfo?.cert_subject || profileEfirma?.nombre || userProfile.nombre_completo || null,
-                  efirmaVigenciaFin: efirmaCertInfo?.cert_not_after || profileEfirma?.vigenciaFin || null,
-                  userAgent: navigator.userAgent,
-                  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                  sessionEvidence: legacySe,
-                  deviceFingerprint: legacyFp,
-                  userName: userProfile.nombre_completo || user?.user_metadata?.full_name || null,
-                  userEmail: userProfile.email || user?.email || null,
-                  userRole: myRole,
-                  clientTimestamp: new Date().toISOString(),
-                  // Nubarium validation result
-                  nubariumEstado: nubariumValidationResult?.estado ?? null,
-                  nubariumFechaConsulta: nubariumValidationResult?.fechaConsulta ?? null,
-                  nubariumCodigoValidacion: nubariumValidationResult?.codigoValidacion ?? null,
-                }),
-              });
-              if (efirmaResp.ok) {
-                const efirmaData = await efirmaResp.json();
-                if (efirmaData?.serverTimestamp) {
-                  setSignatureEvidence((prev) => prev ? { ...prev, serverTimestamp: efirmaData.serverTimestamp } : prev);
-                }
-              }
-            }
-          }
-        } catch { /* non-critical */ }
-      }
 
       const actorNombre = user.user_metadata?.full_name || user.email || 'Usuario';
       await supabase.from('document_activity_log').insert({
@@ -5315,10 +5268,15 @@ export default function FirmarDocumentoPage() {
       setProteccionSending(true);
       setProteccionError(null);
       try {
+        const { data: { session } } = await createClient().auth.getSession();
+        if (!session?.access_token || !user?.email) throw new Error('La sesion no es valida. Inicia sesion nuevamente.');
         const res = await fetch('/api/firma/send-otp', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ documentoId: docId, email: user?.email }),
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ documentId: docId, recipientEmail: user.email }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Error al enviar OTP');
@@ -5348,23 +5306,18 @@ export default function FirmarDocumentoPage() {
           const json = await res.json();
           if (!res.ok || !json.valid) throw new Error('Código TOTP inválido.');
         } else {
-          // Verify OTP from signature_otps table
-          const { data: otpRow } = await supabase
-            .from('signature_otps')
-            .select('id, otp_code, expires_at, used')
-            .eq('documento_id', docId)
-            .eq('email', user?.email)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (!otpRow) throw new Error('No se encontró un OTP activo. Solicita uno nuevo.');
-          if (otpRow.used) throw new Error('Este OTP ya fue utilizado. Solicita uno nuevo.');
-          if (new Date(otpRow.expires_at) < new Date()) throw new Error('El OTP ha expirado. Solicita uno nuevo.');
-          if (otpRow.otp_code !== code.trim()) throw new Error('Código incorrecto.');
-
-          // Mark OTP as used
-          await supabase.from('signature_otps').update({ used: true }).eq('id', otpRow.id);
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) throw new Error('La sesion no es valida. Inicia sesion nuevamente.');
+          const res = await fetch('/api/firma/send-otp', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ documentId: docId, otpCode: code.trim() }),
+          });
+          const json = await res.json();
+          if (!res.ok || !json.verified) throw new Error(json.error || 'Codigo incorrecto.');
         }
 
         setProteccionVerified(true);

@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { userCanAccessDocument } from '../_shared/document-access.ts';
 
 declare const Deno: {
   env: {
@@ -40,6 +41,10 @@ serve(async (req) => {
     }
 
     const { document_id, selfie_b64, ine_front_b64, method } = await req.json()
+
+    if (!await userCanAccessDocument(supabase, user, document_id)) {
+      return new Response('Forbidden', { status: 403, headers: corsHeaders })
+    }
 
     // 1. SHA-256 de la selfie
     const selfieBytes = Uint8Array.from(

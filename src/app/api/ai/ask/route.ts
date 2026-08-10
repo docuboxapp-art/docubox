@@ -4,6 +4,23 @@ import { classifyIntent, getScopeFromRoute, buildRouteContext } from '@/lib/ai/l
 import { verifyWorkspaceMembership, buildUserContext, buildStructuredContext, buildRagContext, saveQueryLog,  } from '@/lib/ai/luciaQueries';
 import { completion } from '@rocketnew/llm-sdk';
 
+const publicAttempts = new Map<string, { count: number; expiresAt: number }>();
+
+function allowPublicAiRequest(request: NextRequest, token: string) {
+  const now = Date.now();
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || request.headers.get('x-real-ip')
+    || 'unknown';
+  const key = `${ip}:${token}`;
+  const current = publicAttempts.get(key);
+  if (!current || current.expiresAt <= now) {
+    publicAttempts.set(key, { count: 1, expiresAt: now + 60_000 });
+    return true;
+  }
+  current.count += 1;
+  return current.count <= 10;
+}
+
 // ── Internal-data intents that require strict evidence check ──────────────
 const INTERNAL_DATA_INTENTS = new Set([
   'user_profile',
@@ -371,9 +388,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Token requerido para rutas públicas' }, { status: 400 });
       }
 
+      if (!allowPublicAiRequest(request, publicToken)) {
+        return NextResponse.json({ error: 'Demasiadas solicitudes. Intenta de nuevo en un minuto.' }, { status: 429 });
+      }
+
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!serviceRoleKey) {
+        return NextResponse.json({ error: 'El servicio no esta configurado.' }, { status: 503 });
+      }
+
       const supabaseService = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        serviceRoleKey
       );
 
       // Resolve token to a resource (document, form, enrollment, etc.)
@@ -402,18 +428,19 @@ export async function POST(request: NextRequest) {
       if (!tokenDocumentId) {
         const { data: uploadSession } = await supabaseService
           .from('mobile_upload_sessions')
-          .select('id, document_id, status, expires_at')
+          .select('id, status, expires_at, metadata')
           .eq('token', publicToken)
           .maybeSingle();
 
-        if (uploadSession) {
+        if (uploadSession && new Date(uploadSession.expires_at).getTime() > Date.now()) {
+          const uploadDocumentId = uploadSession.metadata?.document_id || null;
           tokenContext = {
             type: 'mobile_upload',
             status: uploadSession.status,
-            document_id: uploadSession.document_id,
+            document_id: uploadDocumentId,
             expires_at: uploadSession.expires_at,
           };
-          tokenDocumentId = uploadSession.document_id;
+          tokenDocumentId = uploadDocumentId;
         }
       }
 

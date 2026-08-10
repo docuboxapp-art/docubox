@@ -120,8 +120,26 @@ serve(async (req) => {
       .update({ used_at: new Date().toISOString() })
       .eq('id', tokenRow.id);
 
-    // 6. Trigger VPS webhook if PDF base exists
+    // 6. Generate the mirror PDF from the same schema used by the web form.
+    let generatedPdf: Record<string, unknown> | null = null;
+    try {
+      const generatorResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-form-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''}`,
+        },
+        body: JSON.stringify({ response_id: responseRow.id }),
+      });
+      if (generatorResponse.ok) generatedPdf = await generatorResponse.json();
+      else console.error('PDF generator error:', await generatorResponse.text());
+    } catch (pdfError) {
+      console.error('PDF generator error:', pdfError);
+    }
+
+    // 7. Trigger the legacy VPS mapper when a PDF base exists.
     const hasPdf = !!tokenRow.form_templates.pdf_base_path;
+    const requiresSignature = Boolean(tokenRow.form_templates.settings?.requiresSignature);
     if (hasPdf) {
       const vpsWebhookUrl = Deno.env.get('VPS_WEBHOOK_URL');
       if (vpsWebhookUrl) {
@@ -148,7 +166,10 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         response_id: responseRow.id,
-        redirect_to_sign: hasPdf,
+        document_id: responseRow.document_id || null,
+        signature_required: requiresSignature,
+        redirect_to_sign: hasPdf || requiresSignature,
+        generated_pdf: generatedPdf,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

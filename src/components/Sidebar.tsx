@@ -5,10 +5,32 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import {
-  LayoutDashboard, PenTool, Users, ShieldCheck, BarChart3, Settings,
-  ChevronLeft, ChevronRight, Bell, CreditCard, Webhook, HelpCircle,
-  LogOut, AlertTriangle, Send, CheckSquare, FolderOpen, UserPlus, BookUser,
-  FileSignature, ClipboardList, Shield,
+  LayoutDashboard,
+  LayoutTemplate,
+  Users,
+  ShieldCheck,
+  BarChart3,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  Bell,
+  CreditCard,
+  Webhook,
+  HelpCircle,
+  LogOut,
+  AlertTriangle,
+  Send,
+  CheckSquare,
+  FolderOpen,
+  UserPlus,
+  BookUser,
+  FileSignature,
+  ClipboardList,
+  Shield,
+  FolderKanban,
+  MailCheck,
+  Landmark,
+  Files,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
@@ -26,15 +48,18 @@ const BASE_NAV_SECTIONS = [
   },
   {
     label: 'Contactos',
-    items: [
-      { href: '/contactos', icon: BookUser, label: 'Mis Contactos', badge: null },
-    ],
+    items: [{ href: '/contactos', icon: BookUser, label: 'Mis Contactos', badge: null }],
   },
   {
     label: 'Gestión',
     items: [
       { href: '/participation-requests', icon: Send, label: 'Solicitudes Enviadas', badge: 3 },
-      { href: '/mis-participaciones', icon: FileSignature, label: 'Mis Participaciones', badge: null },
+      {
+        href: '/mis-participaciones',
+        icon: FileSignature,
+        label: 'Mis Participaciones',
+        badge: null,
+      },
       { href: '/documents-dashboard', icon: Users, label: 'Firmantes', badge: null },
       // Plantillas and Formularios are injected conditionally
       { href: '/documents-dashboard', icon: AlertTriangle, label: 'Certificados', badge: 2 },
@@ -61,22 +86,73 @@ export default function Sidebar() {
 
   const userFullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Usuario';
   const userEmail = user?.email || '';
-  const userInitials = userFullName
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((n: string) => n[0].toUpperCase())
-    .join('') || 'U';
+  const userInitials =
+    userFullName
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((n: string) => n[0].toUpperCase())
+      .join('') || 'U';
 
   // Build nav sections with conditional module items
   const navSections = BASE_NAV_SECTIONS.map((section) => {
     if (section.label !== 'Gestión') return section;
     const moduleItems: typeof section.items = [];
     if (isModuleActive('plantillas')) {
-      moduleItems.push({ href: '/plantillas', icon: PenTool, label: 'Plantillas', badge: null });
+      moduleItems.push({
+        href: '/plantillas',
+        icon: LayoutTemplate,
+        label: 'Plantillas',
+        badge: null,
+      });
     }
     if (isModuleActive('formularios')) {
-      moduleItems.push({ href: '/formularios', icon: ClipboardList, label: 'Formularios', badge: null });
+      moduleItems.push({
+        href: '/formularios',
+        icon: ClipboardList,
+        label: 'Formularios',
+        badge: null,
+      });
+    }
+    if (isModuleActive('expedientes')) {
+      moduleItems.push({
+        href: '/expedientes',
+        icon: FolderKanban,
+        label: 'Expedientes',
+        badge: null,
+      });
+    }
+    if (isModuleActive('notifica')) {
+      moduleItems.push({
+        href: '/notificaciones',
+        icon: MailCheck,
+        label: 'Notifica',
+        badge: null,
+      });
+    }
+    if (isModuleActive('credit-titles')) {
+      moduleItems.push({
+        href: '/credit-titles',
+        icon: Landmark,
+        label: 'Titulos de Credito',
+        badge: null,
+      });
+    }
+    if (isModuleActive('bulk-signatures')) {
+      moduleItems.push({
+        href: '/firmas-masivas',
+        icon: Files,
+        label: 'Firmas Masivas',
+        badge: null,
+      });
+    }
+    if (isModuleActive('firmado-prueba-vida')) {
+      moduleItems.push({
+        href: '/configuracion/verificacion-identidad',
+        icon: ShieldCheck,
+        label: 'Verificacion de identidad',
+        badge: null,
+      });
     }
     // Insert module items after Firmantes (index 2), before Certificados
     const sectionItems = [...section.items];
@@ -154,11 +230,12 @@ export default function Sidebar() {
               </p>
             )}
             {section?.items?.map((item) => {
-              const isActive = pathname === item?.href && item?.label === 'Dashboard'
-                ? true
-                : pathname === item?.href && item?.href !== '/documents-dashboard'
-                ? true
-                : false;
+              const isActive =
+                pathname === item?.href && item?.label === 'Dashboard'
+                  ? true
+                  : pathname === item?.href && item?.href !== '/documents-dashboard'
+                    ? true
+                    : false;
               return (
                 <Link
                   key={`nav-${item?.label}`}
@@ -166,7 +243,8 @@ export default function Sidebar() {
                   title={collapsed ? item?.label : undefined}
                   className={`flex items-center gap-3 px-2 py-2 rounded-lg mb-0.5 transition-all duration-150 group relative ${
                     isActive
-                      ? 'bg-primary/10 text-primary font-600' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                      ? 'bg-primary/10 text-primary font-600'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}
                 >
                   <item.icon
@@ -175,7 +253,9 @@ export default function Sidebar() {
                   />
                   {!collapsed && (
                     <>
-                      <span className="text-sm font-medium flex-1 whitespace-nowrap">{item?.label}</span>
+                      <span className="text-sm font-medium flex-1 whitespace-nowrap">
+                        {item?.label}
+                      </span>
                       {item?.badge !== null && (
                         <span className="ml-auto bg-secondary text-secondary-foreground text-[10px] font-700 px-1.5 py-0.5 rounded-full tabular-nums">
                           {item?.badge}
@@ -198,11 +278,15 @@ export default function Sidebar() {
           href="/notifications"
           className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-all duration-150 group relative ${
             pathname === '/notifications'
-              ? 'bg-primary/10 text-primary font-600' :'text-muted-foreground hover:bg-muted hover:text-foreground'
+              ? 'bg-primary/10 text-primary font-600'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
           }`}
           title={collapsed ? 'Notificaciones' : undefined}
         >
-          <Bell size={18} className={`flex-shrink-0 ${pathname === '/notifications' ? 'text-primary' : 'group-hover:text-foreground'}`} />
+          <Bell
+            size={18}
+            className={`flex-shrink-0 ${pathname === '/notifications' ? 'text-primary' : 'group-hover:text-foreground'}`}
+          />
           {!collapsed && (
             <>
               <span className="text-sm font-medium flex-1">Notificaciones</span>
@@ -243,7 +327,9 @@ export default function Sidebar() {
         </Link>
 
         {/* User profile */}
-        <div className={`flex items-center gap-2 px-2 py-2 mt-1 rounded-lg border border-border bg-muted ${collapsed ? 'justify-center' : ''}`}>
+        <div
+          className={`flex items-center gap-2 px-2 py-2 mt-1 rounded-lg border border-border bg-muted ${collapsed ? 'justify-center' : ''}`}
+        >
           <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
             <span className="text-white text-[11px] font-700">{userInitials}</span>
           </div>
@@ -255,7 +341,9 @@ export default function Sidebar() {
           )}
           {!collapsed && (
             <button
-              onClick={async () => { await signOut(); }}
+              onClick={async () => {
+                await signOut();
+              }}
               className="text-muted-foreground hover:text-destructive transition-colors"
               title="Cerrar sesión"
             >

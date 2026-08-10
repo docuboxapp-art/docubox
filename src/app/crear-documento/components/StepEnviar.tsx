@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { FileText, Users, Edit3, Folder, Clock, Lock, CheckCircle2, AlertTriangle, Mail, Phone, Bell, ShieldCheck, LayoutGrid, GitBranch, Shield } from 'lucide-react';
+import { FileText, Users, Edit3, Folder, Clock, Lock, CheckCircle2, AlertTriangle, Mail, Phone, Bell, ShieldCheck, LayoutGrid, GitBranch, Shield, Globe2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { PDFDocument } from 'pdf-lib';
-import type { Participant, DocumentSettings, DocumentConfig, PlacedField, GrupoFirma } from './types';
+import type { Participant, DocumentSettings, DocumentConfig, PlacedField, GrupoFirma, SecuritySettings } from './types';
 import type { PreProcessedFile } from '../page';
 import { createNotification } from '@/lib/notificationsInApp';
 
@@ -45,14 +45,6 @@ function getNotifLabel(id: string): string {
 function getFirmaLabel(id: string): string {
   const map: Record<string, string> = { autografa: 'Firma Autógrafa', efirma: 'e-Firma SAT', biometria: 'Biometría' };
   return map[id] || id;
-}
-
-interface SecuritySummary {
-  vencimientoEnabled: boolean;
-  fechaVencimiento: string;
-  codigoAccesoEnabled: boolean;
-  proteccionAdicionalEnabled: boolean;
-  legalHoldEnabled: boolean;
 }
 
 export interface StepEnviarHandle {
@@ -108,7 +100,7 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   onGoToStep: (step: number) => void;
   placedFields?: PlacedField[];
   documentoId?: string;
-  securitySettings?: SecuritySummary;
+  securitySettings?: SecuritySettings;
   grupos?: GrupoFirma[];
   participationOrder?: string;
   participantMode?: import('./types').ParticipantMode;
@@ -141,7 +133,7 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   const [sent, setSent] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [carpetaNombre, setCarpetaNombre] = useState<string>('Carpeta Principal');
-  const [localSecurity, setLocalSecurity] = useState<SecuritySummary | undefined>(undefined);
+  const [localSecurity, setLocalSecurity] = useState<SecuritySettings | undefined>(undefined);
   const [scanState, setScanState] = useState<'idle' | 'uploading' | 'success' | 'error_tipo' | 'error_grande' | 'error_infected' | 'error_invalido' | 'error_red'>('idle');
 
   // Load security settings from Supabase
@@ -157,6 +149,13 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
             codigoAccesoEnabled: data.codigo_acceso_enabled ?? false,
             proteccionAdicionalEnabled: data.proteccion_adicional_enabled ?? false,
             legalHoldEnabled: data.legal_hold_enabled ?? false,
+            impedirImpresion: data.impedir_impresion ?? false,
+            evitarCopiaTexto: data.evitar_copia_texto ?? false,
+            impedirModificacion: data.impedir_modificacion ?? false,
+            impedirExtraccion: data.impedir_extraccion ?? false,
+            evitarMontaje: data.evitar_montaje ?? false,
+            recordatorioFrecuencia: data.recordatorio_frecuencia ?? '',
+            codigoAcceso: '',
           });
         }
       } catch { /* silent */ }
@@ -284,6 +283,10 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
           'Imagen': 'imagen',
           'Botones de opción': 'radio',
           'Desplegable': 'dropdown',
+          'Cadena original': 'document_chain',
+          'Sello digital': 'document_seal',
+          'Estampa de tiempo': 'timestamp',
+          'Cadena de evidencia': 'evidence_chain',
         };
         return {
           id: f.id,
@@ -297,6 +300,9 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
           width: f.width,
           height: f.height,
           colorHex: f.colorHex || null,
+          placementKind: f.placementKind || null,
+          cryptographicType: f.cryptographicType || null,
+          generatedOnCompletion: f.generatedOnCompletion ?? false,
           dropdownOptions: f.dropdownOptions || null,
           radioOptions: f.radioOptions || null,
           casillaLabel: f.casillaLabel || null,
@@ -327,6 +333,11 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         workspaceId,
         participationOrder: participationOrder || 'paralelo',
         gruposFirma: grupos || [],
+        publico: effectiveSecurity?.publico ?? false,
+        selloDigital: effectiveSecurity?.selloDigital ?? false,
+        selloUbicacion: effectiveSecurity?.selloUbicacion || 'calce',
+        estampaAutenticacion: effectiveSecurity?.estampaAutenticacion ?? false,
+        metadatosAdicionales: effectiveSecurity?.metadatosAdicionales ?? false,
       }));
 
       const enviarRes = await fetch('/api/documentos/enviar', {
@@ -581,7 +592,7 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
               <CheckCircle2 size={12} />Listo
             </span>
           </div>
-          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
             <div className="flex items-start gap-2.5">
               <Clock size={15} className="mt-0.5 shrink-0 text-slate-400" />
               <div className="min-w-0">
@@ -608,6 +619,15 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
               <div className="min-w-0">
                 <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Participación</p>
                 <p className="mt-1 truncate text-sm font-600 text-slate-800">{participationTypeLabel}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Globe2 size={15} className={`mt-0.5 shrink-0 ${effectiveSecurity?.publico ? 'text-blue-600' : 'text-slate-400'}`} />
+              <div className="min-w-0">
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Portal público</p>
+                <p className="mt-1 text-sm font-600 text-slate-800">
+                  {effectiveSecurity?.publico ? 'Al completarse' : 'No publicado'}
+                </p>
               </div>
             </div>
           </div>

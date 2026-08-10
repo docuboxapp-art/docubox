@@ -1292,38 +1292,30 @@ export default function CapturaIdMovilPage() {
         const { createClient } = await import('@/lib/supabase/client');
         const supabase = createClient();
 
-        // Validate session token
-        const { data: session } = await supabase
-          .from('mobile_upload_sessions')
-          .select('status, expires_at, metadata')
-          .eq('token', token)
-          .maybeSingle();
-
-        if (!session) {
+        const sessionResponse = await fetch(`/api/mobile-upload/session-status?token=${encodeURIComponent(token)}`, {
+          cache: 'no-store',
+        });
+        if (!sessionResponse.ok) {
           setScreen('expired');
           return;
         }
+        const session = await sessionResponse.json();
 
         if (session.status === 'cancelled') {
           setScreen('cancelled');
           return;
         }
 
-        if (session.status !== 'pending' || new Date(session.expires_at) < new Date()) {
+        if (session.status !== 'pending' || new Date(session.expiresAt) < new Date()) {
           setScreen('expired');
           return;
         }
 
-        // Prefer user_id from session metadata (works even when mobile browser is unauthenticated)
-        const sessionUserId: string | null = session.metadata?.user_id || null;
+        const sessionUserId: string | null = session.profile ? 'capability-profile' : null;
 
         // Load user profile using session user_id (does not require auth session)
         if (sessionUserId) {
-          const { data: profile } = await supabase
-            .from('user_profiles')
-            .select('curp, full_name, email')
-            .eq('id', sessionUserId)
-            .maybeSingle();
+          const profile = session.profile;
 
           if (profile) {
             setUserProfile({

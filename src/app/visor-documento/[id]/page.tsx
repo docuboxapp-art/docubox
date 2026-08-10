@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Users, MessageSquare, Activity, FileText, RefreshCw, Info, CheckCircle2, XCircle, Clock, Mail, Tag, Send, Eye, FilePlus, UserPlus, Download, Shield, AlertTriangle, PenLine, Bell, Calendar, StickyNote, Edit3, Upload, X, Save, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Users, MessageSquare, Activity, FileText, RefreshCw, Info, CheckCircle2, XCircle, Clock, Mail, Tag, Send, Eye, FilePlus, UserPlus, Download, Shield, AlertTriangle, PenLine, Bell, Calendar, StickyNote, Edit3, Upload, X, Save, PanelRightClose, PanelRightOpen, Copy, ExternalLink, Globe2, QrCode } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
@@ -43,6 +44,7 @@ interface DocumentData {
   xml_evidencia_path?: string;
   xml_hash_sha256?: string;
   xml_generated_at?: string;
+  es_publico?: boolean;
   metadata?: {
     pdf_page_count?: number | null;
     pdf_is_native?: boolean | null;
@@ -55,6 +57,37 @@ interface DocumentData {
     pdf_metadata_raw?: Record<string, unknown> | null;
     analyzed_at?: string | null;
   } | null;
+}
+
+interface CryptographicCertification {
+  certificationUuid: string;
+  verificationUuid: string;
+  documentId: string;
+  documentFolio: string;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  documentBodySha256: string | null;
+  certifiedPdfSha256: string | null;
+  certificationRootSha256: string | null;
+  timestampStatus: string | null;
+  timestampGenTime: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+const CRYPTOGRAPHIC_PROVIDER_LABELS: Record<string, string> = {
+  DOCUBOX_KMS_GATEWAY_URL: 'Sellado digital KMS',
+  DOCUBOX_TSA_GATEWAY_URL: 'Estampa de tiempo RFC 3161',
+  DOCUBOX_PADES_GATEWAY_URL: 'Firma del PDF PAdES',
+};
+
+async function apiAuthHeaders(includeJson = false): Promise<Record<string, string>> {
+  const { data: { session } } = await createClient().auth.getSession();
+  const headers: Record<string, string> = {};
+  if (includeJson) headers['Content-Type'] = 'application/json';
+  if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  return headers;
 }
 
 interface Participante {
@@ -459,9 +492,19 @@ export default function VisorDocumentoPage() {
 
   // ── Constancia General state ───────────────────────────────────────────────
   const [downloadingConstanciaGeneral, setDownloadingConstanciaGeneral] = useState(false);
+  const [cryptographicCertification, setCryptographicCertification] = useState<CryptographicCertification | null>(null);
+  const [certificationProviderReady, setCertificationProviderReady] = useState(false);
+  const [certificationProviderChecked, setCertificationProviderChecked] = useState(false);
+  const [certificationProviderMissing, setCertificationProviderMissing] = useState<string[]>([]);
+  const [certificationLoading, setCertificationLoading] = useState(false);
+  const [certificationError, setCertificationError] = useState('');
+  const [certificationDownload, setCertificationDownload] = useState<'certificate' | 'package' | 'certified-pdf' | null>(null);
 
   // ── Signed PDF state ───────────────────────────────────────────────────────
   const [downloadingSignedPdf, setDownloadingSignedPdf] = useState(false);
+  const [publicVerificationOrigin, setPublicVerificationOrigin] = useState('');
+  const [publicVerificationPath, setPublicVerificationPath] = useState('');
+  const [publicUrlCopied, setPublicUrlCopied] = useState(false);
 
   // ── XML Evidence state ─────────────────────────────────────────────────────
   const [xmlEvidenceData, setXmlEvidenceData] = useState<{
@@ -472,6 +515,57 @@ export default function VisorDocumentoPage() {
   const [downloadingXml, setDownloadingXml] = useState(false);
   const [xmlPolling, setXmlPolling] = useState(false);
   const [xmlGenerating, setXmlGenerating] = useState(false);
+
+  useEffect(() => {
+    setPublicVerificationOrigin(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    if (!document?.id || document.estado !== 'completado' || !document.es_publico) {
+      setPublicVerificationPath('');
+      return;
+    }
+    const storageKey = `docubox-public-verification:${document.id}`;
+    const storedPath = window.localStorage.getItem(storageKey);
+    if (storedPath?.startsWith('/v/')) {
+      setPublicVerificationPath(storedPath);
+      return;
+    }
+    let active = true;
+    const issueLink = async () => {
+      const linkSupabase = createClient();
+      const { data: { session } } = await linkSupabase.auth.getSession();
+      if (!session?.access_token) return;
+      const response = await fetch('/api/public/v1/verifications/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ documentId: document.id }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.path || !active) return;
+      window.localStorage.setItem(storageKey, data.path);
+      setPublicVerificationPath(data.path);
+    };
+    issueLink().catch((error) => console.error('No fue posible emitir el enlace publico:', error));
+    return () => { active = false; };
+  }, [document?.es_publico, document?.estado, document?.id]);
+
+  const publicVerificationUrl = useMemo(() => {
+    if (!publicVerificationPath || !publicVerificationOrigin) return '';
+    return `${publicVerificationOrigin}${publicVerificationPath}`;
+  }, [publicVerificationOrigin, publicVerificationPath]);
+
+  const copyPublicVerificationUrl = useCallback(async () => {
+    if (!publicVerificationUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(publicVerificationUrl);
+      setPublicUrlCopied(true);
+      window.setTimeout(() => setPublicUrlCopied(false), 1800);
+    } catch (error) {
+      console.error('No fue posible copiar el enlace público:', error);
+    }
+  }, [publicVerificationUrl]);
 
   useEffect(() => {
     const desktopPanel = window.matchMedia('(min-width: 1280px)');
@@ -513,6 +607,106 @@ export default function VisorDocumentoPage() {
     }
   }, [docId, user]);
 
+  const loadCryptographicCertification = useCallback(async () => {
+    if (!docId || document?.estado !== 'completado') return;
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const response = await fetch(`/api/documents/${docId}/certifications`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'No fue posible consultar la certificación.');
+      setCryptographicCertification(payload.certification || null);
+      setCertificationProviderReady(Boolean(payload.providerStatus?.ready));
+      setCertificationProviderMissing(Array.isArray(payload.providerStatus?.missing) ? payload.providerStatus.missing : []);
+      setCertificationProviderChecked(true);
+      setCertificationError('');
+    } catch (error) {
+      setCertificationProviderChecked(true);
+      setCertificationError(error instanceof Error ? error.message : 'No fue posible consultar la certificación.');
+    }
+  }, [docId, document?.estado]);
+
+  useEffect(() => {
+    loadCryptographicCertification();
+  }, [loadCryptographicCertification]);
+
+  const generateCryptographicCertification = useCallback(async () => {
+    if (!docId) return;
+    setCertificationLoading(true);
+    setCertificationError('');
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('La sesión no está disponible.');
+      const response = await fetch(`/api/documents/${docId}/certifications`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'No fue posible generar la certificación.');
+      setCryptographicCertification(payload.certification || null);
+      await logActivity('certificacion_criptografica_generada', 'cumplimiento', {
+        certification_uuid: payload.certification?.certificationUuid,
+        status: payload.certification?.status,
+      });
+    } catch (error) {
+      setCertificationError(error instanceof Error ? error.message : 'No fue posible generar la certificación.');
+      await loadCryptographicCertification();
+    } finally {
+      setCertificationLoading(false);
+    }
+  }, [docId, loadCryptographicCertification, logActivity]);
+
+  const downloadCertificationArtifact = useCallback(async (
+    kind: 'certificate' | 'package' | 'certified-pdf',
+  ) => {
+    if (!docId || !cryptographicCertification?.certificationUuid) return;
+    setCertificationDownload(kind);
+    setCertificationError('');
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('La sesión no está disponible.');
+      const response = await fetch(
+        `/api/documents/${docId}/certifications/${cryptographicCertification.certificationUuid}/${kind}`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'No fue posible descargar el archivo.');
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('content-disposition') || '';
+      const matchedName = disposition.match(/filename="([^"]+)"/i)?.[1];
+      const fallbackName = kind === 'certificate'
+        ? `constancia_integridad_${document?.documento_id || docId}.pdf`
+        : kind === 'package'
+          ? `paquete_certificacion_${document?.documento_id || docId}.zip`
+          : `documento_certificado_${document?.documento_id || docId}.pdf`;
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement('a');
+      anchor.href = url;
+      anchor.download = matchedName || fallbackName;
+      anchor.style.display = 'none';
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      window.document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+      await logActivity('certificacion_criptografica_descargada', 'cumplimiento', { artifact: kind });
+    } catch (error) {
+      setCertificationError(error instanceof Error ? error.message : 'No fue posible descargar el archivo.');
+    } finally {
+      setCertificationDownload(null);
+    }
+  }, [cryptographicCertification?.certificationUuid, docId, document?.documento_id, logActivity]);
+
   // ── NOM-151 polling (only when completado) ─────────────────────────────────
   useEffect(() => {
     if (!docId || document?.estado !== 'completado') return;
@@ -521,7 +715,9 @@ export default function VisorDocumentoPage() {
     const fetchNom151 = async () => {
       try {
         // Use API route that queries nom151_constancias_doc (references documentos.id)
-        const res = await fetch(`/api/nom151/constancia?documento_id=${docId}`);
+        const res = await fetch(`/api/nom151/constancia?documento_id=${docId}`, {
+          headers: await apiAuthHeaders(),
+        });
         if (res.ok) {
           const json = await res.json();
           if (!cancelled) {
@@ -663,7 +859,9 @@ export default function VisorDocumentoPage() {
     const fetchXmlEvidence = async () => {
       try {
         // Use API route that queries documentos table (xml columns added via migration)
-        const res = await fetch(`/api/nom151/xml-evidence?documento_id=${docId}`);
+        const res = await fetch(`/api/nom151/xml-evidence?documento_id=${docId}`, {
+          headers: await apiAuthHeaders(),
+        });
         if (res.ok) {
           const json = await res.json();
           if (!cancelled && json.data?.xml_evidencia_path) {
@@ -950,7 +1148,7 @@ export default function VisorDocumentoPage() {
     try {
       const res = await fetch('/api/nom151/generate-xml', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await apiAuthHeaders(true),
         body: JSON.stringify({ documento_id: docId, requested_by: user?.id }),
       });
       const json = await res.json();
@@ -965,7 +1163,9 @@ export default function VisorDocumentoPage() {
           });
         } else {
           // Fallback: re-fetch from API
-          const refreshRes = await fetch(`/api/nom151/xml-evidence?documento_id=${docId}`);
+          const refreshRes = await fetch(`/api/nom151/xml-evidence?documento_id=${docId}`, {
+            headers: await apiAuthHeaders(),
+          });
           if (refreshRes.ok) {
             const refreshJson = await refreshRes.json();
             if (refreshJson.data?.xml_evidencia_path) {
@@ -992,13 +1192,15 @@ export default function VisorDocumentoPage() {
     try {
       const res = await fetch('/api/nom151/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await apiAuthHeaders(true),
         body: JSON.stringify({ documento_id: docId, requested_by: user?.id }),
       });
       const json = await res.json();
       if (res.ok && (json.status === 'issued' || json.already_issued)) {
         // Refresh NOM-151 data
-        const constanciaRes = await fetch(`/api/nom151/constancia?documento_id=${docId}`);
+        const constanciaRes = await fetch(`/api/nom151/constancia?documento_id=${docId}`, {
+          headers: await apiAuthHeaders(),
+        });
         if (constanciaRes.ok) {
           const constanciaJson = await constanciaRes.json();
           setNom151Data(constanciaJson.data ?? null);
@@ -1413,7 +1615,7 @@ export default function VisorDocumentoPage() {
         // First try direct Supabase query (works for owners and when RLS policies are applied)
         const { data: directData, error } = await supabase
           .from('documentos')
-          .select('id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at')
+          .select('id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at')
           .eq('id', docId)
           .single();
 
@@ -1512,7 +1714,7 @@ export default function VisorDocumentoPage() {
           carpeta_nombre: carpetaNombre,
           organizacion,
           formato: data.file_type || 'application/pdf',
-          hash_sha256: '—',
+          hash_sha256: data.file_hash_sha256 || '—',
           firma_completa: 'Pendiente',
           fecha_constancia: 'Pendiente',
           origen: data.origen || 'Plataforma Web',
@@ -1525,6 +1727,7 @@ export default function VisorDocumentoPage() {
           xml_evidencia_path: data.xml_evidencia_path || undefined,
           xml_hash_sha256: data.xml_hash_sha256 || undefined,
           xml_generated_at: data.xml_generated_at || undefined,
+          es_publico: data.es_publico ?? false,
           metadata: docMetadata,
         });
 
@@ -2305,7 +2508,7 @@ export default function VisorDocumentoPage() {
             setXmlGenerating(true);
             const xmlRes = await fetch('/api/nom151/generate-xml', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: await apiAuthHeaders(true),
               body: JSON.stringify({ documento_id: document.id, requested_by: user?.id }),
             });
             const xmlJson = await xmlRes.json();
@@ -2329,12 +2532,14 @@ export default function VisorDocumentoPage() {
             setNom151Generating(true);
             const nom151Res = await fetch('/api/nom151/generate', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: await apiAuthHeaders(true),
               body: JSON.stringify({ documento_id: document.id, requested_by: user?.id }),
             });
             const nom151Json = await nom151Res.json();
             if (nom151Res.ok && (nom151Json.status === 'issued' || nom151Json.already_issued)) {
-              const constanciaRes = await fetch(`/api/nom151/constancia?documento_id=${document.id}`);
+              const constanciaRes = await fetch(`/api/nom151/constancia?documento_id=${document.id}`, {
+                headers: await apiAuthHeaders(),
+              });
               if (constanciaRes.ok) {
                 const constanciaJson = await constanciaRes.json();
                 setNom151Data(constanciaJson.data ?? null);
@@ -3921,6 +4126,71 @@ export default function VisorDocumentoPage() {
                         </div>
                       </div>
 
+                      {document.es_publico && document.estado === 'completado' && publicVerificationUrl && (
+                        <div className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
+                          <div className="flex items-center gap-2 border-b border-emerald-100 px-4 py-3">
+                            <Globe2 size={16} className="text-emerald-600" />
+                            <span className="text-sm font-semibold text-foreground">Verificación pública</span>
+                            <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                              Publicado
+                            </span>
+                          </div>
+                          <div className="flex flex-col items-center gap-3 p-4 text-center">
+                            <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                              <QRCodeSVG
+                                value={publicVerificationUrl}
+                                size={116}
+                                level="M"
+                                marginSize={1}
+                                aria-label="Código QR de verificación pública"
+                              />
+                            </div>
+                            <p className="text-xs leading-5 text-slate-500">
+                              Este QR permite consultar el documento completado y verificar su información pública.
+                            </p>
+                            <div className="grid w-full grid-cols-[1fr_auto] gap-2">
+                              <a
+                                href={publicVerificationUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-blue-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+                              >
+                                <ExternalLink size={14} />
+                                Ver portal público
+                              </a>
+                              <button
+                                type="button"
+                                onClick={copyPublicVerificationUrl}
+                                title="Copiar enlace público"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                              >
+                                {publicUrlCopied ? <CheckCircle2 size={15} /> : <Copy size={15} />}
+                              </button>
+                            </div>
+                            {publicUrlCopied && (
+                              <span className="text-[11px] font-medium text-emerald-700">Enlace copiado</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {document.es_publico && document.estado !== 'completado' && (
+                        <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4">
+                          <div className="flex items-start gap-3">
+                            <div className="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-white text-blue-600 ring-1 ring-blue-100">
+                              <QrCode size={16} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Publicación programada</p>
+                              <p className="mt-1 text-xs leading-5 text-slate-600">
+                                El enlace público y el código QR estarán disponibles cuando el documento quede completado.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* ── Auditoría ────────────────────────────────────────── */}
                       <div className="rounded-xl border border-border bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-border/60">
@@ -4655,6 +4925,124 @@ export default function VisorDocumentoPage() {
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <div className="p-4 space-y-4">
+
+                    {/* ── Constancia de Integridad y Evidencia Digital ── */}
+                    <div className="rounded-xl border border-blue-200 bg-white shadow-sm">
+                      <div className="px-4 py-3 border-b border-blue-100 flex items-center gap-2 bg-blue-50/60 rounded-t-xl">
+                        <Shield size={15} className="text-blue-600" />
+                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Integridad y Evidencia Digital</span>
+                        <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          cryptographicCertification?.status === 'COMPLETED'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : cryptographicCertification?.status === 'FAILED'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : certificationProviderChecked && !certificationProviderReady
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : 'bg-muted text-muted-foreground border-border'
+                        }`}>
+                          {cryptographicCertification?.status === 'COMPLETED'
+                            ? 'Validada'
+                            : cryptographicCertification?.status === 'FAILED'
+                              ? 'Requiere atención'
+                              : cryptographicCertification
+                                ? 'Procesando'
+                                : !certificationProviderChecked
+                                  ? 'Comprobando'
+                                  : certificationProviderReady
+                                    ? 'Disponible'
+                                    : 'Requiere configuración'}
+                        </span>
+                      </div>
+                      <div className="p-4 space-y-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Constancia Técnica de Integridad y Evidencia Digital</p>
+                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">Cadenas canónicas, sellos KMS, estampa RFC 3161, raíz criptográfica y QR de verificación.</p>
+                        </div>
+
+                        {cryptographicCertification?.status === 'COMPLETED' ? (
+                          <>
+                            <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Estado</span>
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 size={13} /> Criptográficamente válida</span>
+                              </div>
+                              {cryptographicCertification.certificationRootSha256 && (
+                                <div>
+                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Raíz SHA-256</span>
+                                  <p className="mt-1 truncate font-mono text-[10px] text-foreground" title={cryptographicCertification.certificationRootSha256}>{cryptographicCertification.certificationRootSha256}</p>
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => downloadCertificationArtifact('certificate')}
+                              disabled={certificationDownload !== null}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60"
+                            >
+                              {certificationDownload === 'certificate' ? <RefreshCw size={15} className="animate-spin" /> : <Download size={15} />}
+                              {certificationDownload === 'certificate' ? 'Descargando…' : 'Descargar constancia PDF'}
+                            </button>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                onClick={() => downloadCertificationArtifact('package')}
+                                disabled={certificationDownload !== null}
+                                className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
+                              >
+                                {certificationDownload === 'package' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+                                Paquete técnico
+                              </button>
+                              <button
+                                onClick={() => downloadCertificationArtifact('certified-pdf')}
+                                disabled={certificationDownload !== null}
+                                className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
+                              >
+                                {certificationDownload === 'certified-pdf' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+                                PDF certificado
+                              </button>
+                            </div>
+                          </>
+                        ) : !certificationProviderChecked ? (
+                          <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs font-semibold text-muted-foreground">
+                            <RefreshCw size={14} className="animate-spin" />
+                            Comprobando infraestructura criptográfica
+                          </div>
+                        ) : !certificationProviderReady ? (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 text-amber-900">
+                            <p className="text-xs font-semibold">Servicios criptográficos por configurar</p>
+                            <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed">
+                              {certificationProviderMissing.map((provider) => (
+                                <li key={provider} className="flex items-start gap-2">
+                                  <span className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500" />
+                                  <span>{CRYPTOGRAPHIC_PROVIDER_LABELS[provider] || provider}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <p className="mt-2 text-[10px] leading-relaxed text-amber-800">La constancia se habilitará cuando KMS, TSA y PAdES estén conectados y validados.</p>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={generateCryptographicCertification}
+                            disabled={certificationLoading || document?.estado !== 'completado'}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {certificationLoading ? <RefreshCw size={15} className="animate-spin" /> : <Shield size={15} />}
+                            {certificationLoading
+                              ? 'Certificando…'
+                              : cryptographicCertification?.status === 'FAILED'
+                                ? 'Reintentar certificación'
+                                : 'Generar certificación'}
+                          </button>
+                        )}
+
+                        {(certificationError || cryptographicCertification?.errorMessage) && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                            {certificationError || cryptographicCertification?.errorMessage}
+                          </div>
+                        )}
+                        {certificationProviderReady && (
+                          <p className="text-[10px] leading-relaxed text-muted-foreground">La constancia sólo se marca como válida cuando KMS, TSA RFC 3161 y PAdES superan su verificación criptográfica.</p>
+                        )}
+                      </div>
+                    </div>
 
                     {/* ── 1. Constancia General de Firma ── */}
                     <div className="rounded-xl border border-border bg-white shadow-sm">

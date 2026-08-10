@@ -33,12 +33,17 @@ import {
   Moon,
   LayoutDashboard,
   FolderOpen,
+  FolderKanban,
+  MailCheck,
+  Landmark,
+  Files,
   BookUser,
   BarChart2,
   HelpCircle,
   FileSignature,
-  PenTool,
+  LayoutTemplate,
   ClipboardList,
+  Fingerprint,
   MoreVertical,
   Eye,
   Trash2,
@@ -47,6 +52,8 @@ import {
   AlertTriangle,
   Sparkles,
   ChevronsRight,
+  Zap,
+  FilePlus2,
 } from 'lucide-react';
 import { useWorkspace, type Workspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
@@ -170,8 +177,12 @@ export default function TopNav() {
     pathname === '/mis-participaciones' ||
     pathname === '/pending-tasks' ||
     pathname === '/plantillas' ||
+    pathname.startsWith('/formularios') ||
+    pathname.startsWith('/expedientes') ||
     pathname === '/reportes' ||
+    pathname === '/app-market' ||
     pathname === '/contactos' ||
+    pathname.startsWith('/configuracion/verificacion-identidad') ||
     pathname.startsWith('/visor-documento/');
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
@@ -212,6 +223,7 @@ export default function TopNav() {
   const [searchCollapsed, setSearchCollapsed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [luciaOpen, setLuciaOpen] = useState(false);
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
   // Sidebar state from shared context
   const { sidebarOpen, setSidebarOpen } = useSidebar();
@@ -227,6 +239,7 @@ export default function TopNav() {
   const bellRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
+  const quickActionsRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchPanelInputRef = useRef<HTMLInputElement>(null);
   const recentSearchesRef = useRef<string[]>([]);
@@ -345,7 +358,9 @@ export default function TopNav() {
       const stored = localStorage.getItem(userKey) || localStorage.getItem(RECENT_SEARCHES_KEY);
       const parsed = stored ? JSON.parse(stored) : [];
       const validSearches = Array.isArray(parsed)
-        ? parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).slice(0, 5)
+        ? parsed
+            .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+            .slice(0, 5)
         : [];
       recentSearchesRef.current = validSearches;
       setRecentSearches(validSearches);
@@ -383,6 +398,9 @@ export default function TopNav() {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
         setSearchOpen(false);
       }
+      if (quickActionsRef.current && !quickActionsRef.current.contains(e.target as Node)) {
+        setQuickActionsOpen(false);
+      }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
@@ -393,6 +411,7 @@ export default function TopNav() {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         setSearchOpen(false);
+        setQuickActionsOpen(false);
         setSidebarOpen(false);
       }
     }
@@ -426,7 +445,10 @@ export default function TopNav() {
   const rememberSearch = (value: string) => {
     const cleaned = value.trim();
     if (!cleaned) return;
-    const next = [cleaned, ...recentSearchesRef.current.filter((item) => item.toLowerCase() !== cleaned.toLowerCase())].slice(0, 5);
+    const next = [
+      cleaned,
+      ...recentSearchesRef.current.filter((item) => item.toLowerCase() !== cleaned.toLowerCase()),
+    ].slice(0, 5);
     recentSearchesRef.current = next;
     try {
       const storageKey = user?.id ? `${RECENT_SEARCHES_KEY}:${user.id}` : RECENT_SEARCHES_KEY;
@@ -486,7 +508,10 @@ export default function TopNav() {
     const timeoutId = window.setTimeout(async () => {
       setSearchLoading(true);
       const supabase = createClient();
-      const safeQuery = query.replace(/[,%()]/g, ' ').replace(/\s+/g, ' ').trim();
+      const safeQuery = query
+        .replace(/[,%()]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
       const statusQuery = /progreso/i.test(safeQuery)
         ? 'en_proceso'
         : /completad/i.test(safeQuery)
@@ -503,7 +528,9 @@ export default function TopNav() {
           .select('id, nombre, descripcion, estado, updated_at')
           .eq('owner_id', user.id)
           .is('deleted_at', null)
-          .or(`nombre.ilike.${textPattern},descripcion.ilike.${textPattern},estado.ilike.${statusPattern}`)
+          .or(
+            `nombre.ilike.${textPattern},descripcion.ilike.${textPattern},estado.ilike.${statusPattern}`
+          )
           .order('updated_at', { ascending: false })
           .limit(5);
 
@@ -511,7 +538,9 @@ export default function TopNav() {
           .from('contacts')
           .select('id, nombre, apellido_paterno, apellido_materno, email')
           .eq('user_id', user.id)
-          .or(`nombre.ilike.${textPattern},apellido_paterno.ilike.${textPattern},apellido_materno.ilike.${textPattern},email.ilike.${textPattern}`)
+          .or(
+            `nombre.ilike.${textPattern},apellido_paterno.ilike.${textPattern},apellido_materno.ilike.${textPattern},email.ilike.${textPattern}`
+          )
           .limit(4);
 
         const foldersRequest = supabase
@@ -527,41 +556,54 @@ export default function TopNav() {
               .from('tareas')
               .select('id, title, description, estado, due_date')
               .eq('workspace_id', activeWorkspace.id)
-              .or(`title.ilike.${textPattern},description.ilike.${textPattern},estado.ilike.${statusPattern}`)
+              .or(
+                `title.ilike.${textPattern},description.ilike.${textPattern},estado.ilike.${statusPattern}`
+              )
               .order('created_at', { ascending: false })
               .limit(4)
           : Promise.resolve({ data: [], error: null });
 
-        const [documentsResponse, foldersResponse, contactsResponse, tasksResponse] = await Promise.all([
-          documentsRequest,
-          foldersRequest,
-          contactsRequest,
-          tasksRequest,
-        ]);
+        const [documentsResponse, foldersResponse, contactsResponse, tasksResponse] =
+          await Promise.all([documentsRequest, foldersRequest, contactsRequest, tasksRequest]);
         if (cancelled) return;
 
-        const documentResults: GlobalSearchResult[] = (documentsResponse.data || []).map((item: any) => ({
-          id: item.id,
-          type: 'document',
-          title: item.nombre || 'Documento sin nombre',
-          subtitle: `Documento · ${getDocumentSearchStatusLabel(item.estado)}`,
-          href: `/visor-documento/${item.id}`,
-          status: item.estado,
-        }));
-        const folderResults: GlobalSearchResult[] = (foldersResponse.data || []).map((item: any) => ({
-          id: item.id,
-          type: 'folder',
-          title: item.nombre || 'Carpeta sin nombre',
-          subtitle: item.descripcion ? `Carpeta · ${item.descripcion}` : item.parent_id ? 'Subcarpeta' : 'Carpeta',
-          href: `/mis-documentos?carpeta=${encodeURIComponent(item.id)}`,
-        }));
-        const contactResults: GlobalSearchResult[] = (contactsResponse.data || []).map((item: any) => ({
-          id: item.id,
-          type: 'contact',
-          title: [item.nombre, item.apellido_paterno, item.apellido_materno].filter(Boolean).join(' ') || item.email || 'Contacto',
-          subtitle: item.email ? `Contacto · ${item.email}` : 'Contacto',
-          href: `/contactos?contact=${item.id}`,
-        }));
+        const documentResults: GlobalSearchResult[] = (documentsResponse.data || []).map(
+          (item: any) => ({
+            id: item.id,
+            type: 'document',
+            title: item.nombre || 'Documento sin nombre',
+            subtitle: `Documento · ${getDocumentSearchStatusLabel(item.estado)}`,
+            href: `/visor-documento/${item.id}`,
+            status: item.estado,
+          })
+        );
+        const folderResults: GlobalSearchResult[] = (foldersResponse.data || []).map(
+          (item: any) => ({
+            id: item.id,
+            type: 'folder',
+            title: item.nombre || 'Carpeta sin nombre',
+            subtitle: item.descripcion
+              ? `Carpeta · ${item.descripcion}`
+              : item.parent_id
+                ? 'Subcarpeta'
+                : 'Carpeta',
+            href: `/mis-documentos?carpeta=${encodeURIComponent(item.id)}`,
+          })
+        );
+        const contactResults: GlobalSearchResult[] = (contactsResponse.data || []).map(
+          (item: any) => ({
+            id: item.id,
+            type: 'contact',
+            title:
+              [item.nombre, item.apellido_paterno, item.apellido_materno]
+                .filter(Boolean)
+                .join(' ') ||
+              item.email ||
+              'Contacto',
+            subtitle: item.email ? `Contacto · ${item.email}` : 'Contacto',
+            href: `/contactos?contact=${item.id}`,
+          })
+        );
         const taskResults: GlobalSearchResult[] = (tasksResponse.data || []).map((item: any) => ({
           id: item.id,
           type: 'task',
@@ -702,10 +744,25 @@ export default function TopNav() {
   const navTabs = [
     ...BASE_NAV_TABS.slice(0, 6), // up to Mis Contactos
     ...(isModuleActive('plantillas')
-      ? [{ href: '/plantillas', label: 'Plantillas', icon: PenTool }]
+      ? [{ href: '/plantillas', label: 'Plantillas', icon: LayoutTemplate }]
       : []),
     ...(isModuleActive('formularios')
       ? [{ href: '/formularios', label: 'Formularios', icon: ClipboardList }]
+      : []),
+    ...(isModuleActive('expedientes')
+      ? [{ href: '/expedientes', label: 'Expedientes', icon: FolderKanban }]
+      : []),
+    ...(isModuleActive('notifica')
+      ? [{ href: '/notificaciones', label: 'Notifica', icon: MailCheck }]
+      : []),
+    ...(isModuleActive('credit-titles')
+      ? [{ href: '/credit-titles', label: 'Titulos de Credito', icon: Landmark }]
+      : []),
+    ...(isModuleActive('bulk-signatures')
+      ? [{ href: '/firmas-masivas', label: 'Firmas Masivas', icon: Files }]
+      : []),
+    ...(isModuleActive('firmado-prueba-vida')
+      ? [{ href: '/configuracion/verificacion-identidad', label: 'Identidad', icon: Fingerprint }]
       : []),
     ...BASE_NAV_TABS.slice(6), // Reportes and beyond
   ];
@@ -715,10 +772,29 @@ export default function TopNav() {
     if (section.label !== 'Gestión') return section;
     const moduleItems: typeof section.items = [];
     if (isModuleActive('plantillas')) {
-      moduleItems.push({ href: '/plantillas', icon: PenTool, label: 'Plantillas' });
+      moduleItems.push({ href: '/plantillas', icon: LayoutTemplate, label: 'Plantillas' });
     }
     if (isModuleActive('formularios')) {
       moduleItems.push({ href: '/formularios', icon: ClipboardList, label: 'Formularios' });
+    }
+    if (isModuleActive('expedientes')) {
+      moduleItems.push({ href: '/expedientes', icon: FolderKanban, label: 'Expedientes' });
+    }
+    if (isModuleActive('notifica')) {
+      moduleItems.push({ href: '/notificaciones', icon: MailCheck, label: 'Notifica' });
+    }
+    if (isModuleActive('credit-titles')) {
+      moduleItems.push({ href: '/credit-titles', icon: Landmark, label: 'Titulos de Credito' });
+    }
+    if (isModuleActive('bulk-signatures')) {
+      moduleItems.push({ href: '/firmas-masivas', icon: Files, label: 'Firmas Masivas' });
+    }
+    if (isModuleActive('firmado-prueba-vida')) {
+      moduleItems.push({
+        href: '/configuracion/verificacion-identidad',
+        icon: Fingerprint,
+        label: 'Verificacion de identidad',
+      });
     }
     return { ...section, items: [...section.items, ...moduleItems] };
   });
@@ -738,7 +814,7 @@ export default function TopNav() {
           }`}
         >
           {/* Left section: hamburger (mobile) + logo + workspace */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-8">
             {/* Hamburger — mobile only */}
             <button
               className="md:hidden w-10 h-10 rounded-md flex items-center justify-center text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all duration-150"
@@ -750,7 +826,14 @@ export default function TopNav() {
 
             {/* Logo */}
             <Link href="/documents-dashboard" className="flex items-center gap-2 flex-shrink-0">
-              <AppLogo size={32} className="h-8 w-auto object-contain" />
+              <AppLogo
+                size={32}
+                className={
+                  pathname === '/documents-dashboard'
+                    ? '[&_img]:h-auto [&_img]:w-[126px]'
+                    : 'h-8 w-auto object-contain'
+                }
+              />
             </Link>
 
             {/* Workspace selector — hidden on mobile */}
@@ -867,13 +950,13 @@ export default function TopNav() {
           <div className="flex-1" />
 
           {/* Right section — action icons */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0">
             {/* LucIA Button — only visible when lucia module is active */}
             {user && !modulesLoading && isModuleActive('lucia') && (
               <button
                 title="Pregúntale a LucIA"
                 onClick={() => setLuciaOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-sm font-medium transition-all duration-150 flex-shrink-0 border border-blue-100 dark:border-blue-800"
+                className="mr-2 flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-600 transition-all duration-150 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40"
               >
                 <Sparkles className="h-4 w-4" />
                 <span className="hidden sm:inline">Pregúntale a LucIA</span>
@@ -892,8 +975,12 @@ export default function TopNav() {
                     <Search className="h-5 w-5" />
                   </button>
                 ) : (
-                  <div className={`hidden h-10 items-center gap-2 rounded-lg border bg-slate-50 px-3 transition-[width,border-color,background-color,box-shadow] lg:flex lg:w-[26rem] 2xl:w-[30rem] ${searchOpen ? 'border-primary/50 bg-white ring-2 ring-primary/10' : 'border-slate-200 hover:border-slate-300'}`}>
-                    <Search className={`h-5 w-5 flex-shrink-0 ${searchOpen ? 'text-primary' : 'text-slate-500'}`} />
+                  <div
+                    className={`hidden h-10 items-center gap-2 rounded-lg border bg-slate-50 px-3 transition-[width,border-color,background-color,box-shadow] lg:flex lg:w-[26rem] 2xl:w-[30rem] ${searchOpen ? 'border-primary/50 bg-white ring-2 ring-primary/10' : 'border-slate-200 hover:border-slate-300'}`}
+                  >
+                    <Search
+                      className={`h-5 w-5 flex-shrink-0 ${searchOpen ? 'text-primary' : 'text-slate-500'}`}
+                    />
                     <input
                       ref={searchInputRef}
                       value={searchQuery}
@@ -954,7 +1041,9 @@ export default function TopNav() {
 
               {searchOpen && (
                 <div className="absolute right-0 top-12 z-50 w-[min(34rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
-                  <div className={`${usesWorkspaceChrome && !searchCollapsed ? 'lg:hidden' : ''} flex items-center gap-2 border-b border-slate-200 px-3 py-2.5`}>
+                  <div
+                    className={`${usesWorkspaceChrome && !searchCollapsed ? 'lg:hidden' : ''} flex items-center gap-2 border-b border-slate-200 px-3 py-2.5`}
+                  >
                     <Search size={17} className="flex-shrink-0 text-primary" />
                     <input
                       ref={searchPanelInputRef}
@@ -970,7 +1059,11 @@ export default function TopNav() {
                       className="min-w-0 flex-1 bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-400"
                     />
                     {searchQuery && (
-                      <button onClick={() => setSearchQuery('')} title="Limpiar búsqueda" className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        title="Limpiar búsqueda"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      >
                         <X size={14} />
                       </button>
                     )}
@@ -980,23 +1073,36 @@ export default function TopNav() {
                     {searchQuery.trim().length < 2 ? (
                       <section className="px-4 py-3.5">
                         <div className="mb-2.5 flex items-center justify-between">
-                          <p className="text-xs font-700 uppercase text-slate-500">Búsquedas recientes</p>
+                          <p className="text-xs font-700 uppercase text-slate-500">
+                            Búsquedas recientes
+                          </p>
                           {recentSearches.length > 0 && (
-                            <button onClick={clearRecentSearches} className="text-xs font-600 text-slate-400 hover:text-red-600">Limpiar</button>
+                            <button
+                              onClick={clearRecentSearches}
+                              className="text-xs font-600 text-slate-400 hover:text-red-600"
+                            >
+                              Limpiar
+                            </button>
                           )}
                         </div>
                         {recentSearches.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {recentSearches.map((item) => (
-                                <button key={item} onClick={() => applySuggestedSearch(item)} className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
-                                  <Search size={14} className="text-slate-400" />
-                                  <span className="min-w-0 flex-1 truncate">{item}</span>
-                                  <ChevronDown size={14} className="-rotate-90 text-slate-300" />
-                                </button>
-                              ))}
-                            </div>
+                          <div className="space-y-0.5">
+                            {recentSearches.map((item) => (
+                              <button
+                                key={item}
+                                onClick={() => applySuggestedSearch(item)}
+                                className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
+                              >
+                                <Search size={14} className="text-slate-400" />
+                                <span className="min-w-0 flex-1 truncate">{item}</span>
+                                <ChevronDown size={14} className="-rotate-90 text-slate-300" />
+                              </button>
+                            ))}
+                          </div>
                         ) : (
-                          <p className="py-3 text-sm text-slate-400">Todavía no tienes búsquedas recientes.</p>
+                          <p className="py-3 text-sm text-slate-400">
+                            Todavía no tienes búsquedas recientes.
+                          </p>
                         )}
                       </section>
                     ) : searchLoading ? (
@@ -1008,27 +1114,50 @@ export default function TopNav() {
                       <section className="py-2">
                         <div className="flex items-center justify-between px-4 py-2">
                           <p className="text-xs font-700 uppercase text-slate-500">Resultados</p>
-                          <span className="text-xs text-slate-400">{searchResults.length} encontrados</span>
+                          <span className="text-xs text-slate-400">
+                            {searchResults.length} encontrados
+                          </span>
                         </div>
                         {searchResults.map((result) => {
-                          const ResultIcon = result.type === 'document' ? FileText : result.type === 'folder' ? FolderOpen : result.type === 'contact' ? Users : CheckSquare;
-                          const iconStyle = result.type === 'document'
-                            ? getDocumentSearchStyle(result.status)
-                            : result.type === 'folder'
-                              ? 'bg-amber-50 text-amber-600'
-                              : result.type === 'contact'
-                                ? 'bg-emerald-50 text-emerald-600'
-                                : 'bg-amber-50 text-amber-600';
+                          const ResultIcon =
+                            result.type === 'document'
+                              ? FileText
+                              : result.type === 'folder'
+                                ? FolderOpen
+                                : result.type === 'contact'
+                                  ? Users
+                                  : CheckSquare;
+                          const iconStyle =
+                            result.type === 'document'
+                              ? getDocumentSearchStyle(result.status)
+                              : result.type === 'folder'
+                                ? 'bg-amber-50 text-amber-600'
+                                : result.type === 'contact'
+                                  ? 'bg-emerald-50 text-emerald-600'
+                                  : 'bg-amber-50 text-amber-600';
                           return (
-                            <button key={`${result.type}-${result.id}`} onClick={() => handleSearchResult(result)} className="group flex w-full items-center gap-3 border-t border-slate-100 px-4 py-3 text-left transition-colors first:border-t-0 hover:bg-slate-50">
-                              <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${iconStyle}`}>
+                            <button
+                              key={`${result.type}-${result.id}`}
+                              onClick={() => handleSearchResult(result)}
+                              className="group flex w-full items-center gap-3 border-t border-slate-100 px-4 py-3 text-left transition-colors first:border-t-0 hover:bg-slate-50"
+                            >
+                              <span
+                                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${iconStyle}`}
+                              >
                                 <ResultIcon size={17} />
                               </span>
                               <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-700 text-slate-900">{result.title}</span>
-                                <span className="mt-0.5 block truncate text-xs capitalize text-slate-500">{result.subtitle}</span>
+                                <span className="block truncate text-sm font-700 text-slate-900">
+                                  {result.title}
+                                </span>
+                                <span className="mt-0.5 block truncate text-xs capitalize text-slate-500">
+                                  {result.subtitle}
+                                </span>
                               </span>
-                              <ExternalLink size={15} className="text-slate-300 transition-colors group-hover:text-primary" />
+                              <ExternalLink
+                                size={15}
+                                className="text-slate-300 transition-colors group-hover:text-primary"
+                              />
                             </button>
                           );
                         })}
@@ -1036,8 +1165,12 @@ export default function TopNav() {
                     ) : (
                       <div className="px-6 py-10 text-center">
                         <Search size={26} className="mx-auto mb-3 text-slate-300" />
-                        <p className="text-sm font-700 text-slate-800">No encontramos coincidencias</p>
-                        <p className="mt-1 text-xs text-slate-500">Prueba con el nombre de un documento, carpeta, contacto o tarea.</p>
+                        <p className="text-sm font-700 text-slate-800">
+                          No encontramos coincidencias
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Prueba con el nombre de un documento, carpeta, contacto o tarea.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -1045,7 +1178,100 @@ export default function TopNav() {
               )}
             </div>
 
-            {/* 2. Expandir pantalla */}
+            {/* 2. Acciones rápidas */}
+            <div ref={quickActionsRef} className="relative hidden flex-shrink-0 md:block">
+              <button
+                title="Acciones rápidas"
+                aria-label="Acciones rápidas"
+                aria-expanded={quickActionsOpen}
+                onClick={() => {
+                  setQuickActionsOpen((open) => !open);
+                  setBellOpen(false);
+                  setAvatarOpen(false);
+                }}
+                className={`flex h-10 w-10 items-center justify-center rounded-md transition-colors duration-150 ${
+                  quickActionsOpen
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'
+                }`}
+              >
+                <Zap className="h-5 w-5" />
+              </button>
+
+              {quickActionsOpen && (
+                <div className="absolute right-0 top-12 z-50 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.14)]">
+                  <div className="border-b border-slate-200 px-4 py-3">
+                    <p className="text-sm font-700 text-slate-950">Acciones rápidas</p>
+                    <p className="mt-0.5 text-xs text-slate-500">Inicia una tarea frecuente.</p>
+                  </div>
+                  <div className="p-1.5">
+                    {[
+                      {
+                        label: 'Crear documento',
+                        description: 'Iniciar un nuevo flujo',
+                        href: '/crear-documento',
+                        icon: FilePlus2,
+                      },
+                      {
+                        label: 'Crear desde plantilla',
+                        description: 'Usar un formato guardado',
+                        href: '/plantillas',
+                        icon: LayoutTemplate,
+                      },
+                      {
+                        label: 'Mis contactos',
+                        description: 'Consultar participantes',
+                        href: '/contactos',
+                        icon: Users,
+                      },
+                      {
+                        label: 'Tareas pendientes',
+                        description: 'Revisar acciones por completar',
+                        href: '/pending-tasks',
+                        icon: CheckSquare,
+                      },
+                    ].map((action) => {
+                      const ActionIcon = action.icon;
+                      return (
+                        <button
+                          key={action.href}
+                          type="button"
+                          onClick={() => {
+                            setQuickActionsOpen(false);
+                            router.push(action.href);
+                          }}
+                          className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
+                        >
+                          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                            <ActionIcon size={16} />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-sm font-600 text-slate-900">
+                              {action.label}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-slate-500">
+                              {action.description}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 3. Centro de ayuda */}
+            <button
+              title="Centro de ayuda"
+              aria-label="Centro de ayuda"
+              onClick={() => router.push('/ayuda-firmado')}
+              className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-primary/10 hover:text-primary md:flex"
+            >
+              <HelpCircle className="h-5 w-5" />
+            </button>
+
+            {/* 4. Expandir pantalla */}
             <button
               title={isExpanded ? 'Restaurar pantalla' : 'Expandir pantalla'}
               onClick={() => setIsExpanded(!isExpanded)}
@@ -1054,7 +1280,7 @@ export default function TopNav() {
               {isExpanded ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
             </button>
 
-            {/* 3. Vista claro/oscuro */}
+            {/* 5. Vista claro/oscuro */}
             <button
               title={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
               onClick={toggleTheme}
@@ -1063,7 +1289,7 @@ export default function TopNav() {
               {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
 
-            {/* 4. Notificaciones */}
+            {/* 6. Notificaciones */}
             <div ref={bellRef} className="relative flex-shrink-0">
               <button
                 title="Notificaciones"
@@ -1316,32 +1542,32 @@ export default function TopNav() {
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <div className="space-y-1">
-            {sidebarNavSections.flatMap((section) => section.items).map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`group relative flex min-h-10 items-center gap-3 rounded-md border px-3 py-2 text-sm transition-all duration-150 ${
-                    isActive
-                      ? 'border-blue-100 bg-blue-50/90 font-600 text-blue-700 shadow-[inset_3px_0_0_#2563eb]'
-                      : 'border-transparent font-500 text-slate-600 hover:border-slate-200/80 hover:bg-slate-50 hover:text-slate-950'
-                  }`}
-                >
-                  <item.icon
-                    size={18}
-                    strokeWidth={isActive ? 2.1 : 1.8}
-                    className={`flex-shrink-0 transition-colors ${
+            {sidebarNavSections
+              .flatMap((section) => section.items)
+              .map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`group relative flex min-h-10 items-center gap-3 rounded-md border px-3 py-2 text-sm transition-all duration-150 ${
                       isActive
-                        ? 'text-blue-600'
-                        : 'text-slate-400 group-hover:text-slate-700'
+                        ? 'border-blue-100 bg-blue-50/90 font-600 text-blue-700 shadow-[inset_3px_0_0_#2563eb]'
+                        : 'border-transparent font-500 text-slate-600 hover:border-slate-200/80 hover:bg-slate-50 hover:text-slate-950'
                     }`}
-                  />
-                  <span className="truncate">{item.label}</span>
-                </Link>
-              );
-            })}
+                  >
+                    <item.icon
+                      size={18}
+                      strokeWidth={isActive ? 2.1 : 1.8}
+                      className={`flex-shrink-0 transition-colors ${
+                        isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'
+                      }`}
+                    />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                );
+              })}
           </div>
         </nav>
         {/* Bottom — only Notificaciones, Ayuda, Cerrar Sesión */}
@@ -1350,14 +1576,22 @@ export default function TopNav() {
             href="/notifications"
             className="group flex min-h-10 items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm font-500 text-slate-600 transition-all duration-150 hover:border-slate-200/80 hover:bg-white hover:text-slate-950"
           >
-            <Bell size={18} strokeWidth={1.8} className="flex-shrink-0 text-slate-400 group-hover:text-slate-700" />
+            <Bell
+              size={18}
+              strokeWidth={1.8}
+              className="flex-shrink-0 text-slate-400 group-hover:text-slate-700"
+            />
             <span>Notificaciones</span>
           </Link>
           <Link
             href="/documents-dashboard"
             className="group flex min-h-10 items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm font-500 text-slate-600 transition-all duration-150 hover:border-slate-200/80 hover:bg-white hover:text-slate-950"
           >
-            <HelpCircle size={18} strokeWidth={1.8} className="flex-shrink-0 text-slate-400 group-hover:text-slate-700" />
+            <HelpCircle
+              size={18}
+              strokeWidth={1.8}
+              className="flex-shrink-0 text-slate-400 group-hover:text-slate-700"
+            />
             <span>Ayuda</span>
           </Link>
           <button

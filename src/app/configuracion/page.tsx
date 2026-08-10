@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
-import { Bell, Globe, Users, ShieldCheck, Key, Palette, Check, Mail, Smartphone, Loader2, Plus, Trash2, Copy, Webhook, Eye, EyeOff, AlertCircle, CheckCircle, Clock, Filter, Download, Building2, Lock, Edit3, X, Save, Activity, Image, Upload, Search, Info, Zap, Globe2, Link2,  } from 'lucide-react';
+import { Bell, Globe, Users, ShieldCheck, Key, Palette, Check, Mail, Smartphone, Loader2, Plus, Trash2, Copy, Webhook, Eye, EyeOff, AlertCircle, CheckCircle, Clock, Filter, Download, Building2, Lock, Edit3, X, Save, Activity, Image, Upload, Search, Info, Zap, Globe2, Link2, Fingerprint,  } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
@@ -1575,6 +1576,14 @@ export default function ConfiguracionPage() {
                   </button>
                 );
               })}
+              <div className="my-2 border-t border-border" />
+              <Link
+                href="/configuracion/verificacion-identidad"
+                className="flex flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm text-foreground transition-all duration-150 hover:bg-gray-100 hover:text-primary md:w-full"
+              >
+                <Fingerprint size={15} className="flex-shrink-0 text-muted-foreground" />
+                <span>Verificación de identidad</span>
+              </Link>
             </nav>
           </aside>
 

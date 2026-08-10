@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
 
 // GET /api/nom151/constancia?documento_id=xxx
 // Returns the NOM-151 constancia record for a given documentos.id
@@ -18,6 +13,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const { service: supabaseAdmin } = await requireDocumentAccess(req, documentoId);
     // First try to get an issued record
     const { data: issued, error: issuedError } = await supabaseAdmin
       .from('nom151_constancias_doc')
@@ -53,8 +49,9 @@ export async function GET(req: NextRequest) {
 
     // No record at all
     return NextResponse.json({ data: null, processing: false });
-  } catch (err: any) {
-    console.error('[nom151/constancia] Unexpected error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const response = documentAccessResponse(err);
+    console.error('[nom151/constancia] Request failed:', err instanceof Error ? err.message : 'unknown');
+    return NextResponse.json(response.body, { status: response.status });
   }
 }

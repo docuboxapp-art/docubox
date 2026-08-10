@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import crypto from 'crypto';
+import crypto from 'node:crypto';
+import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
 
 export async function POST(req: NextRequest) {
   try {
     const supabase = createServiceClient();
     const body = await req.json().catch(() => ({}));
-    const { documentId, userId, hasEnrollment } = body;
+    const { documentId } = body;
+    if (!documentId) return NextResponse.json({ error: 'documentId es requerido' }, { status: 400 });
+    const { user } = await requireDocumentAccess(req, documentId);
+    const { data: enrollment } = await supabase
+      .from('enrollment_results')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('status', 'completed')
+      .limit(1)
+      .maybeSingle();
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -15,13 +25,14 @@ export async function POST(req: NextRequest) {
       .from('mobile_upload_sessions')
       .insert({
         token: sessionToken,
+        user_id: user.id,
         status: 'pending',
         expires_at: expiresAt.toISOString(),
         metadata: {
           mode: 'id_capture',
           document_id: documentId || null,
-          user_id: userId || null,
-          has_enrollment: !!hasEnrollment,
+          user_id: user.id,
+          has_enrollment: Boolean(enrollment),
         },
       })
       .select()
@@ -37,8 +48,9 @@ export async function POST(req: NextRequest) {
       expiresAt: expiresAt.toISOString(),
       sessionId: data.id,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[create-id-capture-session] Unexpected error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    const response = documentAccessResponse(err);
+    return NextResponse.json(response.body, { status: response.status });
   }
 }

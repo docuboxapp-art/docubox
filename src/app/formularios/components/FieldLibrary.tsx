@@ -1,136 +1,138 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useFormBuilder, FieldType } from '@/contexts/FormBuilderContext';
+import React, { useMemo, useState } from 'react';
+import { useFormBuilder, type FieldType } from '@/contexts/FormBuilderContext';
 import {
-  Type, AlignLeft, Hash, Mail, Phone, Calendar, Clock,
-  CheckSquare, List, Circle, ChevronDown, MapPin,
-  FileText, CreditCard, User, Shield,
-  PenTool, MousePointer, FileCheck, Pen,
-  Image, FileUp, Minus, AlignCenter, ImageIcon, Columns,
-  ChevronRight,
+  AlignLeft, BadgeDollarSign, BriefcaseBusiness, Calendar, CheckSquare, ChevronDown,
+  ChevronRight, CircleDot, FileCheck2, FileText, FileUp, Fingerprint, Hash, Image,
+  Landmark, ListChecks, Mail, MapPinned, Minus, MousePointerClick, PenLine, Phone,
+  Scale, Search, ShieldCheck, Type, UserRoundCheck, WalletCards,
 } from 'lucide-react';
-import Icon from '@/components/ui/AppIcon';
 
-
-interface FieldDef {
+interface FieldDefinition {
   type: FieldType;
   label: string;
   icon: React.ElementType;
-  color: string;
 }
 
-const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
+const GROUPS: Array<{ title: string; fields: FieldDefinition[] }> = [
   {
-    title: 'Básicos',
+    title: 'Campos básicos',
     fields: [
-      { type: 'text', label: 'Texto corto', icon: Type, color: 'text-blue-500' },
-      { type: 'textarea', label: 'Texto largo', icon: AlignLeft, color: 'text-blue-500' },
-      { type: 'number', label: 'Número', icon: Hash, color: 'text-blue-500' },
-      { type: 'email', label: 'Email', icon: Mail, color: 'text-blue-500' },
-      { type: 'phone', label: 'Teléfono', icon: Phone, color: 'text-blue-500' },
-      { type: 'date', label: 'Fecha', icon: Calendar, color: 'text-blue-500' },
-      { type: 'time', label: 'Hora', icon: Clock, color: 'text-blue-500' },
+      { type: 'text', label: 'Texto corto', icon: Type },
+      { type: 'textarea', label: 'Texto largo', icon: AlignLeft },
+      { type: 'email', label: 'Correo electrónico', icon: Mail },
+      { type: 'phone', label: 'Teléfono', icon: Phone },
+      { type: 'number', label: 'Número', icon: Hash },
+      { type: 'date', label: 'Fecha', icon: Calendar },
+      { type: 'currency', label: 'Moneda', icon: BadgeDollarSign },
     ],
   },
   {
     title: 'Selección',
     fields: [
-      { type: 'checkbox', label: 'Checkbox único', icon: CheckSquare, color: 'text-purple-500' },
-      { type: 'checkbox_group', label: 'Grupo de checkboxes', icon: List, color: 'text-purple-500' },
-      { type: 'radio', label: 'Radio buttons', icon: Circle, color: 'text-purple-500' },
-      { type: 'select', label: 'Desplegable', icon: ChevronDown, color: 'text-purple-500' },
-      { type: 'estado_mx', label: 'Estado mexicano', icon: MapPin, color: 'text-purple-500' },
+      { type: 'radio', label: 'Opción múltiple', icon: CircleDot },
+      { type: 'checkbox_group', label: 'Casillas', icon: ListChecks },
+      { type: 'select', label: 'Lista desplegable', icon: ChevronDown },
+      { type: 'yes_no', label: 'Sí / No', icon: CheckSquare },
     ],
   },
   {
-    title: 'Identidad Mexicana',
+    title: 'Datos documentales',
     fields: [
-      { type: 'rfc', label: 'RFC', icon: FileText, color: 'text-orange-500' },
-      { type: 'curp', label: 'CURP', icon: User, color: 'text-orange-500' },
-      { type: 'nss', label: 'NSS', icon: CreditCard, color: 'text-orange-500' },
-      { type: 'clave_elector', label: 'Clave Elector INE', icon: Shield, color: 'text-orange-500' },
+      { type: 'rfc', label: 'RFC', icon: Landmark },
+      { type: 'curp', label: 'CURP', icon: Fingerprint },
+      { type: 'business_name', label: 'Razón social', icon: BriefcaseBusiness },
+      { type: 'fiscal_address', label: 'Domicilio fiscal', icon: MapPinned },
+      { type: 'documento', label: 'Carga de archivo', icon: FileUp },
+      { type: 'imagen', label: 'Carga de imagen', icon: Image },
     ],
   },
   {
-    title: 'Firma y Consentimiento',
+    title: 'Legal y consentimiento',
     fields: [
-      { type: 'firma_autografa', label: 'Firma Autógrafa', icon: PenTool, color: 'text-indigo-500' },
-      { type: 'firma_click', label: 'Click-to-Sign', icon: MousePointer, color: 'text-indigo-500' },
-      { type: 'consentimiento', label: 'Consentimiento', icon: FileCheck, color: 'text-indigo-500' },
-      { type: 'iniciales', label: 'Iniciales', icon: Pen, color: 'text-indigo-500' },
+      { type: 'consentimiento', label: 'Consentimiento', icon: FileCheck2 },
+      { type: 'declaration', label: 'Declaración bajo protesta', icon: Scale },
+      { type: 'signature_block', label: 'Bloque de firma', icon: UserRoundCheck },
+      { type: 'firma_efirma', label: 'e.firma SAT', icon: ShieldCheck },
+      { type: 'firma_autografa', label: 'Firma autógrafa', icon: PenLine },
+      { type: 'firma_click', label: 'Click & Sign', icon: MousePointerClick },
     ],
   },
   {
-    title: 'Archivos',
+    title: 'Contenido',
     fields: [
-      { type: 'imagen', label: 'Carga de Imagen', icon: Image, color: 'text-green-500' },
-      { type: 'documento', label: 'Carga de Documento', icon: FileUp, color: 'text-green-500' },
-    ],
-  },
-  {
-    title: 'Layout',
-    fields: [
-      { type: 'divider', label: 'Separador', icon: Minus, color: 'text-gray-500' },
-      { type: 'texto_bloque', label: 'Bloque de texto', icon: AlignCenter, color: 'text-gray-500' },
-      { type: 'imagen_estatica', label: 'Imagen estática', icon: ImageIcon, color: 'text-gray-500' },
-      { type: 'columnas', label: 'Columnas', icon: Columns, color: 'text-gray-500' },
+      { type: 'texto_bloque', label: 'Texto informativo', icon: FileText },
+      { type: 'divider', label: 'Separador', icon: Minus },
+      { type: 'iniciales', label: 'Iniciales', icon: WalletCards },
     ],
   },
 ];
 
 export default function FieldLibrary() {
   const { addField } = useFormBuilder();
+  const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const normalizedQuery = query.trim().toLowerCase();
 
-  const toggleSection = (title: string) => {
-    setCollapsed((prev) => ({ ...prev, [title]: !prev[title] }));
-  };
+  const groups = useMemo(() => GROUPS.map((group) => ({
+    ...group,
+    fields: group.fields.filter((field) => field.label.toLowerCase().includes(normalizedQuery)),
+  })).filter((group) => group.fields.length > 0), [normalizedQuery]);
 
   return (
-    <div className="h-full overflow-y-auto bg-background border-r border-border">
-      <div className="px-4 py-3 border-b border-border">
-        <h2 className="text-sm font-semibold text-foreground">Campos</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">Haz clic para agregar al formulario</p>
+    <aside className="flex h-full min-h-0 flex-col border-r border-[#E2E8F0] bg-white dark:border-border dark:bg-card">
+      <div className="border-b border-[#E2E8F0] px-4 py-4 dark:border-border">
+        <p className="text-sm font-semibold text-[#0F172A] dark:text-foreground">Agregar contenido</p>
+        <p className="mt-1 text-xs text-[#64748B] dark:text-muted-foreground">Selecciona un campo para insertarlo.</p>
+        <div className="relative mt-3">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar campos"
+            className="h-9 w-full rounded-md border border-[#E2E8F0] bg-[#F6F8FB] pl-9 pr-3 text-xs text-[#0F172A] outline-none transition focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/10 dark:border-border dark:bg-muted dark:text-foreground"
+          />
+        </div>
       </div>
 
-      <div className="p-2 space-y-1">
-        {FIELD_SECTIONS.map((section) => {
-          const isCollapsed = collapsed[section.title];
+      <div className="flex-1 overflow-y-auto px-3 py-3">
+        {groups.map((group) => {
+          const isCollapsed = collapsed[group.title] && !normalizedQuery;
           return (
-            <div key={section.title} className="rounded-lg overflow-hidden">
+            <section key={group.title} className="mb-2">
               <button
-                onClick={() => toggleSection(section.title)}
-                className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:bg-muted rounded-lg transition-colors"
+                type="button"
+                onClick={() => setCollapsed((current) => ({ ...current, [group.title]: !current[group.title] }))}
+                className="flex h-8 w-full items-center justify-between px-2 text-left text-[11px] font-semibold uppercase text-[#64748B]"
               >
-                <span>{section.title}</span>
-                <ChevronRight
-                  size={12}
-                  className={`transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
-                />
+                {group.title}
+                <ChevronRight size={13} className={`transition-transform ${isCollapsed ? '' : 'rotate-90'}`} />
               </button>
-
               {!isCollapsed && (
-                <div className="mt-1 space-y-0.5 px-1">
-                  {section.fields.map((field) => {
-                    const Icon = field.icon;
+                <div className="grid grid-cols-2 gap-1.5">
+                  {group.fields.map((field) => {
+                    const FieldIcon = field.icon;
                     return (
                       <button
                         key={field.type}
+                        type="button"
                         onClick={() => addField(field.type)}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-primary/5 hover:text-primary transition-colors group"
+                        className="group flex min-h-[70px] flex-col items-start justify-between rounded-lg border border-[#E2E8F0] bg-white p-2.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.02)] transition hover:border-[#2563EB]/40 hover:bg-[#EFF6FF] dark:border-border dark:bg-card dark:hover:bg-muted"
                       >
-                        <Icon size={14} className={`flex-shrink-0 ${field.color} group-hover:text-primary`} />
-                        <span className="text-xs text-foreground group-hover:text-primary">{field.label}</span>
+                        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#EFF6FF] text-[#2563EB] transition group-hover:bg-[#2563EB] group-hover:text-white">
+                          <FieldIcon size={15} />
+                        </span>
+                        <span className="mt-2 text-[11px] font-medium leading-4 text-[#334155] dark:text-foreground">{field.label}</span>
                       </button>
                     );
                   })}
                 </div>
               )}
-            </div>
+            </section>
           );
         })}
       </div>
-    </div>
+    </aside>
   );
 }

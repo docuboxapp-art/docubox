@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { FileText, X, ChevronDown, User, PenLine, Mail, Phone, AlignLeft, Calendar, Clock, Hash, CheckSquare, Image, DollarSign, List, Info, ZoomIn, ZoomOut, Lock, Eye, EyeOff, AlertTriangle, CheckCircle2, Settings, Plus, Circle, Tag, MapPin } from 'lucide-react';
-import type { DocumentSettings, Participant, PlacedField, SecuritySettings } from './types';
+import { FileText, X, ChevronDown, User, PenLine, Mail, Phone, AlignLeft, Calendar, Clock, Hash, CheckSquare, Image, DollarSign, List, Info, ZoomIn, ZoomOut, Lock, Eye, EyeOff, AlertTriangle, CheckCircle2, Settings, Plus, Circle, Tag, MapPin, ShieldCheck, Fingerprint, Link2, Timer, ScrollText } from 'lucide-react';
+import type { CryptographicElementType, DocumentSettings, Participant, PlacedField, SecuritySettings } from './types';
 import { PARTICIPANT_COLORS, PARTICIPANT_COLORS_HEX } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -278,10 +278,10 @@ function CasillaLabelModal({ currentLabel, onSave, onClose }: { currentLabel: st
   );
 }
 
-function DraggableField({ icon, label, required, participantId, participantName, colorHex, onClickPlace, disabled }: { icon: React.ReactNode; label: string; required?: boolean; participantId?: string; participantName?: string; colorHex?: string; onClickPlace?: () => void; disabled?: boolean }) {
+function DraggableField({ icon, label, required, participantId, participantName, colorHex, placementKind, cryptographicType, onClickPlace, disabled }: { icon: React.ReactNode; label: string; required?: boolean; participantId?: string; participantName?: string; colorHex?: string; placementKind?: PlacedField['placementKind']; cryptographicType?: CryptographicElementType; onClickPlace?: () => void; disabled?: boolean }) {
   const handleDragStart = (e: React.DragEvent) => {
     if (disabled) { e.preventDefault(); return; }
-    e.dataTransfer.setData('application/json', JSON.stringify({ label, participantId, participantName, colorHex }));
+    e.dataTransfer.setData('application/json', JSON.stringify({ label, participantId, participantName, colorHex, placementKind, cryptographicType }));
     e.dataTransfer.effectAllowed = 'copy';
   };
   const handleClick = (e: React.MouseEvent) => {
@@ -294,7 +294,7 @@ function DraggableField({ icon, label, required, participantId, participantName,
       draggable={!disabled}
       onDragStart={handleDragStart}
       onClick={handleClick}
-      title={disabled ? 'Este participante ya tiene un campo Firma colocado' : undefined}
+      title={disabled ? 'Este elemento ya está colocado en el documento' : undefined}
       className={`flex items-center gap-2.5 border rounded-lg px-3 py-2.5 select-none transition-colors ${disabled ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-50' : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm cursor-grab active:cursor-grabbing'}`}
     >
       {icon}
@@ -437,6 +437,7 @@ function PlacedFieldWidget({ field, onRemove, onMove, onResize, onUpdateOptions,
   const isDropdown = field.label === 'Desplegable';
   const isRadio = field.label === 'Botones de opción';
   const isFirma = field.label === 'Firma';
+  const isCryptographic = field.placementKind === 'cryptographic' || !!field.cryptographicType;
   const isCasilla = field.label === 'Casilla' || (field.casillaLabel !== undefined);
   const isNombreCompleto = field.label === 'Nombre Completo';
   const isRFC = field.label === 'RFC';
@@ -527,6 +528,13 @@ function PlacedFieldWidget({ field, onRemove, onMove, onResize, onUpdateOptions,
 
   // Display name (custom or default)
   const displayName = field.fieldConfig?.customName || field.label;
+  const cryptographicPreview: Record<CryptographicElementType, { eyebrow: string; text: string }> = {
+    document_chain: { eyebrow: 'CADENA ORIGINAL DOCUBOX', text: '||DOCUBOX_DOCUMENT|1.0| ... Se genera al completar ... ||' },
+    document_seal: { eyebrow: 'SELLO DIGITAL DOCUBOX', text: 'SDL-DBX-... · SHA-256 · RSA-PSS-SHA256 · Se genera al completar' },
+    timestamp: { eyebrow: 'ESTAMPA DE TIEMPO', text: 'RFC 3161 · TSA verificada · Fecha UTC al completar' },
+    evidence_chain: { eyebrow: 'CADENA DE EVIDENCIA', text: '||DOCUBOX_EVIDENCE|1.0| ... Se genera al completar ... ||' },
+  };
+  const cryptoPreview = field.cryptographicType ? cryptographicPreview[field.cryptographicType] : null;
 
   return (
     <>
@@ -554,7 +562,7 @@ function PlacedFieldWidget({ field, onRemove, onMove, onResize, onUpdateOptions,
             style={{ whiteSpace: 'nowrap' }}
           >
             {/* Font family selector — hidden for Firma */}
-            {!isFirma && (
+            {!isFirma && !isCryptographic && (
               <select
                 value={fontFamily}
                 onChange={(e) => { setFontFamily(e.target.value); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), fontFamily: e.target.value }); }}
@@ -568,7 +576,7 @@ function PlacedFieldWidget({ field, onRemove, onMove, onResize, onUpdateOptions,
             )}
 
             {/* Font size — hidden for Firma */}
-            {!isFirma && (
+            {!isFirma && !isCryptographic && (
               <select
                 value={fontSize}
                 onChange={(e) => { setFontSize(Number(e.target.value)); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), fontSize: Number(e.target.value) }); }}
@@ -580,20 +588,20 @@ function PlacedFieldWidget({ field, onRemove, onMove, onResize, onUpdateOptions,
               </select>
             )}
 
-            {!isFirma && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
+            {!isFirma && !isCryptographic && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
 
             {/* Bold — hidden for Firma */}
-            {!isFirma && (
+            {!isFirma && !isCryptographic && (
               <button type="button" onClick={() => { const v = !bold; setBold(v); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), bold: v }); }} className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold transition-colors ${bold ? 'bg-teal-100 text-teal-700' : 'text-gray-600 hover:bg-gray-100'}`} title="Negrita">B</button>
             )}
-            {!isFirma && (
+            {!isFirma && !isCryptographic && (
               <button type="button" onClick={() => { const v = !italic; setItalic(v); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), italic: v }); }} className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold italic transition-colors ${italic ? 'bg-teal-100 text-teal-700' : 'text-gray-600 hover:bg-gray-100'}`} title="Cursiva">I</button>
             )}
-            {!isFirma && (
+            {!isFirma && !isCryptographic && (
               <button type="button" onClick={() => { const v = !underline; setUnderline(v); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), underline: v }); }} className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold underline transition-colors ${underline ? 'bg-teal-100 text-teal-700' : 'text-gray-600 hover:bg-gray-100'}`} title="Subrayado">U</button>
             )}
 
-            {!isFirma && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
+            {!isFirma && !isCryptographic && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
 
             {/* Delete */}
             <button type="button" onClick={() => onRemove(field.id)} className="w-6 h-6 flex items-center justify-center rounded bg-red-500 hover:bg-red-600 text-white transition-colors" title="Eliminar campo">
@@ -602,12 +610,14 @@ function PlacedFieldWidget({ field, onRemove, onMove, onResize, onUpdateOptions,
               </svg>
             </button>
 
-            <div className="w-px h-4 bg-gray-200 mx-0.5" />
+            {!isCryptographic && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
 
             {/* Tag / Label config icon */}
-            <button type="button" onClick={(e) => { e.stopPropagation(); setShowLabelConfigModal(true); }} className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:bg-gray-100 transition-colors" title="Configuración del campo">
-              <Tag size={12} />
-            </button>
+            {!isCryptographic && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); setShowLabelConfigModal(true); }} className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:bg-gray-100 transition-colors" title="Configuración del campo">
+                <Tag size={12} />
+              </button>
+            )}
 
             {/* Settings / Type config icon — hidden for Imagen and Casilla */}
             {!isCasilla && field.label !== 'Imagen' && (hasTypeConfigOption || isDropdown || isRadio) && (
@@ -641,7 +651,18 @@ function PlacedFieldWidget({ field, onRemove, onMove, onResize, onUpdateOptions,
         )}
 
         {/* ── FIRMA field ── */}
-        {isFirma ? (
+        {isCryptographic && cryptoPreview ? (
+          <div
+            onMouseDown={handleMoveMouseDown}
+            className="h-full w-full cursor-move select-none overflow-hidden rounded border border-blue-300 bg-white/95 px-2 py-1.5 shadow-sm"
+          >
+            <div className="flex items-center gap-1 text-[7px] font-bold uppercase text-blue-700">
+              <ShieldCheck size={9} className="shrink-0" />
+              <span className="truncate">{cryptoPreview.eyebrow}</span>
+            </div>
+            <p className="mt-1 overflow-hidden font-mono text-[6px] leading-[1.35] text-slate-600">{cryptoPreview.text}</p>
+          </div>
+        ) : isFirma ? (
           <div
             onMouseDown={handleMoveMouseDown}
             className="w-full h-full flex flex-col items-center justify-center cursor-move select-none overflow-hidden relative"
@@ -1179,7 +1200,7 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
     </div>
   );
 }
-export function StepAjustes({ settings, onChange, participants, file, isCondicional, documentoId, onPlacedFieldsChange, onFixarCamposChange, initialFixarCampos, initialPlacedFields }: { settings: DocumentSettings; onChange: (s: DocumentSettings) => void; participants: Participant[]; file: File | null; isCondicional?: boolean; documentoId?: string; onPlacedFieldsChange?: (fields: PlacedField[]) => void; onFixarCamposChange?: (fixar: boolean, hasFirma: boolean) => void; initialFixarCampos?: boolean; initialPlacedFields?: PlacedField[] }) {
+export function StepAjustes({ settings, onChange, participants, file, isCondicional, documentoId, securitySettings, onPlacedFieldsChange, onFixarCamposChange, initialFixarCampos, initialPlacedFields }: { settings: DocumentSettings; onChange: (s: DocumentSettings) => void; participants: Participant[]; file: File | null; isCondicional?: boolean; documentoId?: string; securitySettings?: SecuritySettings; onPlacedFieldsChange?: (fields: PlacedField[]) => void; onFixarCamposChange?: (fixar: boolean, hasFirma: boolean) => void; initialFixarCampos?: boolean; initialPlacedFields?: PlacedField[] }) {
   const { user } = useAuth();
   const supabase = createClient();
   const [activeTab, setActiveTab] = useState<'campos' | 'seguridad'>('campos');
@@ -1196,12 +1217,16 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
   const [participantDropdownOpen, setParticipantDropdownOpen] = useState(false);
   const [camposParticipanteOpen, setCamposParticipanteOpen] = useState(true);
   const [camposGeneralesOpen, setCamposGeneralesOpen] = useState(true);
+  const [sellosCadenaOpen, setSellosCadenaOpen] = useState(true);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [displayZoom, setDisplayZoom] = useState(100);
   // Map participantId -> user data fetched from DB
   const [participantUserData, setParticipantUserData] = useState<Record<string, ParticipantUserData>>({});
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const docSheetRef = useRef<HTMLDivElement>(null);
+  const cryptoPlacementEnabled = !!securitySettings?.selloDigital && securitySettings.selloUbicacion === 'libre';
+  const canPlaceFields = fixarCampos || !!isCondicional || cryptoPlacementEnabled;
+  const standardPlacedFields = placedFields.filter((field) => field.placementKind !== 'cryptographic');
 
   // Notify parent when placedFields changes
   useEffect(() => {
@@ -1224,6 +1249,12 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
   useEffect(() => {
     if (isCondicional) setFixarCampos(true);
   }, [isCondicional]);
+
+  useEffect(() => {
+    if (!cryptoPlacementEnabled) {
+      setPlacedFields((current) => current.filter((field) => field.placementKind !== 'cryptographic'));
+    }
+  }, [cryptoPlacementEnabled]);
 
   // Notify parent about fixarCampos and whether a Firma field exists for ALL firmante participants
   useEffect(() => {
@@ -1253,6 +1284,9 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
         participantId: f.participantId || null,
         participantName: f.participantName || null,
         colorHex: f.colorHex || null,
+        placementKind: f.placementKind || null,
+        cryptographicType: f.cryptographicType || null,
+        generatedOnCompletion: f.generatedOnCompletion ?? false,
         dropdownOptions: f.dropdownOptions || null,
         radioOptions: f.radioOptions || null,
         casillaLabel: f.casillaLabel || null,
@@ -1392,6 +1426,42 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
     { icon: <ChevronDown size={15} className="text-gray-400" />, label: 'Desplegable' },
   ];
 
+  const cryptographicFields: Array<{ icon: React.ReactNode; label: string; type: CryptographicElementType }> = [
+    { icon: <ScrollText size={15} className="text-blue-500" />, label: 'Cadena original', type: 'document_chain' },
+    { icon: <Fingerprint size={15} className="text-blue-500" />, label: 'Sello digital', type: 'document_seal' },
+    { icon: <Timer size={15} className="text-blue-500" />, label: 'Estampa de tiempo', type: 'timestamp' },
+    { icon: <Link2 size={15} className="text-blue-500" />, label: 'Cadena de evidencia', type: 'evidence_chain' },
+  ];
+
+  const getCryptographicDimensions = (type: CryptographicElementType) => {
+    if (type === 'document_chain' || type === 'evidence_chain') return { width: 72, height: 12 };
+    if (type === 'document_seal') return { width: 54, height: 14 };
+    return { width: 42, height: 9 };
+  };
+
+  const handleClickPlaceCrypto = (label: string, cryptographicType: CryptographicElementType) => {
+    if (placedFields.some((field) => field.cryptographicType === cryptographicType)) return;
+    const { width, height } = getCryptographicDimensions(cryptographicType);
+    setPlacedFields((prev) => [
+      ...prev,
+      {
+        id: `crypto-${cryptographicType}-${Date.now()}`,
+        label,
+        icon: null,
+        x: Math.max(2, 50 - width / 2),
+        y: Math.max(2, 50 - height / 2),
+        width,
+        height,
+        page: currentPage,
+        color: 'bg-blue-500',
+        colorHex: '#2563eb',
+        placementKind: 'cryptographic',
+        cryptographicType,
+        generatedOnCompletion: true,
+      },
+    ]);
+  };
+
   const handleClickPlace = (label: string, required?: boolean) => {
     // Restrict Firma field to one per participant
     if (label === 'Firma') {
@@ -1436,7 +1506,8 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
     const raw = e.dataTransfer.getData('application/json');
     if (!raw) return;
     try {
-      const data = JSON.parse(raw) as { label: string; participantId?: string; participantName?: string; colorHex?: string };
+      const data = JSON.parse(raw) as { label: string; participantId?: string; participantName?: string; colorHex?: string; placementKind?: PlacedField['placementKind']; cryptographicType?: CryptographicElementType };
+      if (data.placementKind === 'cryptographic' && data.cryptographicType && placedFields.some((field) => field.cryptographicType === data.cryptographicType)) return;
       // Restrict Firma field to one per participant
       if (data.label === 'Firma') {
         const alreadyHasFirma = placedFields.some((f) => f.label === 'Firma' && f.participantId === data.participantId);
@@ -1446,19 +1517,25 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
       if (!rect) return;
       const x = ((e.clientX - rect.left) / rect.width) * 100;
       const y = ((e.clientY - rect.top) / rect.height) * 100;
+      const dimensions = data.cryptographicType
+        ? getCryptographicDimensions(data.cryptographicType)
+        : { width: 16, height: data.label.startsWith('Botones') ? 7 : 4 };
       setPlacedFields((prev) => [...prev, {
         id: `field-${Date.now()}-${Math.random()}`,
         label: data.label,
         icon: null,
-        x: Math.max(0, Math.min(82, x - 9)),
-        y: Math.max(0, Math.min(95, y - 2.5)),
-        width: 16,
-        height: data.label === 'Botones de opción' ? 7 : 4,
+        x: Math.max(0, Math.min(100 - dimensions.width, x - dimensions.width / 2)),
+        y: Math.max(0, Math.min(100 - dimensions.height, y - dimensions.height / 2)),
+        width: dimensions.width,
+        height: dimensions.height,
         page: currentPage,
         participantId: data.participantId,
         participantName: data.participantName,
         color: selectedColor,
         colorHex: data.colorHex || selectedColorHex,
+        placementKind: data.placementKind,
+        cryptographicType: data.cryptographicType,
+        generatedOnCompletion: data.placementKind === 'cryptographic',
       }]);
     } catch { /* ignore */ }
   };
@@ -1474,7 +1551,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
             <p className="mt-1 text-sm leading-5 text-slate-500">Define si los participantes deben completar información dentro del documento.</p>
           </div>
           <label className={`flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3.5 transition-colors ${isCondicional ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:border-slate-300 hover:bg-slate-50'}`}>
-            <input type="checkbox" checked={isCondicional ? true : fixarCampos} onChange={(e) => { if (!isCondicional) { if (!e.target.checked && placedFields.length > 0) { setShowDeleteConfirm(true); } else { setFixarCampos(e.target.checked); } } }} disabled={isCondicional} className="mt-0.5 h-4 w-4 shrink-0 rounded accent-primary cursor-pointer disabled:cursor-not-allowed" />
+            <input type="checkbox" checked={isCondicional ? true : fixarCampos} onChange={(e) => { if (!isCondicional) { if (!e.target.checked && standardPlacedFields.length > 0) { setShowDeleteConfirm(true); } else { setFixarCampos(e.target.checked); } } }} disabled={isCondicional} className="mt-0.5 h-4 w-4 shrink-0 rounded accent-primary cursor-pointer disabled:cursor-not-allowed" />
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-600 text-slate-800">Asignar campos a participantes</span>
               <span className="mt-0.5 block text-xs leading-5 text-slate-500">Coloca firmas, texto y otros datos en la vista previa.</span>
@@ -1580,14 +1657,14 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
           </div>
 
           {/* Placed fields summary */}
-          {placedFields.length > 0 && (
+          {standardPlacedFields.length > 0 && (
             <div className="mt-4 border-t border-gray-100 pt-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-gray-900">Campos colocados ({placedFields.length})</h3>
-                <button onClick={() => setPlacedFields([])} className="text-xs text-red-500 hover:text-red-700 transition-colors">Limpiar todo</button>
+                <h3 className="text-sm font-bold text-gray-900">Campos colocados ({standardPlacedFields.length})</h3>
+                <button onClick={() => setPlacedFields((current) => current.filter((field) => field.placementKind === 'cryptographic'))} className="text-xs text-red-500 hover:text-red-700 transition-colors">Limpiar todo</button>
               </div>
               <div className="space-y-1.5">
-                {placedFields.map((field) => (
+                {standardPlacedFields.map((field) => (
                   <div key={field.id} className="flex items-center gap-2 text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: field.colorHex || '#9ca3af' }} />
                     <span className="flex-1 font-medium">{field.label}</span>
@@ -1600,6 +1677,65 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
             </div>
           )}
         </div>
+        )}
+
+        {cryptoPlacementEnabled && (
+          <div className="rounded-lg border border-blue-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                <ShieldCheck size={18} />
+              </div>
+              <div>
+                <h2 className="text-base font-700 text-slate-950">Sellos y cadena</h2>
+                <p className="mt-1 text-sm leading-5 text-slate-500">Coloca la evidencia visible. Los valores criptográficos se generan al completar el documento.</p>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-lg border border-slate-200">
+              <button type="button" onClick={() => setSellosCadenaOpen((value) => !value)} className="flex w-full items-center gap-2 px-4 py-3.5 text-left transition-colors hover:bg-slate-50">
+                <span className="flex-1 text-sm font-600 text-slate-800">Elementos disponibles</span>
+                <ChevronDown size={16} className={`text-slate-400 transition-transform ${sellosCadenaOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {sellosCadenaOpen && (
+                <div className="space-y-2 border-t border-slate-200 px-4 pb-4 pt-3">
+                  {cryptographicFields.map((field) => {
+                    const alreadyPlaced = placedFields.some((placed) => placed.cryptographicType === field.type);
+                    return (
+                      <DraggableField
+                        key={field.type}
+                        icon={field.icon}
+                        label={field.label}
+                        colorHex="#2563eb"
+                        placementKind="cryptographic"
+                        cryptographicType={field.type}
+                        onClickPlace={() => handleClickPlaceCrypto(field.label, field.type)}
+                        disabled={alreadyPlaced}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {placedFields.some((field) => field.placementKind === 'cryptographic') && (
+              <div className="mt-4 border-t border-slate-100 pt-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-900">Elementos colocados</h3>
+                  <span className="text-xs text-slate-400">Máximo uno de cada tipo</span>
+                </div>
+                <div className="space-y-1.5">
+                  {placedFields.filter((field) => field.placementKind === 'cryptographic').map((field) => (
+                    <div key={field.id} className="flex items-center gap-2 rounded-lg bg-blue-50/70 px-3 py-2 text-xs text-slate-600">
+                      <ShieldCheck size={12} className="shrink-0 text-blue-600" />
+                      <span className="flex-1 font-medium">{field.label}</span>
+                      <span className="text-slate-400">Pág. {field.page ?? 1}</span>
+                      <button type="button" onClick={() => setPlacedFields((prev) => prev.filter((item) => item.id !== field.id))} className="text-slate-400 transition-colors hover:text-red-500" title="Eliminar elemento"><X size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Delete confirmation modal */}
@@ -1619,7 +1755,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
                 <button
                   type="button"
                   onClick={() => {
-                    setPlacedFields([]);
+                    setPlacedFields((current) => current.filter((field) => field.placementKind === 'cryptographic'));
                     setFixarCampos(false);
                     setShowDeleteConfirm(false);
                   }}
@@ -1639,7 +1775,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
             <h2 className="text-base font-700 text-slate-950">Vista previa del documento</h2>
             <div className="flex items-center gap-2">
-              {(fixarCampos || isCondicional) && <span className="mr-2 rounded-md bg-primary/10 px-2.5 py-1 text-xs font-600 text-primary">Arrastra los campos al documento</span>}
+              {canPlaceFields && <span className="mr-2 rounded-md bg-primary/10 px-2.5 py-1 text-xs font-600 text-primary">Arrastra los elementos al documento</span>}
               <button onClick={() => { const next = Math.max(50, zoomLevel - 25); setZoomLevel(next); setDisplayZoom(next); }} disabled={zoomLevel <= 50} title="Reducir zoom" className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><ZoomOut size={14} /></button>
               <button onClick={() => { setZoomLevel(100); setDisplayZoom(100); }} title="Restablecer zoom" className="min-w-[48px] h-8 px-2 flex items-center justify-center rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors">{displayZoom}%</button>
               <button onClick={() => { const next = Math.min(200, zoomLevel + 25); setZoomLevel(next); setDisplayZoom(next); }} disabled={zoomLevel >= 200} title="Aumentar zoom" className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><ZoomIn size={14} /></button>
@@ -1647,9 +1783,9 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
           </div>
           {/* Scrollable drop zone — the sheet stays fixed width, tabs scroll */}
           <div ref={dropZoneRef} data-pdf-canvas="true"
-            onDragOver={(fixarCampos || isCondicional) ? handleDragOver : undefined}
-            onDragLeave={(fixarCampos || isCondicional) ? handleDragLeave : undefined}
-            onDrop={(fixarCampos || isCondicional) ? handleDrop : undefined}
+            onDragOver={canPlaceFields ? handleDragOver : undefined}
+            onDragLeave={canPlaceFields ? handleDragLeave : undefined}
+            onDrop={canPlaceFields ? handleDrop : undefined}
             className={`flex-1 relative flex items-start justify-center px-4 py-4 transition-colors overflow-auto ${isDragOver ? 'bg-primary/5' : 'bg-gray-100'}`}
           >
             {isDragOver && (
@@ -1677,7 +1813,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
                 <PlacedFieldWidget key={field.id} field={field} onRemove={(id) => setPlacedFields((prev) => prev.filter((x) => x.id !== id))} onMove={(id, x, y) => setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, x, y } : f))} onResize={(id, width, height, x, y) => setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, width, height, x, y } : f))} onUpdateOptions={(id, opts) => setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, dropdownOptions: opts } : f))} onUpdateRadioOptions={(id, opts) => setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, radioOptions: opts } : f))} onUpdateCasillaLabel={(id, lbl) => setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, casillaLabel: lbl } : f))} onUpdateFieldConfig={(id, cfg) => setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, fieldConfig: cfg } : f))} onUpdateFieldTypeConfig={(id, cfg) => setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, fieldTypeConfig: cfg } : f))} userData={field.participantId ? participantUserData[field.participantId] : undefined} />
               ))}
             </div>
-            {(fixarCampos || isCondicional) && placedFields.length === 0 && !isDragOver && (
+            {canPlaceFields && placedFields.length === 0 && !isDragOver && (
               <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-white border border-gray-200 rounded-xl px-5 py-3 shadow-sm flex items-center gap-2 pointer-events-none">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M5 9l4 4L19 7"/>
@@ -1687,7 +1823,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
                   <line x1="2" y1="12" x2="22" y2="12"/>
                   <line x1="12" y1="2" x2="12" y2="22"/>
                 </svg>
-                <p className="text-xs text-gray-500">Arrastra un campo desde el panel izquierdo</p>
+                <p className="text-xs text-gray-500">Arrastra un elemento desde el panel izquierdo</p>
               </div>
             )}
           </div>

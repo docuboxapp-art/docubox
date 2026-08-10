@@ -1,39 +1,9 @@
 'use client';
 
 import React from 'react';
-import { useFormBuilder, FormField, FieldType } from '@/contexts/FormBuilderContext';
-import { Type, AlignLeft, Hash, Mail, Phone, Calendar, Clock, CheckSquare, List, Circle, ChevronDown, MapPin, FileText, CreditCard, User, Shield, PenTool, MousePointer, FileCheck, Pen, Image, FileUp, Minus, AlignCenter, ImageIcon, Columns, Edit2, Copy, Trash2, GripVertical,  } from 'lucide-react';
-import Icon from '@/components/ui/AppIcon';
-
-
-const FIELD_ICON_MAP: Partial<Record<FieldType, React.ElementType>> = {
-  text: Type, textarea: AlignLeft, number: Hash, email: Mail, phone: Phone,
-  date: Calendar, time: Clock, checkbox: CheckSquare, checkbox_group: List,
-  radio: Circle, select: ChevronDown, estado_mx: MapPin,
-  rfc: FileText, curp: User, nss: CreditCard, clave_elector: Shield,
-  firma_autografa: PenTool, firma_click: MousePointer,
-  consentimiento: FileCheck, iniciales: Pen,
-  imagen: Image, documento: FileUp,
-  divider: Minus, texto_bloque: AlignCenter,
-  imagen_estatica: ImageIcon, columnas: Columns,
-};
-
-const FIELD_COLOR_MAP: Partial<Record<FieldType, string>> = {
-  text: 'bg-blue-50 border-blue-200', textarea: 'bg-blue-50 border-blue-200',
-  number: 'bg-blue-50 border-blue-200', email: 'bg-blue-50 border-blue-200',
-  phone: 'bg-blue-50 border-blue-200', date: 'bg-blue-50 border-blue-200',
-  time: 'bg-blue-50 border-blue-200',
-  checkbox: 'bg-purple-50 border-purple-200', checkbox_group: 'bg-purple-50 border-purple-200',
-  radio: 'bg-purple-50 border-purple-200', select: 'bg-purple-50 border-purple-200',
-  estado_mx: 'bg-purple-50 border-purple-200',
-  rfc: 'bg-orange-50 border-orange-200', curp: 'bg-orange-50 border-orange-200',
-  nss: 'bg-orange-50 border-orange-200', clave_elector: 'bg-orange-50 border-orange-200',
-  firma_autografa: 'bg-indigo-50 border-indigo-200', firma_click: 'bg-indigo-50 border-indigo-200',
-  consentimiento: 'bg-indigo-50 border-indigo-200', iniciales: 'bg-indigo-50 border-indigo-200',
-  imagen: 'bg-green-50 border-green-200', documento: 'bg-green-50 border-green-200',
-  divider: 'bg-gray-50 border-gray-200', texto_bloque: 'bg-gray-50 border-gray-200',
-  imagen_estatica: 'bg-gray-50 border-gray-200', columnas: 'bg-gray-50 border-gray-200',
-};
+import { Copy, FileText, GripVertical, Pencil, Trash2 } from 'lucide-react';
+import { useFormBuilder, type FormField } from '@/contexts/FormBuilderContext';
+import { getFieldTypeLabel } from '@/lib/forms/schema';
 
 interface FieldCardProps {
   field: FormField;
@@ -43,84 +13,80 @@ interface FieldCardProps {
 
 export default function FieldCard({ field, isSelected, dragHandleProps }: FieldCardProps) {
   const { selectField, deleteField, duplicateField } = useFormBuilder();
-  const Icon = FIELD_ICON_MAP[field.type] || Type;
-  const colorClass = FIELD_COLOR_MAP[field.type] || 'bg-gray-50 border-gray-200';
-
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    selectField(field.id);
-  };
 
   return (
-    <div
-      onClick={handleClick}
-      className={`group relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-all duration-150 ${colorClass} ${
-        isSelected ? 'ring-2 ring-primary ring-offset-1 shadow-md' : 'hover:shadow-sm'
+    <article
+      onClick={(event) => {
+        event.stopPropagation();
+        selectField(field.id);
+      }}
+      className={`group relative flex min-h-[78px] cursor-pointer items-center gap-3 rounded-lg border bg-white px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.02)] transition dark:bg-card ${
+        isSelected
+          ? 'border-[#2563EB] shadow-[0_0_0_2px_rgba(37,99,235,0.10)]'
+          : 'border-[#E2E8F0] hover:border-[#CBD5E1] hover:shadow-sm dark:border-border'
       }`}
     >
-      {/* Drag handle */}
-      <div
+      <button
+        type="button"
         {...(dragHandleProps || {})}
-        className="flex-shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={(e) => e.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        className="flex h-8 w-6 flex-shrink-0 cursor-grab items-center justify-center text-[#94A3B8] opacity-50 transition hover:text-[#2563EB] group-hover:opacity-100 active:cursor-grabbing"
+        title="Reordenar campo"
       >
         <GripVertical size={16} />
+      </button>
+
+      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-[#F1F5F9] text-[#475569] dark:bg-muted dark:text-muted-foreground">
+        <FileText size={16} />
       </div>
 
-      {/* Icon */}
-      <div className="flex-shrink-0">
-        <Icon size={16} className="text-muted-foreground" />
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground truncate">{field.label}</span>
-          {field.required && (
-            <span className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">
-              Obligatorio
-            </span>
-          )}
-          {!field.required && (
-            <span className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
-              Opcional
-            </span>
-          )}
-          {field.conditionalVisible && (
-            <span className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-600">
-              Condicional
-            </span>
-          )}
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <p className="truncate text-sm font-semibold text-[#0F172A] dark:text-foreground">{field.label}</p>
+          {field.required && <Badge tone="red">Obligatorio</Badge>}
+          {field.conditionalVisible && <Badge tone="amber">Condicional</Badge>}
+          {field.pdf?.show === false && <Badge tone="gray">No visible en PDF</Badge>}
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5 truncate">
-          {field.slug} · {field.type}
+        <p className="mt-1 truncate text-xs text-[#64748B] dark:text-muted-foreground">
+          {getFieldTypeLabel(field.type)} · {field.slug}
         </p>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-        <button
-          onClick={(e) => { e.stopPropagation(); selectField(field.id); }}
-          className="p-1.5 rounded-lg hover:bg-white/80 text-muted-foreground hover:text-primary transition-colors"
-          title="Editar propiedades"
-        >
-          <Edit2 size={13} />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); duplicateField(field.id); }}
-          className="p-1.5 rounded-lg hover:bg-white/80 text-muted-foreground hover:text-primary transition-colors"
-          title="Duplicar"
-        >
-          <Copy size={13} />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); deleteField(field.id); }}
-          className="p-1.5 rounded-lg hover:bg-white/80 text-muted-foreground hover:text-destructive transition-colors"
-          title="Eliminar"
-        >
-          <Trash2 size={13} />
-        </button>
+      <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+        <IconButton label="Editar" onClick={() => selectField(field.id)}><Pencil size={14} /></IconButton>
+        <IconButton label="Duplicar" onClick={() => duplicateField(field.id)}><Copy size={14} /></IconButton>
+        <IconButton label="Eliminar" destructive onClick={() => deleteField(field.id)}><Trash2 size={14} /></IconButton>
       </div>
-    </div>
+    </article>
+  );
+}
+
+function Badge({ children, tone }: { children: React.ReactNode; tone: 'red' | 'amber' | 'gray' }) {
+  const styles = {
+    red: 'bg-red-50 text-red-600',
+    amber: 'bg-amber-50 text-amber-700',
+    gray: 'bg-[#F8FAFC] text-[#64748B]',
+  };
+  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${styles[tone]}`}>{children}</span>;
+}
+
+function IconButton({ children, label, destructive, onClick }: {
+  children: React.ReactNode;
+  label: string;
+  destructive?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className={`flex h-8 w-8 items-center justify-center rounded-md transition ${destructive ? 'text-[#94A3B8] hover:bg-red-50 hover:text-red-600' : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#2563EB]'}`}
+    >
+      {children}
+    </button>
   );
 }

@@ -37,6 +37,10 @@ function getLabelTipo(label: string): string {
     'Imagen': 'imagen',
     'Botones de opción': 'radio',
     'Desplegable': 'dropdown',
+    'Cadena original': 'document_chain',
+    'Sello digital': 'document_seal',
+    'Estampa de tiempo': 'timestamp',
+    'Cadena de evidencia': 'evidence_chain',
   };
   return map[label] || 'texto';
 }
@@ -355,6 +359,7 @@ function CrearDocumentoPageInner() {
           urgente: securitySummary?.urgente ?? false,
           publico: securitySummary?.publico ?? false,
           selloDigital: securitySummary?.selloDigital ?? false,
+          selloUbicacion: securitySummary?.selloUbicacion || 'calce',
           estampaAutenticacion: securitySummary?.estampaAutenticacion ?? false,
           metadatosAdicionales: securitySummary?.metadatosAdicionales ?? false,
           camposSolicitados: placedFields.map((f) => ({
@@ -369,6 +374,9 @@ function CrearDocumentoPageInner() {
             participantId: f.participantId || null,
             participantName: f.participantName || null,
             colorHex: f.colorHex || null,
+            placementKind: f.placementKind || null,
+            cryptographicType: f.cryptographicType || null,
+            generatedOnCompletion: f.generatedOnCompletion ?? false,
             dropdownOptions: f.dropdownOptions || null,
             radioOptions: f.radioOptions || null,
             casillaLabel: f.casillaLabel || null,
@@ -576,7 +584,7 @@ function CrearDocumentoPageInner() {
             <StepFlujoTrabajo participants={participants} />
           )}
           {currentStepLabel === 'Ajustes' && (
-            <StepAjustes settings={settings} onChange={setSettings} participants={participants} file={file} isCondicional={isCondicional} documentoId={documentoId} onPlacedFieldsChange={setPlacedFields} onFixarCamposChange={(fixar, hasFirma) => { setAjustesFixarCampos(fixar); setAjustesHasFirma(hasFirma); }} initialFixarCampos={ajustesFixarCampos} initialPlacedFields={placedFields} />
+            <StepAjustes settings={settings} onChange={setSettings} participants={participants} file={file} isCondicional={isCondicional} documentoId={documentoId} securitySettings={securitySummary} onPlacedFieldsChange={setPlacedFields} onFixarCamposChange={(fixar, hasFirma) => { setAjustesFixarCampos(fixar); setAjustesHasFirma(hasFirma); }} initialFixarCampos={ajustesFixarCampos} initialPlacedFields={placedFields} />
           )}
           {currentStepLabel === 'Enviar' && (
             <StepEnviar ref={stepEnviarRef} file={file} participants={participants} settings={settings} docConfig={docConfig} onGoToStep={setCurrentStep} placedFields={placedFields} documentoId={documentoId} securitySettings={securitySummary} grupos={grupos} participationOrder={participationOrder} participantMode={participantMode} preProcessedFile={preProcessedFile} pdfMetadata={pdfMetadata} />

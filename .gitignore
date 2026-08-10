@@ -9,16 +9,23 @@ package-lock.json
 
 # Next.js build output
 .next/
+.next*/
 out/
 
 # Production build
 build/
 
 # Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Local archives and temporary artifacts
+*.tgz
+tmp/
+NUL
 
 # OS-specific files
 .DS_Store

@@ -1,366 +1,357 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useFormBuilder } from '@/contexts/FormBuilderContext';
-import { useFormAutoSave } from '@/hooks/useFormAutoSave';
+import {
+  Archive, BarChart3, CheckCircle2, ChevronDown, CirclePause, Copy, Edit3, Eye,
+  FileCheck2, FilePlus2, FileText, Link2, Loader2, MoreHorizontal, PenLine, Plus,
+  Search, Send, ShieldCheck, Trash2, Users, X,
+} from 'lucide-react';
+import AppLayout from '@/components/AppLayout';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
-import FieldLibrary from './components/FieldLibrary';
-import BuilderCanvas from './components/BuilderCanvas';
-import VisualCanvas from './components/VisualCanvas';
-import FieldProperties from './components/FieldProperties';
-import AppLayout from '@/components/AppLayout';
-import { List, Grid, Save, Send, ArrowLeft, Plus, FileText, CheckCircle, Loader2, Search, Copy, Trash2, ChevronRight,  } from 'lucide-react';
+import { getSignatureTypeLabel, normalizeFormTemplate, type SignatureType } from '@/lib/forms/schema';
 
-// ── Builder Inner (needs context) ────────────────────────────
-function BuilderInner({ templateId }: { templateId?: string }) {
-  const { state, dispatch } = useFormBuilder();
-  const { save, isSaving, lastSaved, isDirty } = useFormAutoSave(templateId);
+interface FormRow {
+  id: string;
+  name: string;
+  description?: string;
+  status: 'draft' | 'published' | 'paused' | 'closed' | 'archived';
+  schema: unknown[];
+  settings: Record<string, any>;
+  updated_at: string;
+  created_by: string;
+  responseCount: number;
+}
+
+const statusStyles: Record<string, { label: string; className: string; dot: string }> = {
+  draft: { label: 'Borrador', className: 'border-slate-200 bg-slate-50 text-slate-600', dot: 'bg-slate-400' },
+  published: { label: 'Publicado', className: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+  paused: { label: 'Pausado', className: 'border-amber-200 bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
+  closed: { label: 'Cerrado', className: 'border-red-200 bg-red-50 text-red-700', dot: 'bg-red-500' },
+  archived: { label: 'Archivado', className: 'border-slate-200 bg-slate-100 text-slate-500', dot: 'bg-slate-400' },
+};
+
+export default function FormulariosPage() {
   const router = useRouter();
+  const { activeWorkspace } = useWorkspace();
+  const { user } = useAuth();
+  const supabase = createClient();
+  const [forms, setForms] = useState<FormRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('all');
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [shareForm, setShareForm] = useState<FormRow | null>(null);
+  const [notice, setNotice] = useState('');
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  const handlePublish = async () => {
-    dispatch({ type: 'SET_TEMPLATE_META', payload: { status: 'published' } });
-    await save();
+  const loadForms = async () => {
+    if (!activeWorkspace) return;
+    setLoading(true);
+    const [{ data: templateData, error }, { data: responseData }] = await Promise.all([
+      supabase.from('form_templates').select('*').eq('workspace_id', activeWorkspace.id).order('updated_at', { ascending: false }),
+      supabase.from('form_responses').select('template_id').eq('workspace_id', activeWorkspace.id),
+    ]);
+    if (!error) {
+      const counts = (responseData || []).reduce<Record<string, number>>((acc, row: any) => {
+        acc[row.template_id] = (acc[row.template_id] || 0) + 1;
+        return acc;
+      }, {});
+      setForms((templateData || []).map((item: any) => ({ ...item, responseCount: counts[item.id] || 0 })));
+    } else {
+      setNotice('No se pudieron cargar los formularios.');
+    }
+    setLoading(false);
   };
 
-  const saveIndicator = isSaving
-    ? 'Guardando...'
-    : isDirty
-    ? 'Cambios sin guardar'
-    : lastSaved
-    ? `Guardado ${lastSaved.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`
-    : 'Sin cambios';
+  useEffect(() => { loadForms(); }, [activeWorkspace?.id]);
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setActiveMenu(null);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+
+  const filtered = useMemo(() => forms.filter((form) => {
+    const matchesQuery = `${form.name} ${form.description || ''}`.toLowerCase().includes(query.toLowerCase());
+    return matchesQuery && (status === 'all' || form.status === status);
+  }), [forms, query, status]);
+
+  const metrics = useMemo(() => ({
+    total: forms.length,
+    published: forms.filter((form) => form.status === 'published').length,
+    responses: forms.reduce((sum, form) => sum + form.responseCount, 0),
+    signing: forms.filter((form) => form.settings?.requiresSignature).length,
+  }), [forms]);
+
+  const duplicateForm = async (form: FormRow) => {
+    if (!activeWorkspace || !user) return;
+    const normalized = normalizeFormTemplate({ schema: form.schema as any, sections: form.settings?.sections, settings: form.settings as any });
+    const { error } = await supabase.from('form_templates').insert({
+      workspace_id: activeWorkspace.id,
+      created_by: user.id,
+      name: `${form.name} (copia)`,
+      description: form.description || '',
+      status: 'draft',
+      schema: normalized.schema,
+      settings: { ...normalized.settings, sections: normalized.sections },
+    });
+    if (!error) { setNotice('Formulario duplicado.'); loadForms(); }
+  };
+
+  const closeForm = async (form: FormRow) => {
+    let result = await supabase.from('form_templates').update({ status: 'closed' }).eq('id', form.id);
+    if (result.error) result = await supabase.from('form_templates').update({ status: 'archived' }).eq('id', form.id);
+    if (!result.error) { setNotice('Formulario cerrado.'); loadForms(); }
+  };
+
+  const deleteForm = async (form: FormRow) => {
+    if (!window.confirm(`¿Eliminar “${form.name}”? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('form_templates').delete().eq('id', form.id);
+    if (!error) setForms((current) => current.filter((item) => item.id !== form.id));
+  };
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-background">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-background flex-shrink-0">
-        <button
-          onClick={() => router.push('/formularios')}
-          className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
-        >
-          <ArrowLeft size={16} />
-        </button>
+    <AppLayout noPadding>
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
+        <div className="mx-auto w-full max-w-[1560px]">
+          <header className="flex flex-col gap-4 border-b border-slate-200 pb-5 dark:border-border sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-600 text-slate-950 dark:text-foreground">Formularios</h1>
+              <p className="mt-1 text-sm text-slate-500 dark:text-muted-foreground">
+                Crea, publica y administra formularios que generan documentos listos para firma.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push('/formularios/builder')}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-600 text-white shadow-sm transition-colors hover:bg-primary/90"
+            >
+              <Plus size={16} />
+              Nuevo formulario
+            </button>
+          </header>
 
-        <input
-          type="text"
-          value={state.template.name}
-          onChange={(e) => dispatch({ type: 'SET_TEMPLATE_META', payload: { name: e.target.value } })}
-          className="text-sm font-semibold bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-primary/30 rounded px-2 py-1 text-foreground min-w-0 flex-1 max-w-xs"
-        />
+          <section className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-border">
+              <div>
+                <h2 className="text-sm font-600 text-slate-950 dark:text-foreground">Resumen de formularios</h2>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-muted-foreground">Actividad del espacio de trabajo actual.</p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-600 text-slate-600 dark:bg-muted dark:text-muted-foreground">
+                {metrics.total} {metrics.total === 1 ? 'formulario' : 'formularios'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 dark:divide-border lg:grid-cols-4 lg:divide-y-0">
+              <MetricCard icon={FileText} label="Total" value={metrics.total} />
+              <MetricCard icon={CheckCircle2} label="Publicados" value={metrics.published} tone="emerald" />
+              <MetricCard icon={BarChart3} label="Respuestas" value={metrics.responses} tone="blue" />
+              <MetricCard icon={PenLine} label="Requieren firma" value={metrics.signing} tone="indigo" />
+            </div>
+          </section>
 
-        <div className="flex items-center gap-1 ml-2">
-          <button
-            onClick={() => dispatch({ type: 'SET_CANVAS_MODE', payload: 'list' })}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              state.canvasMode === 'list' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            <List size={13} /> Lista
-          </button>
-          <button
-            onClick={() => dispatch({ type: 'SET_CANVAS_MODE', payload: 'visual' })}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              state.canvasMode === 'visual' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            <Grid size={13} /> Visual
-          </button>
-        </div>
+          <section className="mt-5 overflow-visible rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
+            <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 dark:border-border lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-600 text-slate-950 dark:text-foreground">Mis formularios</h2>
+                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-600 text-primary dark:bg-primary/10">
+                    {filtered.length}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-muted-foreground">Gestiona borradores, publicaciones y respuestas.</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="relative min-w-0 sm:w-80">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Buscar formularios..."
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10 dark:border-border dark:bg-background dark:text-foreground"
+                  />
+                </div>
+                <div className="relative">
+                  <select
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value)}
+                    aria-label="Filtrar por estado"
+                    className="h-10 w-full appearance-none rounded-md border border-slate-200 bg-white pl-3 pr-9 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10 dark:border-border dark:bg-background dark:text-foreground sm:w-44"
+                  >
+                    <option value="all">Todos los estados</option>
+                    <option value="draft">Borrador</option>
+                    <option value="published">Publicado</option>
+                    <option value="paused">Pausado</option>
+                    <option value="closed">Cerrado</option>
+                    <option value="archived">Archivado</option>
+                  </select>
+                  <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                </div>
+              </div>
+            </div>
 
-        <div className="ml-auto flex items-center gap-3">
-          {/* Save indicator */}
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {isSaving ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : isDirty ? (
-              <div className="w-2 h-2 rounded-full bg-orange-400" />
-            ) : (
-              <CheckCircle size={12} className="text-green-500" />
-            )}
-            <span>{saveIndicator}</span>
-          </div>
-
-          <button
-            onClick={save}
-            disabled={isSaving || !isDirty}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
-          >
-            <Save size={13} /> Guardar borrador
-          </button>
-
-          <button
-            onClick={handlePublish}
-            disabled={isSaving}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-          >
-            <Send size={13} /> Publicar
-          </button>
+          {loading ? (
+            <div className="flex min-h-[360px] items-center justify-center"><Loader2 size={24} className="animate-spin text-primary" /></div>
+          ) : filtered.length === 0 ? (
+            <EmptyState onCreate={() => router.push('/formularios/builder')} filtered={Boolean(query || status !== 'all')} />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1080px] border-collapse">
+                <thead><tr className="border-b border-slate-200 bg-slate-50/80 text-left dark:border-border dark:bg-muted/40">
+                  <TableHeading>Formulario</TableHeading><TableHeading>Estado</TableHeading><TableHeading>Respuestas</TableHeading><TableHeading>Configuración de firma</TableHeading><TableHeading>Última modificación</TableHeading><TableHeading align="right">Acciones</TableHeading>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-border">
+                  {filtered.map((form) => {
+                    const signatureTypes = (form.settings?.allowedSignatureTypes || []) as SignatureType[];
+                    return (
+                      <tr key={form.id} className="transition-colors hover:bg-slate-50/70 dark:hover:bg-muted/30">
+                        <td className="px-5 py-4"><button type="button" onClick={() => router.push(`/formularios/builder?id=${form.id}`)} className="group flex items-center gap-3 text-left"><span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-primary transition-colors group-hover:bg-blue-100 dark:border-primary/20 dark:bg-primary/10"><FileCheck2 size={18} /></span><span className="min-w-0"><span className="block max-w-[320px] truncate text-sm font-600 text-slate-950 group-hover:text-primary dark:text-foreground">{form.name}</span><span className="mt-0.5 block max-w-[320px] truncate text-xs text-slate-500 dark:text-muted-foreground">{form.description || `${Array.isArray(form.schema) ? form.schema.length : 0} campos configurados`}</span></span></button></td>
+                        <td className="px-4 py-3.5"><StatusBadge status={form.status} /></td>
+                        <td className="px-4 py-4"><button type="button" onClick={() => router.push(`/formularios/respuestas?id=${form.id}`)} className="inline-flex items-center gap-2 text-sm font-500 text-slate-700 hover:text-primary dark:text-foreground"><Users size={15} className="text-slate-400" /><span className="tabular-nums">{form.responseCount}</span><span className="text-xs text-slate-400">{form.responseCount === 1 ? 'respuesta' : 'respuestas'}</span></button></td>
+                        <td className="px-4 py-4">{form.settings?.requiresSignature ? <div className="flex items-start gap-2"><ShieldCheck size={15} className="mt-0.5 flex-shrink-0 text-emerald-600" /><div><span className="text-xs font-600 text-slate-900 dark:text-foreground">Firma requerida</span><p className="mt-0.5 max-w-[230px] truncate text-[11px] text-slate-500 dark:text-muted-foreground">{signatureTypes.length ? signatureTypes.map(getSignatureTypeLabel).join(', ') : 'Click & Sign'}</p></div></div> : <span className="text-xs text-slate-500 dark:text-muted-foreground">Sin firma requerida</span>}</td>
+                        <td className="whitespace-nowrap px-4 py-4"><span className="block text-xs font-500 text-slate-700 dark:text-foreground">{new Date(form.updated_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span><span className="mt-0.5 block text-[11px] text-slate-400">{new Date(form.updated_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</span></td>
+                        <td className="relative px-5 py-4 text-right">
+                          <div className="inline-flex items-center gap-1">
+                            <button type="button" onClick={() => router.push(`/formularios/builder?id=${form.id}`)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-600 text-slate-700 transition-colors hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"><Edit3 size={14} /> Editar</button>
+                            <button type="button" onClick={() => { setShareForm(form); setActiveMenu(null); }} className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-primary dark:border-border dark:bg-card" title="Compartir" aria-label={`Compartir ${form.name}`}><Send size={14} /></button>
+                            <button type="button" onClick={() => setActiveMenu(activeMenu === form.id ? null : form.id)} className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:border-border dark:bg-card" title="Más acciones" aria-label={`Más acciones para ${form.name}`}><MoreHorizontal size={16} /></button>
+                          </div>
+                          {activeMenu === form.id && <ActionMenu ref={menuRef} form={form} onPreview={() => router.push(`/formularios/preview?id=${form.id}`)} onResponses={() => router.push(`/formularios/respuestas?id=${form.id}`)} onDuplicate={() => duplicateForm(form)} onClose={() => closeForm(form)} onDelete={() => deleteForm(form)} />}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          </section>
         </div>
       </div>
 
-      {/* 3-column layout */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left panel */}
-        <div className="w-[280px] flex-shrink-0 overflow-hidden">
-          <FieldLibrary />
-        </div>
+      {shareForm && <ShareDialog form={shareForm} onClose={() => setShareForm(null)} onSuccess={(message) => { setNotice(message); setShareForm(null); }} />}
+      {notice && <div className="fixed bottom-5 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-md bg-slate-950 px-4 py-3 text-xs font-500 text-white shadow-xl">{notice}<button type="button" onClick={() => setNotice('')} className="text-white/60 hover:text-white" aria-label="Cerrar aviso"><X size={14} /></button></div>}
+    </AppLayout>
+  );
+}
 
-        {/* Canvas */}
-        <div className="flex-1 overflow-hidden flex flex-col bg-gray-50">
-          {state.canvasMode === 'list' ? <BuilderCanvas /> : <VisualCanvas />}
-        </div>
+const ActionMenu = React.forwardRef<HTMLDivElement, { form: FormRow; onPreview: () => void; onResponses: () => void; onDuplicate: () => void; onClose: () => void; onDelete: () => void }>(function ActionMenu({ onPreview, onResponses, onDuplicate, onClose, onDelete }, ref) {
+  return (
+    <div ref={ref} className="absolute right-5 top-14 z-30 w-52 rounded-md border border-slate-200 bg-white p-1.5 text-left shadow-[0_16px_40px_-18px_rgba(15,23,42,0.35)] dark:border-border dark:bg-card">
+      <MenuAction icon={Eye} label="Vista previa" onClick={onPreview} />
+      <MenuAction icon={BarChart3} label="Ver respuestas" onClick={onResponses} />
+      <MenuAction icon={Copy} label="Duplicar" onClick={onDuplicate} />
+      <MenuAction icon={CirclePause} label="Cerrar formulario" onClick={onClose} />
+      <div className="my-1 border-t border-slate-200 dark:border-border" />
+      <MenuAction icon={Trash2} label="Eliminar" destructive onClick={onDelete} />
+    </div>
+  );
+});
 
-        {/* Right panel */}
-        <div className="w-[320px] flex-shrink-0 overflow-hidden">
-          <FieldProperties />
+function ShareDialog({ form, onClose, onSuccess }: { form: FormRow; onClose: () => void; onSuccess: (message: string) => void }) {
+  const supabase = createClient();
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [hours, setHours] = useState(form.settings?.expirationHours || 72);
+  const [loading, setLoading] = useState(false);
+  const [generatedUrl, setGeneratedUrl] = useState('');
+  const [error, setError] = useState('');
+  const createLink = async () => {
+    if (!/^\S+@\S+\.\S+$/.test(email)) { setError('Ingresa un correo electrónico válido.'); return; }
+    setLoading(true); setError('');
+    const { data: sessionData } = await supabase.auth.getSession();
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-form-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session?.access_token || ''}` },
+        body: JSON.stringify({ template_id: form.id, recipient_email: email, recipient_name: name, expiration_hours: hours }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'No se pudo generar el enlace.');
+      setGeneratedUrl(data.form_url);
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'No se pudo generar el enlace.'); }
+    setLoading(false);
+  };
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_24px_70px_-24px_rgba(15,23,42,0.5)] dark:border-border dark:bg-card">
+        <header className="flex items-start justify-between border-b border-slate-200 px-5 py-4 dark:border-border">
+          <div className="min-w-0">
+            <h2 className="text-base font-600 text-slate-950 dark:text-foreground">Compartir formulario</h2>
+            <p className="mt-1 truncate text-xs text-slate-500 dark:text-muted-foreground">{form.name}</p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-muted" aria-label="Cerrar">
+            <X size={15} />
+          </button>
+        </header>
+        <div className="space-y-4 p-5">
+          {generatedUrl ? (
+            <>
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
+                <div className="flex items-center gap-2 text-sm font-600 text-emerald-800 dark:text-emerald-300"><CheckCircle2 size={16} /> Enlace seguro generado</div>
+                <p className="mt-2 break-all text-xs leading-5 text-emerald-700 dark:text-emerald-400">{generatedUrl}</p>
+              </div>
+              <button type="button" onClick={async () => { await navigator.clipboard.writeText(generatedUrl); onSuccess('Enlace copiado al portapapeles.'); }} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary text-sm font-600 text-white transition-colors hover:bg-primary/90">
+                <Link2 size={15} /> Copiar enlace
+              </button>
+            </>
+          ) : (
+            <>
+              <DialogInput label="Correo del participante" value={email} onChange={setEmail} type="email" />
+              <DialogInput label="Nombre (opcional)" value={name} onChange={setName} />
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-500 text-slate-600 dark:text-muted-foreground">Vigencia</span>
+                <select value={hours} onChange={(event) => setHours(Number(event.target.value))} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10 dark:border-border dark:bg-background dark:text-foreground">
+                  <option value={24}>24 horas</option>
+                  <option value={72}>3 días</option>
+                  <option value={168}>7 días</option>
+                  <option value={720}>30 días</option>
+                </select>
+              </label>
+              {error && <p className="text-xs text-red-600">{error}</p>}
+              <button type="button" onClick={createLink} disabled={loading} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-50">
+                {loading ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+                Generar y enviar
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ── Form Management Table ─────────────────────────────────────
-interface FormTemplate {
-  id: string;
-  name: string;
-  status: 'draft' | 'published' | 'archived';
-  schema: unknown[];
-  created_at: string;
-  updated_at: string;
-  created_by: string;
+function DialogInput({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return <label className="block"><span className="mb-1.5 block text-xs font-500 text-slate-600 dark:text-muted-foreground">{label}</span><input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10 dark:border-border dark:bg-background dark:text-foreground" /></label>;
 }
-
-function FormManagement() {
-  const router = useRouter();
-  const { activeWorkspace } = useWorkspace();
-  const { user } = useAuth();
-  const supabase = createClient();
-
-  const [templates, setTemplates] = useState<FormTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'formularios' | 'respuestas'>('formularios');
-
-  useEffect(() => {
-    if (activeWorkspace) loadTemplates();
-  }, [activeWorkspace]);
-
-  const loadTemplates = async () => {
-    if (!activeWorkspace) return;
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('form_templates')
-        .select('*')
-        .eq('workspace_id', activeWorkspace.id)
-        .order('updated_at', { ascending: false });
-      if (!error) setTemplates(data || []);
-    } catch { /* silent */ }
-    setLoading(false);
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este formulario?')) return;
-    await supabase.from('form_templates').delete().eq('id', id);
-    setTemplates((prev) => prev.filter((t) => t.id !== id));
-  };
-
-  const handleDuplicate = async (template: FormTemplate) => {
-    if (!activeWorkspace || !user) return;
-    const { data } = await supabase
-      .from('form_templates')
-      .insert({
-        workspace_id: activeWorkspace.id,
-        name: `${template.name} (copia)`,
-        status: 'draft',
-        schema: template.schema,
-        settings: {},
-        created_by: user.id,
-      })
-      .select()
-      .single();
-    if (data) setTemplates((prev) => [data, ...prev]);
-  };
-
-  const filtered = templates.filter((t) => {
-    const matchSearch = t.name.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === 'all' || t.status === statusFilter;
-    return matchSearch && matchStatus;
-  });
-
-  const statusBadge = (status: string) => {
-    const map: Record<string, string> = {
-      draft: 'bg-yellow-100 text-yellow-700',
-      published: 'bg-green-100 text-green-700',
-      archived: 'bg-gray-100 text-gray-600',
-    };
-    const labels: Record<string, string> = { draft: 'Borrador', published: 'Publicado', archived: 'Archivado' };
-    return (
-      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${map[status] || ''}`}>
-        {labels[status] || status}
-      </span>
-    );
-  };
-
+function MetricCard({ icon: Icon, label, value, tone = 'zinc' }: { icon: React.ElementType; label: string; value: number; tone?: 'zinc' | 'emerald' | 'blue' | 'indigo' }) {
+  const tones = { zinc: 'bg-slate-100 text-slate-600', emerald: 'bg-emerald-50 text-emerald-700', blue: 'bg-blue-50 text-blue-700', indigo: 'bg-indigo-50 text-indigo-600' };
+  return <div className="flex min-h-24 items-center gap-3 px-5 py-4"><span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${tones[tone]}`}><Icon size={17} /></span><div><p className="text-xl font-600 tabular-nums text-slate-950 dark:text-foreground">{value}</p><p className="text-xs text-slate-500 dark:text-muted-foreground">{label}</p></div></div>;
+}
+function StatusBadge({ status }: { status: string }) {
+  const style = statusStyles[status] || statusStyles.draft;
+  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-600 ${style.className}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{style.label}</span>;
+}
+function TableHeading({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
   return (
-    <AppLayout>
-      <div className="p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Formularios</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Crea y gestiona formularios para recopilar información de tus destinatarios.
-            </p>
-          </div>
-          <button
-            onClick={() => router.push('/formularios/builder')}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
-          >
-            <Plus size={16} /> Nuevo formulario
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-border">
-          {(['formularios', 'respuestas'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
-                activeTab === tab
-                  ? 'border-primary text-primary' :'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {tab === 'formularios' ? 'Formularios' : 'Respuestas'}
-            </button>
-          ))}
-        </div>
-
-        {/* Filters */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-xs">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar formularios..."
-              className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-          </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="text-sm px-3 py-2 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
-          >
-            <option value="all">Todos los estados</option>
-            <option value="draft">Borrador</option>
-            <option value="published">Publicado</option>
-            <option value="archived">Archivado</option>
-          </select>
-        </div>
-
-        {/* Table */}
-        {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 size={24} className="animate-spin text-primary" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-              <FileText size={24} className="text-primary" />
-            </div>
-            <h3 className="text-base font-semibold text-foreground mb-1">
-              {search || statusFilter !== 'all' ? 'Sin resultados' : 'Sin formularios aún'}
-            </h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              {search || statusFilter !== 'all' ?'Intenta con otros filtros' :'Crea tu primer formulario para comenzar.'}
-            </p>
-            {!search && statusFilter === 'all' && (
-              <button
-                onClick={() => router.push('/formularios/builder')}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
-              >
-                <Plus size={16} /> Crear formulario
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="bg-background rounded-2xl border border-border overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Nombre</th>
-                  <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Estado</th>
-                  <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Campos</th>
-                  <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Última modificación</th>
-                  <th className="text-right text-xs font-semibold text-muted-foreground px-4 py-3">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((template) => (
-                  <tr key={template.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => router.push(`/formularios/builder?id=${template.id}`)}
-                        className="text-sm font-medium text-foreground hover:text-primary transition-colors text-left"
-                      >
-                        {template.name}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3">{statusBadge(template.status)}</td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-muted-foreground">
-                        {Array.isArray(template.schema) ? template.schema.length : 0} campos
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-muted-foreground">
-                        {new Date(template.updated_at).toLocaleDateString('es-MX')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => router.push(`/formularios/builder?id=${template.id}`)}
-                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
-                          title="Editar"
-                        >
-                          <ChevronRight size={14} />
-                        </button>
-                        <button
-                          onClick={() => handleDuplicate(template)}
-                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
-                          title="Duplicar"
-                        >
-                          <Copy size={14} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(template.id)}
-                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
-                          title="Eliminar"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </AppLayout>
+    <th className={`whitespace-nowrap px-4 py-3.5 text-xs font-600 text-slate-500 dark:text-muted-foreground ${align === 'right' ? 'text-right' : 'text-left'}`}>
+      {children}
+    </th>
   );
 }
-
-// ── Main page router ──────────────────────────────────────────
-export default function FormulariosPage() {
-  return <FormManagement />;
+function MenuAction({ icon: Icon, label, onClick, destructive }: { icon: React.ElementType; label: string; onClick: () => void; destructive?: boolean }) {
+  return <button type="button" onClick={onClick} className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-xs font-500 transition-colors ${destructive ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30' : 'text-slate-700 hover:bg-slate-100 dark:text-foreground dark:hover:bg-muted'}`}><Icon size={14} />{label}</button>;
+}
+function EmptyState({ onCreate, filtered }: { onCreate: () => void; filtered: boolean }) {
+  return (
+    <div className="flex min-h-[360px] flex-col items-center justify-center px-6 text-center">
+      <span className="flex h-12 w-12 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-primary dark:border-primary/20 dark:bg-primary/10">{filtered ? <Search size={21} /> : <FilePlus2 size={21} />}</span>
+      <h3 className="mt-4 text-sm font-600 text-slate-950 dark:text-foreground">{filtered ? 'No encontramos formularios' : 'Crea tu primer formulario'}</h3>
+      <p className="mt-2 max-w-sm text-xs leading-5 text-slate-500 dark:text-muted-foreground">{filtered ? 'Prueba con otro término o cambia el filtro de estado.' : 'Diseña las preguntas, configura el PDF espejo y define cómo se firmarán las respuestas.'}</p>
+      {!filtered && <button type="button" onClick={onCreate} className="mt-4 inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-xs font-600 text-white transition-colors hover:bg-primary/90"><Plus size={14} /> Nuevo formulario</button>}
+    </div>
+  );
 }

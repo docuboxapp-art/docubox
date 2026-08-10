@@ -535,7 +535,9 @@ function ConstanciaParticipacion({
       });
 
       const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
+      new Uint8Array(pdfBuffer).set(pdfBytes);
+      const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1116,7 +1118,7 @@ function QRMobileBiometricModal({
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
   // ── Helper: process a completed session row ──────────────────────────────
-  const processCompletedSession = useCallback((data: { status: string; file_url?: string | null; file_data?: string | null; metadata?: any }) => {
+  const processCompletedSession = useCallback(async (data: { status: string }, token: string) => {
     const sessionStatus = data.status;
     if (sessionStatus !== 'completed' && sessionStatus !== 'identity_failed') return;
 
@@ -1128,8 +1130,23 @@ function QRMobileBiometricModal({
     }
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const selfie = data.file_data || data.file_url || '';
-    const meta = data.metadata ?? null;
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      setStatus('error');
+      return;
+    }
+    const response = await fetch(`/api/mobile-upload/session-result?token=${encodeURIComponent(token)}`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      setStatus('error');
+      return;
+    }
+    const result = await response.json();
+    const selfie = result.selfie || '';
+    const meta = result.metadata ?? null;
 
     let curpMatch: boolean | null = meta?.curp_match ?? null;
     const curpExtracted: string | null = meta?.curp_extracted ?? null;
@@ -1157,9 +1174,15 @@ function QRMobileBiometricModal({
   useEffect(() => {
     const createSession = async () => {
       try {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('La sesion no es valida.');
         const res = await fetch('/api/mobile-upload/create-id-capture-session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
           body: JSON.stringify({ documentId, userId, hasEnrollment }),
         });
         if (!res.ok) {
@@ -1231,12 +1254,12 @@ function QRMobileBiometricModal({
     // before the subscription was set up (race condition guard)
     supabase
       .from('mobile_upload_sessions')
-      .select('status, file_url, file_data, metadata')
+      .select('status')
       .eq('token', sessionToken)
       .maybeSingle()
       .then(({ data }) => {
         if (data && (data.status === 'completed' || data.status === 'identity_failed')) {
-          processCompletedSession(data);
+          void processCompletedSession(data, sessionToken);
         }
       });
 
@@ -1253,9 +1276,9 @@ function QRMobileBiometricModal({
           filter: `token=eq.${sessionToken}`,
         },
         (payload) => {
-          const row = payload.new as { status: string; file_url?: string | null; file_data?: string | null; metadata?: any };
+          const row = payload.new as { status: string };
           if (row.status === 'completed' || row.status === 'identity_failed') {
-            processCompletedSession(row);
+            void processCompletedSession(row, sessionToken);
           }
         }
       )
@@ -1329,9 +1352,15 @@ function QRMobileBiometricModal({
     setStatus('generating');
     // Create a new session
     try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('La sesion no es valida.');
       const res = await fetch('/api/mobile-upload/create-id-capture-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ documentId, userId, hasEnrollment }),
       });
       if (!res.ok) {

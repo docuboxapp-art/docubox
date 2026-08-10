@@ -1228,16 +1228,13 @@ export default function RegistroPage() {
           return;
         }
         try {
-          const pollClient = createClient();
-          const { data: rows } = await pollClient
-            .from('enrollment_results')
-            .select('*')
-            .eq('session_id', sessionId)
-            .eq('status', 'completed')
-            .limit(1);
-          if (rows && rows.length > 0) {
+          const response = await fetch(`/api/enrollment/status?token=${encodeURIComponent(result.token)}&session_id=${encodeURIComponent(sessionId)}`, {
+            cache: 'no-store',
+          });
+          const status = await response.json();
+          if (response.ok && status.result) {
             if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-            handleEnrollmentData(rows[0]);
+            handleEnrollmentData(status.result);
           }
         } catch {
           // ignore polling errors

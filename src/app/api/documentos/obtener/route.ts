@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     // Fetch document using service role (bypasses RLS)
     const { data: doc, error: docError } = await supabaseAdmin
       .from('documentos')
-      .select('id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at')
+      .select('id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at')
       .eq('id', documentoId)
       .single();
 

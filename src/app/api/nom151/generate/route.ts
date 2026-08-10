@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
+import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,10 +21,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
 }
 
 async function sha256Hex(data: Uint8Array): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  return createHash('sha256').update(data).digest('hex');
 }
 
 async function callNubarium(payload: Record<string, unknown>): Promise<{
@@ -36,11 +35,6 @@ async function callNubarium(payload: Record<string, unknown>): Promise<{
   const apiSecret = process.env.NUBARIUM_PASS || process.env.NUBARIUM_API_SECRET || '';
   const basicAuth = Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');
 
-  console.log('[nom151/callNubarium] Calling Nubarium endpoint:', NUBARIUM_ENDPOINT);
-  console.log('[nom151/callNubarium] Auth user:', apiKey);
-  console.log('[nom151/callNubarium] Payload firmantes count:', (payload.firmantes as any[])?.length);
-  console.log('[nom151/callNubarium] PDF size (base64 chars):', (payload.pdf as string)?.length);
-
   const res = await fetch(NUBARIUM_ENDPOINT, {
     method: 'POST',
     headers: {
@@ -49,11 +43,10 @@ async function callNubarium(payload: Record<string, unknown>): Promise<{
       'User-Agent': 'DOCUBOX/1.0',
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(45_000),
   });
 
   const responseText = await res.text();
-  console.log('[nom151/callNubarium] HTTP status:', res.status);
-  console.log('[nom151/callNubarium] Response body:', responseText.slice(0, 500));
 
   let data: any;
   try {
@@ -67,9 +60,6 @@ async function callNubarium(payload: Record<string, unknown>): Promise<{
   // claveMensaje may be absent or 0 depending on Nubarium version; only check estatus
   const estatus = data.estatus ?? data.status ?? data.Estatus ?? '';
   const claveMensaje = data.claveMensaje ?? data.clave_mensaje ?? data.ClaveMensaje ?? 0;
-
-  console.log('[nom151/callNubarium] estatus:', estatus, 'claveMensaje:', claveMensaje);
-  console.log('[nom151/callNubarium] Full response keys:', Object.keys(data));
 
   if (estatus !== 'OK') {
     throw new Error(`Nubarium error: estatus=${estatus} claveMensaje=${claveMensaje} mensaje=${data.mensaje ?? data.Mensaje ?? data.message ?? JSON.stringify(data)}`);
@@ -136,11 +126,12 @@ async function downloadPdfBytes(fileUrl: string): Promise<Uint8Array | null> {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { documento_id, requested_by } = body;
+    const { documento_id } = body;
 
     if (!documento_id) {
       return NextResponse.json({ error: 'documento_id requerido' }, { status: 400 });
     }
+    const { user } = await requireDocumentAccess(req, documento_id, { ownerOrAdminOnly: true });
 
     // 1. Check idempotency
     const { data: existing } = await supabaseAdmin
@@ -185,8 +176,6 @@ export async function POST(req: NextRequest) {
     const pdfBase64 = uint8ToBase64(pdfBytes);
     const pdfHashLocal = await sha256Hex(pdfBytes);
 
-    console.log('[nom151/generate] PDF downloaded, size:', pdfBytes.byteLength, 'hash:', pdfHashLocal.slice(0, 16));
-
     // 4. Build firmantes array — ensure all entries have valid nombre and email
     const participantes: any[] = doc.participantes || [];
 
@@ -217,8 +206,6 @@ export async function POST(req: NextRequest) {
       }];
     }
 
-    console.log('[nom151/generate] firmantes payload:', JSON.stringify(firmantes));
-
     // 5. Build Nubarium request payload
     const nubariumPayload = {
       pdf: pdfBase64,
@@ -232,12 +219,12 @@ export async function POST(req: NextRequest) {
         documento_id,
         pdf_sha256_local: pdfHashLocal,
         status: 'processing',
-        requested_by: requested_by ?? null,
-        nubarium_codigo_validacion: `PENDING-${documento_id.slice(0, 8)}`,
-        nubarium_hash: 'PENDING',
+        requested_by: user.id,
+        nubarium_codigo_validacion: '',
+        nubarium_hash: '',
         nubarium_estatus: 'PROCESSING',
-        constancia_path: 'PENDING',
-        constancia_sha256: 'PENDING',
+        constancia_path: '',
+        constancia_sha256: '',
         nubarium_request_payload: {
           firmantes: firmantes.map((f: any) => ({
             nombreCompleto: f.nombreCompleto,
@@ -357,8 +344,9 @@ export async function POST(req: NextRequest) {
       constancia_path: storagePath,
       status: 'issued',
     });
-  } catch (err: any) {
-    console.error('[nom151/generate] Error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const response = documentAccessResponse(err);
+    console.error('[nom151/generate] Error:', err instanceof Error ? err.message : 'unknown');
+    return NextResponse.json(response.body, { status: response.status });
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { Workspace } from '@/contexts/WorkspaceContext';
+import { createHash } from 'node:crypto';
+import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
 
 
 
@@ -20,10 +21,7 @@ function esc(val: string | null | undefined): string {
 }
 
 async function sha256Hex(data: Uint8Array): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  return createHash('sha256').update(data).digest('hex');
 }
 
 async function firmarDocubox(hashXml: string): Promise<string> {
@@ -50,6 +48,7 @@ export async function POST(req: NextRequest) {
     if (!documento_id) {
       return NextResponse.json({ error: 'documento_id requerido' }, { status: 400 });
     }
+    await requireDocumentAccess(req, documento_id, { ownerOrAdminOnly: true });
 
     // 1. Check if already generated
     const { data: existing } = await supabaseAdmin
@@ -265,8 +264,9 @@ ${conservacionXml}
       xml_hash_sha256: hashXml,
       xml_generated_at: new Date().toISOString(),
     });
-  } catch (err: any) {
-    console.error('[generate-xml] Error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const response = documentAccessResponse(err);
+    console.error('[generate-xml] Error:', err instanceof Error ? err.message : 'unknown');
+    return NextResponse.json(response.body, { status: response.status });
   }
 }

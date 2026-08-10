@@ -1427,9 +1427,13 @@ export default function MiPerfilPage() {
     enrollSessionIdRef.current = sessionId;
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch('/api/enrollment/create-token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ sessionId }),
       });
       const result = await res.json();
@@ -1475,8 +1479,9 @@ export default function MiPerfilPage() {
       enrollPollingRef.current = setInterval(async () => {
         if (handled) { if (enrollPollingRef.current) clearInterval(enrollPollingRef.current); return; }
         try {
-          const { data: rows } = await supabase.from('enrollment_results').select('*').eq('session_id', sessionId).eq('status', 'completed').limit(1);
-          if (rows && rows.length > 0) { if (enrollPollingRef.current) clearInterval(enrollPollingRef.current); handleComplete(); }
+          const response = await fetch(`/api/enrollment/status?token=${encodeURIComponent(result.token)}&session_id=${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
+          const status = await response.json();
+          if (response.ok && status.result) { if (enrollPollingRef.current) clearInterval(enrollPollingRef.current); handleComplete(); }
         } catch { /* ignore */ }
       }, 3000);
     } catch { setEnrollQrError('Error de conexión. Intenta nuevamente.'); }
@@ -1865,7 +1870,7 @@ export default function MiPerfilPage() {
       const supabase = createClient();
       const ext = file.name.split('.').pop();
       const filePath = `avatars/${user.id}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from('mobile-uploads').upload(filePath, file, { upsert: true, contentType: file.type });
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true, contentType: file.type });
       if (uploadError) {
         const reader = new FileReader();
         reader.onload = async (ev) => {
@@ -1876,7 +1881,7 @@ export default function MiPerfilPage() {
         reader.readAsDataURL(file);
         return;
       }
-      const { data: urlData } = supabase.storage.from('mobile-uploads').getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
       const publicUrl = urlData?.publicUrl || '';
       setProfile((prev) => ({ ...prev, avatarUrl: publicUrl }));
       await supabase.from('user_profiles').update({ avatar_url: publicUrl, updated_at: new Date().toISOString() }).eq('id', user.id);

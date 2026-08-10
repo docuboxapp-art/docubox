@@ -10,6 +10,8 @@ const PUBLIC_ROUTES = [
   '/verificar-correo',
   '/auth/totp-verification',
   '/register-device',
+  '/verificar-documento',
+  '/verificar-certificacion',
 ];
 
 // Route prefixes that are always public (API, static, etc.)
@@ -21,6 +23,11 @@ const PUBLIC_PREFIXES = [
   '/enrolamiento/',
   '/subir-movil/',
   '/captura-id-movil/',
+  '/notificacion/',
+  '/verificar-documento/',
+  '/verificar-certificacion/',
+  '/v/',
+  '/verify/promissory-note/',
 ];
 
 // Absolute session limit: 10 hours in seconds

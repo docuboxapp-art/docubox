@@ -43,12 +43,19 @@ export interface SecuritySettings {
   urgente?: boolean;
   publico?: boolean;
   selloDigital?: boolean;
+  selloUbicacion?: 'calce' | 'libre';
   estampaAutenticacion?: boolean;
   metadatosAdicionales?: boolean;
   leyendasDocumento?: boolean;
   vencimientoSolicitud?: boolean;
   vencimientoCompletar?: boolean;
 }
+
+export type CryptographicElementType =
+  | 'document_chain'
+  | 'document_seal'
+  | 'timestamp'
+  | 'evidence_chain';
 
 export interface DocumentConfig {
   nombre: string;
@@ -101,6 +108,9 @@ export interface PlacedField {
   participantName?: string;
   color?: string;
   colorHex?: string;
+  placementKind?: 'participant' | 'general' | 'cryptographic';
+  cryptographicType?: CryptographicElementType;
+  generatedOnCompletion?: boolean;
   dropdownOptions?: string[];
   radioOptions?: string[];
   casillaLabel?: string;

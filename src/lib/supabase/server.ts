@@ -5,8 +5,11 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
  * Use ONLY in API routes / server-side code — never expose to the browser.
  */
 export function createServiceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) {
+    throw new Error('Supabase service credentials are not configured.');
+  }
   return createSupabaseClient(url, serviceKey, {
     auth: { persistSession: false },
   });
@@ -25,8 +28,11 @@ export function createClient() {
  * The anon key properly validates JWTs against Supabase Auth.
  */
 export function createAnonClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) {
+    throw new Error('Supabase public credentials are not configured.');
+  }
   return createSupabaseClient(url, anonKey, {
     auth: { persistSession: false },
   });

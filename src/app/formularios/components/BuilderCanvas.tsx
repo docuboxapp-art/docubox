@@ -1,165 +1,193 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
+  DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors,
+  type DragEndEvent,
 } from '@dnd-kit/core';
 import {
-  SortableContext,
-  sortableKeyboardCoordinates,
+  SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable,
   verticalListSortingStrategy,
-  useSortable,
-  arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { ChevronDown, FilePlus2, Plus, Trash2 } from 'lucide-react';
 import { useFormBuilder } from '@/contexts/FormBuilderContext';
 import FieldCard from './FieldCard';
-import { Plus, Layers } from 'lucide-react';
 
-function SortableFieldCard({ fieldId }: { fieldId: string }) {
-  const { state, selectField } = useFormBuilder();
-  const field = state.template.schema.find((f) => f.id === fieldId);
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: fieldId });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
+function SortableField({ fieldId }: { fieldId: string }) {
+  const { state } = useFormBuilder();
+  const field = state.template.schema.find((item) => item.id === fieldId);
+  const sortable = useSortable({ id: fieldId });
   if (!field) return null;
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={sortable.setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(sortable.transform),
+        transition: sortable.transition,
+        opacity: sortable.isDragging ? 0.45 : 1,
+      }}
+    >
       <FieldCard
         field={field}
-        isSelected={state.selectedFieldId === fieldId}
-        dragHandleProps={{ ...attributes, ...listeners }}
+        isSelected={state.selectedFieldId === field.id}
+        dragHandleProps={{ ...sortable.attributes, ...sortable.listeners }}
       />
     </div>
   );
 }
 
 export default function BuilderCanvas() {
-  const { state, dispatch, selectField } = useFormBuilder();
-  const [insertAfter, setInsertAfter] = useState<string | null>(null);
-
+  const { state, dispatch, addField, addSection } = useFormBuilder();
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
-    const oldIndex = state.template.schema.findIndex((f) => f.id === active.id);
-    const newIndex = state.template.schema.findIndex((f) => f.id === over.id);
-    const reordered = arrayMove(state.template.schema, oldIndex, newIndex);
-    dispatch({ type: 'REORDER_FIELDS', payload: reordered });
+    const oldIndex = state.template.schema.findIndex((field) => field.id === active.id);
+    const newIndex = state.template.schema.findIndex((field) => field.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const targetSectionId = state.template.schema[newIndex].sectionId;
+    if (targetSectionId && state.template.schema[oldIndex].sectionId !== targetSectionId) {
+      dispatch({ type: 'UPDATE_FIELD', payload: { id: String(active.id), updates: { sectionId: targetSectionId } } });
+    }
+    dispatch({ type: 'REORDER_FIELDS', payload: arrayMove(state.template.schema, oldIndex, newIndex) });
   };
 
-  const fieldIds = state.template.schema.map((f) => f.id);
+  const allIds = state.template.schema.map((field) => field.id);
 
-  if (state.template.schema.length === 0) {
-    return (
-      <div
-        className="flex-1 flex flex-col items-center justify-center p-8 text-center"
-        onClick={() => selectField(null)}
-      >
-        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-          <Layers size={28} className="text-primary" />
+  return (
+    <div className="h-full overflow-y-auto bg-[#F6F8FB] px-4 py-5 dark:bg-background md:px-6">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-5 rounded-lg border border-[#E2E8F0] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
+          <input
+            value={state.template.name}
+            onChange={(event) => dispatch({ type: 'SET_TEMPLATE_META', payload: { name: event.target.value } })}
+            className="w-full border-0 bg-transparent p-0 text-xl font-semibold text-[#0F172A] outline-none placeholder:text-[#94A3B8] dark:text-foreground"
+            placeholder="Nombre del formulario"
+          />
+          <textarea
+            value={state.template.description}
+            onChange={(event) => dispatch({ type: 'SET_TEMPLATE_META', payload: { description: event.target.value } })}
+            rows={2}
+            className="mt-2 w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-[#475569] outline-none placeholder:text-[#94A3B8] dark:text-muted-foreground"
+            placeholder="Describe el propósito y alcance legal de este formulario."
+          />
         </div>
-        <h3 className="text-base font-semibold text-foreground mb-2">
-          Tu formulario está vacío
-        </h3>
-        <p className="text-sm text-muted-foreground max-w-xs">
-          Haz clic en cualquier campo del panel izquierdo para agregarlo al formulario.
-        </p>
-      </div>
-    );
-  }
 
-  return (
-    <div
-      className="flex-1 overflow-y-auto p-4"
-      onClick={() => selectField(null)}
-    >
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext items={fieldIds} strategy={verticalListSortingStrategy}>
-          <div className="space-y-2 max-w-2xl mx-auto">
-            {state.template.schema.map((field, idx) => (
-              <div key={field.id}>
-                {/* Insert before first */}
-                {idx === 0 && (
-                  <InsertButton
-                    show={insertAfter === `before-${field.id}`}
-                    onMouseEnter={() => setInsertAfter(`before-${field.id}`)}
-                    onMouseLeave={() => setInsertAfter(null)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      // Insert at beginning — handled by addField with no afterId
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={allIds} strategy={verticalListSortingStrategy}>
+            <div className="space-y-4">
+              {state.template.sections.map((section, sectionIndex) => {
+                const sectionFields = state.template.schema.filter((field) => field.sectionId === section.id);
+                const isSelected = state.selectedSectionId === section.id;
+                return (
+                  <section
+                    key={section.id}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      dispatch({ type: 'SELECT_SECTION', payload: section.id });
                     }}
-                  />
-                )}
-                <SortableFieldCard fieldId={field.id} />
-                <InsertButton
-                  show={insertAfter === field.id}
-                  onMouseEnter={() => setInsertAfter(field.id)}
-                  onMouseLeave={() => setInsertAfter(null)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-    </div>
-  );
-}
+                    className={`overflow-hidden rounded-lg border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition dark:bg-card ${isSelected ? 'border-[#BFDBFE]' : 'border-[#E2E8F0] dark:border-border'}`}
+                  >
+                    <header className="flex items-start gap-3 border-b border-[#E2E8F0] px-5 py-4 dark:border-border">
+                      <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[#EFF6FF] text-xs font-semibold text-[#2563EB]">
+                        {sectionIndex + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <input
+                          value={section.title}
+                          onChange={(event) => dispatch({ type: 'UPDATE_SECTION', payload: { id: section.id, updates: { title: event.target.value } } })}
+                          className="w-full border-0 bg-transparent p-0 text-sm font-semibold text-[#0F172A] outline-none dark:text-foreground"
+                        />
+                        <input
+                          value={section.description || ''}
+                          onChange={(event) => dispatch({ type: 'UPDATE_SECTION', payload: { id: section.id, updates: { description: event.target.value } } })}
+                          placeholder="Descripción de la sección"
+                          className="mt-1 w-full border-0 bg-transparent p-0 text-xs text-[#64748B] outline-none placeholder:text-[#94A3B8] dark:text-muted-foreground"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {section.pageBreakBefore && sectionIndex > 0 && (
+                          <span className="mr-2 rounded bg-[#F8FAFC] px-2 py-1 text-[10px] font-medium text-[#64748B]">Salto PDF</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            dispatch({ type: 'UPDATE_SECTION', payload: { id: section.id, updates: { collapsed: !section.collapsed } } });
+                          }}
+                          className="flex h-8 w-8 items-center justify-center rounded-md text-[#64748B] hover:bg-[#F8FAFC]"
+                          title={section.collapsed ? 'Expandir sección' : 'Contraer sección'}
+                        >
+                          <ChevronDown size={15} className={`transition ${section.collapsed ? '-rotate-90' : ''}`} />
+                        </button>
+                        {state.template.sections.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              dispatch({ type: 'DELETE_SECTION', payload: section.id });
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-[#94A3B8] hover:bg-red-50 hover:text-red-600"
+                            title="Eliminar sección"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </header>
 
-function InsertButton({
-  show,
-  onMouseEnter,
-  onMouseLeave,
-  onClick,
-}: {
-  show: boolean;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-  onClick: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <div
-      className="relative h-4 flex items-center justify-center group"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      <div className={`absolute inset-x-0 h-0.5 bg-primary/30 transition-opacity ${show ? 'opacity-100' : 'opacity-0'}`} />
-      <button
-        onClick={onClick}
-        className={`relative z-10 w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center shadow-sm transition-all ${
-          show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
-        }`}
-      >
-        <Plus size={12} />
-      </button>
+                    {!section.collapsed && (
+                      <div className="space-y-2 p-4">
+                        {sectionFields.map((field) => <SortableField key={field.id} fieldId={field.id} />)}
+                        {sectionFields.length === 0 && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              dispatch({ type: 'SELECT_SECTION', payload: section.id });
+                              addField('text');
+                            }}
+                            className="flex min-h-[90px] w-full flex-col items-center justify-center rounded-md border border-dashed border-[#CBD5E1] text-[#64748B] transition hover:border-[#2563EB]/50 hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+                          >
+                            <FilePlus2 size={18} />
+                            <span className="mt-2 text-xs font-medium">Agregar el primer campo</span>
+                          </button>
+                        )}
+                        {sectionFields.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              dispatch({ type: 'SELECT_SECTION', payload: section.id });
+                              addField('text');
+                            }}
+                            className="flex h-9 items-center gap-2 rounded-md px-3 text-xs font-medium text-[#2563EB] hover:bg-[#EFF6FF]"
+                          >
+                            <Plus size={14} /> Agregar pregunta
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
+
+        <button
+          type="button"
+          onClick={addSection}
+          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[#BFDBFE] bg-white text-sm font-medium text-[#2563EB] transition hover:bg-[#EFF6FF] dark:border-blue-900/60 dark:bg-card dark:hover:bg-blue-950/30"
+        >
+          <Plus size={15} /> Agregar sección
+        </button>
+      </div>
     </div>
   );
 }

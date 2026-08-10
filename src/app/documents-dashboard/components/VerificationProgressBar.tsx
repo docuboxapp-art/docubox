@@ -300,9 +300,13 @@ export default function VerificationProgressBar() {
     sessionIdRef.current = sessionId;
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch('/api/enrollment/create-token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ sessionId }),
       });
       const result = await res.json();
@@ -402,13 +406,9 @@ export default function VerificationProgressBar() {
           return;
         }
         try {
-          const { data: rows } = await supabase
-            .from('enrollment_results')
-            .select('*')
-            .eq('session_id', sessionId)
-            .eq('status', 'completed')
-            .limit(1);
-          if (rows && rows.length > 0) {
+          const response = await fetch(`/api/enrollment/status?token=${encodeURIComponent(result.token)}&session_id=${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
+          const status = await response.json();
+          if (response.ok && status.result) {
             if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
             handleEnrollmentComplete();
           }

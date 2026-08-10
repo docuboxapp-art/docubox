@@ -1,221 +1,301 @@
+import { createHash, createHmac, randomInt, randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 const OTP_EXPIRY_MINUTES = 10;
+const OTP_RESEND_SECONDS = 60;
 
-export async function POST(req: NextRequest) {
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false, autoRefreshToken: false } },
+);
+
+function getOtpPepper() {
+  return process.env.SIGNATURE_OTP_PEPPER || process.env.DOCUBOX_INTERNAL_SIGNING_KEY || '';
+}
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function hashEmail(value: string) {
+  return createHash('sha256').update(normalizeEmail(value), 'utf8').digest('hex');
+}
+
+function digestOtp(input: {
+  challengeId: string;
+  documentId: string;
+  userId: string;
+  otp: string;
+}) {
+  return createHmac('sha256', getOtpPepper())
+    .update(`${input.challengeId}:${input.documentId}:${input.userId}:${input.otp}`, 'utf8')
+    .digest('hex');
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+async function requireUser(request: NextRequest) {
+  const authorization = request.headers.get('authorization');
+  if (!authorization?.startsWith('Bearer ')) return null;
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(authorization.slice(7).trim());
+  return error ? null : user;
+}
+
+async function getAuthorizedDocument(documentId: string, userId: string, userEmail: string) {
+  const { data: document } = await supabaseAdmin
+    .from('documentos')
+    .select('id,nombre,owner_id,participantes,file_hash_sha256')
+    .eq('id', documentId)
+    .maybeSingle();
+  if (!document) return null;
+
+  const email = normalizeEmail(userEmail);
+  const participants = Array.isArray(document.participantes) ? document.participantes : [];
+  const listed = participants.some((participant: Record<string, unknown>) =>
+    participant.id === userId
+    || normalizeEmail(String(participant.email || '')) === email
+  );
+  if (document.owner_id === userId || listed) return document;
+
+  const { data: responseById } = await supabaseAdmin
+    .from('participation_responses')
+    .select('id')
+    .eq('documento_id', documentId)
+    .eq('participante_id', userId)
+    .limit(1)
+    .maybeSingle();
+  if (responseById) return document;
+  const { data: responseByEmail } = await supabaseAdmin
+    .from('participation_responses')
+    .select('id')
+    .eq('documento_id', documentId)
+    .ilike('participante_email', email)
+    .limit(1)
+    .maybeSingle();
+  return responseByEmail ? document : null;
+}
+
+async function appendOtpEvent(input: {
+  documentId: string;
+  userId: string;
+  userEmail: string;
+  eventType: string;
+  eventResult: 'SUCCESS' | 'FAILED' | 'DENIED';
+  payload: Record<string, unknown>;
+  documentSha256?: string | null;
+  idempotencyKey?: string | null;
+}) {
+  const { error } = await supabaseAdmin.rpc('append_legal_evidence_event', {
+    p_document_id: input.documentId,
+    p_event_type: input.eventType,
+    p_event_category: 'SECURITY',
+    p_event_result: input.eventResult,
+    p_actor_id: input.userId,
+    p_actor_type: 'PARTICIPANT',
+    p_payload: input.payload,
+    p_document_sha256: input.documentSha256 || null,
+    p_actor_email: input.userEmail,
+    p_idempotency_key: input.idempotencyKey || null,
+    p_source_system: 'SIGNATURE_OTP_API',
+  });
+  if (error) console.error('[signature-otp] Evidence append failed:', error.code);
+}
+
+export async function POST(request: NextRequest) {
   try {
-    const authHeader = req.headers.get('Authorization');
-    const token = authHeader?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    const user = await requireUser(request);
+    if (!user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    if (!getOtpPepper()) {
+      return NextResponse.json({ error: 'Servicio OTP no configurado' }, { status: 503 });
     }
 
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    if (authError || !user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
-
-    const { documentId, documentName, recipientEmail, recipientName } = await req.json();
-
-    if (!documentId || !recipientEmail) {
+    const body = await request.json();
+    const documentId = String(body.documentId || '');
+    const requestedEmail = normalizeEmail(String(body.recipientEmail || ''));
+    if (!documentId || !requestedEmail) {
       return NextResponse.json({ error: 'documentId y recipientEmail son requeridos' }, { status: 400 });
     }
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
-
-    // Store OTP in Supabase (upsert by user+document)
-    const { error: dbError } = await supabaseAdmin
-      .from('signature_otps')
-      .upsert({
-        user_id: user.id,
-        document_id: documentId,
-        otp_code: otp,
-        expires_at: expiresAt.toISOString(),
-        used: false,
-        created_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,document_id' });
-
-    if (dbError) {
-      console.warn('[send-otp] DB error (table may not exist):', dbError.message);
+    const authenticatedEmail = normalizeEmail(user.email);
+    if (requestedEmail !== authenticatedEmail) {
+      return NextResponse.json({ error: 'El codigo solo puede enviarse al correo autenticado' }, { status: 403 });
     }
 
-    const docName = documentName || 'Documento';
-    const name = recipientName || user.email || 'Firmante';
+    const document = await getAuthorizedDocument(documentId, user.id, authenticatedEmail);
+    if (!document) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
 
-    const resendApiKey = process.env.RESEND_API_KEY;
-    if (!resendApiKey) {
-      console.error('[send-otp] RESEND_API_KEY not configured');
-      return NextResponse.json({ error: 'Configuración de correo no disponible' }, { status: 500 });
-    }
-
-    // Send OTP email via Resend API — same pattern as /api/test-notifications
-    const emailPayload = {
-      from: process.env.FROM_EMAIL || 'noreply@docubox.com.mx',
-      to: [recipientEmail],
-      subject: `Código de verificación para firma — ${docName}`,
-      html: `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Código de verificación</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f9;padding:32px 0;">
-    <tr>
-      <td align="center">
-        <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
-          <tr>
-            <td style="background:#1a56db;padding:28px 32px;text-align:center;">
-              <p style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.5px;">DocuBox</p>
-              <p style="margin:6px 0 0;color:#bfdbfe;font-size:13px;">Plataforma de firma electrónica</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:36px 32px 28px;">
-              <p style="margin:0 0 8px;font-size:15px;color:#374151;">Hola, <strong>${name}</strong></p>
-              <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.6;">
-                Has iniciado el proceso de firma del documento <strong style="color:#111827;">${docName}</strong>.<br/>
-                Ingresa el siguiente código para verificar tu identidad y completar la firma.
-              </p>
-              <div style="background:#f0f4ff;border:2px solid #c7d7fe;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px;">
-                <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#4b5563;text-transform:uppercase;letter-spacing:1px;">Código de verificación</p>
-                <p style="margin:0;font-size:42px;font-weight:800;letter-spacing:12px;color:#1a56db;font-family:'Courier New',monospace;">${otp}</p>
-                <p style="margin:12px 0 0;font-size:12px;color:#9ca3af;">Válido por <strong>${OTP_EXPIRY_MINUTES} minutos</strong></p>
-              </div>
-              <table width="100%" cellpadding="0" cellspacing="0" style="background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:0 0 24px;">
-                <tr>
-                  <td style="padding:4px 0;">
-                    <p style="margin:0;font-size:12px;color:#6b7280;">📄 <strong>Documento:</strong> ${docName}</p>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;">
-                    <p style="margin:0;font-size:12px;color:#6b7280;">⏰ <strong>Expira en:</strong> ${OTP_EXPIRY_MINUTES} minutos</p>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;">
-                    <p style="margin:0;font-size:12px;color:#6b7280;">🔒 <strong>Uso único:</strong> Este código solo puede usarse una vez</p>
-                  </td>
-                </tr>
-              </table>
-              <div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:0 8px 8px 0;margin:0 0 24px;">
-                <p style="margin:0;font-size:12px;color:#92400e;line-height:1.5;">
-                  ⚠️ Si no solicitaste este código, ignora este mensaje. Nunca compartas este código con nadie.
-                </p>
-              </div>
-              <p style="margin:0;font-size:13px;color:#9ca3af;text-align:center;">
-                Este correo fue generado automáticamente por DocuBox.<br/>
-                Registro de proceso de firma conforme a NOM-151-SCFI-2016.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center;">
-              <p style="margin:0;font-size:11px;color:#9ca3af;">© 2026 DocuBox · Plataforma de firma electrónica · México</p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-      `,
-    };
-
-    const emailResponse = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(emailPayload),
-    });
-
-    const emailData = await emailResponse.json();
-
-    if (!emailResponse.ok || !emailData.id) {
-      console.error('[send-otp] Resend API error:', emailResponse.status, JSON.stringify(emailData));
+    const resendAfter = new Date(Date.now() - OTP_RESEND_SECONDS * 1000).toISOString();
+    const { data: recent } = await supabaseAdmin
+      .from('signature_otp_challenges')
+      .select('id,created_at')
+      .eq('document_id', documentId)
+      .eq('user_id', user.id)
+      .gte('created_at', resendAfter)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (recent) {
       return NextResponse.json(
-        { error: `Error al enviar el correo OTP: ${emailData.message || emailData.error || emailResponse.status}` },
-        { status: 500 }
+        { error: `Espera ${OTP_RESEND_SECONDS} segundos antes de solicitar otro codigo` },
+        { status: 429 },
       );
     }
 
-    console.log('[send-otp] Email sent successfully, id:', emailData.id);
+    const challengeId = randomUUID();
+    const otp = randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    const codeDigest = digestOtp({ challengeId, documentId, userId: user.id, otp });
+    const { error: insertError } = await supabaseAdmin.from('signature_otp_challenges').insert({
+      id: challengeId,
+      document_id: documentId,
+      user_id: user.id,
+      recipient_email_sha256: hashEmail(authenticatedEmail),
+      code_digest: codeDigest,
+      expires_at: expiresAt.toISOString(),
+      delivery_status: 'PENDING',
+    });
+    if (insertError) {
+      console.error('[signature-otp] Challenge insert failed:', insertError.code);
+      return NextResponse.json({ error: 'No se pudo preparar el codigo' }, { status: 500 });
+    }
+
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (!resendApiKey) {
+      await supabaseAdmin.from('signature_otp_challenges')
+        .update({ delivery_status: 'FAILED' }).eq('id', challengeId);
+      return NextResponse.json({ error: 'Configuracion de correo no disponible' }, { status: 503 });
+    }
+
+    const documentName = escapeHtml(String(document.nombre || body.documentName || 'Documento'));
+    const recipientName = escapeHtml(String(body.recipientName || user.user_metadata?.full_name || user.email));
+    const emailResponse = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: process.env.FROM_EMAIL || 'noreply@docubox.com.mx',
+        to: [authenticatedEmail],
+        subject: `Codigo de verificacion para firma - ${documentName}`,
+        html: `<!doctype html><html lang="es"><body style="margin:0;background:#f4f6f9;font-family:Arial,sans-serif;color:#18181b"><table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px"><table width="560" style="max-width:100%;background:#fff;border:1px solid #ebebf0;border-radius:8px"><tr><td style="padding:32px"><p style="margin:0 0 12px;font-size:18px;font-weight:700">Hola, ${recipientName}</p><p style="margin:0 0 24px;color:#52525b;line-height:1.6">Usa este codigo para confirmar tu firma en <strong>${documentName}</strong>.</p><div style="padding:22px;text-align:center;background:#f5f7ff;border:1px solid #dbe3ff;border-radius:8px"><div style="font:700 38px/1.2 monospace;letter-spacing:10px;color:#2563eb">${otp}</div><p style="margin:12px 0 0;color:#71717a;font-size:12px">Expira en ${OTP_EXPIRY_MINUTES} minutos y solo puede utilizarse una vez.</p></div><p style="margin:24px 0 0;color:#71717a;font-size:12px;line-height:1.5">Si no solicitaste este codigo, ignora el mensaje. Docubox nunca te pedira compartirlo.</p></td></tr></table></td></tr></table></body></html>`,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const emailData = await emailResponse.json().catch(() => ({})) as { id?: string };
+    if (!emailResponse.ok || !emailData.id) {
+      await supabaseAdmin.from('signature_otp_challenges')
+        .update({ delivery_status: 'FAILED' }).eq('id', challengeId);
+      await appendOtpEvent({
+        documentId, userId: user.id, userEmail: authenticatedEmail,
+        eventType: 'SIGNATURE_OTP_DELIVERY_FAILED', eventResult: 'FAILED',
+        documentSha256: document.file_hash_sha256,
+        payload: { challenge_id: challengeId, channel: 'EMAIL' },
+        idempotencyKey: `otp-delivery-failed:${challengeId}`,
+      });
+      return NextResponse.json({ error: 'No se pudo enviar el codigo. Intenta de nuevo.' }, { status: 502 });
+    }
+
+    await supabaseAdmin.from('signature_otp_challenges').update({
+      delivery_status: 'SENT', provider_message_id: emailData.id,
+    }).eq('id', challengeId);
+    await appendOtpEvent({
+      documentId, userId: user.id, userEmail: authenticatedEmail,
+      eventType: 'SIGNATURE_OTP_SENT', eventResult: 'SUCCESS',
+      documentSha256: document.file_hash_sha256,
+      payload: { challenge_id: challengeId, channel: 'EMAIL', expires_at: expiresAt.toISOString() },
+      idempotencyKey: `otp-sent:${challengeId}`,
+    });
 
     return NextResponse.json({
       success: true,
+      challengeId,
       expiresAt: expiresAt.toISOString(),
       expiryMinutes: OTP_EXPIRY_MINUTES,
     });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Error interno';
-    console.error('[send-otp] Error:', msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch (error) {
+    console.error('[signature-otp] Send failed:', error instanceof Error ? error.message : 'unknown');
+    return NextResponse.json({ error: 'No se pudo enviar el codigo. Intenta de nuevo.' }, { status: 500 });
   }
 }
 
-export async function PUT(req: NextRequest) {
-  // Verify OTP
+export async function PUT(request: NextRequest) {
   try {
-    const authHeader = req.headers.get('Authorization');
-    const token = authHeader?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
+    const user = await requireUser(request);
+    if (!user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    if (!getOtpPepper()) return NextResponse.json({ error: 'Servicio OTP no configurado' }, { status: 503 });
 
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    if (authError || !user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    const body = await request.json();
+    const documentId = String(body.documentId || '');
+    const otpCode = String(body.otpCode || '').trim();
+    if (!documentId || !/^\d{6}$/.test(otpCode)) {
+      return NextResponse.json({ error: 'Codigo OTP invalido' }, { status: 400 });
     }
+    const document = await getAuthorizedDocument(documentId, user.id, user.email);
+    if (!document) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
 
-    const { documentId, otpCode } = await req.json();
-    if (!documentId || !otpCode) {
-      return NextResponse.json({ error: 'documentId y otpCode son requeridos' }, { status: 400 });
-    }
-
-    // Check OTP in DB
-    const { data: otpRecord, error: fetchError } = await supabaseAdmin
-      .from('signature_otps')
-      .select('*')
-      .eq('user_id', user.id)
+    const { data: challenge } = await supabaseAdmin
+      .from('signature_otp_challenges')
+      .select('id')
       .eq('document_id', documentId)
-      .eq('used', false)
-      .single();
+      .eq('user_id', user.id)
+      .eq('delivery_status', 'SENT')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!challenge) return NextResponse.json({ error: 'Codigo no encontrado o ya utilizado' }, { status: 400 });
 
-    if (fetchError || !otpRecord) {
-      return NextResponse.json({ error: 'Código OTP no encontrado o ya utilizado' }, { status: 400 });
+    const codeDigest = digestOtp({ challengeId: challenge.id, documentId, userId: user.id, otp: otpCode });
+    const { data, error } = await supabaseAdmin.rpc('consume_signature_otp', {
+      p_document_id: documentId,
+      p_user_id: user.id,
+      p_code_digest: codeDigest,
+    });
+    if (error || !Array.isArray(data) || !data[0]) {
+      console.error('[signature-otp] Consume failed:', error?.code);
+      return NextResponse.json({ error: 'No se pudo verificar el codigo' }, { status: 500 });
     }
 
-    if (new Date(otpRecord.expires_at) < new Date()) {
-      return NextResponse.json({ error: 'El código OTP ha expirado' }, { status: 400 });
+    const result = data[0] as { status: string; challenge_id: string; attempts_remaining: number };
+    if (result.status !== 'VERIFIED') {
+      await appendOtpEvent({
+        documentId, userId: user.id, userEmail: user.email,
+        eventType: 'SIGNATURE_OTP_REJECTED', eventResult: 'DENIED',
+        documentSha256: document.file_hash_sha256,
+        payload: { challenge_id: result.challenge_id, status: result.status, attempts_remaining: result.attempts_remaining },
+      });
+      const messages: Record<string, string> = {
+        EXPIRED: 'El codigo OTP ha expirado',
+        LOCKED: 'Se alcanzo el limite de intentos',
+        CONSUMED: 'El codigo OTP ya fue utilizado',
+        NOT_FOUND: 'Codigo no encontrado o ya utilizado',
+        INVALID: 'Codigo OTP incorrecto',
+      };
+      return NextResponse.json(
+        { error: messages[result.status] || 'Codigo OTP invalido', attemptsRemaining: result.attempts_remaining },
+        { status: result.status === 'LOCKED' ? 429 : 400 },
+      );
     }
 
-    if (otpRecord.otp_code !== otpCode) {
-      return NextResponse.json({ error: 'Código OTP incorrecto' }, { status: 400 });
-    }
-
-    // Mark as used
-    await supabaseAdmin
-      .from('signature_otps')
-      .update({ used: true })
-      .eq('id', otpRecord.id);
-
-    return NextResponse.json({ success: true, verified: true });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Error interno';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    await appendOtpEvent({
+      documentId, userId: user.id, userEmail: user.email,
+      eventType: 'SIGNATURE_OTP_VERIFIED', eventResult: 'SUCCESS',
+      documentSha256: document.file_hash_sha256,
+      payload: { challenge_id: result.challenge_id, method: 'EMAIL_OTP' },
+      idempotencyKey: `otp-verified:${result.challenge_id}`,
+    });
+    return NextResponse.json({ success: true, verified: true, challengeId: result.challenge_id });
+  } catch (error) {
+    console.error('[signature-otp] Verify failed:', error instanceof Error ? error.message : 'unknown');
+    return NextResponse.json({ error: 'No se pudo verificar el codigo' }, { status: 500 });
   }
 }

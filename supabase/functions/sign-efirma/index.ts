@@ -1,251 +1,217 @@
-// supabase/functions/sign-efirma/index.ts
-// Genera sello digital con e.firma SAT y persiste evidencia completa
-// Los archivos .cer y .key NUNCA se almacenan — solo se procesan en RAM
-
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('DOCUBOX_ALLOWED_ORIGIN') || '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Content-Type': 'application/json; charset=utf-8',
+};
+
+function json(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: corsHeaders });
 }
 
-async function sha256Hex(data: Uint8Array | string): Promise<string> {
-  const buf = typeof data === 'string' ? new TextEncoder().encode(data) : data
-  const digest = await crypto.subtle.digest('SHA-256', buf)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+function cleanBase64(value: unknown) {
+  return String(value || '').replace(/^data:[^,]+,/, '').replace(/\s/g, '');
 }
 
-// ── Generar sello digital SHA256withRSA ────────────────────────────────────────
-async function generateDigitalSeal(
-  keyBytes: Uint8Array,
-  cerBytes: Uint8Array,
-  password: string,
-  documentHash: string
-): Promise<{ base64: string; bytes: Uint8Array; certInfo: any; ocspStatus: string; ocspCheckedAt: string }> {
-  // Importar llave privada PKCS#8
-  const privKey = await crypto.subtle.importKey(
-    'pkcs8',
-    keyBytes,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  )
-
-  // Datos a firmar: hash del documento + timestamp del servidor
-  const signedAt = new Date().toISOString()
-  const dataToSign = new TextEncoder().encode(
-    JSON.stringify({ document_sha256: documentHash, signed_at: signedAt })
-  )
-
-  // Generar firma digital
-  const signatureBuffer = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', privKey, dataToSign)
-  const sealBytes = new Uint8Array(signatureBuffer)
-  const sealBase64 = btoa(Array.from(sealBytes).map((b) => String.fromCharCode(b)).join(''))
-
-  // Extraer info básica del certificado para el registro
-  const certInfo = {
-    serial: '',
-    subject: '',
-    rfc: '',
-    curp: '',
-    notBefore: '',
-    notAfter: '',
-    issuer: '',
-  }
-
-  // OCSP simulado — en producción se haría consulta real al SAT
-  const ocspCheckedAt = new Date().toISOString()
-  const ocspStatus = 'GOOD'
-
-  return { base64: sealBase64, bytes: sealBytes, certInfo, ocspStatus, ocspCheckedAt }
+async function sha256Hex(value: string | Uint8Array) {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map((item) => item.toString(16).padStart(2, '0')).join('');
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
+function authorizedParticipant(document: Record<string, unknown>, userId: string, email: string) {
+  if (document.owner_id === userId) return true;
+  const normalizedEmail = email.trim().toLowerCase();
+  return Array.isArray(document.participantes) && document.participantes.some((participant: Record<string, unknown>) =>
+    participant.id === userId || String(participant.email || '').trim().toLowerCase() === normalizedEmail
+  );
+}
+
+serve(async (request) => {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
+  if (request.method !== 'POST') return json({ error: 'Metodo no permitido' }, 405);
 
   try {
     const supabase = createClient(
-      (globalThis as any).Deno?.env.get('SUPABASE_URL') ?? '',
-      (globalThis as any).Deno?.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
+      Deno.env.get('SUPABASE_URL') || '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+      { auth: { persistSession: false } },
+    );
+    const authorization = request.headers.get('authorization') || '';
+    const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+    const { data: { user }, error: authError } = await supabase.auth.getUser(bearer);
+    if (authError || !user?.email) return json({ error: 'No autorizado' }, 401);
 
-    // 1. Auth
-    const authHeader = req.headers.get('Authorization')
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader?.replace('Bearer ', '') || ''
-    )
-    if (authError || !user) {
-      return new Response('Unauthorized', { status: 401, headers: corsHeaders })
+    const body = await request.json();
+    const documentId = String(body.document_id || '');
+    const cerBase64 = cleanBase64(body.cer_b64);
+    const keyBase64 = cleanBase64(body.key_b64);
+    const password = String(body.password || '');
+    if (!documentId || !cerBase64 || !keyBase64 || !password) {
+      return json({ error: 'Se requieren document_id, cer_b64, key_b64 y password' }, 400);
+    }
+    if (cerBase64.length > 400_000 || keyBase64.length > 400_000) {
+      return json({ error: 'Los archivos de e.firma exceden el limite permitido' }, 413);
     }
 
-    const body = await req.json()
-    const {
-      document_id,
-      cer_b64, key_b64, password,
-      cert_info,         // pre-validated cert info from validate-efirma
-      device_fingerprint,
-      session_evidence,
-      frames_manifest,
-    } = body
-
-    if (!document_id || !cer_b64 || !key_b64 || !password) {
-      return new Response(
-        JSON.stringify({ error: 'Se requieren document_id, cer_b64, key_b64 y password' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // 2. Recuperar hash del documento a firmar
-    const { data: doc, error: docError } = await supabase
+    const { data: document, error: documentError } = await supabase
       .from('documentos')
-      .select('id, nombre, sha256_hash')
-      .eq('id', document_id)
-      .single()
+      .select('id,documento_id,nombre,owner_id,workspace_id,file_hash_sha256,participantes')
+      .eq('id', documentId)
+      .maybeSingle();
+    if (documentError || !document) return json({ error: 'Documento no encontrado' }, 404);
 
-    if (docError || !doc) {
-      return new Response(
-        JSON.stringify({ error: 'Documento no encontrado' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    let authorized = authorizedParticipant(document, user.id, user.email);
+    if (!authorized) {
+      const { data: participation } = await supabase
+        .from('participation_responses')
+        .select('id')
+        .eq('documento_id', documentId)
+        .ilike('participante_email', user.email.trim().toLowerCase())
+        .limit(1)
+        .maybeSingle();
+      authorized = Boolean(participation);
+    }
+    if (!authorized) return json({ error: 'No tienes acceso a este documento' }, 403);
+
+    const documentSha256 = String(document.file_hash_sha256 || '').toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(documentSha256)) {
+      return json({ error: 'El documento no cuenta con una huella SHA-256 verificable' }, 422);
     }
 
-    const documentHash = doc.sha256_hash || await sha256Hex(document_id)
-
-    // 3. Decodificar .cer y .key — solo en RAM
-    const keyBytes = Uint8Array.from(atob(key_b64), (c) => c.charCodeAt(0))
-    const cerBytes = Uint8Array.from(atob(cer_b64), (c) => c.charCodeAt(0))
-
-    // 4. Generar sello digital
-    let seal: Awaited<ReturnType<typeof generateDigitalSeal>>
-    try {
-      seal = await generateDigitalSeal(keyBytes, cerBytes, password, documentHash)
-    } catch (e) {
-      return new Response(
-        JSON.stringify({ error: 'Error al generar el sello digital. Verifica la contraseña y los archivos.' }),
-        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    const gatewayUrl = Deno.env.get('DOCUBOX_EFIRMA_GATEWAY_URL');
+    const gatewayToken = Deno.env.get('DOCUBOX_EFIRMA_GATEWAY_TOKEN');
+    if (!gatewayUrl || !gatewayToken) {
+      return json({ error: 'El proveedor seguro de e.firma no esta configurado.', code: 'EFIRMA_PROVIDER_NOT_CONFIGURED' }, 503);
     }
 
-    // 5. SHA-256 del sello (esto sí se guarda en DB)
-    const sealSha256 = await sha256Hex(seal.bytes)
-
-    // 6. Subir sello a Storage (bucket 'evidence')
-    const sealPath = `${document_id}/digital_seal_${Date.now()}.b64`
-    await supabase.storage.from('evidence').upload(
-      sealPath,
-      new TextEncoder().encode(seal.base64),
-      { contentType: 'text/plain', upsert: true }
-    )
-
-    // 7. Subir frames de sesión a Storage (bucket 'session-captures')
-    const framesPaths: string[] = []
-    if (frames_manifest?.images && Array.isArray(frames_manifest.images)) {
-      // Ensure bucket exists
-      await supabase.storage.createBucket('session-captures', { public: false }).catch(() => {})
-
-      for (const img of frames_manifest.images) {
-        try {
-          const imgData = img.image_b64.includes(',') ? img.image_b64.split(',')[1] : img.image_b64
-          const frameBytes = Uint8Array.from(atob(imgData), (c) => c.charCodeAt(0))
-          const path = `${document_id}/efirma_frames/${img.frame_id}.jpg`
-          await supabase.storage.from('session-captures').upload(path, frameBytes, {
-            contentType: 'image/jpeg',
-            upsert: true,
-          })
-          framesPaths.push(path)
-        } catch {
-          // Continue even if one frame fails
-        }
-      }
-    }
-
-    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim()
-      || req.headers.get('x-real-ip')
-      || 'unknown'
-    const signedAt = new Date().toISOString()
-
-    // 8. Persistir evidencia completa — SOLO hashes y paths, nunca archivos en DB
-    const evidenceId = crypto.randomUUID()
-    const evidencePayload: Record<string, any> = {
-      id: evidenceId,
-      document_id,
-      evidence_type: 'efirma_sat',
-
-      // Del certificado .cer (de cert_info pre-validado o del sello)
-      cert_serial_number: cert_info?.cert_serial || seal.certInfo?.serial || null,
-      cert_subject: cert_info?.cert_subject || seal.certInfo?.subject || null,
-      cert_rfc: cert_info?.cert_rfc || seal.certInfo?.rfc || null,
-      cert_curp: cert_info?.cert_curp || seal.certInfo?.curp || null,
-      cert_not_before: cert_info?.cert_not_before || seal.certInfo?.notBefore || null,
-      cert_not_after: cert_info?.cert_not_after || seal.certInfo?.notAfter || null,
-      cert_issuer: cert_info?.cert_issuer || seal.certInfo?.issuer || null,
-      ocsp_status: seal.ocspStatus,
-      ocsp_checked_at: seal.ocspCheckedAt,
-
-      // Acto criptográfico
-      document_sha256: documentHash,
-      digital_seal_sha256: sealSha256,
-      digital_seal_path: sealPath,
-      sign_algorithm: 'SHA256withRSA',
+    const evidenceId = crypto.randomUUID();
+    const signedAt = new Date().toISOString();
+    const signedPayload = JSON.stringify({
+      schema: 'DOCUBOX_EFIRMA_ACT',
+      version: '1.0',
+      evidence_id: evidenceId,
+      document_id: documentId,
+      document_folio: document.documento_id,
+      document_sha256: documentSha256,
+      signer_id: user.id,
+      signer_email_sha256: await sha256Hex(user.email.trim().toLowerCase()),
       signed_at: signedAt,
+    });
+    const signedPayloadSha256 = await sha256Hex(signedPayload);
 
-      // Capa 1 — compartida con autógrafa
+    const providerResponse = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${gatewayToken}` },
+      body: JSON.stringify({
+        operation: 'SIGN_EFIRMA',
+        certificate_der_base64: cerBase64,
+        encrypted_private_key_base64: keyBase64,
+        private_key_password: password,
+        payload_utf8_base64: btoa(signedPayload),
+        payload_sha256: signedPayloadSha256,
+        correlation_id: evidenceId,
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    const provider = await providerResponse.json().catch(() => ({})) as Record<string, unknown>;
+    const certificate = (provider.certificate || {}) as Record<string, unknown>;
+    const signatureBase64 = String(provider.signature_base64 || '');
+    const revocationStatus = String(provider.revocation_status || certificate.revocation_status || '').toUpperCase();
+    if (
+      !providerResponse.ok
+      || provider.status !== 'VALID'
+      || provider.signature_verified !== true
+      || provider.key_pair_valid !== true
+      || provider.certificate_chain_valid !== true
+      || revocationStatus !== 'GOOD'
+      || provider.payload_sha256 !== signedPayloadSha256
+      || !signatureBase64
+    ) {
+      return json({ error: 'La firma no supero la validacion criptografica del proveedor.', code: 'EFIRMA_SIGNING_FAILED' }, 422);
+    }
+
+    const signatureBytes = Uint8Array.from(atob(signatureBase64), (character) => character.charCodeAt(0));
+    const signatureSha256 = await sha256Hex(signatureBytes);
+    const sealPath = `${documentId}/efirma/${evidenceId}.sig`;
+    const { error: uploadError } = await supabase.storage.from('evidence').upload(sealPath, signatureBytes, {
+      contentType: 'application/octet-stream',
+      upsert: false,
+    });
+    if (uploadError) return json({ error: 'No fue posible conservar el sello de firma.' }, 500);
+
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim()
+      || request.headers.get('x-real-ip')
+      || 'unknown';
+    const { error: evidenceError } = await supabase.from('signature_evidence').insert({
+      id: evidenceId,
+      document_id: documentId,
+      evidence_type: 'efirma_sat',
+      cert_serial_number: String(certificate.serial_number || ''),
+      cert_subject: String(certificate.subject || ''),
+      cert_rfc: String(certificate.rfc || '').toUpperCase() || null,
+      cert_curp: String(certificate.curp || '').toUpperCase() || null,
+      cert_not_before: String(certificate.not_before || '') || null,
+      cert_not_after: String(certificate.not_after || '') || null,
+      cert_issuer: String(certificate.issuer || ''),
+      cert_fingerprint_sha256: String(certificate.fingerprint_sha256 || '').toLowerCase() || null,
+      ocsp_status: revocationStatus,
+      ocsp_checked_at: String(provider.revocation_checked_at || signedAt),
+      document_sha256: documentSha256,
+      digital_seal_sha256: signatureSha256,
+      digital_seal_path: sealPath,
+      signed_payload_sha256: signedPayloadSha256,
+      sign_algorithm: String(provider.signature_algorithm || 'RSA-SHA256'),
+      signed_at: signedAt,
       ip_address: ip,
-      user_agent: session_evidence?.user_agent || null,
-      timezone: session_evidence?.timezone || null,
-      geo_latitude: session_evidence?.geo?.latitude || null,
-      geo_longitude: session_evidence?.geo?.longitude || null,
-      geo_accuracy_m: session_evidence?.geo?.accuracy_meters || null,
-      fingerprint_id: device_fingerprint?.fingerprint_id || null,
-
-      // Frames de sesión
-      storage_frames_paths: framesPaths,
-      session_chain_hash: frames_manifest?.chain_hash || null,
-      total_frames: framesPaths.length,
-      frame_events: frames_manifest?.frames?.map((f: any) => ({
-        frame_id: f.frame_id,
-        event: f.event,
-        timestamp: f.timestamp,
-        sha256: f.sha256,
-      })) || [],
-
+      user_agent: String(body.session_evidence?.user_agent || request.headers.get('user-agent') || ''),
+      timezone: String(body.session_evidence?.timezone || ''),
+      fingerprint_id: String(body.device_fingerprint?.fingerprint_id || '') || null,
+      validation_provider: String(provider.provider || 'CONFIGURED_GATEWAY'),
+      provider_reference: String(provider.signature_id || ''),
       captured_by: user.id,
       captured_at: signedAt,
-    }
-
-    const { error: evidenceError } = await supabase
-      .from('signature_evidence')
-      .insert(evidencePayload)
-
+    });
     if (evidenceError) {
-      console.error('Evidence insert error:', evidenceError)
+      await supabase.storage.from('evidence').remove([sealPath]);
+      return json({ error: 'No fue posible registrar la evidencia de firma.' }, 500);
     }
 
-    // 9. Actualizar estado del documento
-    await supabase.from('documentos')
-      .update({ estado: 'completado', updated_at: signedAt })
-      .eq('id', document_id)
-      .catch(() => {})
-
-    return new Response(
-      JSON.stringify({
+    await supabase.rpc('append_legal_evidence_event', {
+      p_document_id: documentId,
+      p_event_type: 'EFIRMA_SIGNATURE_CREATED',
+      p_event_category: 'SIGNATURE',
+      p_event_result: 'SUCCESS',
+      p_actor_id: user.id,
+      p_actor_type: 'PARTICIPANT',
+      p_payload: {
         evidence_id: evidenceId,
-        digital_seal_sha256: sealSha256,
-        document_sha256: documentHash,
-        signed_at: signedAt,
-        status: 'signed',
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: String(err) }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+        signature_sha256: signatureSha256,
+        signed_payload_sha256: signedPayloadSha256,
+        certificate_fingerprint_sha256: String(certificate.fingerprint_sha256 || '').toLowerCase(),
+        revocation_status: revocationStatus,
+        provider_reference: String(provider.signature_id || ''),
+      },
+      p_document_sha256: documentSha256,
+      p_actor_email: user.email,
+      p_idempotency_key: `efirma-signature:${evidenceId}`,
+      p_source_system: 'SIGN_EFIRMA_EDGE',
+    });
+
+    return json({
+      evidence_id: evidenceId,
+      digital_seal_sha256: signatureSha256,
+      document_sha256: documentSha256,
+      signed_payload_sha256: signedPayloadSha256,
+      signed_at: signedAt,
+      revocation_status: revocationStatus,
+      provider_reference: String(provider.signature_id || ''),
+    });
+  } catch (error) {
+    console.error('[sign-efirma] Failed:', error instanceof Error ? error.message : 'unknown');
+    return json({ error: 'No fue posible completar la firma.', code: 'EFIRMA_SIGNING_ERROR' }, 500);
   }
-})
+});

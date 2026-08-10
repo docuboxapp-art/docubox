@@ -1,7 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isInternalAdminRequest } from '@/lib/security/internal-admin';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  if (!isInternalAdminRequest(request)) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -197,7 +201,10 @@ export async function POST() {
 }
 
 // GET — diagnóstico previo sin modificar datos
-export async function GET() {
+export async function GET(request: NextRequest) {
+  if (!isInternalAdminRequest(request)) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!

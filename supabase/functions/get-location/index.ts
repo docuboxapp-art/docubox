@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { userCanAccessDocument } from '../_shared/document-access.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -60,6 +61,16 @@ serve(async (req) => {
     const opencageApiKey = (globalThis as any).Deno?.env.get('OPENCAGE_API_KEY') ?? '';
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const authHeader = req.headers.get('Authorization');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader?.replace('Bearer ', '') || ''
+    );
+    if (authError || !user) {
+      return new Response('Unauthorized', { status: 401, headers: corsHeaders });
+    }
+    if (document_id && !await userCanAccessDocument(supabase, user, document_id)) {
+      return new Response('Forbidden', { status: 403, headers: corsHeaders });
+    }
 
     // ── 1. Check geocode_cache ────────────────────────────────────────────────
     try {

@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { userCanAccessDocument } from '../_shared/document-access.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -35,6 +36,10 @@ serve(async (req) => {
     }
 
     const { manifest, images } = await req.json()
+
+    if (!await userCanAccessDocument(supabase, user, manifest?.document_id)) {
+      return new Response('Forbidden', { status: 403, headers: corsHeaders })
+    }
 
     // 1. Verificar SHA-256 de cada frame
     for (const img of images) {

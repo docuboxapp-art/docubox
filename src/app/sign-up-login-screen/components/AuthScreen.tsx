@@ -152,60 +152,59 @@ export default function AuthScreen() {
   }, []);
 
   return (
-    <div className="min-h-screen flex bg-background">
+    <main className="flex min-h-screen bg-[#f7f8fb]">
       {/* Left brand panel */}
-      <div className="hidden lg:flex lg:w-[40%] bg-primary flex-col justify-center p-10 xl:p-14 relative overflow-hidden">
-        {/* Background decoration */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-white/5" />
-          <div className="absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-white/5" />
-          <div className="absolute top-1/2 right-12 w-48 h-48 rounded-full bg-accent/20" />
-          <div className="absolute bottom-1/4 left-1/3 w-32 h-32 rounded-full bg-white/5" />
-        </div>
+      <aside className="relative hidden w-[43%] min-w-[520px] flex-col justify-center overflow-hidden border-r border-blue-700 bg-[#2563eb] px-12 py-14 lg:flex xl:px-16">
+        <div className="absolute inset-x-0 top-0 h-px bg-white/25" />
+        <div className="absolute inset-x-0 bottom-0 h-px bg-blue-800" />
 
-        {/* Hero content */}
-        <div className="relative z-10">
-          <h1 className="text-[calc(2.25rem-11px)] xl:text-[calc(3rem-11px)] font-800 text-white leading-tight mb-4">
+        <div className="relative mx-auto w-full max-w-[590px]">
+          <h1 className="mb-5 max-w-[560px] text-[23px] font-700 leading-tight text-white xl:text-[33px]">
             {heroContent.title}
           </h1>
-          <p className="text-lg text-white/75 mb-10 leading-relaxed max-w-lg">
+          <p className="mb-11 max-w-[570px] text-base leading-7 text-blue-100">
             {heroContent.description}
           </p>
 
           {/* Feature list */}
-          <div className="space-y-4 mb-10">
+          <div className="border-y border-white/15">
             {heroContent.features.map((feature) => {
               const Icon = feature.icon;
 
               return (
-                <div key={`feature-${feature.title}`} className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Icon size={18} className="text-accent" />
+                <div
+                  key={`feature-${feature.title}`}
+                  className="flex items-start gap-4 border-b border-white/15 py-4 last:border-b-0"
+                >
+                  <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-white/20 bg-white/10">
+                    <Icon size={18} className="text-white" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-600 text-white">{feature.title}</p>
-                    <p className="text-xs text-white/65 mt-0.5 leading-relaxed">{feature.desc}</p>
+                    <p className="mt-1 max-w-[520px] text-xs leading-5 text-blue-100">
+                      {feature.desc}
+                    </p>
                   </div>
                 </div>
               );
             })}
           </div>
         </div>
-      </div>
+      </aside>
 
       {/* Right auth panel */}
-      <div className="flex-1 lg:w-[60%] flex flex-col items-center justify-center px-6 py-10 sm:px-10">
-        <div className="w-full max-w-lg">
+      <section className="flex min-w-0 flex-1 flex-col items-center justify-start bg-white px-5 pb-10 pt-14 sm:px-10 lg:justify-center lg:px-14 lg:py-10">
+        <div className="w-full max-w-[460px]">
           {/* Logo above form */}
-          <div className="flex items-center justify-center mb-10">
-            <AppLogo size={36} />
+          <div className="mb-10 flex items-center justify-start">
+            <AppLogo size={44} />
           </div>
 
           <Suspense fallback={null}>
             <LoginForm onSwitchToSignup={() => {}} />
           </Suspense>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

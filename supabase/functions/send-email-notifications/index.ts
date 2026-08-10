@@ -7,6 +7,7 @@ declare const Deno: {
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const FROM_EMAIL = "Docubox <noreply@docubox.com.mx>";
 const APP_URL = "https://firmamax4272.builtwithrocket.new";
 
@@ -1016,6 +1017,14 @@ serve(async (req) => {
   }
 
   try {
+    const authorization = req.headers.get("Authorization") ?? "";
+    if (!SUPABASE_SERVICE_ROLE_KEY || authorization !== `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
     const payload: EmailPayload = await req.json();
 
     if (!payload.to || !payload.type) {

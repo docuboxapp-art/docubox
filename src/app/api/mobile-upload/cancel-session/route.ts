@@ -9,9 +9,9 @@ import { createServiceClient } from '@/lib/supabase/server';
 export async function POST(req: NextRequest) {
   try {
     const supabase = createServiceClient();
-    const { token, reason } = await req.json();
+    const { token } = await req.json();
 
-    if (!token) {
+    if (!/^[a-f0-9]{64}$/i.test(String(token || ''))) {
       return NextResponse.json({ error: 'token is required' }, { status: 400 });
     }
 
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       .from('mobile_upload_sessions')
       .update({
         status: 'cancelled',
-        metadata: supabase.rpc ? undefined : undefined, // keep existing metadata
+        updated_at: new Date().toISOString(),
       })
       .eq('token', token)
       .eq('status', 'pending');

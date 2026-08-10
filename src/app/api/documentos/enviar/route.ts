@@ -77,6 +77,10 @@ export async function POST(req: NextRequest) {
       otroTipoDocumento,
       participationOrder,
       gruposFirma,
+      publico,
+      selloDigital,
+      estampaAutenticacion,
+      metadatosAdicionales,
     } = JSON.parse(metaRaw);
 
     if (!documentoId || !fileName || !fileHashSha256) {
@@ -172,6 +176,10 @@ export async function POST(req: NextRequest) {
       campos_solicitados: camposSolicitados || [],
       participation_order: effectiveOrder,
       grupos_firma: effectiveGrupos.length > 0 ? effectiveGrupos : null,
+      es_publico: publico ?? false,
+      sello_digital: selloDigital ?? false,
+      estampa_autenticacion: estampaAutenticacion ?? false,
+      metadatos_adicionales: metadatosAdicionales ?? false,
     }, { onConflict: 'documento_id' });
 
     if (upsertError) {

@@ -89,7 +89,7 @@ function OtpInput({ value, onChange }: { value: string; onChange: (v: string) =>
           value={digits[i]?.trim() || ''}
           onChange={(e) => handleChange(i, e.target.value)}
           onKeyDown={(e) => handleKey(i, e)}
-          className="w-11 h-12 text-center text-lg font-700 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all border-border bg-white"
+          className="h-12 w-11 rounded-md border border-border bg-white text-center text-lg font-700 transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
       ))}
     </div>
@@ -154,7 +154,7 @@ function CountdownTimer({ seconds, onExpire }: { seconds: number; onExpire: () =
 
 // ── Accordion Item ─────────────────────────────────────────────────────────
 function AccordionItem({
-  id,
+  id: _id,
   icon,
   label,
   sublabel,
@@ -172,16 +172,16 @@ function AccordionItem({
 }) {
   return (
     <div
-      className={`rounded-2xl border transition-all duration-200 overflow-hidden bg-white ${isOpen ? 'border-primary shadow-md shadow-primary/10' : 'border-border hover:border-primary/40'}`}
+      className={`overflow-hidden rounded-lg border bg-white transition-colors duration-200 ${isOpen ? 'border-primary' : 'border-border hover:border-primary/40'}`}
     >
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-5 py-4 text-left"
+        className="flex w-full items-center justify-between px-4 py-3.5 text-left"
       >
         <div className="flex items-center gap-3">
           <div
-            className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${isOpen ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}
+            className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md transition-colors ${isOpen ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}
           >
             {icon}
           </div>
@@ -199,12 +199,12 @@ function AccordionItem({
           className={`text-muted-foreground flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-primary' : ''}`}
         />
       </button>
-      {isOpen && <div className="px-5 pb-5 pt-1 border-t border-border/50">{children}</div>}
+      {isOpen && <div className="border-t border-border px-4 pb-4 pt-1">{children}</div>}
     </div>
   );
 }
 
-export default function LoginForm({ onSwitchToSignup }: Props) {
+export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props) {
   const searchParams = useSearchParams();
 
   // ── Step 1: email ──────────────────────────────────────────────────────
@@ -719,13 +719,13 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
   return (
     <div>
       <div className="w-full">
-        <div className="mb-6">
+        <div className="mb-7">
           {userName ? (
             <h2 className="text-2xl font-400 text-muted-foreground">
               Hola, <span className="font-700 text-foreground">{formatDisplayName(userName)}</span>
             </h2>
           ) : (
-            <h2 className="text-2xl font-700 text-foreground">Bienvenido de vuelta</h2>
+            <h2 className="text-2xl font-600 text-foreground">Bienvenido de vuelta</h2>
           )}
           <p className="text-sm text-muted-foreground mt-1">
             Ingresa tu correo electrónico y contraseña para continuar.
@@ -754,7 +754,7 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
               placeholder="tu@empresa.com"
               autoComplete="email"
               autoFocus
-              className={`w-full px-3 py-2.5 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${emailError ? 'border-red-400 bg-red-50' : 'border-border bg-white'}`}
+              className={`h-11 w-full rounded-lg border px-3 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${emailError ? 'border-red-400 bg-red-50' : 'border-border bg-white'}`}
             />
             {emailError && <p className="text-[11px] text-red-600 mt-1">{emailError}</p>}
           </div>
@@ -763,14 +763,14 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
             <>
               <div className="space-y-3">
                 {newDeviceWarning && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
                     <ShieldAlert size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
                     <p className="text-xs text-amber-800">{newDeviceWarning}</p>
                   </div>
                 )}
 
                 {passwordError && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
+                  <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
                     <AlertTriangle size={13} className="text-red-600 flex-shrink-0 mt-0.5" />
                     <p className="text-xs text-red-700">{passwordError}</p>
                   </div>
@@ -801,7 +801,7 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
                       placeholder="Tu contraseña"
                       autoComplete="current-password"
                       disabled={!passwordEnabled}
-                      className={`w-full px-3 py-2.5 pr-10 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${passwordError ? 'border-red-400 bg-red-50' : 'border-border bg-white'} disabled:bg-muted/60 disabled:text-muted-foreground`}
+                      className={`h-11 w-full rounded-lg border px-3 pr-10 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${passwordError ? 'border-red-400 bg-red-50' : 'border-border bg-white'} disabled:bg-muted/60 disabled:text-muted-foreground`}
                     />
                     <button
                       type="button"
@@ -817,7 +817,7 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
                 <button
                   onClick={handlePasswordLogin}
                   disabled={passwordLoading || !passwordEnabled}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary text-white rounded-xl text-sm font-700 hover:bg-primary/90 disabled:opacity-60 transition-all active:scale-95"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
                   style={{ minHeight: '44px' }}
                 >
                   {passwordLoading ? (
@@ -856,7 +856,7 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
                     >
                       <div className="space-y-4 pt-2">
                         {otpError && (
-                          <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
+                          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
                             <AlertTriangle
                               size={13}
                               className="text-red-600 flex-shrink-0 mt-0.5"
@@ -871,7 +871,7 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
                           </div>
                         ) : otpSent ? (
                           <>
-                            <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                            <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
                               <CheckCircle2
                                 size={13}
                                 className="text-blue-600 flex-shrink-0 mt-0.5"
@@ -906,7 +906,7 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
                                 <button
                                   onClick={handleOtpVerify}
                                   disabled={otpLoading || otpCode.length < 6}
-                                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary text-white rounded-xl text-sm font-700 hover:bg-primary/90 disabled:opacity-60 transition-all active:scale-95"
+                                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
                                   style={{ minHeight: '44px' }}
                                 >
                                   {otpLoading ? (
@@ -942,7 +942,7 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
                     >
                       <div className="space-y-4 pt-2">
                         {biometricError && (
-                          <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
+                          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
                             <AlertTriangle
                               size={13}
                               className="text-red-600 flex-shrink-0 mt-0.5"
@@ -983,14 +983,14 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
                                     onClick={() =>
                                       setSelectedDeviceId(isSelected ? null : device.id)
                                     }
-                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all duration-150 ${
+                                    className={`flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-all duration-150 ${
                                       isSelected
                                         ? 'border-primary bg-primary/5 shadow-sm shadow-primary/10'
                                         : 'border-border bg-white hover:border-primary/40'
                                     }`}
                                   >
                                     <div
-                                      className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isSelected ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}
+                                      className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${isSelected ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}
                                     >
                                       <Fingerprint size={18} />
                                     </div>
@@ -1077,7 +1077,7 @@ export default function LoginForm({ onSwitchToSignup }: Props) {
                         <button
                           onClick={handleBiometricLogin}
                           disabled={biometricLoading}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary text-white rounded-xl text-sm font-700 hover:bg-primary/90 disabled:opacity-60 transition-all active:scale-95"
+                          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
                           style={{ minHeight: '44px' }}
                         >
                           {biometricLoading ? (

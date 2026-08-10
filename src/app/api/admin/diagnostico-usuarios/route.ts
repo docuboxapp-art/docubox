@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { isInternalAdminRequest } from '@/lib/security/internal-admin';
 
 function createAnonClient() {
   return createSupabaseClient(
@@ -10,15 +11,20 @@ function createAnonClient() {
 }
 
 function createServiceClient() {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) throw new Error('Supabase service credentials are not configured.');
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    serviceKey,
     { auth: { persistSession: false } }
   );
 }
 
 export async function GET(request: NextRequest) {
   try {
+    if (!isInternalAdminRequest(request)) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
     const supabase = createServiceClient();
 
     // Check if request has auth header (user-specific check)

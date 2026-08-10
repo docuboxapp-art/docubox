@@ -4,7 +4,15 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
-export type ModuleId = 'formularios' | 'plantillas' | 'firmado-prueba-vida' | 'expedientes' | 'lucia';
+export type ModuleId =
+  | 'formularios'
+  | 'plantillas'
+  | 'firmado-prueba-vida'
+  | 'expedientes'
+  | 'notifica'
+  | 'credit-titles'
+  | 'bulk-signatures'
+  | 'lucia';
 
 export interface AppModule {
   id: ModuleId;
@@ -18,35 +26,64 @@ export const ALL_MODULES: AppModule[] = [
   {
     id: 'formularios',
     name: 'Formularios',
-    description: 'Crea formularios dinámicos para recolectar información de clientes o empleados y generar documentos automáticamente a partir de las respuestas.',
+    description:
+      'Crea formularios dinámicos para recopilar información y generar documentos automáticamente a partir de las respuestas.',
     category: 'Herramienta popular',
     href: '/formularios',
   },
   {
     id: 'plantillas',
     name: 'Plantillas',
-    description: 'Accede a una biblioteca de documentos pre-redactados y guarda tus propios modelos para agilizar la creación de contratos y acuerdos recurrentes.',
+    description:
+      'Accede a una biblioteca de documentos y guarda tus propios modelos para agilizar contratos y acuerdos recurrentes.',
     category: 'Herramienta popular',
     href: '/plantillas',
   },
   {
     id: 'firmado-prueba-vida',
     name: 'Firmado con prueba de vida',
-    description: 'Añade una capa extra de seguridad a tus firmas solicitando verificación biométrica facial (prueba de vida) al momento de firmar.',
+    description:
+      'Añade una capa adicional de seguridad con verificación biométrica facial al momento de firmar.',
     category: 'Herramienta popular',
-    href: '/documents-dashboard',
+    href: '/configuracion/verificacion-identidad',
   },
   {
     id: 'expedientes',
     name: 'Expedientes',
-    description: 'Crea expedientes con documentación adicional y gestión de flujos de trabajo para organizar mejor tus procesos legales.',
+    description:
+      'Organiza documentos, formularios, identidad, hitos y firmas dentro de expedientes digitales verificables.',
     category: 'Herramienta popular',
-    href: '/documents-dashboard',
+    href: '/expedientes',
+  },
+  {
+    id: 'notifica',
+    name: 'Docubox Notifica',
+    description:
+      'Pon documentos a disposicion mediante enlaces seguros y conserva acuses, respuestas y evidencia verificable de cada comunicacion.',
+    category: 'Gestion documental',
+    href: '/notificaciones',
+  },
+  {
+    id: 'credit-titles',
+    name: 'Titulos de Credito',
+    description:
+      'Crea, emite, custodia y verifica pagares electronicos como registros digitales unicos con firma y evidencia trazable.',
+    category: 'Legal y financiero',
+    href: '/credit-titles',
+  },
+  {
+    id: 'bulk-signatures',
+    name: 'Firmas Masivas',
+    description:
+      'Genera, envia y supervisa cientos de documentos con firma y evidencia individual desde una sola campana.',
+    category: 'Productividad',
+    href: '/firmas-masivas',
   },
   {
     id: 'lucia',
     name: 'LucIA',
-    description: 'Tu asistente legal inteligente. Obtén respuestas instantáneas sobre tus documentos, ayuda con redacción y análisis legal impulsado por IA.',
+    description:
+      'Tu asistente legal inteligente para consultar documentos, apoyar la redacción y agilizar el análisis de información.',
     category: 'IA Generativa',
     href: '/documents-dashboard',
   },
@@ -131,13 +168,12 @@ export function AppModulesProvider({ children }: { children: React.ReactNode }) 
     [user?.id]
   );
 
-  const isModuleActive = useCallback(
-    (id: ModuleId) => activeModuleId === id,
-    [activeModuleId]
-  );
+  const isModuleActive = useCallback((id: ModuleId) => activeModuleId === id, [activeModuleId]);
 
   return (
-    <AppModulesContext.Provider value={{ activeModuleId, setActiveModule, isModuleActive, loading }}>
+    <AppModulesContext.Provider
+      value={{ activeModuleId, setActiveModule, isModuleActive, loading }}
+    >
       {children}
     </AppModulesContext.Provider>
   );
