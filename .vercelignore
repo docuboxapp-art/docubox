@@ -1,0 +1,9 @@
+.git/
+.next/
+.next*/
+.vercel/
+node_modules/
+tmp/
+*.log
+*.tgz
+NUL
