@@ -1,307 +1,326 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useWebAuthn, SupportInfo } from '@/hooks/useWebAuthn';
-import AppImage from '@/components/ui/AppImage';
-
-// ─── Design tokens (matches captura-id-movil / enrolamiento) ─────────────────
-const BRAND = {
-  bg: '#f5f7fa',
-  card: '#ffffff',
-  cardBorder: '#e8ecf0',
-  blue: '#3b6cf8',
-  blueGradient: 'linear-gradient(90deg, #3b6cf8 0%, #4f7bff 100%)',
-  green: '#22c55e',
-  greenLight: '#dcfce7',
-  greenBorder: '#86efac',
-  red: '#ef4444',
-  redLight: '#fee2e2',
-  redBorder: '#fca5a5',
-  text: '#111827',
-  textMuted: '#6b7280',
-  textLight: '#9ca3af',
-};
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  Fingerprint,
+  Link2,
+  Loader2,
+  LockKeyhole,
+  RefreshCw,
+  ScanFace,
+  ShieldCheck,
+  Smartphone,
+} from 'lucide-react';
+import AppLogo from '@/components/ui/AppLogo';
+import { SupportInfo, useWebAuthn } from '@/hooks/useWebAuthn';
 
 function RegisterFromQRContent() {
   const searchParams = useSearchParams();
   const token = searchParams?.get('token') || '';
   const { checkSupport, registerFromQR, loading, error, setError } = useWebAuthn();
+  const registrationActiveRef = useRef(false);
   const [support, setSupport] = useState<SupportInfo | null>(null);
   const [tokenStatus, setTokenStatus] = useState<'validating' | 'valid' | 'invalid'>('validating');
   const [deviceName, setDeviceName] = useState('');
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    if (!token) { setTokenStatus('invalid'); return; }
-    let mounted = true;
+    if (!token) {
+      setTokenStatus('invalid');
+      return;
+    }
 
+    let mounted = true;
     const validate = async () => {
       try {
-        const res = await fetch(`/api/webauthn/qr-validate?token=${encodeURIComponent(token)}`);
-        if (!res?.ok) { if (mounted) setTokenStatus('invalid'); return; }
-        const info = await checkSupport();
+        const response = await fetch(
+          `/api/webauthn/qr-validate?token=${encodeURIComponent(token)}`
+        );
+        if (!response.ok) {
+          if (mounted) setTokenStatus('invalid');
+          return;
+        }
+
+        const supportInfo = await checkSupport();
         if (mounted) {
-          setSupport(info);
-          setDeviceName(info?.deviceName || '');
+          setSupport(supportInfo);
+          setDeviceName(supportInfo.deviceName || 'Mi dispositivo');
           setTokenStatus('valid');
         }
       } catch {
         if (mounted) setTokenStatus('invalid');
       }
     };
-    validate();
-    return () => { mounted = false; };
-  }, [token, checkSupport]);
+
+    void validate();
+    return () => {
+      mounted = false;
+    };
+  }, [checkSupport, token]);
 
   const handleRegister = async () => {
+    if (registrationActiveRef.current || loading || !deviceName.trim()) return;
+    registrationActiveRef.current = true;
     setError(null);
-    const result = await registerFromQR(token, deviceName || support?.deviceName || 'Mi dispositivo');
-    if (result?.success) setSuccess(true);
-  };
 
-  const getBiometricLabel = () => {
-    if (!support) return 'biométrico';
-    switch (support?.deviceType) {
-      case 'face_id': return 'Face ID';
-      case 'touch_id': return 'Touch ID';
-      case 'android_biometric': return 'huella dactilar';
-      default: return 'biométrico';
+    try {
+      const result = await registerFromQR(token, deviceName.trim());
+      if (result.success) setSuccess(true);
+    } finally {
+      registrationActiveRef.current = false;
     }
   };
 
-  const getBiometricIcon = () => {
-    if (!support) return '🔐';
-    switch (support?.deviceType) {
-      case 'face_id': return '🪪';
-      case 'touch_id': return '☝️';
-      case 'android_biometric': return '🔏';
-      default: return '🔐';
-    }
-  };
+  const isIOS = support?.os === 'iOS';
+  const isAndroid = support?.os === 'Android';
+  const supportUnavailable = Boolean(support && (!support.browserOk || !support.platformOk));
 
-  const getDeviceDescription = () => {
-    if (!support) return 'este dispositivo';
-    if (support?.os === 'iOS') return support?.deviceCategory === 'tablet' ? 'este iPad' : 'este iPhone';
-    if (support?.os === 'Android') return 'este Android';
-    return 'este dispositivo';
-  };
+  const deviceDescription = support
+    ? support.os === 'iOS'
+      ? support.deviceCategory === 'tablet'
+        ? 'este iPad'
+        : 'este iPhone'
+      : support.os === 'Android'
+        ? 'este dispositivo Android'
+        : 'este dispositivo'
+    : 'este dispositivo';
+
+  const securityLabel = isIOS
+    ? 'Face ID, Touch ID o el código del dispositivo'
+    : isAndroid
+      ? 'la seguridad biométrica del dispositivo'
+      : 'el método de seguridad del dispositivo';
+
+  const SecurityIcon = isIOS ? ScanFace : isAndroid ? Fingerprint : ShieldCheck;
 
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center p-4"
-      style={{ background: BRAND?.bg }}
-    >
-      {/* Card */}
-      <div
-        className="w-full max-w-sm rounded-2xl overflow-hidden"
-        style={{ background: BRAND?.card, border: `1px solid ${BRAND?.cardBorder}`, boxShadow: '0 4px 24px rgba(0,0,0,0.07)' }}
-      >
-        {/* Header with logo */}
-        <div
-          className="flex flex-col items-center gap-3 px-6 pt-8 pb-6"
-          style={{ borderBottom: `1px solid ${BRAND?.cardBorder}` }}
-        >
-          <AppImage
-            src="/assets/images/Docubox-tipo1-1774212905748.png"
-            alt="Docubox logo"
-            width={140}
-            height={40}
-            className="object-contain"
-            style={{ maxHeight: 40 }}
-          />
-          <p className="text-xs font-medium" style={{ color: BRAND?.textLight }}>
-            Registro de dispositivo biométrico
-          </p>
+    <main className="min-h-[100svh] bg-[#F8F8FB] px-4 py-6 text-[#18181B] sm:py-10">
+      <div className="mx-auto flex min-h-[calc(100svh-3rem)] w-full max-w-md flex-col justify-center sm:min-h-[calc(100svh-5rem)]">
+        <div className="mb-6 flex justify-center">
+          <AppLogo className="[&_img]:h-auto [&_img]:w-[154px]" />
         </div>
 
-        {/* Body */}
-        <div className="px-6 py-6 space-y-5">
-
-          {/* Validating */}
-          {tokenStatus === 'validating' && (
-            <div className="flex flex-col items-center gap-3 py-8">
-              <div
-                className="w-10 h-10 rounded-full border-2 border-t-transparent animate-spin"
-                style={{ borderColor: `${BRAND?.blue} transparent ${BRAND?.blue} ${BRAND?.blue}` }}
-              />
-              <p className="text-sm font-medium" style={{ color: BRAND?.textMuted }}>
-                Validando enlace...
-              </p>
-            </div>
-          )}
-
-          {/* Invalid token */}
-          {tokenStatus === 'invalid' && (
-            <div className="flex flex-col items-center gap-4 py-6 text-center">
-              <div
-                className="w-16 h-16 rounded-full flex items-center justify-center text-3xl"
-                style={{ background: BRAND?.redLight, border: `1px solid ${BRAND?.redBorder}` }}
-              >
-                ✕
-              </div>
+        <section className="overflow-hidden rounded-lg border border-[#EBEBF0] bg-white shadow-[0_12px_36px_rgba(24,24,27,0.07)]">
+          <header className="border-b border-[#EBEBF0] px-5 py-5 sm:px-6">
+            <div className="flex items-center justify-between gap-4">
               <div>
-                <h2 className="text-base font-bold mb-1" style={{ color: BRAND?.text }}>
-                  Enlace inválido
-                </h2>
-                <p className="text-sm leading-relaxed" style={{ color: BRAND?.textMuted }}>
-                  Este enlace expiró o ya fue utilizado.<br />
-                  Genera un nuevo código QR desde tu computadora.
+                <h1 className="text-xl font-600 tracking-normal">Registrar dispositivo</h1>
+                <p className="mt-1 text-sm text-[#52525B]">Acceso biométrico seguro a Docubox</p>
+              </div>
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-primary">
+                <Smartphone size={20} />
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center" aria-label="Progreso del registro">
+              <div
+                className={`flex items-center gap-2 text-xs font-600 ${
+                  tokenStatus === 'invalid'
+                    ? 'text-red-700'
+                    : tokenStatus === 'valid'
+                      ? 'text-emerald-700'
+                      : 'text-primary'
+                }`}
+              >
+                <span
+                  className={`flex h-6 w-6 items-center justify-center rounded-full ${
+                    tokenStatus === 'invalid'
+                      ? 'bg-red-50'
+                      : tokenStatus === 'valid'
+                        ? 'bg-emerald-50'
+                        : 'bg-blue-50'
+                  }`}
+                >
+                  {tokenStatus === 'validating' ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : tokenStatus === 'valid' ? (
+                    <Check size={13} />
+                  ) : (
+                    <AlertCircle size={13} />
+                  )}
+                </span>
+                {tokenStatus === 'validating'
+                  ? 'Validando enlace'
+                  : tokenStatus === 'valid'
+                    ? 'Enlace validado'
+                    : 'Enlace inválido'}
+              </div>
+              <span className="mx-3 h-px flex-1 bg-[#EBEBF0]" />
+              <div
+                className={`flex items-center gap-2 text-xs font-600 ${
+                  tokenStatus === 'valid' ? 'text-primary' : 'text-[#A1A1AA]'
+                }`}
+              >
+                <span
+                  className={`flex h-6 w-6 items-center justify-center rounded-full ${
+                    tokenStatus === 'valid' ? 'bg-blue-50' : 'bg-[#F4F4F5]'
+                  }`}
+                >
+                  2
+                </span>
+                Dispositivo
+              </div>
+            </div>
+          </header>
+
+          <div className="px-5 py-6 sm:px-6">
+            {tokenStatus === 'validating' && (
+              <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-center">
+                <Loader2 size={26} className="animate-spin text-primary" />
+                <div>
+                  <p className="text-sm font-600">Validando enlace seguro</p>
+                  <p className="mt-1 text-xs text-[#71717A]">Esto tomará solo un momento.</p>
+                </div>
+              </div>
+            )}
+
+            {tokenStatus === 'invalid' && (
+              <div className="flex min-h-64 flex-col items-center justify-center text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+                  <Link2 size={22} />
+                </div>
+                <h2 className="mt-4 text-lg font-600">El enlace ya no está disponible</h2>
+                <p className="mt-2 max-w-xs text-sm leading-6 text-[#52525B]">
+                  El código QR expiró o ya fue utilizado. Genera uno nuevo desde la configuración de
+                  seguridad de Docubox.
                 </p>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Valid token — registration form */}
-          {tokenStatus === 'valid' && !success && (
-            <>
-              {/* Biometric indicator */}
-              <div className="flex flex-col items-center gap-3 py-2">
-                <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl"
-                  style={{ background: 'rgba(59,108,248,0.08)', border: `1px solid rgba(59,108,248,0.18)` }}
-                >
-                  {getBiometricIcon()}
+            {tokenStatus === 'valid' && !success && (
+              <div className="space-y-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-primary">
+                    <SecurityIcon size={23} />
+                  </div>
+                  <div className="min-w-0 pt-0.5">
+                    <h2 className="text-lg font-600">Registrar {deviceDescription}</h2>
+                    <p className="mt-1 text-sm leading-5 text-[#52525B]">
+                      Safari solicitará {securityLabel} para confirmar el registro.
+                    </p>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <h2 className="text-base font-bold" style={{ color: BRAND?.text }}>
-                    Registrar {getDeviceDescription()}
-                  </h2>
-                  <p className="text-xs mt-1" style={{ color: BRAND?.textMuted }}>
-                    Se usará{' '}
-                    <span className="font-semibold" style={{ color: BRAND?.blue }}>
-                      {getBiometricLabel()}
-                    </span>{' '}
-                    para autenticar este dispositivo
+
+                {supportUnavailable && (
+                  <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-amber-900">
+                    <AlertCircle size={17} className="mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-600">Seguridad del dispositivo no disponible</p>
+                      <p className="mt-1 text-xs leading-5">
+                        Activa Face ID, Touch ID, huella o un código de desbloqueo y vuelve a abrir
+                        este enlace en Safari o Chrome.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {error && (
+                  <div
+                    className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-3"
+                    role="alert"
+                    aria-live="polite"
+                  >
+                    <div className="flex items-start gap-3 text-red-800">
+                      <AlertCircle size={17} className="mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-600">No se completó el registro</p>
+                        <p className="mt-1 text-xs leading-5">{error}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label htmlFor="device-name" className="mb-1.5 block text-sm font-500">
+                    Nombre del dispositivo
+                  </label>
+                  <input
+                    id="device-name"
+                    value={deviceName}
+                    onChange={(event) => {
+                      setDeviceName(event.target.value);
+                      setError(null);
+                    }}
+                    placeholder="Ej. iPhone de Luis"
+                    maxLength={60}
+                    autoComplete="off"
+                    className="h-11 w-full rounded-lg border border-[#DDE1E8] bg-white px-3.5 text-sm outline-none transition-colors placeholder:text-[#A1A1AA] focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRegister}
+                  disabled={loading || supportUnavailable || !deviceName.trim()}
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 size={17} className="animate-spin" />
+                      Esperando confirmación...
+                    </>
+                  ) : error ? (
+                    <>
+                      <RefreshCw size={17} />
+                      Intentar nuevamente
+                    </>
+                  ) : (
+                    <>
+                      <LockKeyhole size={17} />
+                      Registrar dispositivo
+                    </>
+                  )}
+                </button>
+
+                <div className="flex items-start gap-2 border-t border-[#EBEBF0] pt-4 text-xs leading-5 text-[#71717A]">
+                  <ShieldCheck size={15} className="mt-0.5 flex-shrink-0 text-emerald-600" />
+                  <p>
+                    Protegido con WebAuthn/FIDO2. Tus datos biométricos permanecen en el dispositivo
+                    y nunca se comparten con Docubox.
                   </p>
                 </div>
               </div>
+            )}
 
-              {/* Error */}
-              {error && (
-                <div
-                  className="px-4 py-3 rounded-xl text-sm"
-                  style={{ background: BRAND?.redLight, border: `1px solid ${BRAND?.redBorder}`, color: BRAND?.red }}
-                >
-                  {error}
+            {success && (
+              <div className="flex min-h-72 flex-col items-center justify-center text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                  <CheckCircle2 size={28} />
                 </div>
-              )}
-
-              {/* Device name input */}
-              <div>
-                <label
-                  className="block text-xs font-semibold mb-1.5"
-                  style={{ color: BRAND?.textMuted }}
-                >
-                  Nombre del dispositivo
-                </label>
-                <input
-                  value={deviceName}
-                  onChange={(e) => setDeviceName(e?.target?.value)}
-                  placeholder="Ej: iPhone de Juan"
-                  className="w-full px-4 py-3 text-sm rounded-xl outline-none transition-all"
-                  style={{
-                    background: BRAND?.bg,
-                    border: `1.5px solid ${BRAND?.cardBorder}`,
-                    color: BRAND?.text,
-                  }}
-                  onFocus={(e) => { e.target.style.borderColor = BRAND?.blue; }}
-                  onBlur={(e) => { e.target.style.borderColor = BRAND?.cardBorder; }}
-                />
-              </div>
-
-              {/* Register button */}
-              <button
-                onClick={handleRegister}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 py-4 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
-                style={{
-                  background: loading ? '#d1d5db' : BRAND?.blueGradient,
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  minHeight: 52,
-                  border: 'none',
-                }}
-              >
-                {loading ? (
-                  <>
-                    <div
-                      className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin"
-                      style={{ borderColor: 'rgba(255,255,255,0.6) transparent rgba(255,255,255,0.6) rgba(255,255,255,0.6)' }}
-                    />
-                    <span>Registrando dispositivo...</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-base">{getBiometricIcon()}</span>
-                    <span>Registrar con {getBiometricLabel()}</span>
-                  </>
-                )}
-              </button>
-
-              {/* FIDO2 badge */}
-              <div className="flex justify-center">
-                <span
-                  className="text-[10px] px-3 py-1.5 rounded-full font-medium"
-                  style={{
-                    background: 'rgba(34,197,94,0.08)',
-                    color: '#16a34a',
-                    border: '1px solid rgba(34,197,94,0.2)',
-                  }}
-                >
-                  🔒 FIDO2 · Tu biométrico nunca sale del dispositivo
-                </span>
-              </div>
-            </>
-          )}
-
-          {/* Success */}
-          {success && (
-            <div className="flex flex-col items-center gap-4 py-6 text-center">
-              <div
-                className="w-16 h-16 rounded-full flex items-center justify-center text-3xl"
-                style={{ background: BRAND?.greenLight, border: `1px solid ${BRAND?.greenBorder}` }}
-              >
-                ✓
-              </div>
-              <div>
-                <h2 className="text-base font-bold mb-1" style={{ color: BRAND?.text }}>
-                  {deviceName || 'Dispositivo'} registrado
-                </h2>
-                <p className="text-sm leading-relaxed" style={{ color: BRAND?.textMuted }}>
-                  Puedes cerrar esta ventana y continuar en tu computadora.
+                <h2 className="mt-4 text-xl font-600">Dispositivo registrado</h2>
+                <p className="mt-2 max-w-xs text-sm leading-6 text-[#52525B]">
+                  {deviceName || 'Tu dispositivo'} ya puede utilizarse para acceder de forma segura
+                  a Docubox.
                 </p>
+                <div className="mt-5 w-full rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  Puedes cerrar esta ventana. La computadora actualizará el estado automáticamente.
+                </div>
               </div>
-              <div
-                className="px-4 py-3 rounded-xl w-full text-sm"
-                style={{ background: BRAND?.greenLight, border: `1px solid ${BRAND?.greenBorder}`, color: '#15803d' }}
-              >
-                Tu computadora detectará automáticamente que el registro se completó.
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        </section>
+
+        <footer className="mt-5 text-center text-xs text-[#A1A1AA]">
+          © {new Date().getFullYear()} Docubox · Registro seguro de dispositivos
+        </footer>
       </div>
-      {/* Footer */}
-      <p className="mt-6 text-xs" style={{ color: BRAND?.textLight }}>
-        © {new Date()?.getFullYear()} DOCUBOX · Todos los derechos reservados
-      </p>
-    </div>
+    </main>
   );
 }
 
 export default function RegisterFromQRPage() {
   return (
-    <React.Suspense fallback={
-      <div
-        className="min-h-screen flex items-center justify-center"
-        style={{ background: BRAND?.bg }}
-      >
-        <div
-          className="w-10 h-10 rounded-full border-2 border-t-transparent animate-spin"
-          style={{ borderColor: `${BRAND?.blue} transparent ${BRAND?.blue} ${BRAND?.blue}` }}
-        />
-      </div>
-    }>
+    <React.Suspense
+      fallback={
+        <div className="flex min-h-[100svh] items-center justify-center bg-[#F8F8FB]">
+          <Loader2 size={26} className="animate-spin text-primary" />
+        </div>
+      }
+    >
       <RegisterFromQRContent />
     </React.Suspense>
   );
