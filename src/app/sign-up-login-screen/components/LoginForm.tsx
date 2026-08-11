@@ -259,6 +259,18 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     );
   const mobileCredentialOnDesktop =
     currentDeviceCategory === 'desktop' && onlyMobileWebAuthnDevices;
+  const selectedWebAuthnDevice = selectedDeviceId
+    ? webAuthnDevices.find((device) => device.id === selectedDeviceId) || null
+    : null;
+  const selectedMobileCredentialOnDesktop =
+    currentDeviceCategory === 'desktop' &&
+    !!selectedWebAuthnDevice &&
+    (selectedWebAuthnDevice.device_category === 'mobile' ||
+      selectedWebAuthnDevice.registration_method === 'qr' ||
+      selectedWebAuthnDevice.os === 'iOS' ||
+      selectedWebAuthnDevice.os === 'Android');
+  const useCrossDeviceAuthentication =
+    mobileCredentialOnDesktop || selectedMobileCredentialOnDesktop;
   const biometricDisplayLabel = mobileCredentialOnDesktop ? 'tu dispositivo móvil' : biometricLabel;
 
   const resetAuthReveal = () => {
@@ -647,6 +659,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         body: JSON.stringify({
           email: emailValue.trim(),
           credentialId: selectedDeviceId || undefined,
+          authenticationMode: useCrossDeviceAuthentication ? 'hybrid' : 'platform',
         }),
       });
       if (!optRes.ok) {
@@ -992,10 +1005,9 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                                   Tu biométrico está registrado en el móvil
                                 </p>
                                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                  Para ver Face ID, Touch ID o el código del iPhone, abre Docubox
-                                  desde ese teléfono. Si continúas desde esta computadora, el
-                                  navegador puede pedir Windows Hello o mostrar la opción de usar
-                                  otro dispositivo.
+                                  Continúa para mostrar un código QR seguro. Escanéalo con la cámara
+                                  del iPhone y confirma con Face ID, Touch ID o el código del
+                                  dispositivo. No necesitas abrir Docubox manualmente en el móvil.
                                 </p>
                               </div>
                             </div>
@@ -1136,10 +1148,10 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                           ) : (
                             <>
                               <Fingerprint size={15} />
-                              {webAuthnDevices.length > 1 && selectedDeviceId
-                                ? `Entrar con dispositivo seleccionado`
-                                : mobileCredentialOnDesktop
-                                  ? 'Continuar con passkey'
+                              {useCrossDeviceAuthentication
+                                ? 'Usar dispositivo móvil con QR'
+                                : webAuthnDevices.length > 1 && selectedDeviceId
+                                  ? `Entrar con dispositivo seleccionado`
                                   : `Entrar con ${biometricLabel}`}
                             </>
                           )}

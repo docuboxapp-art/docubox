@@ -5,7 +5,7 @@ import { getWebAuthnChallengeKey, getWebAuthnRequestConfig } from '@/lib/webauth
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, credentialId } = await req.json();
+    const { email, credentialId, authenticationMode } = await req.json();
     if (!email) {
       return NextResponse.json({ error: 'Email requerido.' }, { status: 400 });
     }
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     // Fetch active credentials
     let credentialQuery = supabaseAdmin
       .from('webauthn_credentials')
-      .select('id, credential_id, public_key, sign_count')
+      .select('id, credential_id, public_key, sign_count, device_category, registered_from')
       .eq('user_id', userId)
       .eq('is_active', true);
 
@@ -54,10 +54,25 @@ export async function POST(req: NextRequest) {
     }
 
     // Build allowCredentials list
-    const allowCredentials = creds.map((c) => ({
-      id: c.credential_id,
-      type: 'public-key' as const,
-    }));
+    const preferHybrid =
+      authenticationMode === 'hybrid' ||
+      creds.every(
+        (credential) =>
+          credential.device_category === 'mobile' || credential.registered_from === 'qr'
+      );
+
+    const allowCredentials: NonNullable<
+      Parameters<typeof generateAuthenticationOptions>[0]['allowCredentials']
+    > = creds.map((credential) => {
+      const isMobileCredential =
+        credential.device_category === 'mobile' || credential.registered_from === 'qr';
+
+      return {
+        id: credential.credential_id,
+        type: 'public-key' as const,
+        transports: isMobileCredential ? ['hybrid'] : ['internal'],
+      };
+    });
 
     const options = await generateAuthenticationOptions({
       rpID: rpId,
@@ -65,6 +80,12 @@ export async function POST(req: NextRequest) {
       allowCredentials,
       timeout: 60000,
     });
+
+    // Chromium uses this WebAuthn L3 hint to open cross-device QR instead of
+    // trying the computer's platform authenticator (for example Windows Hello).
+    if (preferHybrid) {
+      options.hints = ['hybrid'];
+    }
 
     // Persist challenge in webauthn_challenges table (TTL 5 min)
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
