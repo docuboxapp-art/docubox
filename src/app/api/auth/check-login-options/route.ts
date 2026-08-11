@@ -22,7 +22,13 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (!profile?.id) {
-      return NextResponse.json({ found: false, emailVerified: false, hasWebAuthn: false, webAuthnDevices: [], nombre: null });
+      return NextResponse.json({
+        found: false,
+        emailVerified: false,
+        hasWebAuthn: false,
+        webAuthnDevices: [],
+        nombre: null,
+      });
     }
 
     // Check email_verified
@@ -36,7 +42,7 @@ export async function POST(req: NextRequest) {
     // Note: table uses 'registered_from' and 'created_at' (not 'registration_method'/'registered_at')
     const { data: webauthnCreds, error: webauthnError } = await supabaseAdmin
       .from('webauthn_credentials')
-      .select('id, device_name, os, browser, created_at, registered_from')
+      .select('id, device_name, os, browser, device_category, created_at, registered_from')
       .eq('user_id', profile.id)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
@@ -53,6 +59,7 @@ export async function POST(req: NextRequest) {
       device_name: d.device_name ?? null,
       os: d.os ?? null,
       browser: d.browser ?? null,
+      device_category: d.device_category ?? null,
       registered_at: d.created_at ?? null,
       registration_method: d.registered_from ?? null,
     }));
@@ -66,6 +73,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error('[check-login-options]', err);
-    return NextResponse.json({ found: false, emailVerified: false, hasWebAuthn: false, webAuthnDevices: [], nombre: null }, { status: 500 });
+    return NextResponse.json(
+      { found: false, emailVerified: false, hasWebAuthn: false, webAuthnDevices: [], nombre: null },
+      { status: 500 }
+    );
   }
 }

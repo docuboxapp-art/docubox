@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 
 import {
   Eye,
@@ -38,6 +38,7 @@ interface WebAuthnDevice {
   device_name: string | null;
   os: string | null;
   browser: string | null;
+  device_category: string | null;
   registered_at: string | null;
   registration_method: string | null;
 }
@@ -241,6 +242,24 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const [webAuthnDevices, setWebAuthnDevices] = useState<WebAuthnDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const passwordEnabled = emailValue.trim().length > 0;
+
+  const currentDeviceCategory = useMemo(() => {
+    if (typeof navigator === 'undefined') return 'desktop';
+    return /iPhone|iPad|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+  }, []);
+
+  const onlyMobileWebAuthnDevices =
+    webAuthnDevices.length > 0 &&
+    webAuthnDevices.every(
+      (device) =>
+        device.device_category === 'mobile' ||
+        device.registration_method === 'qr' ||
+        device.os === 'iOS' ||
+        device.os === 'Android'
+    );
+  const mobileCredentialOnDesktop =
+    currentDeviceCategory === 'desktop' && onlyMobileWebAuthnDevices;
+  const biometricDisplayLabel = mobileCredentialOnDesktop ? 'tu dispositivo móvil' : biometricLabel;
 
   const resetAuthReveal = () => {
     setUserName(null);
@@ -486,7 +505,9 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       const res = await fetch('/api/auth/send-login-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailValue.trim() }),
+        body: JSON.stringify({
+          email: emailValue.trim(),
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -623,7 +644,10 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       const optRes = await fetch('/api/webauthn/auth-options', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailValue.trim() }),
+        body: JSON.stringify({
+          email: emailValue.trim(),
+          credentialId: selectedDeviceId || undefined,
+        }),
       });
       if (!optRes.ok) {
         const e = await optRes.json();
@@ -942,7 +966,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                       id="biometric"
                       icon={<Fingerprint size={17} />}
                       label="Ingresa con tu biométrico"
-                      sublabel={`Autenticación sin contraseña con ${biometricLabel}`}
+                      sublabel={`Autenticación sin contraseña con ${biometricDisplayLabel}`}
                       isOpen={activeTab === 'biometric'}
                       onToggle={() => handleAccordionToggle('biometric')}
                     >
@@ -954,6 +978,27 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                               className="text-red-600 flex-shrink-0 mt-0.5"
                             />
                             <p className="text-xs text-red-700">{biometricError}</p>
+                          </div>
+                        )}
+
+                        {mobileCredentialOnDesktop && (
+                          <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-3.5">
+                            <div className="flex items-start gap-3">
+                              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-white text-primary">
+                                <Fingerprint size={16} />
+                              </div>
+                              <div>
+                                <p className="text-sm font-700 text-foreground">
+                                  Tu biométrico está registrado en el móvil
+                                </p>
+                                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                  Para ver Face ID, Touch ID o el código del iPhone, abre Docubox
+                                  desde ese teléfono. Si continúas desde esta computadora, el
+                                  navegador puede pedir Windows Hello o mostrar la opción de usar
+                                  otro dispositivo.
+                                </p>
+                              </div>
+                            </div>
                           </div>
                         )}
 
@@ -1071,7 +1116,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                               />
                             </div>
                             <p className="text-xs text-center text-muted-foreground">
-                              Usa <strong>{biometricLabel}</strong> para autenticarte sin
+                              Usa <strong>{biometricDisplayLabel}</strong> para autenticarte sin
                               contraseña.
                             </p>
                             <p className="text-[10px] text-center text-muted-foreground/70">
@@ -1093,7 +1138,9 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                               <Fingerprint size={15} />
                               {webAuthnDevices.length > 1 && selectedDeviceId
                                 ? `Entrar con dispositivo seleccionado`
-                                : `Entrar con ${biometricLabel}`}
+                                : mobileCredentialOnDesktop
+                                  ? 'Continuar con passkey'
+                                  : `Entrar con ${biometricLabel}`}
                             </>
                           )}
                         </button>

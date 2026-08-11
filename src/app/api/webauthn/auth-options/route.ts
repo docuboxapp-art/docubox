@@ -5,7 +5,7 @@ import { getWebAuthnChallengeKey, getWebAuthnRequestConfig } from '@/lib/webauth
 
 export async function POST(req: NextRequest) {
   try {
-    const { email } = await req.json();
+    const { email, credentialId } = await req.json();
     if (!email) {
       return NextResponse.json({ error: 'Email requerido.' }, { status: 400 });
     }
@@ -34,11 +34,17 @@ export async function POST(req: NextRequest) {
     const { rpId } = getWebAuthnRequestConfig(req);
 
     // Fetch active credentials
-    const { data: creds } = await supabaseAdmin
+    let credentialQuery = supabaseAdmin
       .from('webauthn_credentials')
-      .select('credential_id, public_key, sign_count')
+      .select('id, credential_id, public_key, sign_count')
       .eq('user_id', userId)
       .eq('is_active', true);
+
+    if (credentialId) {
+      credentialQuery = credentialQuery.eq('id', credentialId);
+    }
+
+    const { data: creds } = await credentialQuery;
 
     if (!creds || creds.length === 0) {
       return NextResponse.json(
