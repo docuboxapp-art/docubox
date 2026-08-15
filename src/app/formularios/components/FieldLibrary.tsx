@@ -91,7 +91,7 @@ export default function FieldLibrary() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar campos"
-            className="h-9 w-full rounded-md border border-[#E2E8F0] bg-[#F6F8FB] pl-9 pr-3 text-xs text-[#0F172A] outline-none transition focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/10 dark:border-border dark:bg-muted dark:text-foreground"
+            className="h-9 w-full rounded-md border border-[#E2E8F0] bg-[#F6F8FB] pl-9 pr-3 text-xs text-[#0F172A] outline-none transition focus:border-[#1E6BFF] focus:ring-2 focus:ring-[#1E6BFF]/10 dark:border-border dark:bg-muted dark:text-foreground"
           />
         </div>
       </div>
@@ -118,9 +118,9 @@ export default function FieldLibrary() {
                         key={field.type}
                         type="button"
                         onClick={() => addField(field.type)}
-                        className="group flex min-h-[70px] flex-col items-start justify-between rounded-lg border border-[#E2E8F0] bg-white p-2.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.02)] transition hover:border-[#2563EB]/40 hover:bg-[#EFF6FF] dark:border-border dark:bg-card dark:hover:bg-muted"
+                        className="group flex min-h-[70px] flex-col items-start justify-between rounded-lg border border-[#E2E8F0] bg-white p-2.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.02)] transition hover:border-[#1E6BFF]/40 hover:bg-[#EFF6FF] dark:border-border dark:bg-card dark:hover:bg-muted"
                       >
-                        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#EFF6FF] text-[#2563EB] transition group-hover:bg-[#2563EB] group-hover:text-white">
+                        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#EFF6FF] text-[#1E6BFF] transition group-hover:bg-[#1E6BFF] group-hover:text-white">
                           <FieldIcon size={15} />
                         </span>
                         <span className="mt-2 text-[11px] font-medium leading-4 text-[#334155] dark:text-foreground">{field.label}</span>

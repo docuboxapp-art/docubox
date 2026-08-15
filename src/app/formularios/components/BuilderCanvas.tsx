@@ -94,7 +94,7 @@ export default function BuilderCanvas() {
                     className={`overflow-hidden rounded-lg border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition dark:bg-card ${isSelected ? 'border-[#BFDBFE]' : 'border-[#E2E8F0] dark:border-border'}`}
                   >
                     <header className="flex items-start gap-3 border-b border-[#E2E8F0] px-5 py-4 dark:border-border">
-                      <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[#EFF6FF] text-xs font-semibold text-[#2563EB]">
+                      <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[#EFF6FF] text-xs font-semibold text-[#1E6BFF]">
                         {sectionIndex + 1}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -152,7 +152,7 @@ export default function BuilderCanvas() {
                               dispatch({ type: 'SELECT_SECTION', payload: section.id });
                               addField('text');
                             }}
-                            className="flex min-h-[90px] w-full flex-col items-center justify-center rounded-md border border-dashed border-[#CBD5E1] text-[#64748B] transition hover:border-[#2563EB]/50 hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+                            className="flex min-h-[90px] w-full flex-col items-center justify-center rounded-md border border-dashed border-[#CBD5E1] text-[#64748B] transition hover:border-[#1E6BFF]/50 hover:bg-[#EFF6FF] hover:text-[#1E6BFF]"
                           >
                             <FilePlus2 size={18} />
                             <span className="mt-2 text-xs font-medium">Agregar el primer campo</span>
@@ -166,7 +166,7 @@ export default function BuilderCanvas() {
                               dispatch({ type: 'SELECT_SECTION', payload: section.id });
                               addField('text');
                             }}
-                            className="flex h-9 items-center gap-2 rounded-md px-3 text-xs font-medium text-[#2563EB] hover:bg-[#EFF6FF]"
+                            className="flex h-9 items-center gap-2 rounded-md px-3 text-xs font-medium text-[#1E6BFF] hover:bg-[#EFF6FF]"
                           >
                             <Plus size={14} /> Agregar pregunta
                           </button>
@@ -183,7 +183,7 @@ export default function BuilderCanvas() {
         <button
           type="button"
           onClick={addSection}
-          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[#BFDBFE] bg-white text-sm font-medium text-[#2563EB] transition hover:bg-[#EFF6FF] dark:border-blue-900/60 dark:bg-card dark:hover:bg-blue-950/30"
+          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[#BFDBFE] bg-white text-sm font-medium text-[#1E6BFF] transition hover:bg-[#EFF6FF] dark:border-blue-900/60 dark:bg-card dark:hover:bg-blue-950/30"
         >
           <Plus size={15} /> Agregar sección
         </button>

@@ -292,7 +292,7 @@ export default function AppMarketPage() {
                         key={module.id}
                         className={`group flex min-h-[260px] flex-col overflow-hidden rounded-lg border bg-white transition-[border-color,box-shadow] dark:bg-card ${
                           active
-                            ? 'border-primary/50 shadow-[0_0_0_2px_rgba(37,99,235,0.08)] dark:border-primary/60'
+                            ? 'border-primary/50 shadow-[0_0_0_2px_rgba(30, 107, 255,0.08)] dark:border-primary/60'
                             : 'border-slate-200 hover:border-slate-300 hover:shadow-sm dark:border-border'
                         }`}
                       >

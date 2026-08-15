@@ -229,7 +229,7 @@ export default function NewPromissoryNotePage() {
           >
             <ArrowLeft size={17} />
           </button>
-          <AppLogo className="w-[122px]" />
+          <AppLogo className="[&_img]:h-auto [&_img]:w-[126px]" />
           <div className="hidden h-8 w-px bg-slate-200 md:block" />
           <div className="hidden md:block">
             <p className="text-sm font-600">Nuevo pagare electronico</p>

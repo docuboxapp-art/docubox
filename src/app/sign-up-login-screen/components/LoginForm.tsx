@@ -456,10 +456,8 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
           if (totpData.totpEnabled) {
             const redirectParam = searchParams?.get('redirect');
             const finalRedirect =
-              redirectParam === '/visor-documento'
-                ? '/mis-participaciones'
-                : '/documents-dashboard';
-            window.location.href = `/auth/totp-verification?userId=${authData.user.id}&redirect=${encodeURIComponent(finalRedirect)}`;
+              redirectParam === '/visor-documento' ? '/mis-participaciones' : '/inicio';
+            window.location.href = `/login/totp-verification?userId=${authData.user.id}&redirect=${encodeURIComponent(finalRedirect)}`;
             return;
           }
         } catch {
@@ -500,7 +498,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
       const redirectParam = searchParams?.get('redirect');
       window.location.href =
-        redirectParam === '/visor-documento' ? '/mis-participaciones' : '/documents-dashboard';
+        redirectParam === '/visor-documento' ? '/mis-participaciones' : '/inicio';
     } catch {
       setPasswordError('Error de conexión. Intenta nuevamente.');
       setPasswordLoading(false);
@@ -608,7 +606,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       }
       const redirectParam = searchParams?.get('redirect');
       window.location.href =
-        redirectParam === '/visor-documento' ? '/mis-participaciones' : '/documents-dashboard';
+        redirectParam === '/visor-documento' ? '/mis-participaciones' : '/inicio';
     } catch {
       setOtpError('Error de conexión. Intenta nuevamente.');
       setOtpLoading(false);
@@ -739,7 +737,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       }
       const redirectParam = searchParams?.get('redirect');
       window.location.href =
-        redirectParam === '/visor-documento' ? '/mis-participaciones' : '/documents-dashboard';
+        redirectParam === '/visor-documento' ? '/mis-participaciones' : '/inicio';
     } catch (err: unknown) {
       const name = err instanceof Error ? err.name : '';
       if (name === 'NotAllowedError') setBiometricError('Autenticación cancelada.');

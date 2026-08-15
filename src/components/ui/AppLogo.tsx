@@ -6,19 +6,28 @@ import AppImage from './AppImage';
 
 interface AppLogoProps {
   src?: string; // Image source (optional)
+  darkSrc?: string; // Alternate image for dark mode
+  variant?: 'auto' | 'dark' | 'light';
   iconName?: string; // Icon name when no image
   size?: number; // Size for icon/image
   className?: string; // Additional classes
   onClick?: () => void; // Click handler
 }
 
+const DEFAULT_LOGO = '/assets/images/docubox-logo-2026.png';
+const DEFAULT_DARK_MODE_LOGO = '/assets/images/docubox-logo-2026-dark-mode.png';
+
 const AppLogo = memo(function AppLogo({
-  src = '/assets/images/Docubox-tipo1-1774245058336.png',
+  src = DEFAULT_LOGO,
+  darkSrc,
+  variant = 'auto',
   iconName = 'SparklesIcon',
   size = 32,
   className = '',
   onClick,
 }: AppLogoProps) {
+  const resolvedDarkSrc = darkSrc ?? (src === DEFAULT_LOGO ? DEFAULT_DARK_MODE_LOGO : src);
+
   // Memoize className calculation
   const containerClassName = useMemo(() => {
     const classes = ['flex items-center'];
@@ -30,15 +39,39 @@ const AppLogo = memo(function AppLogo({
   return (
     <div className={containerClassName} onClick={onClick}>
       {/* Show image if src provided, otherwise show icon */}
-      {src ? (
+      {src && variant === 'auto' && resolvedDarkSrc !== src ? (
+        <>
+          <AppImage
+            src={src}
+            alt="Logo"
+            width={126}
+            height={24}
+            className="flex-shrink-0 object-contain dark:hidden"
+            priority={true}
+            unoptimized={src.endsWith('.svg')}
+            showLoadingBackground={false}
+          />
+          <AppImage
+            src={resolvedDarkSrc}
+            alt="Logo"
+            width={126}
+            height={24}
+            className="hidden flex-shrink-0 object-contain dark:block"
+            priority={true}
+            unoptimized={resolvedDarkSrc.endsWith('.svg')}
+            showLoadingBackground={false}
+          />
+        </>
+      ) : src ? (
         <AppImage
-          src={src}
+          src={variant === 'light' ? resolvedDarkSrc : src}
           alt="Logo"
-          width={134}
-          height={36}
+          width={126}
+          height={24}
           className="flex-shrink-0 object-contain"
           priority={true}
-          unoptimized={src.endsWith('.svg')}
+          unoptimized={(variant === 'light' ? resolvedDarkSrc : src).endsWith('.svg')}
+          showLoadingBackground={false}
         />
       ) : (
         <AppIcon name={iconName} size={size} className="flex-shrink-0" />

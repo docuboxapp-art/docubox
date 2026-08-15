@@ -2130,7 +2130,7 @@ export default function PendingTasksPage() {
           task={selectedTask}
           onClose={() => {
             setSelectedTask(null);
-            window.history.replaceState(null, '', '/pending-tasks');
+            window.history.replaceState(null, '', '/mis-tareas');
           }}
           onTaskUpdated={handleTaskUpdated}
           workspaceId={activeWorkspaceId}

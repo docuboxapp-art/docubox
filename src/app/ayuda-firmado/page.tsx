@@ -127,7 +127,7 @@ export default function AyudaFirmadoPage() {
       <header className="border-b border-border bg-white sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <Link
-            href="/documents-dashboard"
+            href="/inicio"
             className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft size={16} />
@@ -187,7 +187,7 @@ export default function AyudaFirmadoPage() {
           <h2 className="text-xl font-700 text-foreground mb-6">Accesos rápidos</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Link
-              href="/sign-up-login-screen"
+              href="/login"
               className="flex items-center gap-3 p-4 rounded-xl border border-border hover:border-primary hover:bg-primary/5 transition-all group"
             >
               <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">

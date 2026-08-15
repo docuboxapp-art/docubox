@@ -8,11 +8,11 @@ function TotpVerificationContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const userId = searchParams?.get('userId') || '';
-  const redirect = searchParams?.get('redirect') || '/documents-dashboard';
+  const redirect = searchParams?.get('redirect') || '/inicio';
 
   useEffect(() => {
     if (!userId) {
-      router?.replace('/sign-up-login-screen');
+      router?.replace('/login');
     }
   }, [userId, router]);
 
@@ -25,7 +25,7 @@ function TotpVerificationContent() {
         window.location.href = redirect;
       }}
       onBack={() => {
-        router?.replace('/sign-up-login-screen');
+        router?.replace('/login');
       }}
     />
   );
@@ -33,11 +33,13 @@ function TotpVerificationContent() {
 
 export default function TotpVerificationRoute() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
       <TotpVerificationContent />
     </Suspense>
   );

@@ -91,7 +91,7 @@ function BuilderWorkspace() {
         : 'Guardado automático';
 
   if (loading) {
-    return <div className="flex h-screen items-center justify-center bg-[#F6F8FB]"><Loader2 size={24} className="animate-spin text-[#2563EB]" /></div>;
+    return <div className="flex h-screen items-center justify-center bg-[#F6F8FB]"><Loader2 size={24} className="animate-spin text-[#1E6BFF]" /></div>;
   }
 
   return (
@@ -132,7 +132,7 @@ function BuilderWorkspace() {
           <button type="button" onClick={() => setPropertiesOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-md border border-[#E2E8F0] text-[#475569] transition hover:bg-[#F8FAFC] xl:hidden dark:border-border dark:text-foreground" title="Abrir propiedades">
             <SlidersHorizontal size={15} />
           </button>
-          <button type="button" onClick={handlePublish} disabled={isSaving} className="flex h-9 items-center gap-2 rounded-md bg-[#2563EB] px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:opacity-50">
+          <button type="button" onClick={handlePublish} disabled={isSaving} className="flex h-9 items-center gap-2 rounded-md bg-[#1E6BFF] px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:opacity-50">
             <Send size={14} /> Publicar
           </button>
         </div>
@@ -182,12 +182,12 @@ function BuilderWorkspace() {
 }
 
 function ModeButton({ active, icon: Icon, label, onClick }: { active: boolean; icon: React.ElementType; label: string; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className={`flex h-8 items-center gap-1.5 rounded-md px-3 text-[11px] font-medium transition ${active ? 'bg-white text-[#2563EB] shadow-sm dark:bg-card' : 'text-[#64748B] hover:text-[#0F172A] dark:text-muted-foreground dark:hover:text-foreground'}`}><Icon size={13} />{label}</button>;
+  return <button type="button" onClick={onClick} className={`flex h-8 items-center gap-1.5 rounded-md px-3 text-[11px] font-medium transition ${active ? 'bg-white text-[#1E6BFF] shadow-sm dark:bg-card' : 'text-[#64748B] hover:text-[#0F172A] dark:text-muted-foreground dark:hover:text-foreground'}`}><Icon size={13} />{label}</button>;
 }
 
 export default function FormBuilderPage() {
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-[#F6F8FB]"><Loader2 size={24} className="animate-spin text-[#2563EB]" /></div>}>
+    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-[#F6F8FB]"><Loader2 size={24} className="animate-spin text-[#1E6BFF]" /></div>}>
       <FormBuilderProvider><BuilderWorkspace /></FormBuilderProvider>
     </Suspense>
   );

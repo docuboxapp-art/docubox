@@ -3237,7 +3237,7 @@ export default function MiPerfilPage() {
                 setSaveError('');
                 setSavedOk(false);
               }}
-              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-colors hover:bg-primary/90"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90"
             >
               <Edit3 size={15} />
               Actualizar perfil
@@ -4851,7 +4851,7 @@ export default function MiPerfilPage() {
                                   ? '#ef4444'
                                   : webAuthnQrSeconds < 120
                                     ? '#f59e0b'
-                                    : '#2563eb',
+                                    : '#1E6BFF',
                             }}
                           >
                             <img

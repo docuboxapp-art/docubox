@@ -355,7 +355,7 @@ function IdScannerScreen({
             <button onClick={handleRetry} style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <RefreshCw size={15} /> Repetir
             </button>
-            <button onClick={handleUsePhoto} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #2563eb 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(37,99,235,0.45)' }}>
+            <button onClick={handleUsePhoto} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
               {side === 'anverso' ? 'Usar foto — Continuar al reverso' : 'Usar foto — Continuar'}
             </button>
           </div>
@@ -467,7 +467,7 @@ function PassportScannerScreen({ onCapture, onBack }: { onCapture: (img: string)
             <button onClick={() => { setCaptured(null); startCamera(); }} style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <RefreshCw size={15} /> Repetir
             </button>
-            <button onClick={() => onCapture(captured)} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #2563eb 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
+            <button onClick={() => onCapture(captured)} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
               Usar foto — Continuar
             </button>
           </div>
@@ -726,7 +726,7 @@ function SelfieCaptureScreen({ onCapture, onBack }: { onCapture: (img: string, v
             <button onClick={handleRetry} disabled={retryCount >= MAX_RETRY_ATTEMPTS - 1} style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: retryCount >= MAX_RETRY_ATTEMPTS - 1 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <RefreshCw size={15} /> Repetir
             </button>
-            <button onClick={handleUseCapture} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #2563eb 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(37,99,235,0.45)' }}>
+            <button onClick={handleUseCapture} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
               Usar video y foto
             </button>
           </div>
@@ -1652,7 +1652,7 @@ export default function CapturaIdMovilPage() {
       <div style={{ minHeight: '100dvh', background: identityMismatch ? '#fef2f2' : BRAND.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <div style={{ background: BRAND.card, border: `1.5px solid ${identityMismatch ? BRAND.redBorder : BRAND.cardBorder}`, borderRadius: 20, padding: 32, maxWidth: 380, width: '100%', textAlign: 'center' }}>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
-            <AppImage src="/assets/images/Docubox-tipo1-1774245058336.png" alt="Docubox logo" width={110} height={30} className="object-contain" priority />
+            <AppImage src="/assets/images/docubox-logo-2026.png" alt="Docubox logo" width={126} height={24} className="object-contain" priority />
           </div>
           <div style={{ width: 72, height: 72, borderRadius: '50%', background: identityMismatch ? BRAND.redLight : BRAND.greenLight, border: `2px solid ${identityMismatch ? BRAND.redBorder : BRAND.greenBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
             {identityMismatch ? <AlertTriangle size={36} color={BRAND.red} /> : <CheckCircle2 size={36} color={BRAND.green} />}
@@ -1763,7 +1763,7 @@ export default function CapturaIdMovilPage() {
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       {/* Header */}
       <div style={{ width: '100%', maxWidth: 480, padding: '16px 20px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <AppImage src="/assets/images/Docubox-tipo1-1774245058336.png" alt="Docubox logo" width={110} height={30} className="object-contain" priority />
+        <AppImage src="/assets/images/docubox-logo-2026.png" alt="Docubox logo" width={126} height={24} className="object-contain" priority />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {SCREENS_ORDER.map((s, idx) => (
             <div key={s} style={{ width: s === screen ? 18 : 6, height: 6, borderRadius: 99, background: s === screen ? BRAND.blue : idx < currentIdx ? BRAND.green : BRAND.cardBorder, transition: 'all 0.3s ease' }} />

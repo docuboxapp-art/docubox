@@ -154,7 +154,7 @@ export default function AuthScreen() {
   return (
     <main className="flex min-h-screen bg-[#f7f8fb]">
       {/* Left brand panel */}
-      <aside className="relative hidden w-[43%] min-w-[520px] flex-col justify-center overflow-hidden border-r border-blue-700 bg-[#2563eb] px-12 py-14 lg:flex xl:px-16">
+      <aside className="relative hidden w-[43%] min-w-[520px] flex-col justify-center overflow-hidden border-r border-blue-700 bg-[#1E6BFF] px-12 py-14 lg:flex xl:px-16">
         <div className="absolute inset-x-0 top-0 h-px bg-white/25" />
         <div className="absolute inset-x-0 bottom-0 h-px bg-blue-800" />
 
@@ -197,7 +197,7 @@ export default function AuthScreen() {
         <div className="w-full max-w-[460px]">
           {/* Logo above form */}
           <div className="mb-10 flex items-center justify-start">
-            <AppLogo size={44} />
+            <AppLogo size={44} className="[&_img]:h-auto [&_img]:w-[156px]" />
           </div>
 
           <Suspense fallback={null}>

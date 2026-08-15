@@ -742,7 +742,7 @@ export default function LucIAChat({
             <button
               onClick={() => {
                 onClose();
-                router.push('/documents-dashboard');
+                router.push('/inicio');
               }}
               className="hidden h-9 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-[#52525B] transition-colors hover:bg-slate-100 hover:text-[#18181B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white sm:flex"
               title="Ir al menú principal"

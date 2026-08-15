@@ -22,7 +22,7 @@ export default function FieldCard({ field, isSelected, dragHandleProps }: FieldC
       }}
       className={`group relative flex min-h-[78px] cursor-pointer items-center gap-3 rounded-lg border bg-white px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.02)] transition dark:bg-card ${
         isSelected
-          ? 'border-[#2563EB] shadow-[0_0_0_2px_rgba(37,99,235,0.10)]'
+          ? 'border-[#1E6BFF] shadow-[0_0_0_2px_rgba(30, 107, 255,0.10)]'
           : 'border-[#E2E8F0] hover:border-[#CBD5E1] hover:shadow-sm dark:border-border'
       }`}
     >
@@ -30,7 +30,7 @@ export default function FieldCard({ field, isSelected, dragHandleProps }: FieldC
         type="button"
         {...(dragHandleProps || {})}
         onClick={(event) => event.stopPropagation()}
-        className="flex h-8 w-6 flex-shrink-0 cursor-grab items-center justify-center text-[#94A3B8] opacity-50 transition hover:text-[#2563EB] group-hover:opacity-100 active:cursor-grabbing"
+        className="flex h-8 w-6 flex-shrink-0 cursor-grab items-center justify-center text-[#94A3B8] opacity-50 transition hover:text-[#1E6BFF] group-hover:opacity-100 active:cursor-grabbing"
         title="Reordenar campo"
       >
         <GripVertical size={16} />
@@ -84,7 +84,7 @@ function IconButton({ children, label, destructive, onClick }: {
         event.stopPropagation();
         onClick();
       }}
-      className={`flex h-8 w-8 items-center justify-center rounded-md transition ${destructive ? 'text-[#94A3B8] hover:bg-red-50 hover:text-red-600' : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#2563EB]'}`}
+      className={`flex h-8 w-8 items-center justify-center rounded-md transition ${destructive ? 'text-[#94A3B8] hover:bg-red-50 hover:text-red-600' : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#1E6BFF]'}`}
     >
       {children}
     </button>

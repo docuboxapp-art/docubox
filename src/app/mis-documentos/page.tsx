@@ -5484,7 +5484,7 @@ function MisDocumentosContent() {
             </button>
             <button
               onClick={() => router.push('/crear-documento')}
-              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-colors hover:bg-primary/90"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90"
             >
               <FilePlus size={16} />
               Crear Documento

@@ -8,7 +8,7 @@ export default function PublicVerificationShell({ children }: { children: React.
       <header className="border-b border-[#ebebf0] bg-white">
         <div className="mx-auto flex h-16 w-full max-w-[1180px] items-center justify-between px-4 sm:px-6">
           <Link href="/verificar-documento" aria-label="Centro de Verificación Docubox">
-            <AppLogo className="w-[136px]" />
+            <AppLogo className="[&_img]:h-auto [&_img]:w-[126px]" />
           </Link>
           <span className="inline-flex items-center gap-2 text-xs font-600 text-[#52525b]">
             <ShieldCheck size={16} className="text-[#4f46e5]" />

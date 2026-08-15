@@ -9,21 +9,34 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Google Sans Flex', 'sans-serif'],
+        sans: ['Google Sans', 'Segoe UI', 'Arial', 'sans-serif'],
         mono: ['IBM Plex Mono', 'monospace'],
       },
       colors: {
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
-          50: 'hsl(214, 100%, 97%)',
-          100: 'hsl(214, 95%, 93%)',
-          200: 'hsl(213, 97%, 87%)',
-          500: 'hsl(217.2, 91.2%, 59.8%)',
-          600: 'hsl(221.2, 83.2%, 53.3%)',
-          700: 'hsl(224, 76%, 44%)',
-          800: 'hsl(226, 71%, 35%)',
-          900: 'hsl(228, 68%, 23%)',
+          50: '#eff5ff',
+          100: '#d9e8ff',
+          200: '#b8d3ff',
+          500: '#347cff',
+          600: '#1e6bff',
+          700: '#1557d6',
+          800: '#1749ad',
+          900: '#193f88',
+        },
+        blue: {
+          50: '#eff5ff',
+          100: '#d9e8ff',
+          200: '#b8d3ff',
+          300: '#86b5ff',
+          400: '#5494ff',
+          500: '#347cff',
+          600: '#1e6bff',
+          700: '#1557d6',
+          800: '#1749ad',
+          900: '#193f88',
+          950: '#102754',
         },
         secondary: {
           DEFAULT: 'hsl(var(--secondary))',

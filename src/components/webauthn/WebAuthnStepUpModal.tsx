@@ -171,7 +171,7 @@ export default function WebAuthnStepUpModal({ documentId, documentName, onSucces
             {error && (
               <div className="text-center">
                 <a
-                  href="/sign-up-login-screen"
+                  href="/login"
                   className="text-xs hover:underline transition-colors"
                   style={{ color: '#6366f1' }}
                 >

@@ -3,7 +3,11 @@ import { createClient } from '@supabase/supabase-js';
 
 const FROM_EMAIL = process.env.FROM_EMAIL || 'Docubox <noreply@docubox.com.mx>';
 
-function buildLoginOtpEmailHtml(params: { recipientName?: string; email: string; otpCode: string }) {
+function buildLoginOtpEmailHtml(params: {
+  recipientName?: string;
+  email: string;
+  otpCode: string;
+}) {
   const greeting = params.recipientName ? `Hola ${params.recipientName},` : 'Hola,';
 
   return `
@@ -14,13 +18,13 @@ function buildLoginOtpEmailHtml(params: { recipientName?: string; email: string;
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Codigo de acceso Docubox</title>
 </head>
-<body style="margin:0;padding:0;background:#f4f6f9;font-family:'Google Sans Flex','Inter','Segoe UI',Arial,sans-serif;">
+<body style="margin:0;padding:0;background:#f4f6f9;font-family:'Google Sans','Inter','Segoe UI',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f9;padding:32px 0;">
     <tr>
       <td align="center">
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(15,23,42,0.08);">
           <tr>
-            <td style="background:#2563eb;padding:28px 32px;text-align:center;">
+            <td style="background:#1E6BFF;padding:28px 32px;text-align:center;">
               <p style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">Docubox</p>
               <p style="margin:6px 0 0;color:#bfdbfe;font-size:13px;">Codigo de inicio de sesion</p>
             </td>
@@ -33,7 +37,7 @@ function buildLoginOtpEmailHtml(params: { recipientName?: string; email: string;
               </p>
               <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px;">
                 <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:1px;">Codigo de verificacion</p>
-                <p style="margin:0;font-size:42px;font-weight:800;letter-spacing:12px;color:#2563eb;font-family:'Courier New',monospace;">${params.otpCode}</p>
+                <p style="margin:0;font-size:42px;font-weight:800;letter-spacing:12px;color:#1E6BFF;font-family:'Courier New',monospace;">${params.otpCode}</p>
                 <p style="margin:12px 0 0;font-size:12px;color:#94a3b8;">Valido por 10 minutos</p>
               </div>
               <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.6;">
@@ -107,7 +111,10 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (!profile?.id) {
-      return NextResponse.json({ error: 'No se encontró una cuenta con ese correo.' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'No se encontró una cuenta con ese correo.' },
+        { status: 404 }
+      );
     }
 
     // Generate a 6-digit OTP code
@@ -121,18 +128,19 @@ export async function POST(req: NextRequest) {
       .eq('user_id', profile.id)
       .is('used_at', null);
 
-    const { error: insertError } = await supabaseAdmin
-      .from('login_otps')
-      .insert({
-        user_id: profile.id,
-        email: email.trim().toLowerCase(),
-        otp_code: otpCode,
-        expires_at: expiresAt,
-      });
+    const { error: insertError } = await supabaseAdmin.from('login_otps').insert({
+      user_id: profile.id,
+      email: email.trim().toLowerCase(),
+      otp_code: otpCode,
+      expires_at: expiresAt,
+    });
 
     if (insertError) {
       console.error('[send-login-otp] insert error:', insertError);
-      return NextResponse.json({ error: 'No se pudo generar el código. Intenta de nuevo.' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'No se pudo generar el código. Intenta de nuevo.' },
+        { status: 500 }
+      );
     }
 
     // Send custom email via edge function

@@ -109,7 +109,7 @@ export function useSessionTimeout(
     } catch { /* ignore */ }
 
     await supabase.auth.signOut();
-    window.location.href = '/sign-up-login-screen';
+    window.location.href = '/login';
   }, [clearAllTimers, onHideWarning, onBeforeSignOut, logSecurityEvent]);
 
   /** Try to sign out; if signing is in progress, retry every 10 s */
@@ -184,7 +184,7 @@ export function useSessionTimeout(
         onBeforeSignOut?.();
         const supabase = createClient();
         supabase.auth.signOut().finally(() => {
-          window.location.href = '/sign-up-login-screen';
+          window.location.href = '/login';
         });
       }
     };

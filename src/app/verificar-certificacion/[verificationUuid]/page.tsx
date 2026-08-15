@@ -49,7 +49,7 @@ export default function PublicCertificationVerificationPage() {
     <div className="min-h-screen bg-[#f6f8fb] text-slate-950">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <AppLogo className="w-[136px]" />
+          <AppLogo className="[&_img]:h-auto [&_img]:w-[126px]" />
           <span className="text-xs font-600 text-slate-500">Certificacion criptografica</span>
         </div>
       </header>

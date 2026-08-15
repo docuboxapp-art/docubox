@@ -64,11 +64,11 @@ import { useAppModules } from '@/contexts/AppModulesContext';
 import LucIAChat from '@/components/LucIAChat';
 
 const BASE_NAV_TABS = [
-  { href: '/documents-dashboard', label: 'Inicio', icon: Home },
+  { href: '/inicio', label: 'Inicio', icon: Home },
   { href: '/mis-documentos', label: 'Mis Documentos', icon: FileText },
-  { href: '/participation-requests', label: 'Solicitudes Enviadas', icon: Send },
+  { href: '/mis-solicitudes', label: 'Solicitudes Enviadas', icon: Send },
   { href: '/mis-participaciones', label: 'Mis Participaciones', icon: FileSignature },
-  { href: '/pending-tasks', label: 'Tareas Pendientes', icon: CheckSquare },
+  { href: '/mis-tareas', label: 'Tareas Pendientes', icon: CheckSquare },
   { href: '/contactos', label: 'Mis Contactos', icon: Users },
   // plantillas and formularios injected conditionally
   { href: '/reportes', label: 'Reportes', icon: BarChart3 },
@@ -85,9 +85,9 @@ const BASE_SIDEBAR_NAV_SECTIONS = [
   {
     label: 'Principal',
     items: [
-      { href: '/documents-dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+      { href: '/inicio', icon: LayoutDashboard, label: 'Dashboard' },
       { href: '/mis-documentos', icon: FolderOpen, label: 'Mis Documentos' },
-      { href: '/pending-tasks', icon: CheckSquare, label: 'Tareas Pendientes' },
+      { href: '/mis-tareas', icon: CheckSquare, label: 'Tareas Pendientes' },
     ],
   },
   {
@@ -97,7 +97,7 @@ const BASE_SIDEBAR_NAV_SECTIONS = [
   {
     label: 'Gestión',
     items: [
-      { href: '/participation-requests', icon: Send, label: 'Solicitudes Enviadas' },
+      { href: '/mis-solicitudes', icon: Send, label: 'Solicitudes Enviadas' },
       { href: '/mis-participaciones', icon: FileSignature, label: 'Mis Participaciones' },
       // plantillas and formularios injected conditionally
     ],
@@ -171,11 +171,11 @@ function getDocumentSearchStatusLabel(status?: string) {
 export default function TopNav() {
   const pathname = usePathname();
   const usesWorkspaceChrome =
-    pathname === '/documents-dashboard' ||
+    pathname === '/inicio' ||
     pathname === '/mis-documentos' ||
-    pathname === '/participation-requests' ||
+    pathname === '/mis-solicitudes' ||
     pathname === '/mis-participaciones' ||
-    pathname === '/pending-tasks' ||
+    pathname === '/mis-tareas' ||
     pathname === '/plantillas' ||
     pathname.startsWith('/formularios') ||
     pathname.startsWith('/expedientes') ||
@@ -422,8 +422,8 @@ export default function TopNav() {
 
   const getTabActive = (href: string) => {
     const base = href.split('?')[0];
-    if (base === '/documents-dashboard' && !href.includes('?')) {
-      return pathname === '/documents-dashboard';
+    if (base === '/inicio' && !href.includes('?')) {
+      return pathname === '/inicio';
     }
     if (base === '/mis-documentos' && pathname.startsWith('/visor-documento/')) {
       return true;
@@ -610,7 +610,7 @@ export default function TopNav() {
           type: 'task',
           title: item.title || 'Tarea sin nombre',
           subtitle: `Tarea · ${(item.estado || 'pendiente').replace(/_/g, ' ')}`,
-          href: `/pending-tasks?task=${item.id}`,
+          href: `/mis-tareas?task=${item.id}`,
         }));
 
         setSearchResults([...documentResults, ...folderResults, ...contactResults, ...taskResults]);
@@ -826,15 +826,8 @@ export default function TopNav() {
             </button>
 
             {/* Logo */}
-            <Link href="/documents-dashboard" className="flex items-center gap-2 flex-shrink-0">
-              <AppLogo
-                size={32}
-                className={
-                  pathname === '/documents-dashboard'
-                    ? '[&_img]:h-auto [&_img]:w-[126px]'
-                    : 'h-8 w-auto object-contain'
-                }
-              />
+            <Link href="/inicio" className="flex items-center gap-2 flex-shrink-0">
+              <AppLogo size={32} className="[&_img]:h-auto [&_img]:w-[126px]" />
             </Link>
 
             {/* Workspace selector — hidden on mobile */}
@@ -1228,7 +1221,7 @@ export default function TopNav() {
                       {
                         label: 'Tareas pendientes',
                         description: 'Revisar acciones por completar',
-                        href: '/pending-tasks',
+                        href: '/mis-tareas',
                         icon: CheckSquare,
                       },
                     ].map((action) => {
@@ -1554,7 +1547,7 @@ export default function TopNav() {
                     aria-current={isActive ? 'page' : undefined}
                     className={`group relative flex min-h-10 items-center gap-3 rounded-md border px-3 py-2 text-sm transition-all duration-150 ${
                       isActive
-                        ? 'border-blue-100 bg-blue-50/90 font-600 text-blue-700 shadow-[inset_3px_0_0_#2563eb]'
+                        ? 'border-blue-100 bg-blue-50/90 font-600 text-blue-700 shadow-[inset_3px_0_0_#1E6BFF]'
                         : 'border-transparent font-500 text-slate-600 hover:border-slate-200/80 hover:bg-slate-50 hover:text-slate-950'
                     }`}
                   >
@@ -1585,7 +1578,7 @@ export default function TopNav() {
             <span>Notificaciones</span>
           </Link>
           <Link
-            href="/documents-dashboard"
+            href="/inicio"
             className="group flex min-h-10 items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm font-500 text-slate-600 transition-all duration-150 hover:border-slate-200/80 hover:bg-white hover:text-slate-950"
           >
             <HelpCircle
@@ -1649,11 +1642,11 @@ export default function TopNav() {
               const docId = meta?.document_id as string | undefined;
               router.push(docId ? `/visor-documento/${docId}` : '/mis-documentos');
             } else if (nType === 'task') {
-              router.push('/pending-tasks');
+              router.push('/mis-tareas');
             } else if (nType === 'request') {
-              router.push('/participation-requests');
+              router.push('/mis-solicitudes');
             } else {
-              router.push('/documents-dashboard');
+              router.push('/inicio');
             }
             setDetailNotif(null);
             setBellOpen(false);

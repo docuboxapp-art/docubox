@@ -467,7 +467,7 @@ export default function DocumentsTable() {
                     description="No se encontraron documentos con los filtros seleccionados. Intenta cambiar el criterio de búsqueda."
                     action={
                       <Link
-                        href="/documents-dashboard"
+                        href="/inicio"
                         className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-500 hover:bg-primary-700 transition-all duration-150"
                       >
                         Subir nuevo documento

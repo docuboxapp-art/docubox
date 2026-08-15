@@ -6,8 +6,7 @@ const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmamax4272.builtw
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const FROM_EMAIL = 'Docubox <noreply@docubox.com.mx>';
 
-const LOGO_LIGHT =
-  'https://docubox-myi2411.public.builtwithrocket.new/assets/images/Docubox-tipo1-1778728543285.png';
+const LOGO_LIGHT = `${APP_URL}/assets/images/docubox-logo-2026.png`;
 const LOGO_WHITE =
   'https://docubox-myi2411.public.builtwithrocket.new/assets/images/ChatGPT_Image_13_may_2026_20_28_22-1778729319274.png';
 
@@ -145,7 +144,7 @@ function buildVerificationEmailHtml(recipientName: string, verificationUrl: stri
                     <img src="${LOGO_WHITE}" alt="Docubox" width="110" height="auto" style="display:block;border:0;max-width:110px;" />
                   </td>
                   <td style="vertical-align:middle;text-align:right;">
-                    <a href="${APP_URL}/sign-up-login-screen" style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Mi cuenta</a>
+                    <a href="${APP_URL}/login" style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Mi cuenta</a>
                   </td>
                 </tr>
                 <tr>
@@ -197,18 +196,19 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
 
     // Store token in DB
-    const { error: insertError } = await supabaseAdmin
-      .from('email_verification_tokens')
-      .insert({
-        user_id: userId,
-        token,
-        email,
-        expires_at: expiresAt,
-      });
+    const { error: insertError } = await supabaseAdmin.from('email_verification_tokens').insert({
+      user_id: userId,
+      token,
+      email,
+      expires_at: expiresAt,
+    });
 
     if (insertError) {
       console.error('[send-verification-email] Error inserting token:', insertError);
-      return NextResponse.json({ error: 'Error al generar token de verificación' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Error al generar token de verificación' },
+        { status: 500 }
+      );
     }
 
     const verificationUrl = `${APP_URL}/verificar-correo?token=${token}`;
@@ -235,7 +235,10 @@ export async function POST(req: NextRequest) {
 
     if (!resendResponse.ok) {
       console.error('[send-verification-email] Resend error:', resendData);
-      return NextResponse.json({ error: 'Error al enviar correo de verificación' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Error al enviar correo de verificación' },
+        { status: 500 }
+      );
     }
 
     console.log(`[send-verification-email] Sent to ${email}, resend id: ${resendData.id}`);

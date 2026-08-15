@@ -5238,7 +5238,7 @@ export default function FirmarDocumentoPage() {
         <div className="text-center">
           <Shield size={40} className="text-slate-300 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">Debes iniciar sesión para participar.</p>
-          <button onClick={() => router.push('/sign-up-login-screen')}
+          <button onClick={() => router.push('/login')}
             className="mt-4 px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors">
             Iniciar sesión
           </button>

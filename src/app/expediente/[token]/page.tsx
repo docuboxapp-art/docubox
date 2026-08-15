@@ -27,7 +27,7 @@ export default function GuestCaseFilePage() {
   const back = () => setStep(step === 'document' ? 'checklist' : 'welcome');
 
   return <div className="min-h-screen bg-[#F8F8FB] text-[#18181B]">
-    <header className="sticky top-0 z-30 border-b border-[#EBEBF0] bg-white"><div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-4"><AppLogo className="w-[122px]" /><span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#52525B]"><LockKeyhole size={14} className="text-emerald-600" />Acceso seguro</span></div></header>
+    <header className="sticky top-0 z-30 border-b border-[#EBEBF0] bg-white"><div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-4"><AppLogo className="[&_img]:h-auto [&_img]:w-[126px]" /><span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#52525B]"><LockKeyhole size={14} className="text-emerald-600" />Acceso seguro</span></div></header>
     {step !== 'welcome' && step !== 'success' && <div className="border-b border-[#EBEBF0] bg-white"><div className="mx-auto max-w-3xl px-4 py-3"><div className="flex items-center justify-between text-xs"><span className="font-medium">Tu progreso</span><span className="font-semibold text-[#4F46E5]">{progress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100"><div className="h-full rounded-full bg-[#4F46E5] transition-all" style={{ width: `${progress}%` }} /></div></div></div>}
 
     <main className="mx-auto max-w-3xl px-4 py-6 md:py-10">

@@ -41,9 +41,9 @@ const BASE_NAV_SECTIONS = [
   {
     label: 'Principal',
     items: [
-      { href: '/documents-dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: null },
+      { href: '/inicio', icon: LayoutDashboard, label: 'Dashboard', badge: null },
       { href: '/mis-documentos', icon: FolderOpen, label: 'Mis Documentos', badge: null },
-      { href: '/pending-tasks', icon: CheckSquare, label: 'Tareas Pendientes', badge: 8 },
+      { href: '/mis-tareas', icon: CheckSquare, label: 'Tareas Pendientes', badge: 8 },
     ],
   },
   {
@@ -53,25 +53,25 @@ const BASE_NAV_SECTIONS = [
   {
     label: 'Gestión',
     items: [
-      { href: '/participation-requests', icon: Send, label: 'Solicitudes Enviadas', badge: 3 },
+      { href: '/mis-solicitudes', icon: Send, label: 'Solicitudes Enviadas', badge: 3 },
       {
         href: '/mis-participaciones',
         icon: FileSignature,
         label: 'Mis Participaciones',
         badge: null,
       },
-      { href: '/documents-dashboard', icon: Users, label: 'Firmantes', badge: null },
+      { href: '/inicio', icon: Users, label: 'Firmantes', badge: null },
       // Plantillas and Formularios are injected conditionally
-      { href: '/documents-dashboard', icon: AlertTriangle, label: 'Certificados', badge: 2 },
+      { href: '/inicio', icon: AlertTriangle, label: 'Certificados', badge: 2 },
       { href: '/registro', icon: UserPlus, label: 'Registrar Usuario', badge: null },
     ],
   },
   {
     label: 'Sistema',
     items: [
-      { href: '/documents-dashboard', icon: ShieldCheck, label: 'Auditoría', badge: null },
+      { href: '/inicio', icon: ShieldCheck, label: 'Auditoría', badge: null },
       { href: '/reportes', icon: BarChart3, label: 'Reportes', badge: null },
-      { href: '/documents-dashboard', icon: Webhook, label: 'API & Webhooks', badge: null },
+      { href: '/inicio', icon: Webhook, label: 'API & Webhooks', badge: null },
       { href: '/facturacion', icon: CreditCard, label: 'Facturación', badge: null },
     ],
   },
@@ -233,7 +233,7 @@ export default function Sidebar() {
               const isActive =
                 pathname === item?.href && item?.label === 'Dashboard'
                   ? true
-                  : pathname === item?.href && item?.href !== '/documents-dashboard'
+                  : pathname === item?.href && item?.href !== '/inicio'
                     ? true
                     : false;
               return (
@@ -302,7 +302,7 @@ export default function Sidebar() {
           )}
         </Link>
         <Link
-          href="/documents-dashboard"
+          href="/inicio"
           className="flex items-center gap-3 px-2 py-2 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150 group"
           title={collapsed ? 'Ayuda' : undefined}
         >

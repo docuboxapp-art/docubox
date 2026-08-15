@@ -23,7 +23,7 @@ export default function DashboardHeader() {
           Exportar
         </button>
         <Link
-          href="/documents-dashboard"
+          href="/inicio"
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-sm font-600 hover:bg-primary-700 transition-all duration-150 active:scale-95 shadow-sm"
         >
           <Plus size={15} />

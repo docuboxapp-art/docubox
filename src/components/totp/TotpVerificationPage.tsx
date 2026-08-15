@@ -74,12 +74,12 @@ export default function TotpVerificationPage({ userId, onSuccess, onBack }: Totp
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex justify-center mb-8">
-          <Link href="/sign-up-login-screen">
+          <Link href="/login">
             <Image
-              src="/assets/images/Docubox-tipo1-1774212905748.png"
+              src="/assets/images/docubox-logo-2026.png"
               alt="Docubox"
-              width={140}
-              height={40}
+              width={126}
+              height={24}
               className="object-contain"
             />
           </Link>

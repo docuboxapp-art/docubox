@@ -342,7 +342,7 @@ export default function OlvideContrasenaPage() {
                   )}
                 </button>
                 <Link
-                  href="/sign-up-login-screen"
+                  href="/login"
                   className="w-full flex items-center justify-center gap-1.5 py-2.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-xl transition-colors"
                 >
                   <ArrowLeft size={15} />
@@ -518,7 +518,7 @@ export default function OlvideContrasenaPage() {
                 Tu contraseña ha sido restablecida exitosamente. Ya puedes iniciar sesión con tu nueva contraseña.
               </p>
               <Link
-                href="/sign-up-login-screen"
+                href="/login"
                 className="inline-flex items-center justify-center w-full py-3 bg-primary text-white rounded-xl text-sm font-700 hover:bg-primary-700 transition-all duration-150 active:scale-95"
               >
                 Ir al inicio de sesión

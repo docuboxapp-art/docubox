@@ -101,7 +101,7 @@ function RegisterFromQRContent() {
     <main className="min-h-[100svh] bg-[#F8F8FB] px-4 py-6 text-[#18181B] sm:py-10">
       <div className="mx-auto flex min-h-[calc(100svh-3rem)] w-full max-w-md flex-col justify-center sm:min-h-[calc(100svh-5rem)]">
         <div className="mb-6 flex justify-center">
-          <AppLogo className="[&_img]:h-auto [&_img]:w-[154px]" />
+          <AppLogo className="[&_img]:h-auto [&_img]:w-[126px]" />
         </div>
 
         <section className="overflow-hidden rounded-lg border border-[#EBEBF0] bg-white shadow-[0_12px_36px_rgba(24,24,27,0.07)]">

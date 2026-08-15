@@ -85,7 +85,7 @@ export const ALL_MODULES: AppModule[] = [
     description:
       'Tu asistente legal inteligente para consultar documentos, apoyar la redacción y agilizar el análisis de información.',
     category: 'IA Generativa',
-    href: '/documents-dashboard',
+    href: '/inicio',
   },
 ];
 

@@ -1454,7 +1454,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
         height,
         page: currentPage,
         color: 'bg-blue-500',
-        colorHex: '#2563eb',
+        colorHex: '#1E6BFF',
         placementKind: 'cryptographic',
         cryptographicType,
         generatedOnCompletion: true,
@@ -1705,7 +1705,7 @@ export function StepAjustes({ settings, onChange, participants, file, isCondicio
                         key={field.type}
                         icon={field.icon}
                         label={field.label}
-                        colorHex="#2563eb"
+                        colorHex="#1E6BFF"
                         placementKind="cryptographic"
                         cryptographicType={field.type}
                         onClickPlace={() => handleClickPlaceCrypto(field.label, field.type)}

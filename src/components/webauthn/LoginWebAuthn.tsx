@@ -41,7 +41,7 @@ export default function LoginWebAuthn({ email, onSuccess }: Props) {
       }
       setTimeout(() => {
         if (onSuccess) onSuccess();
-        else window.location.href = '/documents-dashboard';
+        else window.location.href = '/inicio';
       }, 800);
     }
   };
@@ -165,7 +165,7 @@ export default function LoginWebAuthn({ email, onSuccess }: Props) {
       {/* Email fallback */}
       <div className="text-center">
         <Link
-          href={`/sign-up-login-screen`}
+          href="/login"
           className="text-xs hover:underline transition-colors"
           style={{ color: '#6366f1' }}
         >

@@ -101,7 +101,7 @@ export default function FieldProperties() {
                   <button
                     type="button"
                     onClick={() => update({ options: [...(selectedField.options || []), { label: `Opción ${(selectedField.options?.length || 0) + 1}`, value: `opcion_${(selectedField.options?.length || 0) + 1}` }] })}
-                    className="flex h-8 items-center gap-1.5 text-xs font-medium text-[#2563EB]"
+                    className="flex h-8 items-center gap-1.5 text-xs font-medium text-[#1E6BFF]"
                   >
                     <Plus size={13} /> Agregar opción
                   </button>
@@ -218,7 +218,7 @@ export default function FieldProperties() {
                         const next = event.target.checked ? [...current, signatureType] : current.filter((item) => item !== signatureType);
                         dispatch({ type: 'SET_SETTINGS', payload: { allowedSignatureTypes: next } });
                       }}
-                      className="h-4 w-4 rounded border-[#CBD5E1] text-[#2563EB] focus:ring-[#2563EB]/20"
+                      className="h-4 w-4 rounded border-[#CBD5E1] text-[#1E6BFF] focus:ring-[#1E6BFF]/20"
                     />
                     <span className="text-xs font-medium text-[#334155]">{getSignatureTypeLabel(signatureType)}</span>
                   </label>
@@ -251,10 +251,10 @@ function PdfToggles() {
   return <>{items.map(([key, label]) => <Toggle key={key} label={label} checked={Boolean(pdf[key])} onChange={(value) => dispatch({ type: 'SET_PDF_SCHEMA', payload: { [key]: value } })} />)}</>;
 }
 
-const inputClass = 'h-9 w-full rounded-md border border-[#E2E8F0] bg-white px-3 text-xs text-[#0F172A] outline-none transition focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/10 dark:border-border dark:bg-background dark:text-foreground';
+const inputClass = 'h-9 w-full rounded-md border border-[#E2E8F0] bg-white px-3 text-xs text-[#0F172A] outline-none transition focus:border-[#1E6BFF] focus:ring-2 focus:ring-[#1E6BFF]/10 dark:border-border dark:bg-background dark:text-foreground';
 
 function PanelTabButton({ active, disabled, label, icon: Icon, onClick }: { active: boolean; disabled?: boolean; label: string; icon: React.ElementType; onClick: () => void }) {
-  return <button type="button" disabled={disabled} onClick={onClick} className={`flex h-9 flex-col items-center justify-center rounded-md text-[9px] font-medium transition ${active ? 'bg-[#EFF6FF] text-[#2563EB]' : 'text-[#64748B] hover:bg-[#F8FAFC]'} disabled:cursor-not-allowed disabled:opacity-35`}><Icon size={13} /><span className="mt-0.5">{label}</span></button>;
+  return <button type="button" disabled={disabled} onClick={onClick} className={`flex h-9 flex-col items-center justify-center rounded-md text-[9px] font-medium transition ${active ? 'bg-[#EFF6FF] text-[#1E6BFF]' : 'text-[#64748B] hover:bg-[#F8FAFC]'} disabled:cursor-not-allowed disabled:opacity-35`}><Icon size={13} /><span className="mt-0.5">{label}</span></button>;
 }
 
 function PanelSection({ title, icon: Icon, children }: { title: string; icon?: React.ElementType; children: React.ReactNode }) {
@@ -274,7 +274,7 @@ function Select({ label, value, onChange, options }: { label: string; value: str
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="flex cursor-pointer items-center justify-between gap-3 py-0.5"><span className="text-xs text-[#334155] dark:text-foreground">{label}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" /><span className="relative h-5 w-9 flex-shrink-0 rounded-full bg-[#CBD5E1] transition peer-checked:bg-[#2563EB] after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow-sm after:transition peer-checked:after:translate-x-4" /></label>;
+  return <label className="flex cursor-pointer items-center justify-between gap-3 py-0.5"><span className="text-xs text-[#334155] dark:text-foreground">{label}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" /><span className="relative h-5 w-9 flex-shrink-0 rounded-full bg-[#CBD5E1] transition peer-checked:bg-[#1E6BFF] after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow-sm after:transition peer-checked:after:translate-x-4" /></label>;
 }
 
 function ReadOnlyValue({ label, value }: { label: string; value: string }) {

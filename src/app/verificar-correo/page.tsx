@@ -92,7 +92,7 @@ function VerificarCorreoContent() {
                   Tu dirección de correo electrónico ha sido verificada exitosamente. Ya puedes crear y enviar documentos en Docubox.
                 </p>
                 <button
-                  onClick={() => router.push('/documents-dashboard')}
+                  onClick={() => router.push('/inicio')}
                   className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors text-sm"
                 >
                   Ir al dashboard
@@ -119,7 +119,7 @@ function VerificarCorreoContent() {
                   Tu correo electrónico ya fue verificado. Puedes iniciar sesión normalmente.
                 </p>
                 <button
-                  onClick={() => router.push('/sign-up-login-screen')}
+                  onClick={() => router.push('/login')}
                   className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors text-sm"
                 >
                   Iniciar sesión
@@ -146,7 +146,7 @@ function VerificarCorreoContent() {
                   El enlace de verificación ha expirado (válido por 72 horas). Inicia sesión y solicita un nuevo correo de verificación desde tu perfil.
                 </p>
                 <button
-                  onClick={() => router.push('/sign-up-login-screen')}
+                  onClick={() => router.push('/login')}
                   className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors text-sm"
                 >
                   Iniciar sesión
@@ -176,7 +176,7 @@ function VerificarCorreoContent() {
                   Si el problema persiste, contacta a soporte.
                 </p>
                 <button
-                  onClick={() => router.push('/sign-up-login-screen')}
+                  onClick={() => router.push('/login')}
                   className="inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-800 text-white font-semibold px-6 py-3 rounded-xl transition-colors text-sm"
                 >
                   Ir al inicio

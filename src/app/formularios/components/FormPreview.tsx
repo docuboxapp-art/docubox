@@ -28,7 +28,7 @@ export default function FormPreview({ template, mode, values: controlledValues, 
       <div className="mx-auto w-full max-w-2xl rounded-lg border border-[#E2E8F0] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
         <div className="h-1.5 rounded-t-lg" style={{ backgroundColor: template.settings.pdfSchema.primaryColor }} />
         <div className="border-b border-[#E2E8F0] px-6 py-6 dark:border-border">
-          <p className="text-[11px] font-semibold uppercase text-[#2563EB]">Formulario firmable</p>
+          <p className="text-[11px] font-semibold uppercase text-[#1E6BFF]">Formulario firmable</p>
           <h2 className="mt-2 text-xl font-semibold text-[#0F172A] dark:text-foreground">{template.name}</h2>
           <p className="mt-2 text-sm leading-6 text-[#475569] dark:text-muted-foreground">{template.description}</p>
         </div>
@@ -39,7 +39,7 @@ export default function FormPreview({ template, mode, values: controlledValues, 
             return (
               <section key={section.id}>
                 <div className="mb-4 flex items-start gap-3">
-                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[#EFF6FF] text-xs font-semibold text-[#2563EB]">{index + 1}</span>
+                  <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[#EFF6FF] text-xs font-semibold text-[#1E6BFF]">{index + 1}</span>
                   <div>
                     <h3 className="text-sm font-semibold text-[#0F172A] dark:text-foreground">{section.title}</h3>
                     {section.description && <p className="mt-1 text-xs text-[#64748B]">{section.description}</p>}

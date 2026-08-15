@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
         participants,
         documentName: documentName || 'Documento',
         senderName,
-        documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/participation-requests`,
+        documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/mis-solicitudes`,
       });
       return NextResponse.json({ success: true, sent: participants.filter((p: any) => p.email).length });
     }
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
         recipientName: recipientName || undefined,
         documentName: documentName || 'Documento',
         senderName,
-        documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/participation-requests`,
+        documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/mis-solicitudes`,
         actionDescription,
       });
       return NextResponse.json({ success: true });

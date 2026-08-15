@@ -141,11 +141,11 @@ function NotificationDetailModal({
         router.push('/mis-documentos');
       }
     } else if (n.type === 'task') {
-      router.push('/pending-tasks');
+      router.push('/mis-tareas');
     } else if (n.type === 'request') {
-      router.push('/participation-requests');
+      router.push('/mis-solicitudes');
     } else {
-      router.push('/documents-dashboard');
+      router.push('/inicio');
     }
     onClose();
   };
@@ -756,7 +756,7 @@ function NotificationsContent() {
                     onClick={() => toggleSelect(n.id)}
                     className={`group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 transition-colors md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] ${
                       selectedIds.includes(n.id)
-                        ? 'bg-blue-50/70 shadow-[inset_2px_0_0_#2563eb] dark:bg-blue-950/30'
+                        ? 'bg-blue-50/70 shadow-[inset_2px_0_0_#1E6BFF] dark:bg-blue-950/30'
                         : n.read
                           ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
                           : 'bg-blue-50/25 hover:bg-blue-50/60 dark:bg-blue-950/10 dark:hover:bg-blue-950/25'

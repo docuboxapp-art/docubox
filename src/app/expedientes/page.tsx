@@ -60,7 +60,7 @@ export default function ExpedientesPage() {
         <SectionHeader
           title="Expedientes"
           description="Gestiona expedientes digitales verificables en tu espacio de trabajo."
-          action={<button onClick={() => router.push('/expedientes/nuevo')} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-primary-foreground shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition hover:bg-primary/90"><Plus size={16} /> Nuevo expediente</button>}
+          action={<button onClick={() => router.push('/expedientes/nuevo')} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-primary-foreground shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition hover:bg-primary/90"><Plus size={16} /> Nuevo expediente</button>}
         />
 
         <div className="grid grid-cols-2 gap-3 pb-5 lg:grid-cols-4">

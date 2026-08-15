@@ -1833,7 +1833,7 @@ export default function RegistroPage() {
             <span>Identidad acreditada · Cuenta activa</span>
           </div>
           <button
-            onClick={() => router.push('/sign-up-login-screen')}
+            onClick={() => router.push('/login')}
             className="mt-2 bg-white text-emerald-600 font-bold px-8 py-3 rounded-xl hover:bg-emerald-50 transition-colors duration-200 text-sm"
           >
             Ir al inicio de sesión
@@ -2734,7 +2734,7 @@ export default function RegistroPage() {
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">¿Ya tienes cuenta?</span>
           <button
-            onClick={() => router.push('/sign-up-login-screen')}
+            onClick={() => router.push('/login')}
             className="text-sm font-semibold text-primary hover:text-primary/80 transition-colors"
           >
             Iniciar sesión
@@ -2800,7 +2800,7 @@ export default function RegistroPage() {
             {!isStep5WithMethod && (
               <div className="px-7 pb-7 flex items-center justify-between gap-3">
                 <button
-                  onClick={currentStep === 1 ? () => router.push('/sign-up-login-screen') : handleBack}
+                  onClick={currentStep === 1 ? () => router.push('/login') : handleBack}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150"
                 >
                   <ArrowLeft size={15} />

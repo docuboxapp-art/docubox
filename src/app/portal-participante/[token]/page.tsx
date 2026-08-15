@@ -64,7 +64,7 @@ export default function PortalParticipantePage() {
       id: 'login',
       icon: <KeyRound size={22} className="text-primary" />,
       label: `Cuento con mi usuario y contraseña para ${actoLabel} el documento`,
-      onClick: () => router.push(`/sign-up-login-screen?redirect=/visor-documento&portal_token=${token}`)
+      onClick: () => router.push(`/login?redirect=/visor-documento&portal_token=${token}`)
     },
     {
       id: 'forgot',

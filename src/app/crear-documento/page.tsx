@@ -304,7 +304,7 @@ function CrearDocumentoPageInner() {
     if (!file) return false;
     if (!docConfig.nombre.trim()) return false;
     if (!user) {
-      router.push('/sign-up-login-screen');
+      router.push('/login');
       return false;
     }
     setSavingDraft(true);
@@ -313,7 +313,7 @@ function CrearDocumentoPageInner() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) {
-        router.push('/sign-up-login-screen');
+        router.push('/login');
         return false;
       }
 
@@ -453,7 +453,7 @@ function CrearDocumentoPageInner() {
             Para crear documentos necesitas verificar tu correo electrónico. Revisa tu bandeja de entrada y haz clic en el enlace de verificación que te enviamos al registrarte.
           </p>
           <button
-            onClick={() => router.push('/documents-dashboard')}
+            onClick={() => router.push('/inicio')}
             className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
           >
             Volver al dashboard
@@ -636,7 +636,7 @@ function CrearDocumentoPageInner() {
             <button
               onClick={handleNext}
               disabled={!canGoNext}
-              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {nextButtonLabel}<ArrowRight size={16} />
             </button>

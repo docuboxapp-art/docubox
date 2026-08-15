@@ -644,7 +644,7 @@ interface HeaderFooterZoneProps {
   type: 'header' | 'footer';
   onRemove: () => void;
   onPageNumbers: () => void;
-  contentRef: React.RefObject<HTMLDivElement>;
+  contentRef: React.RefObject<HTMLDivElement | null>;
   marginLeft?: number;
   marginRight?: number;
   zoneHeight?: number;
@@ -763,7 +763,7 @@ function HeaderFooterZone({
                   alignItems: 'center',
                   gap: '3px',
                   padding: '2px 8px',
-                  backgroundColor: '#2563eb',
+                  backgroundColor: '#1E6BFF',
                   color: 'white',
                   border: 'none',
                   borderRadius: '4px',
@@ -830,7 +830,7 @@ function HeaderFooterZoneReadOnly({
   zoneHeight = 40,
 }: {
   type: 'header' | 'footer';
-  sourceRef: React.RefObject<HTMLDivElement>;
+  sourceRef: React.RefObject<HTMLDivElement | null>;
   marginLeft?: number;
   marginRight?: number;
   pageIndex?: number;
@@ -849,16 +849,21 @@ function HeaderFooterZoneReadOnly({
     return () => clearInterval(interval);
   }, [sourceRef]);
 
-  // For page index 0 (first page), hide elements marked as data-hide-first-page
+  // Resolve dynamic page numbers and first-page visibility for mirrored zones.
   const getDisplayHtml = () => {
-    if (pageIndex !== 0) return html;
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
       const root = doc.body.firstChild as HTMLElement;
       if (root) {
+        root.querySelectorAll('[data-page-number="true"]').forEach((el) => {
+          const pageNumberEl = el as HTMLElement;
+          const startFrom = Number(pageNumberEl.getAttribute('data-page-number-start') || 1);
+          pageNumberEl.textContent = `— ${startFrom + pageIndex} —`;
+          pageNumberEl.style.removeProperty('display');
+        });
         root.querySelectorAll('[data-hide-first-page="true"]').forEach((el) => {
-          (el as HTMLElement).style.display = 'none';
+          (el as HTMLElement).style.display = pageIndex === 0 ? 'none' : '';
         });
         return root.innerHTML;
       }
@@ -1002,7 +1007,7 @@ function newPageId(): string {
 export interface MultiPageEditorHandle {
   getHTML: () => string;
   setHTML: (html: string) => void;
-  insertPageNumber: (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => void;
+  insertPageNumber: (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => boolean;
 }
 
 interface MultiPageEditorProps {
@@ -1012,6 +1017,7 @@ interface MultiPageEditorProps {
   onChange?: (html: string) => void;
   editorStyle?: React.CSSProperties;
   onPageCountChange?: (count: number) => void;
+  onActivePageChange?: (page: number) => void;
   margins?: PageMargins;
   showRulers?: boolean;
   showHeader?: boolean;
@@ -1035,6 +1041,7 @@ export const MultiPageEditor = forwardRef<
     onChange,
     editorStyle,
     onPageCountChange,
+    onActivePageChange,
     margins,
     showRulers = false,
     showHeader = false,
@@ -1073,7 +1080,11 @@ export const MultiPageEditor = forwardRef<
   const pageIdsRef = useRef<string[]>([pages[0].id]);
   const isPaginatingRef = useRef(false);
   const focusedPageIdRef = useRef<string | null>(null);
-  const pendingFocusRef = useRef<{ pageId: string; atEnd: boolean } | null>(null);
+  const pendingFocusRef = useRef<{
+    pageId?: string;
+    pageIndex?: number;
+    atEnd: boolean;
+  } | null>(null);
   // Track currently selected image figure
   const selectedFigureRef = useRef<HTMLElement | null>(null);
 
@@ -1108,14 +1119,15 @@ export const MultiPageEditor = forwardRef<
     },
     insertPageNumber: (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => {
       const targetRef = opts.position === 'header' ? headerContentRef : footerContentRef;
-      if (!targetRef.current) return;
+      if (!targetRef.current) return false;
       // Remove any existing page number in the zone
       targetRef.current.querySelectorAll('[data-page-number]').forEach((n) => n.remove());
-      // Insert page number placeholder — actual number shown per-page via CSS counter or static "1"
+      // The mirrored zones resolve the displayed value from the page index.
       const hideAttr = opts.showOnFirst ? '' : ' data-hide-first-page="true"';
-      const numHtml = `<span data-page-number="true"${hideAttr} style="display:inline-block;color:#6B7280;font-size:0.85em;font-family:Arial,sans-serif;">— ${opts.startFrom} —</span>`;
+      const numHtml = `<span data-page-number="true" data-page-number-start="${opts.startFrom}"${hideAttr} style="display:inline-block;color:#6B7280;font-size:0.85em;font-family:Arial,sans-serif;">— ${opts.startFrom} —</span>`;
       const wrapper = `<div style="text-align:center;">${numHtml}</div>`;
       targetRef.current.insertAdjacentHTML('beforeend', wrapper);
+      return true;
     },
   }));
 
@@ -1201,7 +1213,7 @@ export const MultiPageEditor = forwardRef<
   const selectFigure = useCallback((figEl: HTMLElement) => {
     deselectAllImages();
     figEl.setAttribute('data-selected', 'true');
-    figEl.style.outline = '2px solid #2563eb';
+    figEl.style.outline = '2px solid #1E6BFF';
     figEl.style.outlineOffset = '2px';
     figEl.querySelectorAll('.docubox-resize-handle').forEach((h) => {
       (h as HTMLElement).style.display = 'block';
@@ -1279,7 +1291,7 @@ export const MultiPageEditor = forwardRef<
           ${style}
           width: 10px;
           height: 10px;
-          background: #2563eb;
+          background: #1E6BFF;
           border: 2px solid white;
           border-radius: 50%;
           z-index: 20;
@@ -1479,9 +1491,10 @@ export const MultiPageEditor = forwardRef<
       isPaginatingRef.current = false;
 
       if (pendingFocusRef.current) {
-        const { pageId, atEnd } = pendingFocusRef.current;
+        const { pageId, pageIndex, atEnd } = pendingFocusRef.current;
         pendingFocusRef.current = null;
-        const targetEl = pageContentRefs.current.get(pageId);
+        const targetPageId = pageId ?? (pageIndex !== undefined ? pageIdsRef.current[pageIndex] : undefined);
+        const targetEl = targetPageId ? pageContentRefs.current.get(targetPageId) : undefined;
         if (targetEl) {
           targetEl.focus();
           const range = document.createRange();
@@ -1560,7 +1573,7 @@ export const MultiPageEditor = forwardRef<
         if (nextPageId) {
           pendingFocusRef.current = { pageId: nextPageId, atEnd: false };
         } else {
-          pendingFocusRef.current = null;
+          pendingFocusRef.current = { pageIndex: pageIndex + 1, atEnd: false };
         }
       }
 
@@ -2013,7 +2026,10 @@ export const MultiPageEditor = forwardRef<
                     contentEditable
                     suppressContentEditableWarning
                     tabIndex={0}
-                    onFocus={() => { focusedPageIdRef.current = page.id; }}
+                    onFocus={() => {
+                      focusedPageIdRef.current = page.id;
+                      onActivePageChange?.(index + 1);
+                    }}
                     onInput={() => handleInput(page.id, index)}
                     onKeyDown={(e) => handleKeyDown(e, page.id, index)}
                     onPaste={(e) => handlePaste(e, page.id, index)}
@@ -2192,7 +2208,7 @@ export const MultiPageEditor = forwardRef<
           -webkit-user-select: none;
         }
         figure[data-docubox-image][data-selected="true"] img {
-          outline: 2px solid #2563eb;
+          outline: 2px solid #1E6BFF;
           outline-offset: 2px;
         }
         figure[data-docubox-image][data-alignment="left"] {
@@ -2211,7 +2227,7 @@ export const MultiPageEditor = forwardRef<
           position: absolute;
           width: 10px;
           height: 10px;
-          background: #2563eb;
+          background: #1E6BFF;
           border: 2px solid white;
           border-radius: 50%;
           z-index: 20;

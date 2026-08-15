@@ -17,7 +17,9 @@ export const metadata: Metadata = {
   description:
     'Plataforma SaaS de firma electrónica con e.firma SAT, firma autógrafa digital, cumplimiento NOM-151 y gestión de flujos multiusuario para empresas mexicanas.',
   icons: {
-    icon: [{ url: '/assets/images/logo-D-1775350208982.png', type: 'image/png' }],
+    icon: [{ url: '/assets/images/docubox-isotipo-2026.png', type: 'image/png' }],
+    shortcut: [{ url: '/assets/images/docubox-isotipo-2026.png', type: 'image/png' }],
+    apple: [{ url: '/assets/images/docubox-isotipo-2026.png', type: 'image/png' }],
   },
 };
 
@@ -32,7 +34,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Google+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=swap"
           rel="stylesheet"
         />
         {/* Anti-flash: apply stored theme before React hydrates */}
@@ -42,21 +44,24 @@ export default function RootLayout({
           }}
         />
 
-        <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Ffirmamax4272back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.19" />
-        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" /></head>
+        <script
+          type="module"
+          async
+          src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Ffirmamax4272back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.19"
+        />
+        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" />
+      </head>
       <body>
         <AuthProvider>
           <WorkspaceProvider>
             <ThemeProvider>
               <SidebarProvider>
-                <AppModulesProvider>
-                  {children}
-                </AppModulesProvider>
+                <AppModulesProvider>{children}</AppModulesProvider>
               </SidebarProvider>
             </ThemeProvider>
           </WorkspaceProvider>
         </AuthProvider>
-</body>
+      </body>
     </html>
   );
 }

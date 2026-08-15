@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
         recipientName: recipientName || undefined,
         documentName,
         senderName: senderProfile?.full_name || user.email || 'Un usuario',
-        documentUrl: `${siteUrl}/participation-requests`,
+        documentUrl: `${siteUrl}/mis-solicitudes`,
         actionDescription: actionDescription || 'Revisar y firmar el documento',
       });
       return NextResponse.json({ success: true, event: 'action_required' });

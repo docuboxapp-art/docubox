@@ -256,7 +256,7 @@ const REPORT_PRESETS: ReportConfig[] = [
   },
 ];
 
-const CHART_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'];
+const CHART_COLORS = ['#1E6BFF', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'];
 
 function cloneConfig(config: ReportConfig): ReportConfig {
   return { ...config, fields: [...config.fields] };
@@ -505,7 +505,7 @@ export default function ReportsWorkspace({
               <Download size={15} />
               CSV
             </button>
-            <button onClick={saveReport} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-colors hover:bg-primary/90">
+            <button onClick={saveReport} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90">
               <Save size={15} />
               Guardar informe
             </button>
@@ -630,7 +630,7 @@ export default function ReportsWorkspace({
           <h1 className="text-2xl font-700 text-slate-950">Informes y análisis</h1>
           <p className="mt-1 text-sm text-slate-500">Consulta información, crea visualizaciones y exporta los datos de tu espacio.</p>
         </div>
-        <button onClick={() => setActiveReport(createBlankReport())} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-colors hover:bg-primary/90">
+        <button onClick={() => setActiveReport(createBlankReport())} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90">
           <Plus size={16} />
           Crear informe
         </button>
@@ -784,7 +784,7 @@ function ReportPreview({ config, rows, fields, chartData, stats }: { config: Rep
             <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} angle={-20} textAnchor="end" interval={0} />
             <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
             <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
-            <Bar dataKey="value" name="Valor" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={42} />
+            <Bar dataKey="value" name="Valor" fill="#1E6BFF" radius={[4, 4, 0, 0]} maxBarSize={42} />
           </BarChart>
         ) : config.visualization === 'line' ? (
           <LineChart data={chartData} margin={{ top: 12, right: 20, left: -18, bottom: 20 }}>
@@ -792,7 +792,7 @@ function ReportPreview({ config, rows, fields, chartData, stats }: { config: Rep
             <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
             <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
-            <Line type="monotone" dataKey="value" name="Valor" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3, fill: '#2563eb' }} />
+            <Line type="monotone" dataKey="value" name="Valor" stroke="#1E6BFF" strokeWidth={2.5} dot={{ r: 3, fill: '#1E6BFF' }} />
           </LineChart>
         ) : config.visualization === 'area' ? (
           <AreaChart data={chartData} margin={{ top: 12, right: 20, left: -18, bottom: 20 }}>
@@ -800,7 +800,7 @@ function ReportPreview({ config, rows, fields, chartData, stats }: { config: Rep
             <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
             <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
-            <Area type="monotone" dataKey="value" name="Valor" stroke="#2563eb" fill="#dbeafe" strokeWidth={2.5} />
+            <Area type="monotone" dataKey="value" name="Valor" stroke="#1E6BFF" fill="#dbeafe" strokeWidth={2.5} />
           </AreaChart>
         ) : (
           <PieChart>

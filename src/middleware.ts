@@ -4,11 +4,11 @@ import { createServerClient } from '@supabase/ssr';
 
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = [
-  '/sign-up-login-screen',
+  '/login',
   '/registro',
   '/olvide-contrasena',
   '/verificar-correo',
-  '/auth/totp-verification',
+  '/login/totp-verification',
   '/register-device',
   '/verificar-documento',
   '/verificar-certificacion',
@@ -35,6 +35,36 @@ const ABSOLUTE_SESSION_LIMIT_SECONDS = 10 * 60 * 60;
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (pathname === '/auth/totp-verification') {
+    const verificationUrl = request.nextUrl.clone();
+    verificationUrl.pathname = '/login/totp-verification';
+    return NextResponse.redirect(verificationUrl, 308);
+  }
+
+  if (pathname === '/sign-up-login-screen' || pathname === '/auth') {
+    const authUrl = request.nextUrl.clone();
+    authUrl.pathname = '/login';
+    return NextResponse.redirect(authUrl, 308);
+  }
+
+  if (pathname === '/documents-dashboard') {
+    const homeUrl = request.nextUrl.clone();
+    homeUrl.pathname = '/inicio';
+    return NextResponse.redirect(homeUrl, 308);
+  }
+
+  if (pathname === '/participation-requests') {
+    const requestsUrl = request.nextUrl.clone();
+    requestsUrl.pathname = '/mis-solicitudes';
+    return NextResponse.redirect(requestsUrl, 308);
+  }
+
+  if (pathname === '/pending-tasks') {
+    const tasksUrl = request.nextUrl.clone();
+    tasksUrl.pathname = '/mis-tareas';
+    return NextResponse.redirect(tasksUrl, 308);
+  }
 
   // Allow public prefixes (API routes, static files, enrollment, mobile upload)
   if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
@@ -76,7 +106,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    const loginUrl = new URL('/sign-up-login-screen', request.url);
+    const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -102,13 +132,15 @@ export async function middleware(request: NextRequest) {
           eventType: 'session_timeout_absolute',
           userAgent: request.headers.get('user-agent') || 'unknown',
         }),
-      }).catch(() => {/* non-blocking */});
+      }).catch(() => {
+        /* non-blocking */
+      });
 
       // Sign out via Supabase (invalidate server session)
       await supabase.auth.signOut();
 
       // Build redirect response and clear the session-start cookie
-      const loginUrl = new URL('/sign-up-login-screen', request.url);
+      const loginUrl = new URL('/login', request.url);
       const redirectResponse = NextResponse.redirect(loginUrl);
       redirectResponse.cookies.delete('docubox_session_start');
       return redirectResponse;

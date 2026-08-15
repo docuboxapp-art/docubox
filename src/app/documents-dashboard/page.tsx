@@ -647,7 +647,7 @@ export default function DocumentsDashboardPage() {
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 <Link
                   href="/crear-documento"
-                  className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(37,99,235,0.85)] transition-all duration-150 hover:bg-primary-700 active:bg-primary-800"
+                  className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-all duration-150 hover:bg-primary-700 active:bg-primary-800"
                 >
                   <Plus size={15} />
                   Crear Documento

@@ -947,7 +947,7 @@ function SimpleEditorToolbar({
               reader.onload = (ev) => {
                 const src = ev.target?.result as string;
                 if (src) {
-                  const html = `<figure data-docubox-image="true" data-selected="false" data-alignment="center" data-width="300" contenteditable="false" style="display:block;position:relative;margin:8px auto;line-height:0;max-width:100%;cursor:default;"><img src="${src}" style="width:300px;height:auto;max-width:100%;display:block;user-select:none;" alt="imagen" data-in-figure="true" /><span class="docubox-resize-handle" data-handle-pos="nw" style="display:none;position:absolute;top:-5px;left:-5px;width:10px;height:10px;background:#2563eb;border:2px solid white;border-radius:50%;z-index:20;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span><span class="docubox-resize-handle" data-handle-pos="ne" style="display:none;position:absolute;top:-5px;right:-5px;width:10px;height:10px;background:#2563eb;border:2px solid white;border-radius:50%;z-index:20;cursor:nesw-resize;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span><span class="docubox-resize-handle" data-handle-pos="sw" style="display:none;position:absolute;bottom:-5px;left:-5px;width:10px;height:10px;background:#2563eb;border:2px solid white;border-radius:50%;z-index:20;cursor:nesw-resize;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span><span class="docubox-resize-handle" data-handle-pos="se" style="display:none;position:absolute;bottom:-5px;right:-5px;width:10px;height:10px;background:#2563eb;border:2px solid white;border-radius:50%;z-index:20;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span></figure><p><br></p>`;
+                  const html = `<figure data-docubox-image="true" data-selected="false" data-alignment="center" data-width="300" contenteditable="false" style="display:block;position:relative;margin:8px auto;line-height:0;max-width:100%;cursor:default;"><img src="${src}" style="width:300px;height:auto;max-width:100%;display:block;user-select:none;" alt="imagen" data-in-figure="true" /><span class="docubox-resize-handle" data-handle-pos="nw" style="display:none;position:absolute;top:-5px;left:-5px;width:10px;height:10px;background:#1E6BFF;border:2px solid white;border-radius:50%;z-index:20;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span><span class="docubox-resize-handle" data-handle-pos="ne" style="display:none;position:absolute;top:-5px;right:-5px;width:10px;height:10px;background:#1E6BFF;border:2px solid white;border-radius:50%;z-index:20;cursor:nesw-resize;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span><span class="docubox-resize-handle" data-handle-pos="sw" style="display:none;position:absolute;bottom:-5px;left:-5px;width:10px;height:10px;background:#1E6BFF;border:2px solid white;border-radius:50%;z-index:20;cursor:nesw-resize;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span><span class="docubox-resize-handle" data-handle-pos="se" style="display:none;position:absolute;bottom:-5px;right:-5px;width:10px;height:10px;background:#1E6BFF;border:2px solid white;border-radius:50%;z-index:20;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span></figure><p><br></p>`;
                   document.execCommand('insertHTML', false, html);
                 }
               };
@@ -2516,6 +2516,7 @@ function NuevaPlantillaPage() {
   const [isLoadingTemplate, setIsLoadingTemplate] = useState(false);
   const [toasts, setToasts] = useState<{ id: string; type: 'success' | 'error' | 'info'; message: string }[]>([]);
   const [pageCount, setPageCount] = useState(1);
+  const [activePage, setActivePage] = useState(1);
   const [zoom, setZoom] = useState(100);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
@@ -2549,6 +2550,11 @@ function NuevaPlantillaPage() {
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
 
   const multiPageEditorRef = useRef<MultiPageEditorHandle>(null);
+  const [pendingPageNumbers, setPendingPageNumbers] = useState<{
+    position: 'header' | 'footer';
+    showOnFirst: boolean;
+    startFrom: number;
+  } | null>(null);
   const savedSelectionRef = useRef<{ node: Node; offset: number; pageEl: HTMLElement; pageIndex: number } | null>(null);
 
   const [infoData, setInfoData] = useState<InfoGeneralData>({
@@ -2570,6 +2576,35 @@ function NuevaPlantillaPage() {
     estadoPlantilla: 'Borrador',
     versionPublicada: '1.0',
   });
+
+  const applyPageNumberConfig = useCallback(
+    (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => {
+      if (opts.position === 'header') {
+        setShowHeader(true);
+      } else {
+        setShowFooter(true);
+      }
+      setPendingPageNumbers(opts);
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!pendingPageNumbers) return;
+    const zoneIsVisible = pendingPageNumbers.position === 'header' ? showHeader : showFooter;
+    if (!zoneIsVisible) return;
+
+    const frame = requestAnimationFrame(() => {
+      const editor = multiPageEditorRef.current;
+      if (editor?.insertPageNumber(pendingPageNumbers)) {
+        setCurrentHtml(editor.getHTML());
+        setPendingPageNumbers(null);
+        setHasUnsavedChanges(true);
+      }
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [pendingPageNumbers, showHeader, showFooter]);
 
   // Load existing template if editing
   useEffect(() => {
@@ -2989,14 +3024,14 @@ function NuevaPlantillaPage() {
       )}
 
       {/* ── Top header ── */}
-      <header className="z-20 flex h-[84px] shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
-        <div className="flex min-w-0 flex-1 items-center gap-5">
-          <div className="h-10 w-10 shrink-0 overflow-hidden sm:h-auto sm:w-auto">
-            <AppLogo size={38} />
+      <header className="z-20 flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <div className="shrink-0">
+            <AppLogo size={34} />
           </div>
-          <div className="hidden h-11 w-px bg-slate-200 xl:block" />
+          <div className="hidden h-8 w-px bg-slate-200 xl:block" />
           <div className="hidden min-w-0 xl:block">
-            <p className="truncate text-base font-semibold text-slate-950">Nueva plantilla</p>
+            <p className="truncate text-sm font-700 text-slate-950">Nueva plantilla</p>
             <p className="truncate text-xs text-slate-500">Espacio Personal</p>
           </div>
         </div>
@@ -3012,34 +3047,34 @@ function NuevaPlantillaPage() {
                   onClick={() => (isCompleted || isActive) && setWizardStep(step.id as 1 | 2 | 3)}
                   aria-label={step.label}
                   title={step.label}
-                  className={`flex h-10 items-center gap-2 rounded-md px-2 text-sm font-medium transition-all sm:px-3 ${
+                  className={`flex h-8 items-center gap-2 rounded-md px-2 text-xs font-600 transition-colors sm:px-3 ${
                     isActive
-                      ? 'bg-white text-primary shadow-sm ring-1 ring-slate-200'
+                      ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
                       : isCompleted
-                      ? 'cursor-pointer text-primary hover:bg-white/80' : 'cursor-default text-slate-400'
+                      ? 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary' : 'cursor-default text-slate-400'
                   }`}
                 >
-                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
-                    isActive ? 'bg-primary text-white' : isCompleted ? 'bg-blue-100 text-primary' : 'bg-slate-200/80 text-slate-400'
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
+                    isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'
                   }`}>
-                    {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
+                    {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                   </span>
                   <span className="hidden lg:inline">{step.label}</span>
                 </button>
                 {idx < WIZARD_STEPS.length - 1 && (
-                  <div className={`mx-1 hidden h-px w-4 sm:block ${step.id < wizardStep ? 'bg-primary/50' : 'bg-slate-200'}`} />
+                  <div className={`hidden h-px w-3 sm:block ${step.id < wizardStep ? 'bg-primary/50' : 'bg-slate-200'}`} />
                 )}
               </React.Fragment>
             );
           })}
         </nav>
 
-        <div className="flex flex-1 items-center justify-end gap-2">
+        <div className="flex flex-1 items-center justify-end gap-1.5">
           {wizardStep === 2 && (
             <button
               type="button"
               onClick={() => setShowPreview(true)}
-              className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+              className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:bg-slate-50"
             >
               <Eye size={15} />
               <span className="hidden sm:inline">Vista previa</span>
@@ -3048,7 +3083,7 @@ function NuevaPlantillaPage() {
           <button
             type="button"
             onClick={handleExitClick}
-            className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
           >
             <X size={16} />
             <span className="hidden sm:inline">Salir</span>
@@ -3139,7 +3174,7 @@ function NuevaPlantillaPage() {
                 onMargenesChange={setMargenes}
                 onShowNumerosModal={() => setShowNumerosModal(true)}
                 onApplyPageNumbers={(opts) => {
-                  multiPageEditorRef.current?.insertPageNumber(opts);
+                  applyPageNumberConfig(opts);
                 }}
                 showFindReplace={showFindReplace}
                 onToggleFindReplace={() => setShowFindReplace((v) => !v)}
@@ -3189,14 +3224,18 @@ function NuevaPlantillaPage() {
                         return next.length !== prev.length ? next : prev;
                       });
                     }}
-                    onPageCountChange={(count) => setPageCount(count)}
+                    onPageCountChange={(count) => {
+                      setPageCount(count);
+                      setActivePage((current) => Math.min(current, count));
+                    }}
+                    onActivePageChange={setActivePage}
                   />
                 </div>
               </div>
               {/* Bottom status bar */}
               <div className="flex items-center justify-between px-4 py-1.5 bg-white border-t border-gray-200 text-xs text-gray-500 shrink-0 select-none">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium">Página 1 de {pageCount}</span>
+                  <span className="font-medium">Página {Math.min(activePage, pageCount)} de {pageCount}</span>
                   <div className="w-px h-4 bg-gray-200" />
                   {/* Undo / Redo */}
                   <button
@@ -3438,7 +3477,7 @@ function NuevaPlantillaPage() {
       {showNumerosModal && (
         <SimplePageNumbersModal
           onApply={(opts) => {
-            multiPageEditorRef.current?.insertPageNumber(opts);
+            applyPageNumberConfig(opts);
             setShowNumerosModal(false);
           }}
           onClose={() => setShowNumerosModal(false)}

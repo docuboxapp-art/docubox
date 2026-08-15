@@ -791,7 +791,7 @@ export default function RegistroParticipantePage() {
               if (participantData?.documentId) {
                 router.push(`/visor-documento/${participantData.documentId}`);
               } else {
-                router.push('/sign-up-login-screen');
+                router.push('/login');
               }
             }}
             className="mt-2 bg-white text-emerald-600 font-bold px-8 py-3 rounded-xl hover:bg-emerald-50 transition-colors duration-200 text-sm"
@@ -851,7 +851,7 @@ export default function RegistroParticipantePage() {
 
               <div className="space-y-2 pt-1">
                 <button
-                  onClick={() => router.push('/sign-up-login-screen')}
+                  onClick={() => router.push('/login')}
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
                 >
                   <UserCheck size={16} />
@@ -1334,7 +1334,7 @@ export default function RegistroParticipantePage() {
         <AppLogo size={32} />
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">¿Ya tienes cuenta?</span>
-          <button onClick={() => router.push('/sign-up-login-screen')} className="text-sm font-semibold text-primary hover:text-primary/80 transition-colors">
+          <button onClick={() => router.push('/login')} className="text-sm font-semibold text-primary hover:text-primary/80 transition-colors">
             Iniciar sesión
           </button>
         </div>
