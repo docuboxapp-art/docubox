@@ -54,6 +54,7 @@ import {
   ChevronsRight,
   Zap,
   FilePlus2,
+  Workflow,
 } from 'lucide-react';
 import { useWorkspace, type Workspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
@@ -182,6 +183,8 @@ export default function TopNav() {
     pathname === '/reportes' ||
     pathname === '/app-market' ||
     pathname === '/mi-perfil' ||
+    pathname.startsWith('/organizacion') ||
+    pathname.startsWith('/colabora') ||
     pathname === '/contactos' ||
     pathname.startsWith('/configuracion/verificacion-identidad') ||
     pathname.startsWith('/visor-documento/');
@@ -765,8 +768,24 @@ export default function TopNav() {
     ...(isModuleActive('firmado-prueba-vida')
       ? [{ href: '/configuracion/verificacion-identidad', label: 'Identidad', icon: Fingerprint }]
       : []),
+    ...(activeWorkspace?.workspaceType === 'business'
+      ? [{ href: '/organizacion', label: 'Organización', icon: Building2 }]
+      : []),
+    ...(activeWorkspace?.workspaceType === 'business' && activeWorkspace.collaborationEnabled
+      ? [{ href: '/colabora', label: 'Colabora', icon: Workflow }]
+      : []),
     ...BASE_NAV_TABS.slice(6), // Reportes and beyond
   ];
+
+  const accountMenuItems = activeWorkspace?.workspaceType === 'business'
+    ? [
+        { icon: Building2, label: 'Organización', href: '/organizacion' },
+        ...(activeWorkspace.collaborationEnabled
+          ? [{ icon: Workflow, label: 'Colabora', href: '/colabora' }]
+          : []),
+        ...avatarMenuItems,
+      ]
+    : avatarMenuItems;
 
   // Build dynamic sidebar nav sections based on active modules
   const sidebarNavSections = BASE_SIDEBAR_NAV_SECTIONS.map((section) => {
@@ -1461,7 +1480,7 @@ export default function TopNav() {
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">{userEmail}</p>
                   </div>
                   <div className="py-1">
-                    {avatarMenuItems.map((item) => (
+                    {accountMenuItems.map((item) => (
                       <Link
                         key={item.label}
                         href={item.href}

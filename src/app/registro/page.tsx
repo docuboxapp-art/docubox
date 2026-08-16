@@ -60,6 +60,7 @@ interface RegistrationData {
   confirmPassword: string;
   // Step 3
   accountType: 'personal' | 'empresarial' | null;
+  organizationName: string;
   // Step 4
   personalidadJuridica: 'fisica' | 'moral' | null;
   // Step 5
@@ -927,6 +928,7 @@ export default function RegistroPage() {
     password: '',
     confirmPassword: '',
     accountType: null,
+    organizationName: '',
     personalidadJuridica: null,
     identityMethod: null,
     cerFile: null,
@@ -1285,8 +1287,12 @@ export default function RegistroPage() {
       if (data.password !== data.confirmPassword)
         newErrors.confirmPassword = 'Las contraseñas no coinciden';
     }
-    if (currentStep === 3 && !data.accountType)
-      newErrors.accountType = 'Selecciona un tipo de cuenta';
+    if (currentStep === 3) {
+      if (!data.accountType) newErrors.accountType = 'Selecciona un tipo de cuenta';
+      if (data.accountType === 'empresarial' && data.organizationName.trim().length < 2) {
+        newErrors.organizationName = 'Ingresa el nombre de la organización';
+      }
+    }
     if (currentStep === 4 && !data.personalidadJuridica)
       newErrors.personalidadJuridica = 'Selecciona tu personalidad jurídica';
     if (currentStep === 5 && !data.identityMethod)
@@ -1747,6 +1753,7 @@ export default function RegistroPage() {
           password: data.password,
           phone: data.phone,
           accountType: data.accountType,
+          organizationName: data.organizationName.trim() || null,
           personalidadJuridica: data.personalidadJuridica,
           identityMethod: data.identityMethod || (data.personalidadJuridica === 'moral' ? 'efirma_moral' : null),
           fullName,
@@ -2110,7 +2117,7 @@ export default function RegistroPage() {
                 color: 'text-indigo-600',
                 bg: 'bg-indigo-50',
                 border: 'border-indigo-200',
-                disabled: true,
+                disabled: false,
               },
             ].map((opt) => (
               <button
@@ -2154,6 +2161,33 @@ export default function RegistroPage() {
                 )}
               </button>
             ))}
+            {data.accountType === 'empresarial' && (
+              <div className="pt-1">
+                <label htmlFor="organization-name" className="block text-sm font-medium text-foreground mb-1.5">
+                  Nombre de la organización <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="organization-name"
+                  value={data.organizationName}
+                  onChange={(event) => update({ organizationName: event.target.value })}
+                  placeholder="Ej. Docubox, S.A. de C.V."
+                  autoComplete="organization"
+                  className={`w-full h-12 px-4 rounded-lg border bg-background text-foreground outline-none transition-colors ${
+                    errors.organizationName
+                      ? 'border-red-400 focus:border-red-500'
+                      : 'border-border focus:border-primary'
+                  }`}
+                />
+                {errors.organizationName && (
+                  <p className="mt-1.5 text-xs text-red-500 flex items-center gap-1">
+                    <AlertCircle size={12} /> {errors.organizationName}
+                  </p>
+                )}
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Este nombre identificará el espacio de trabajo compartido de tu organización.
+                </p>
+              </div>
+            )}
           </div>
         );
 

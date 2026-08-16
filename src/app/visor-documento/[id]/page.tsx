@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Users, MessageSquare, Activity, FileText, RefreshCw, Info, CheckCircle2, XCircle, Clock, Mail, Tag, Send, Eye, FilePlus, UserPlus, Download, Shield, AlertTriangle, PenLine, Bell, Calendar, StickyNote, Edit3, Upload, X, Save, PanelRightClose, PanelRightOpen, Copy, ExternalLink, Globe2, QrCode } from 'lucide-react';
+import { ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Users, MessageSquare, Activity, FileText, RefreshCw, Info, CheckCircle2, XCircle, Clock, Mail, Tag, Send, Eye, FilePlus, UserPlus, Download, Shield, AlertTriangle, PenLine, Bell, Calendar, StickyNote, Edit3, Upload, X, Save, PanelRightClose, PanelRightOpen, Copy, ExternalLink, Globe2, QrCode, ListChecks, History } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
 import { useSidebar } from '@/contexts/SidebarContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { sendDocumentCompletedToAllSigners } from '@/lib/emailNotifications';
 import { createNotification } from '@/lib/notificationsInApp';
 import { StepSubir } from '@/app/crear-documento/components/StepSubir';
@@ -411,6 +412,7 @@ export default function VisorDocumentoPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { sidebarOpen } = useSidebar();
+  const { activeWorkspace } = useWorkspace();
   const docId = params?.id as string;
 
   const [document, setDocument] = useState<DocumentData | null>(null);
@@ -2194,7 +2196,10 @@ export default function VisorDocumentoPage() {
           action: 'documento_visto',
           category: 'acceso',
           details: { source: 'visor' },
-        }).then(() => {}).catch(() => {});
+        }).then(
+          () => {},
+          () => {}
+        );
       }
     }, 1500);
     return () => clearTimeout(viewTimer);
@@ -3233,7 +3238,6 @@ export default function VisorDocumentoPage() {
       acceso_revocado: 'Acceso revocado',
       nota_agregada: 'Nota agregada',
       mensaje_enviado: 'Mensaje enviado',
-      cambio_estado_participacion: 'Cambio de estado de participación',
     };
     // Enrich label with participant name if available
     const base = map[action] || action?.replace(/_/g, ' ') || 'Evento';
@@ -3867,6 +3871,11 @@ export default function VisorDocumentoPage() {
   const toolbarItems = allToolbarItems.filter(
     (item) => item.key !== 'comments' || participantes.length > 1
   );
+  const collaborationAvailable = Boolean(
+    activeWorkspace?.workspaceType === 'business' &&
+      activeWorkspace.collaborationEnabled &&
+      document.workspace_id === activeWorkspace.id
+  );
 
   const PaginationBar = ({ modal = false }: { modal?: boolean }) => (
     <div className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}>
@@ -4062,6 +4071,25 @@ export default function VisorDocumentoPage() {
                   {React.cloneElement(item.icon as React.ReactElement<{ size?: number }>, { size: 17 })}
                 </button>
               ))}
+              {collaborationAvailable && (
+                <>
+                  <div className="my-1 h-px w-7 bg-slate-200" />
+                  <button
+                    onClick={() => router.push(`/documentos/${document.id}/revision`)}
+                    title="Revisión colaborativa"
+                    className="flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    <ListChecks size={17} />
+                  </button>
+                  <button
+                    onClick={() => router.push(`/documentos/${document.id}/versiones`)}
+                    title="Versiones del documento"
+                    className="flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    <History size={17} />
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => setIsSidePanelOpen((open) => !open)}
                 title={isSidePanelOpen ? 'Ocultar panel' : 'Mostrar panel'}
@@ -5651,9 +5679,11 @@ export default function VisorDocumentoPage() {
               <StepSubir
                 file={editFile}
                 onFileChange={setEditFile}
-                docConfig={editDocConfig}
-                onDocConfigChange={setEditDocConfig}
-                hideFileUpload
+                config={editDocConfig}
+                onConfigChange={setEditDocConfig}
+                viewMode="stacked"
+                onGuardarAvance={() => {}}
+                savingDraft={false}
               />
             </div>
           </EditModal>
@@ -5664,8 +5694,11 @@ export default function VisorDocumentoPage() {
               <StepSubir
                 file={editFile}
                 onFileChange={setEditFile}
-                docConfig={editDocConfig}
-                onDocConfigChange={setEditDocConfig}
+                config={editDocConfig}
+                onConfigChange={setEditDocConfig}
+                viewMode="stacked"
+                onGuardarAvance={() => {}}
+                savingDraft={false}
               />
             </div>
           </EditModal>
@@ -5675,11 +5708,11 @@ export default function VisorDocumentoPage() {
             <div className="p-6">
               <StepParticipantes
                 participants={editParticipants}
-                onParticipantsChange={setEditParticipants}
-                participantMode={editParticipantMode}
-                onParticipantModeChange={setEditParticipantMode}
+                onChange={setEditParticipants}
+                mode={editParticipantMode}
+                onModeChange={setEditParticipantMode}
                 participationOrder={editParticipationOrder}
-                onParticipationOrderChange={setEditParticipationOrder}
+                onOrderChange={setEditParticipationOrder}
               />
             </div>
           </EditModal>
@@ -5689,13 +5722,12 @@ export default function VisorDocumentoPage() {
             <div className="p-6">
               <StepAjustes
                 settings={editSettings}
-                onSettingsChange={setEditSettings}
+                onChange={setEditSettings}
                 participants={editParticipants}
-                placedFields={editPlacedFields}
+                file={editFile}
+                initialPlacedFields={editPlacedFields}
                 onPlacedFieldsChange={setEditPlacedFields}
-                fileUrl={document?.file_url}
                 securitySettings={editSecuritySettings}
-                onSecuritySettingsChange={setEditSecuritySettings}
               />
             </div>
           </EditModal>

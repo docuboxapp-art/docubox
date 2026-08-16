@@ -1,16 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
-import { classifyIntent, getScopeFromRoute, buildRouteContext } from '@/lib/ai/luciaIntentClassifier';
-import { verifyWorkspaceMembership, buildUserContext, buildStructuredContext, buildRagContext, saveQueryLog,  } from '@/lib/ai/luciaQueries';
+import {
+  classifyIntent,
+  getScopeFromRoute,
+  buildRouteContext,
+} from '@/lib/ai/luciaIntentClassifier';
+import {
+  verifyWorkspaceMembership,
+  buildUserContext,
+  buildStructuredContext,
+  buildRagContext,
+  saveQueryLog,
+} from '@/lib/ai/luciaQueries';
 import { completion } from '@rocketnew/llm-sdk';
+import { normalizeCollaborationAccess } from '@/lib/collaboration/domain';
+
+async function recordCollaborationAiUsage(workspaceId: string, userId: string, sessionId?: string) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) return;
+  const service = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey);
+  const requestId = randomUUID();
+  await service.from('collaboration_usage_events').insert({
+    workspace_id: workspaceId,
+    entitlement_key: 'collaboration_ai_assistant',
+    meter_key: 'ai_requests',
+    quantity: 1,
+    idempotency_key: `lucia:${sessionId || 'sessionless'}:${requestId}`,
+    resource_type: 'lucia_query',
+    metadata: { actor_user_id: userId },
+  });
+}
 
 const publicAttempts = new Map<string, { count: number; expiresAt: number }>();
 
 function allowPublicAiRequest(request: NextRequest, token: string) {
   const now = Date.now();
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-    || request.headers.get('x-real-ip')
-    || 'unknown';
+  const ip =
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    'unknown';
   const key = `${ip}:${token}`;
   const current = publicAttempts.get(key);
   if (!current || current.expiresAt <= now) {
@@ -45,9 +74,7 @@ const INTERNAL_DATA_INTENTS = new Set([
 ]);
 
 // ── Sensitive intents: respond directly from backend, never send to OpenAI ──
-const SENSITIVE_DIRECT_INTENTS = new Set([
-  'user_profile_sensitive',
-]);
+const SENSITIVE_DIRECT_INTENTS = new Set(['user_profile_sensitive']);
 
 // ── System prompt (strict mode) ───────────────────────────────────────────
 const LUCIA_SYSTEM_PROMPT = `Eres LucIA, copiloto inteligente de Docubox.
@@ -117,7 +144,8 @@ function checkEvidence(finalContext: Record<string, any>, intent: string): boole
       typeof structured_context === 'object' &&
       !Array.isArray(structured_context) &&
       Object.keys(structured_context).length > 0
-    ) return true;
+    )
+      return true;
   }
 
   if (Array.isArray(rag_context) && rag_context.length > 0) return true;
@@ -155,8 +183,10 @@ function checkEvidence(finalContext: Record<string, any>, intent: string): boole
     }
     if (intent === 'document_types_assigned') {
       return (
-        (Array.isArray(uc.documentTypesAssigned?.types) && uc.documentTypesAssigned.types.length > 0) ||
-        (Array.isArray(uc.documentTypesAssigned?.groups) && uc.documentTypesAssigned.groups.length > 0)
+        (Array.isArray(uc.documentTypesAssigned?.types) &&
+          uc.documentTypesAssigned.types.length > 0) ||
+        (Array.isArray(uc.documentTypesAssigned?.groups) &&
+          uc.documentTypesAssigned.groups.length > 0)
       );
     }
     if (intent === 'pending_tasks') {
@@ -178,7 +208,7 @@ function checkEvidence(finalContext: Record<string, any>, intent: string): boole
     }
 
     return Object.values(uc).some(
-      v => v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)
+      (v) => v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)
     );
   }
 
@@ -191,7 +221,10 @@ function checkEvidence(finalContext: Record<string, any>, intent: string): boole
  */
 function buildSensitiveDirectResponse(userContext: Record<string, any>, question: string): string {
   const profile = userContext.userProfile ?? {};
-  const q = question.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const q = question
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 
   if (q.includes('curp')) {
     return profile.curp
@@ -203,19 +236,35 @@ function buildSensitiveDirectResponse(userContext: Record<string, any>, question
       ? `Tu RFC registrado en Docubox es: **${profile.rfc}**.`
       : 'No encontré un RFC registrado en tu perfil de Docubox.';
   }
-  if (q.includes('telefono') || q.includes('teléfono') || q.includes('numero de telefono') || q.includes('número de teléfono')) {
+  if (
+    q.includes('telefono') ||
+    q.includes('teléfono') ||
+    q.includes('numero de telefono') ||
+    q.includes('número de teléfono')
+  ) {
     return profile.telefono
       ? `Tu teléfono registrado en Docubox es: **${profile.telefono}**.`
       : 'No encontré un teléfono registrado en tu perfil de Docubox.';
   }
-  if (q.includes('domicilio') || q.includes('direccion') || q.includes('dirección') || q.includes('fiscal') || q.includes('codigo postal') || q.includes('código postal')) {
+  if (
+    q.includes('domicilio') ||
+    q.includes('direccion') ||
+    q.includes('dirección') ||
+    q.includes('fiscal') ||
+    q.includes('codigo postal') ||
+    q.includes('código postal')
+  ) {
     const domicilio = [
-      profile.calle ? `${profile.calle} ${profile.num_exterior ?? ''}${profile.num_interior ? ' Int. ' + profile.num_interior : ''}`.trim() : null,
+      profile.calle
+        ? `${profile.calle} ${profile.num_exterior ?? ''}${profile.num_interior ? ' Int. ' + profile.num_interior : ''}`.trim()
+        : null,
       profile.colonia,
       profile.municipio,
       profile.estado,
       profile.codigo_postal ? `C.P. ${profile.codigo_postal}` : null,
-    ].filter(Boolean).join(', ');
+    ]
+      .filter(Boolean)
+      .join(', ');
     return domicilio
       ? `Tu domicilio fiscal registrado en Docubox es: **${domicilio}**.`
       : 'No encontré un domicilio fiscal registrado en tu perfil de Docubox.';
@@ -227,7 +276,11 @@ function buildSensitiveDirectResponse(userContext: Record<string, any>, question
   }
 
   // Generic sensitive profile response
-  const name = profile.full_name || [profile.nombre, profile.apellido_paterno].filter(Boolean).join(' ') || profile.email || 'N/D';
+  const name =
+    profile.full_name ||
+    [profile.nombre, profile.apellido_paterno].filter(Boolean).join(' ') ||
+    profile.email ||
+    'N/D';
   const parts = [
     `**Nombre:** ${name}`,
     profile.email ? `**Email:** ${profile.email}` : null,
@@ -238,7 +291,10 @@ function buildSensitiveDirectResponse(userContext: Record<string, any>, question
   return `Tus datos personales registrados en Docubox:\n\n${parts.join('\n')}`;
 }
 
-function extractSources(finalContext: Record<string, any>, intent: string): Array<Record<string, any>> {
+function extractSources(
+  finalContext: Record<string, any>,
+  intent: string
+): Array<Record<string, any>> {
   const sources: Array<Record<string, any>> = [];
   const uc = finalContext.user_context as Record<string, any> | undefined;
   const sc = finalContext.structured_context;
@@ -322,7 +378,8 @@ function postValidateAnswer(answer: string, finalContext: Record<string, any>): 
     else if (uc) {
       const intent = finalContext.intent as string;
       if (intent === 'user_created_documents') actualCount = (uc.createdDocuments ?? []).length;
-      else if (intent === 'user_assigned_documents') actualCount = (uc.assignedDocuments ?? []).length;
+      else if (intent === 'user_assigned_documents')
+        actualCount = (uc.assignedDocuments ?? []).length;
     }
     if (claimedCount > actualCount + 2 && actualCount === 0) {
       return 'No encontré información verificable en Docubox para responder eso.';
@@ -338,7 +395,7 @@ function isContextEmpty(finalContext: Record<string, any>): boolean {
     !user_context ||
     Object.keys(user_context).length === 0 ||
     Object.values(user_context).every(
-      v => v === null || v === undefined || (Array.isArray(v) && v.length === 0)
+      (v) => v === null || v === undefined || (Array.isArray(v) && v.length === 0)
     );
 
   const scEmpty =
@@ -373,10 +430,7 @@ export async function POST(request: NextRequest) {
     } = body;
 
     if (!question) {
-      return NextResponse.json(
-        { error: 'Falta campo requerido: question' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Falta campo requerido: question' }, { status: 400 });
     }
 
     // ── 2. Detect if this is a public-token request ────────────
@@ -389,7 +443,10 @@ export async function POST(request: NextRequest) {
       }
 
       if (!allowPublicAiRequest(request, publicToken)) {
-        return NextResponse.json({ error: 'Demasiadas solicitudes. Intenta de nuevo en un minuto.' }, { status: 429 });
+        return NextResponse.json(
+          { error: 'Demasiadas solicitudes. Intenta de nuevo en un minuto.' },
+          { status: 429 }
+        );
       }
 
       const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -397,10 +454,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'El servicio no esta configurado.' }, { status: 503 });
       }
 
-      const supabaseService = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        serviceRoleKey
-      );
+      const supabaseService = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey);
 
       // Resolve token to a resource (document, form, enrollment, etc.)
       let tokenContext: Record<string, any> = {};
@@ -478,7 +532,12 @@ export async function POST(request: NextRequest) {
       }
 
       const scope = clientScope || getScopeFromRoute(currentRoute ?? '/');
-      const routeContext = buildRouteContext(currentRoute ?? '/', scope, tokenDocumentId ?? undefined, publicToken);
+      const routeContext = buildRouteContext(
+        currentRoute ?? '/',
+        scope,
+        tokenDocumentId ?? undefined,
+        publicToken
+      );
 
       const finalContext = {
         route_context: routeContext,
@@ -529,7 +588,8 @@ export async function POST(request: NextRequest) {
         max_tokens: 800,
       });
 
-      const rawAnswer = (aiResponse as any)?.choices?.[0]?.message?.content || 'No se pudo generar una respuesta.';
+      const rawAnswer =
+        (aiResponse as any)?.choices?.[0]?.message?.content || 'No se pudo generar una respuesta.';
       let responseText = sanitizeAnswer(rawAnswer);
 
       return NextResponse.json({
@@ -576,6 +636,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No tienes acceso a este workspace' }, { status: 403 });
     }
 
+    const isCollaborationRequest = String(currentRoute || '').startsWith('/colabora');
+    if (isCollaborationRequest) {
+      const scopedSupabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { global: { headers: { Authorization: `Bearer ${bearerToken}` } } }
+      );
+      const accessResult = await scopedSupabase.rpc('get_my_collaboration_access', {
+        ws_id: workspaceId,
+      });
+      if (accessResult.error) {
+        return NextResponse.json(
+          { error: 'No se pudo verificar el acceso al asistente de Colabora.' },
+          { status: 503 }
+        );
+      }
+      const collaborationAccess = normalizeCollaborationAccess(accessResult.data);
+      const aiEntitlement = collaborationAccess.entitlements.collaboration_ai_assistant;
+      if (
+        !collaborationAccess.accessible ||
+        !aiEntitlement ||
+        !['trialing', 'active', 'past_due'].includes(aiEntitlement.status || '')
+      ) {
+        return NextResponse.json(
+          { error: 'El asistente inteligente de Colabora no esta incluido en tu plan.' },
+          { status: 402 }
+        );
+      }
+    }
+
     // ── 4. Derive scope and route_context (structured object) ─
     const scope = clientScope || getScopeFromRoute(currentRoute ?? '');
     const routeContext = buildRouteContext(currentRoute ?? '/', scope, documentId, publicToken);
@@ -593,7 +683,7 @@ export async function POST(request: NextRequest) {
 
     // ── 6. Build all three context layers ─────────────────────
     const [userContext, structuredContext, ragContext] = await Promise.all([
-      buildUserContext(userId, workspaceId).catch(err => {
+      buildUserContext(userId, workspaceId).catch((err) => {
         console.error('[LucIA] buildUserContext error:', err);
         return {};
       }),
@@ -603,11 +693,11 @@ export async function POST(request: NextRequest) {
         extractedStatus,
         extractedUserName,
         mode,
-      }).catch(err => {
+      }).catch((err) => {
         console.error('[LucIA] buildStructuredContext error:', err);
         return null;
       }),
-      buildRagContext(question, workspaceId, documentId).catch(err => {
+      buildRagContext(question, workspaceId, documentId).catch((err) => {
         console.error('[LucIA] buildRagContext error:', err);
         return [];
       }),
@@ -640,7 +730,10 @@ export async function POST(request: NextRequest) {
     // ── 8. Check evidence ──────────────────────────────────────
     const isDocumentViewerRagAction =
       scope === 'document_viewer' &&
-      (intent === 'document_summary' || intent === 'legal_analysis' || intent === 'compliance_analysis' || intent === 'document_content_search');
+      (intent === 'document_summary' ||
+        intent === 'legal_analysis' ||
+        intent === 'compliance_analysis' ||
+        intent === 'document_content_search');
 
     const hasEvidence = isDocumentViewerRagAction
       ? (Array.isArray(ragContext) && ragContext.length > 0) || !!documentId
@@ -660,7 +753,10 @@ export async function POST(request: NextRequest) {
           contextSummary: { structuredRecords: 0, ragChunks: 0, hasUserContext: false },
         });
       }
-      const directAnswer = buildSensitiveDirectResponse(userContext as Record<string, any>, question);
+      const directAnswer = buildSensitiveDirectResponse(
+        userContext as Record<string, any>,
+        question
+      );
       await saveQueryLog({
         workspaceId,
         userId,
@@ -672,7 +768,7 @@ export async function POST(request: NextRequest) {
         contextUsed: { mode: 'direct_backend', hasEvidence: true, sensitiveData: true },
         responseText: directAnswer,
         durationMs: Date.now() - startTime,
-      }).catch(err => console.error('[LucIA] Log save error:', err));
+      }).catch((err) => console.error('[LucIA] Log save error:', err));
 
       return NextResponse.json({
         answer: directAnswer,
@@ -748,7 +844,9 @@ export async function POST(request: NextRequest) {
         hasUserContext: Object.keys(userContext).length > 0,
         structuredRecords: Array.isArray(structuredContext)
           ? structuredContext.length
-          : structuredContext ? 1 : 0,
+          : structuredContext
+            ? 1
+            : 0,
         ragChunksCount: Array.isArray(ragContext) ? ragContext.length : 0,
         mode,
         hasEvidence,
@@ -761,7 +859,11 @@ export async function POST(request: NextRequest) {
       responseText,
       tokensUsed,
       durationMs,
-    }).catch(err => console.error('[LucIA] Log save error:', err));
+    }).catch((err) => console.error('[LucIA] Log save error:', err));
+
+    if (isCollaborationRequest) {
+      await recordCollaborationAiUsage(workspaceId, userId, sessionId);
+    }
 
     return NextResponse.json({
       answer: responseText,
@@ -772,7 +874,9 @@ export async function POST(request: NextRequest) {
       contextSummary: {
         structuredRecords: Array.isArray(structuredContext)
           ? structuredContext.length
-          : structuredContext ? 1 : 0,
+          : structuredContext
+            ? 1
+            : 0,
         ragChunks: Array.isArray(ragContext) ? ragContext.length : 0,
         hasUserContext: Object.keys(userContext).length > 0,
         ragActive: Array.isArray(ragContext) && ragContext.length > 0,

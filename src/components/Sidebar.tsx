@@ -31,11 +31,14 @@ import {
   MailCheck,
   Landmark,
   Files,
+  Building2,
+  Workflow,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 const BASE_NAV_SECTIONS = [
   {
@@ -83,6 +86,7 @@ export default function Sidebar() {
   const { user, signOut } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const { isModuleActive } = useAppModules();
+  const { activeWorkspace } = useWorkspace();
 
   const userFullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Usuario';
   const userEmail = user?.email || '';
@@ -96,6 +100,18 @@ export default function Sidebar() {
 
   // Build nav sections with conditional module items
   const navSections = BASE_NAV_SECTIONS.map((section) => {
+    if (section.label === 'Principal' && activeWorkspace?.workspaceType === 'business') {
+      return {
+        ...section,
+        items: [
+          ...section.items,
+          { href: '/organizacion', icon: Building2, label: 'Organización', badge: null },
+          ...(activeWorkspace.collaborationEnabled
+            ? [{ href: '/colabora', icon: Workflow, label: 'Colabora', badge: null }]
+            : []),
+        ],
+      };
+    }
     if (section.label !== 'Gestión') return section;
     const moduleItems: typeof section.items = [];
     if (isModuleActive('plantillas')) {

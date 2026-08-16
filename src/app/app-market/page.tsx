@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -19,9 +19,16 @@ import {
   Search,
   Sparkles,
   Store,
+  Workflow,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { ALL_MODULES, type ModuleId, useAppModules } from '@/contexts/AppModulesContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { useCollaborationApi } from '@/lib/collaboration/client';
+import {
+  hasCollaborationEntitlement,
+  type CollaborationAccess,
+} from '@/lib/collaboration/domain';
 
 type FilterId = 'todos' | 'productividad' | 'seguridad' | 'ia';
 
@@ -102,6 +109,11 @@ const modulePresentation: Record<
 
 export default function AppMarketPage() {
   const { activeModuleId, setActiveModule, isModuleActive, loading } = useAppModules();
+  const { activeWorkspace, refreshWorkspaces } = useWorkspace();
+  const collaborationApi = useCollaborationApi();
+  const [collaborationAccess, setCollaborationAccess] = useState<CollaborationAccess | null>(null);
+  const [collaborationUpdating, setCollaborationUpdating] = useState(false);
+  const [collaborationError, setCollaborationError] = useState('');
   const [filter, setFilter] = useState<FilterId>('todos');
   const [updatingModule, setUpdatingModule] = useState<ModuleId | null>(null);
 
@@ -122,6 +134,55 @@ export default function AppMarketPage() {
     await Promise.resolve(setActiveModule(isModuleActive(id) ? null : id));
     window.setTimeout(() => setUpdatingModule(null), 250);
   };
+
+  useEffect(() => {
+    if (!activeWorkspace?.id || activeWorkspace.workspaceType !== 'business') {
+      setCollaborationAccess(null);
+      return;
+    }
+    collaborationApi<{ access: CollaborationAccess }>(
+      `/api/colabora/access?workspace_id=${activeWorkspace.id}`
+    )
+      .then((payload) => setCollaborationAccess(payload.access))
+      .catch(() => setCollaborationAccess(null));
+  }, [activeWorkspace?.id, activeWorkspace?.workspaceType, collaborationApi]);
+
+  const activateCollaboration = async (
+    productKey: 'docubox_colabora' | 'docubox_colabora_pro' = 'docubox_colabora'
+  ) => {
+    if (!activeWorkspace?.id) return;
+    setCollaborationUpdating(true);
+    setCollaborationError('');
+    try {
+      await collaborationApi('/api/colabora/access', {
+        method: 'POST',
+        body: JSON.stringify({
+          workspace_id: activeWorkspace.id,
+          action: 'start_trial',
+          product_key: productKey,
+        }),
+      });
+      const payload = await collaborationApi<{ access: CollaborationAccess }>(
+        `/api/colabora/access?workspace_id=${activeWorkspace.id}`
+      );
+      setCollaborationAccess(payload.access);
+      await refreshWorkspaces();
+    } catch (error) {
+      setCollaborationError(
+        error instanceof Error ? error.message : 'No se pudo activar Docubox Colabora.'
+      );
+    } finally {
+      setCollaborationUpdating(false);
+    }
+  };
+  const canManageCollaborationPlan = collaborationAccess?.canManageSubscription
+    || collaborationAccess?.membershipRole === 'owner'
+    || collaborationAccess?.permissions.includes('subscription.manage_addons');
+  const collaborationProActive = collaborationAccess
+    ? hasCollaborationEntitlement(collaborationAccess, 'collaboration_external_rooms', {
+        proFeature: true,
+      })
+    : false;
 
   return (
     <AppLayout noPadding>
@@ -168,6 +229,79 @@ export default function AppMarketPage() {
               </div>
             </div>
           </section>
+
+          {activeWorkspace?.workspaceType === 'business' && (
+            <section className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
+              <div className="grid lg:grid-cols-[1fr_auto]">
+                <div className="flex items-start gap-4 p-5">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-primary dark:border-primary/30 dark:bg-primary/10">
+                    <Workflow size={21} />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-sm font-600 text-slate-950 dark:text-foreground">
+                        Docubox Colabora
+                      </h2>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-600 ${collaborationAccess?.accessible ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}
+                      >
+                        {collaborationAccess?.accessible
+                          ? collaborationAccess.subscriptionStatus === 'trialing'
+                            ? 'Prueba activa'
+                            : 'Activo'
+                          : 'Complemento empresarial'}
+                      </span>
+                    </div>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500 dark:text-muted-foreground">
+                      Coordina tareas, revisiones, versiones, solicitudes y espacios documentales
+                      dentro de tu organización.
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      No consume el módulo individual incluido en tu plan.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-col items-stretch gap-2 border-t border-slate-200 px-5 py-4 dark:border-border lg:border-l lg:border-t-0">
+                  {collaborationError && (
+                    <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      {collaborationError}
+                    </p>
+                  )}
+                  {collaborationAccess?.accessible ? (
+                    <>
+                      <Link
+                        href="/colabora"
+                        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-600 text-white lg:w-auto"
+                      >
+                        Abrir Colabora <ArrowRight size={16} />
+                      </Link>
+                      {!collaborationProActive && canManageCollaborationPlan && (
+                        <button
+                          disabled={collaborationUpdating}
+                          onClick={() => activateCollaboration('docubox_colabora_pro')}
+                          className="h-10 rounded-md border border-primary/30 px-4 text-sm font-600 text-primary disabled:opacity-60"
+                        >
+                          {collaborationUpdating ? 'Activando...' : 'Probar Colabora Pro'}
+                        </button>
+                      )}
+                    </>
+                  ) : canManageCollaborationPlan ? (
+                    <button
+                      disabled={collaborationUpdating}
+                      onClick={() => activateCollaboration()}
+                      className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-600 text-white disabled:opacity-60 lg:w-auto"
+                    >
+                      {collaborationUpdating ? 'Activando...' : 'Iniciar prueba'}
+                    </button>
+                  ) : (
+                    <p className="max-w-xs text-sm leading-5 text-slate-500 dark:text-muted-foreground">
+                      Función no disponible en el plan actual. Contacta a tu administrador.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
 
           <div className="mt-6 grid items-start gap-5 lg:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)]">
             <section className="order-2 overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-border dark:bg-card lg:sticky lg:top-[5.25rem] lg:col-start-2 lg:row-start-1">

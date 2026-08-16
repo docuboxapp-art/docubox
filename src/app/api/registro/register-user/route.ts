@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
       password,
       phone,
       accountType,
+      organizationName,
       personalidadJuridica,
       identityMethod,
       fullName,
@@ -37,6 +38,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email y contraseña son requeridos' }, { status: 400 });
     }
 
+    const normalizedAccountType = accountType === 'empresarial' ? 'empresarial' : 'personal';
+    const normalizedOrganizationName = typeof organizationName === 'string'
+      ? organizationName.trim()
+      : '';
+
+    if (normalizedAccountType === 'empresarial' && normalizedOrganizationName.length < 2) {
+      return NextResponse.json({ error: 'El nombre de la organización es requerido' }, { status: 400 });
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -56,7 +66,8 @@ export async function POST(req: NextRequest) {
         user_metadata: {
           full_name: fullName || '',
           phone: phone || '',
-          account_type: accountType || 'personal',
+          account_type: normalizedAccountType,
+          organization_name: normalizedOrganizationName || null,
           personalidad_juridica: personalidadJuridica || null,
           identity_method: identityMethod || null,
           rfc: rfc || null,
@@ -89,7 +100,8 @@ export async function POST(req: NextRequest) {
           data: {
             full_name: fullName || '',
             phone: phone || '',
-            account_type: accountType || 'personal',
+            account_type: normalizedAccountType,
+            organization_name: normalizedOrganizationName || null,
             personalidad_juridica: personalidadJuridica || null,
             identity_method: identityMethod || null,
             rfc: rfc || null,
@@ -217,7 +229,7 @@ export async function POST(req: NextRequest) {
       {
         p_user_id: userId,
         p_full_name: fullName || '',
-        p_account_type: accountType || 'personal',
+        p_account_type: normalizedAccountType,
         p_personalidad_juridica: personalidadJuridica || null,
         p_identity_method: identityMethod || null,
         p_rfc: rfc || null,
@@ -262,6 +274,49 @@ export async function POST(req: NextRequest) {
     }
 
     // Send verification email (non-blocking — don't fail registration if email fails)
+    if (normalizedAccountType === 'empresarial' && result.workspace_id) {
+      const organizationPayload = {
+        name: normalizedOrganizationName,
+        legal_name: efirmaNombre || normalizedOrganizationName,
+        trade_name: normalizedOrganizationName,
+        rfc: efirmaRfc || rfc || null,
+        legal_person_type: personalidadJuridica || null,
+        contact_email: email,
+        contact_phone: phone || null,
+        description: `Espacio de trabajo de ${normalizedOrganizationName}`,
+        organization_enabled: true,
+        verification_status: efirmaRfc ? 'identity_verified' : 'not_started',
+        verification_updated_at: efirmaRfc ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: organizationError } = await supabaseForRpc
+        .from('workspaces')
+        .update(organizationPayload)
+        .eq('id', result.workspace_id)
+        .eq('owner_id', userId);
+
+      if (organizationError) {
+        console.error('[registro] Could not initialize organization profile:', organizationError);
+      } else {
+        const { error: auditError } = await supabaseForRpc
+          .from('organization_audit_events')
+          .insert({
+            workspace_id: result.workspace_id,
+            actor_user_id: userId,
+            event_type: 'organization.created',
+            resource_type: 'workspace',
+            resource_id: result.workspace_id,
+            summary: 'Organización creada durante el registro empresarial',
+            payload: { account_type: normalizedAccountType },
+          });
+
+        if (auditError) {
+          console.warn('[registro] Could not record organization audit event:', auditError);
+        }
+      }
+    }
+
     try {
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmamax4272.builtwithrocket.new';
       await fetch(`${siteUrl}/api/registro/send-verification-email`, {

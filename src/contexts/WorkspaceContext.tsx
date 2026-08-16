@@ -12,6 +12,9 @@ export interface Workspace {
   logoUrl?: string | null;
   description?: string | null;
   role: 'owner' | 'admin' | 'member';
+  membershipStatus: 'invited' | 'active' | 'suspended' | 'blocked' | 'offboarded';
+  organizationEnabled: boolean;
+  collaborationEnabled: boolean;
 }
 
 interface WorkspaceContextValue {
@@ -50,20 +53,45 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('workspace_members')
         .select(`
           role,
+          status,
           workspaces (
             id,
             name,
             workspace_type,
             owner_id,
             logo_url,
-            description
+            description,
+            organization_enabled
           )
         `)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .eq('status', 'active');
+
+      // Keep existing accounts operational when the frontend is deployed just
+      // before the organization migration reaches the database.
+      const workspaceQueryError = error?.message || '';
+      if (['organization_enabled', 'status'].some((column) => workspaceQueryError.includes(column))) {
+        const fallback = await supabase
+          .from('workspace_members')
+          .select(`
+            role,
+            workspaces (
+              id,
+              name,
+              workspace_type,
+              owner_id,
+              logo_url,
+              description
+            )
+          `)
+          .eq('user_id', user.id);
+        data = fallback.data as typeof data;
+        error = fallback.error;
+      }
 
       if (error) {
         console.log('Workspace fetch error:', error.message);
@@ -71,7 +99,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const mapped: Workspace[] = (data || [])
+      let mapped: Workspace[] = (data || [])
         .filter((row: any) => row.workspaces)
         .map((row: any) => ({
           id: row.workspaces.id,
@@ -81,7 +109,35 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           logoUrl: row.workspaces.logo_url,
           description: row.workspaces.description,
           role: row.role as 'owner' | 'admin' | 'member',
+          membershipStatus: (row.status || 'active') as Workspace['membershipStatus'],
+          organizationEnabled: row.workspaces.organization_enabled == null
+            ? row.workspaces.workspace_type === 'business'
+            : Boolean(row.workspaces.organization_enabled),
+          collaborationEnabled: false,
         }));
+
+      const businessWorkspaceIds = mapped
+        .filter((workspace) => workspace.workspaceType === 'business')
+        .map((workspace) => workspace.id);
+      if (businessWorkspaceIds.length) {
+        const entitlementResult = await supabase
+          .from('organization_entitlements')
+          .select('workspace_id,status,ends_at')
+          .in('workspace_id', businessWorkspaceIds)
+          .eq('entitlement_key', 'collaboration_core')
+          .in('status', ['trialing', 'active', 'past_due']);
+        if (!entitlementResult.error) {
+          const enabledIds = new Set(
+            (entitlementResult.data || [])
+              .filter((item) => !item.ends_at || new Date(item.ends_at).getTime() > Date.now())
+              .map((item) => item.workspace_id)
+          );
+          mapped = mapped.map((workspace) => ({
+            ...workspace,
+            collaborationEnabled: enabledIds.has(workspace.id),
+          }));
+        }
+      }
 
       // Sort: personal first, then business
       mapped.sort((a, b) => {
@@ -99,8 +155,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
       const savedWorkspace = savedId ? mapped.find((w) => w.id === savedId) : null;
       const personalWorkspace = mapped.find((w) => w.workspaceType === 'personal');
+      const businessWorkspace = mapped.find((w) => w.workspaceType === 'business');
+      const isBusinessAccount = user.user_metadata?.account_type === 'empresarial';
+      const compatibleSavedWorkspace = isBusinessAccount
+        ? savedWorkspace?.workspaceType === 'business' ? savedWorkspace : null
+        : savedWorkspace;
 
-      setActiveWorkspaceState(savedWorkspace || personalWorkspace || mapped[0] || null);
+      setActiveWorkspaceState(
+        compatibleSavedWorkspace ||
+        (isBusinessAccount ? businessWorkspace : personalWorkspace) ||
+        mapped[0] ||
+        null
+      );
     } catch (err) {
       console.log('Workspace context error:', err);
     } finally {

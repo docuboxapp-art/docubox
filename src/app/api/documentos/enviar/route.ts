@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendParticipantInvitationEmails } from '@/lib/emailNotifications';
 import { createNotificationServer } from '@/lib/notificationsInApp';
+import { findUnsupportedOrganizationSignatureMethods } from '@/lib/organization/governance';
+import { initializeCollaborationDocumentVersion } from '@/lib/collaboration/documents';
+
+type OrganizationGovernance = {
+  workflow: Record<string, any> | null;
+  signaturePolicy: Record<string, any> | null;
+  snapshot: Record<string, any>;
+};
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,10 +19,20 @@ const supabaseAdmin = createClient(
 // Reliable two-step workspace lookup
 async function resolvePersonalWorkspace(userId: string): Promise<string | null> {
   try {
-    const { data: memberships, error: memberErr } = await supabaseAdmin
+    let { data: memberships, error: memberErr } = await supabaseAdmin
       .from('workspace_members')
       .select('workspace_id')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .eq('status', 'active');
+
+    if (memberErr?.message?.includes('status')) {
+      const legacy = await supabaseAdmin
+        .from('workspace_members')
+        .select('workspace_id')
+        .eq('user_id', userId);
+      memberships = legacy.data;
+      memberErr = legacy.error;
+    }
 
     if (memberErr || !memberships || memberships.length === 0) return null;
 
@@ -35,6 +53,98 @@ async function resolvePersonalWorkspace(userId: string): Promise<string | null> 
   }
 }
 
+async function resolveOrganizationGovernance(
+  workspaceId: string
+): Promise<OrganizationGovernance | null> {
+  const workspace = await supabaseAdmin
+    .from('workspaces')
+    .select('workspace_type,organization_enabled,organization_settings')
+    .eq('id', workspaceId)
+    .maybeSingle();
+
+  // Compatibility while the incremental organization migrations are pending.
+  if (workspace.error?.message?.includes('organization_')) return null;
+  if (workspace.error) throw workspace.error;
+  if (
+    !workspace.data ||
+    workspace.data.workspace_type !== 'business' ||
+    !workspace.data.organization_enabled
+  ) {
+    return null;
+  }
+
+  const settings = (workspace.data.organization_settings || {}) as Record<string, unknown>;
+  const workflowId =
+    typeof settings.default_workflow_id === 'string' ? settings.default_workflow_id : null;
+  const policyId =
+    typeof settings.default_signature_policy_id === 'string'
+      ? settings.default_signature_policy_id
+      : null;
+  if (!workflowId && !policyId) return null;
+
+  const [workflowResult, policyResult] = await Promise.all([
+    workflowId
+      ? supabaseAdmin
+          .from('organization_approval_workflows')
+          .select('id,name,version,definition,document_type,applicable_areas,status')
+          .eq('workspace_id', workspaceId)
+          .eq('id', workflowId)
+          .eq('status', 'published')
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    policyId
+      ? supabaseAdmin
+          .from('organization_signature_policies')
+          .select(
+            'id,name,version,security_level,allowed_signature_types,resource_scope,requirements,status'
+          )
+          .eq('workspace_id', workspaceId)
+          .eq('id', policyId)
+          .eq('status', 'published')
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (workflowResult.error) throw workflowResult.error;
+  if (policyResult.error) throw policyResult.error;
+  if (workflowId && !workflowResult.data) {
+    throw new Error(
+      'El flujo predeterminado ya no está publicado. Actualiza el gobierno de la organización.'
+    );
+  }
+  if (policyId && !policyResult.data) {
+    throw new Error(
+      'La política de firma predeterminada ya no está publicada. Actualiza el gobierno de la organización.'
+    );
+  }
+
+  const appliedAt = new Date().toISOString();
+  return {
+    workflow: workflowResult.data,
+    signaturePolicy: policyResult.data,
+    snapshot: {
+      schema_version: 1,
+      applied_at: appliedAt,
+      source: 'organization_defaults',
+      precedence: ['document', 'template', 'unit', 'organization', 'docubox_default'],
+      workflow: workflowResult.data,
+      signature_policy: policyResult.data,
+    },
+  };
+}
+
+function validateSignaturePolicy(participants: any[], policy: Record<string, any> | null) {
+  if (!policy) return;
+  const unsupported = findUnsupportedOrganizationSignatureMethods(
+    participants,
+    policy.allowed_signature_types || []
+  );
+  if (unsupported.length) {
+    throw new Error(
+      `La política "${policy.name}" no permite los métodos seleccionados: ${unsupported.join(', ')}.`
+    );
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Verify authenticated user via JWT
@@ -44,7 +154,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
@@ -92,12 +205,23 @@ export async function POST(req: NextRequest) {
 
     // Verify provided workspaceId actually belongs to this user
     if (resolvedWorkspaceId) {
-      const { data: wCheck } = await supabaseAdmin
+      let { data: wCheck, error: membershipError } = await supabaseAdmin
         .from('workspace_members')
         .select('workspace_id')
         .eq('workspace_id', resolvedWorkspaceId)
         .eq('user_id', user.id)
+        .eq('status', 'active')
         .maybeSingle();
+      if (membershipError?.message?.includes('status')) {
+        const legacy = await supabaseAdmin
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('workspace_id', resolvedWorkspaceId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        wCheck = legacy.data;
+        membershipError = legacy.error;
+      }
       if (!wCheck) resolvedWorkspaceId = null;
     }
 
@@ -106,18 +230,28 @@ export async function POST(req: NextRequest) {
       resolvedWorkspaceId = await resolvePersonalWorkspace(user.id);
     }
 
+    const governance = resolvedWorkspaceId
+      ? await resolveOrganizationGovernance(resolvedWorkspaceId)
+      : null;
+    validateSignaturePolicy(participantes || [], governance?.signaturePolicy || null);
+
     // Upsert document record using service role (bypasses RLS)
     // ── Determine initial visible participants based on participation order ──
-    const TERMINAL_SUB_ESTADOS_ENVIAR = ['firmo','firmado','aprobo','aprobado','rechazo','rechazado','cancelo','cancelado'];
+    const TERMINAL_SUB_ESTADOS_ENVIAR = [
+      'firmo',
+      'firmado',
+      'aprobo',
+      'aprobado',
+      'rechazo',
+      'rechazado',
+      'cancelo',
+      'cancelado',
+    ];
     function isTerminalEnviar(sub: string): boolean {
       return TERMINAL_SUB_ESTADOS_ENVIAR.includes((sub ?? '').toLowerCase());
     }
 
-    function getInitialVisibleParticipants(
-      parts: any[],
-      order: string,
-      grupos: any[]
-    ): any[] {
+    function getInitialVisibleParticipants(parts: any[], order: string, grupos: any[]): any[] {
       const nonOwner = parts.filter((p: any) => !p.isCurrentUser);
       if (!order || order === 'paralelo') {
         return nonOwner;
@@ -130,10 +264,14 @@ export async function POST(req: NextRequest) {
         const firstGrupo = grupos[0];
         const grupoTipo = firstGrupo?.tipo ?? 'paralelo';
         const grupoIds: string[] = firstGrupo?.participantIds ?? [];
-        const grupoParticipants = parts.filter((p: any) => grupoIds.includes(p.id) && !p.isCurrentUser);
+        const grupoParticipants = parts.filter(
+          (p: any) => grupoIds.includes(p.id) && !p.isCurrentUser
+        );
         if (grupoTipo === 'paralelo') return grupoParticipants;
         if (grupoTipo === 'secuencial') {
-          const ordered = grupoIds.map((id: string) => parts.find((p: any) => p.id === id)).filter(Boolean);
+          const ordered = grupoIds
+            .map((id: string) => parts.find((p: any) => p.id === id))
+            .filter(Boolean);
           const first = ordered.find((p: any) => !p.isCurrentUser);
           return first ? [first] : [];
         }
@@ -145,7 +283,9 @@ export async function POST(req: NextRequest) {
     const effectiveOrder: string = participationOrder || 'paralelo';
     const effectiveGrupos: any[] = gruposFirma || [];
     const initialVisibleIds = new Set(
-      getInitialVisibleParticipants(participantes || [], effectiveOrder, effectiveGrupos).map((p: any) => p.id)
+      getInitialVisibleParticipants(participantes || [], effectiveOrder, effectiveGrupos).map(
+        (p: any) => p.id
+      )
     );
 
     // Mark visible/notificado flags on participants
@@ -155,7 +295,7 @@ export async function POST(req: NextRequest) {
       notificado: p.isCurrentUser ? true : initialVisibleIds.has(p.id),
     }));
 
-    const { error: upsertError } = await supabaseAdmin.from('documentos').upsert({
+    const documentRecord: Record<string, unknown> = {
       documento_id: documentoId,
       owner_id: user.id,
       workspace_id: resolvedWorkspaceId,
@@ -168,7 +308,7 @@ export async function POST(req: NextRequest) {
       numero_oficio: numeroOficio || null,
       grupo_tipo_documento_id: grupotipoId || null,
       tipo_documento_id: tipoDocumentoId || null,
-      otro_tipo_documento: (tipoDocumentoId === '__otros__' ? (otroTipoDocumento || null) : null),
+      otro_tipo_documento: tipoDocumentoId === '__otros__' ? otroTipoDocumento || null : null,
       ruta_guardado: ruta || 'raiz',
       etiquetas_ids: etiquetasIds || [],
       estado: 'en_proceso',
@@ -180,7 +320,17 @@ export async function POST(req: NextRequest) {
       sello_digital: selloDigital ?? false,
       estampa_autenticacion: estampaAutenticacion ?? false,
       metadatos_adicionales: metadatosAdicionales ?? false,
-    }, { onConflict: 'documento_id' });
+    };
+    if (governance) {
+      documentRecord.organization_workflow_id = governance.workflow?.id || null;
+      documentRecord.organization_signature_policy_id = governance.signaturePolicy?.id || null;
+      documentRecord.organization_governance_snapshot = governance.snapshot;
+      documentRecord.organization_governance_applied_at = governance.snapshot.applied_at;
+    }
+
+    const { error: upsertError } = await supabaseAdmin
+      .from('documentos')
+      .upsert(documentRecord, { onConflict: 'documento_id' });
 
     if (upsertError) {
       console.error('[DOCUBOX][enviar] Error en upsert documentos:', upsertError.message);
@@ -196,12 +346,17 @@ export async function POST(req: NextRequest) {
 
     if (selectError || !docRow) {
       console.error('[DOCUBOX][enviar] Error al obtener id del documento:', selectError?.message);
-      return NextResponse.json({ error: 'No se pudo obtener el id del documento' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'No se pudo obtener el id del documento' },
+        { status: 500 }
+      );
     }
 
     const dbDocumentId = docRow.id;
 
     // Upload file to storage using service role (bypasses storage RLS)
+    let uploadedStoragePath: string | null = null;
+    let uploadedFileUrl: string | null = null;
     if (file) {
       const safeFileName = fileName
         .normalize('NFD')
@@ -210,6 +365,7 @@ export async function POST(req: NextRequest) {
 
       const wsId = resolvedWorkspaceId || user.id;
       const storagePath = `${wsId}/${dbDocumentId}/${safeFileName}`;
+      uploadedStoragePath = storagePath;
 
       const fileBuffer = await file.arrayBuffer();
 
@@ -222,7 +378,10 @@ export async function POST(req: NextRequest) {
 
       if (uploadError) {
         console.error('[DOCUBOX][enviar] Error al subir archivo:', uploadError.message);
-        return NextResponse.json({ error: uploadError.message || 'Error al subir el archivo' }, { status: 500 });
+        return NextResponse.json(
+          { error: uploadError.message || 'Error al subir el archivo' },
+          { status: 500 }
+        );
       }
 
       // Save the storage path as file_url so mis-documentos can display/download it
@@ -230,9 +389,75 @@ export async function POST(req: NextRequest) {
         .from('documents')
         .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1 year
 
+      uploadedFileUrl = signedUrlData?.signedUrl || storagePath;
+
+      const documentFileUpdate = await supabaseAdmin
+        .from('documentos')
+        .update({ file_url: uploadedFileUrl, storage_path: storagePath })
+        .eq('id', dbDocumentId);
+      if (documentFileUpdate.error?.message?.includes('storage_path')) {
+        await supabaseAdmin
+          .from('documentos')
+          .update({ file_url: uploadedFileUrl })
+          .eq('id', dbDocumentId);
+      } else if (documentFileUpdate.error) {
+        throw documentFileUpdate.error;
+      }
+    }
+
+    if (resolvedWorkspaceId) {
+      try {
+        await initializeCollaborationDocumentVersion({
+          service: supabaseAdmin,
+          workspaceId: resolvedWorkspaceId,
+          documentId: dbDocumentId,
+          actorUserId: user.id,
+          sha256: fileHashSha256,
+          fileUrl: uploadedFileUrl,
+          storagePath: uploadedStoragePath,
+          mimeType: file?.type || fileType || 'application/octet-stream',
+          byteSize: file?.size || fileSize || null,
+          displayName: nombre || fileName,
+        });
+      } catch (collaborationError) {
+        // Colabora is additive: a pending migration must not interrupt the signature flow.
+        console.error('[DOCUBOX][enviar] No se pudo inicializar Colabora:', collaborationError);
+      }
+    }
+
+    if (governance?.workflow?.id) {
+      const userClient = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          auth: { persistSession: false, autoRefreshToken: false },
+          global: { headers: { Authorization: `Bearer ${token}` } },
+        }
+      );
+      const workflow = await userClient.rpc('start_organization_workflow_instance', {
+        ws_id: resolvedWorkspaceId,
+        target_workflow_id: governance.workflow.id,
+        requested_subject_type: 'document',
+        requested_subject_id: dbDocumentId,
+        requested_context: {
+          documento_id: documentoId,
+          governance_schema_version: 1,
+        },
+        requested_idempotency_key: dbDocumentId,
+      });
+      if (workflow.error) {
+        await supabaseAdmin
+          .from('documentos')
+          .update({ estado: 'borrador' })
+          .eq('id', dbDocumentId);
+        return NextResponse.json(
+          { error: 'No se pudo iniciar el flujo organizacional. Revisa su configuración.' },
+          { status: 409 }
+        );
+      }
       await supabaseAdmin
         .from('documentos')
-        .update({ file_url: signedUrlData?.signedUrl || storagePath })
+        .update({ organization_workflow_instance_id: workflow.data })
         .eq('id', dbDocumentId);
     }
 
@@ -242,7 +467,12 @@ export async function POST(req: NextRequest) {
       // AND have a valid email address
       // ── IMPORTANT: Only notify the initial visible participants based on participation order ──
       const allEmailParticipants = (participantesConVisibilidad || []).filter(
-        (p: { email?: string; isCurrentUser?: boolean; tipoNotificacion?: string[]; visible?: boolean }) => {
+        (p: {
+          email?: string;
+          isCurrentUser?: boolean;
+          tipoNotificacion?: string[];
+          visible?: boolean;
+        }) => {
           if (!p.email || p.isCurrentUser) return false;
           if (!p.email.includes('@')) return false;
           // Only notify participants who are visible (first batch based on order)
@@ -261,7 +491,7 @@ export async function POST(req: NextRequest) {
       const senderName = senderProfile?.full_name || user.email || 'Un usuario';
 
       // ── In-app notification: notify each participant who has a user_id ────
-      for (const p of (participantesConVisibilidad || [])) {
+      for (const p of participantesConVisibilidad || []) {
         if (p.isCurrentUser) continue;
         // Only notify visible participants (first batch)
         if (!p.visible) continue;
@@ -285,7 +515,9 @@ export async function POST(req: NextRequest) {
 
       // Send invitation emails to all participants with a valid email
       if (allEmailParticipants.length > 0) {
-        console.log(`[DOCUBOX][enviar] Sending invitation emails to ${allEmailParticipants.length} participants`);
+        console.log(
+          `[DOCUBOX][enviar] Sending invitation emails to ${allEmailParticipants.length} participants`
+        );
 
         // Build portal URLs per participant — always use the document's DB UUID as token
         // (the portal page resolves it via the /api/portal-participante/info endpoint)
@@ -305,7 +537,9 @@ export async function POST(req: NextRequest) {
           documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/portal-participante/${dbDocumentId}`,
         });
       } else {
-        console.log('[DOCUBOX][enviar] No participants with email found — skipping email notifications');
+        console.log(
+          '[DOCUBOX][enviar] No participants with email found — skipping email notifications'
+        );
       }
 
       const allNotifiedParticipants = allEmailParticipants;
@@ -341,19 +575,24 @@ export async function POST(req: NextRequest) {
 
         // ── Log audit trail: invitacion_enviada per participant ────────────
         try {
-          const auditRows = allNotifiedParticipants.map((p: { email?: string; name?: string; tipoNotificacion?: string[] }) => ({
-            documento_id: dbDocumentId,
-            actor_id: user.id,
-            action: 'invitacion_enviada',
-            category: 'notificacion',
-            details: {
-              participant_email: p.email,
-              participant_name: p.name,
-              channel: 'email',
-              email_type: (p.tipoNotificacion || []).some((n: string) => ['correo', 'email'].includes(n.toLowerCase()))
-                ? 'participant_invitation' :'signature_request',
-            },
-          }));
+          const auditRows = allNotifiedParticipants.map(
+            (p: { email?: string; name?: string; tipoNotificacion?: string[] }) => ({
+              documento_id: dbDocumentId,
+              actor_id: user.id,
+              action: 'invitacion_enviada',
+              category: 'notificacion',
+              details: {
+                participant_email: p.email,
+                participant_name: p.name,
+                channel: 'email',
+                email_type: (p.tipoNotificacion || []).some((n: string) =>
+                  ['correo', 'email'].includes(n.toLowerCase())
+                )
+                  ? 'participant_invitation'
+                  : 'signature_request',
+              },
+            })
+          );
           await supabaseAdmin.from('audit_trail').insert(auditRows);
         } catch (auditErr) {
           console.error('[DOCUBOX][enviar] Error al registrar audit trail:', auditErr);
