@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-// @ts-expect-error Node's type-stripping test runner resolves the TypeScript source directly.
 import { canonicalSha256, canonicalizeRFC8785, sha256Hex } from './canonical.ts';
 
 test('canonicalization is independent from object insertion order', () => {

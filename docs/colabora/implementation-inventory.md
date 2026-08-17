@@ -85,16 +85,24 @@ resolverse de forma incremental para no alterar funciones historicas.
 | Dependencia              | Configuracion                                                                | Comportamiento sin configurar                                   |
 | ------------------------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | Supabase                 | Aplicar migraciones en orden y conservar RLS                                 | El modulo no puede operar                                       |
-| Escaner antimalware      | `COLABORA_MALWARE_SCAN_URL` y `COLABORA_MALWARE_SCAN_TOKEN` solo en backend  | Los archivos no se pueden aprobar                               |
+| Escaner antimalware      | `METADEFENDER_API_KEY` o proveedor privado `COLABORA_MALWARE_SCAN_*`         | Los archivos no se pueden aprobar                               |
 | Correo OTP               | Credenciales de Resend ya usadas por Docubox                                 | Las salas y solicitudes externas no pueden autenticar invitados |
 | Storage                  | Buckets privados y service role solo en servidor                             | Las descargas protegidas fallan cerradas                        |
 | Worker de automatizacion | `CRON_SECRET` y una llamada programada a `/api/colabora/automations/process` | La cola conserva ejecuciones pendientes sin procesarlas         |
 
-## Pendientes antes de produccion
+## Preparacion de produccion
 
-- Configurar y validar un proveedor real de analisis antimalware.
+- MetaDefender Cloud esta conectado desde backend mediante consulta por SHA-256, carga controlada,
+  polling acotado y resultado fail-closed. La clave se conserva solo en Vercel.
+- `CRON_SECRET` esta configurado en produccion y `vercel.json` programa el worker cada 15 minutos.
+- TypeScript se valida globalmente durante el build y la cadena de dependencias queda sin
+  vulnerabilidades conocidas reportadas por `npm audit`.
+
+## Pendientes de salida controlada
+
+- Ejecutar cargas E2E autenticadas limpia, infectada y con proveedor caido usando archivos de prueba
+  aprobados para ese fin.
 - Completar regresion visual y funcional en escritorio y movil.
-- Configurar `CRON_SECRET` y el planificador privado que procese la cola de automatizaciones.
 - Ampliar exportacion a PDF/XLSX solo cuando se defina la plantilla corporativa y el volumen maximo.
 
 ## Validacion remota
@@ -102,4 +110,6 @@ resolverse de forma incremental para no alterar funciones historicas.
 - Proyecto Supabase enlazado: `kbjejiclhgjmiasauxyr`.
 - Migraciones comerciales y de seguridad aplicadas en orden.
 - Contratos de planes, entitlements, RLS, RPC backend-only y aislamiento de datos: aprobados.
-- Pruebas unitarias de Organization y Colabora: 24 de 24 aprobadas.
+- Pruebas unitarias de Organization, Colabora y MetaDefender: 27 de 27 aprobadas.
+- Asesor de seguridad de Supabase: 0 hallazgos `ERROR`; las advertencias heredadas se mantienen en
+  remediacion incremental para evitar regresiones en funciones historicas.

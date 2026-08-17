@@ -609,7 +609,7 @@ function ResultCard({
             </div>
           )}
 
-          {details && (
+          {details != null && (
             <div className="mt-2">
               <button
                 onClick={() => setOpen((v) => !v)}

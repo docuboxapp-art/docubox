@@ -17,7 +17,11 @@ import {
   Trash2,
   ChevronRight,
 } from 'lucide-react';
-import { getScopeFromRoute, ROUTE_ACTION_INTENTS } from '@/lib/ai/luciaIntentClassifier';
+import {
+  getScopeFromRoute,
+  ROUTE_ACTION_INTENTS,
+  type LuciaScope,
+} from '@/lib/ai/luciaIntentClassifier';
 import { getQuickSuggestions, getLuciaModuleConfig } from '@/lib/ai/moduleCapabilities';
 import { useSpeechToText } from '@/lib/hooks/useSpeechToText';
 import { createClient } from '@/lib/supabase/client';
@@ -52,6 +56,15 @@ interface LucIAChatProps {
   /** The public token from the URL — used when mode="public-token" */
   publicToken?: string;
 }
+
+const LEGACY_SCOPE_MAP: Record<NonNullable<LucIAChatProps['scope']>, LuciaScope> = {
+  workspace: 'workspace',
+  document: 'document_viewer',
+  expediente: 'documents',
+  signatures: 'signing',
+  tasks: 'pending_tasks',
+  compliance: 'reports',
+};
 
 const GENERAL_SYSTEM_PROMPT = `Eres LucIA, la asistente inteligente de DocuBox. Ayudas a los usuarios con:
 - Chat de ayuda y soporte general de DocuBox
@@ -152,7 +165,7 @@ export default function LucIAChat({
 
   // ── Route-context callable actions ────────────────────────────────────────
   const routeScope = pathname ? getScopeFromRoute(pathname) : 'workspace';
-  const currentScope = scope === 'workspace' ? routeScope : scope;
+  const currentScope: LuciaScope = scope === 'workspace' ? routeScope : LEGACY_SCOPE_MAP[scope];
   const scopeActions = ROUTE_ACTION_INTENTS[currentScope];
   const callableActions = scopeActions ? Object.entries(scopeActions) : [];
 

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-// @ts-expect-error Node's type-stripping test runner resolves the TypeScript source directly.
 import { normalizeSha256, sha256Token } from './repository.ts';
 
 test('normalizes a SHA-256 fingerprint without weakening validation', () => {

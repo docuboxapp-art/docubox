@@ -4019,7 +4019,9 @@ export default function FirmarDocumentoPage() {
       pdfDoc.setKeywords(['firma electronica', 'DOCUBOX', 'PAdES', 'RSA-2048', 'Codigo de Comercio', 'Mexico', 'Docubox CA']);
 
       const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const downloadBytes = new Uint8Array(pdfBytes.byteLength);
+      downloadBytes.set(pdfBytes);
+      const blob = new Blob([downloadBytes.buffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = window.document.createElement('a');
       a.href = url;

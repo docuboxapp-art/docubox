@@ -14,13 +14,13 @@ export interface CreateNotificationParams {
 }
 
 // ─── Lazy service-role client (server-side only) ──────────────────────────────
-let _serviceClient: ReturnType<typeof createServiceClient> | null = null;
+let _serviceClient: ReturnType<typeof createServiceClient<any>> | null = null;
 function getServiceClient() {
   if (!_serviceClient) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) throw new Error('[notificationsInApp] Missing Supabase service credentials');
-    _serviceClient = createServiceClient(url, key);
+    _serviceClient = createServiceClient<any>(url, key);
   }
   return _serviceClient;
 }

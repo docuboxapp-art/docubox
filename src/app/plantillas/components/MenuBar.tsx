@@ -601,7 +601,7 @@ function applyCapitalization(type: 'upper' | 'lower' | 'title') {
 // ─── Menu Item Component ──────────────────────────────────────────────────────
 
 interface MenuItemDef {
-  label: string;
+  label?: string;
   shortcut?: string;
   action?: () => void;
   separator?: boolean;

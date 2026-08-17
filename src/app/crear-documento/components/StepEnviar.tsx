@@ -220,7 +220,9 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         console.log('[DOCUBOX][security] Usando pipeline pre-ejecutado (sin reprocesar)');
         detectedMime = preProcessedFile.mime;
         uploadContentType = preProcessedFile.mime === 'application/pdf' ? 'application/pdf' : (file.type || 'application/octet-stream');
-        uploadBlob = new Blob([preProcessedFile.bytes], { type: uploadContentType });
+        const uploadBytes = new Uint8Array(preProcessedFile.bytes.byteLength);
+        uploadBytes.set(preProcessedFile.bytes);
+        uploadBlob = new Blob([uploadBytes.buffer], { type: uploadContentType });
       } else {
         console.log('[DOCUBOX][security] Pre-procesamiento no disponible, ejecutando pipeline ahora');
         if (file.size > MAX_FILE_SIZE_BYTES) { setScanState('error_grande'); throw new Error('El archivo supera el límite de 50MB.'); }
@@ -230,7 +232,9 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         if (detectedMime === 'application/pdf') {
           try {
             const sanitizedBytes = await sanitizePDFClient(file);
-            uploadBlob = new Blob([sanitizedBytes], { type: 'application/pdf' });
+            const uploadBytes = new Uint8Array(sanitizedBytes.byteLength);
+            uploadBytes.set(sanitizedBytes);
+            uploadBlob = new Blob([uploadBytes.buffer], { type: 'application/pdf' });
             uploadContentType = 'application/pdf';
           } catch {
             setScanState('error_invalido');

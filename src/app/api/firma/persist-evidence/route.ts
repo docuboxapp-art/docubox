@@ -231,11 +231,14 @@ export async function POST(req: NextRequest) {
     // Update participant sub_estado in documentos.participantes JSONB
     const userEmailLower = (user.email || '').toLowerCase();
     if (userEmailLower) {
-      await supabaseAdmin.rpc('update_participante_sub_estado', {
+      const { error: participantStateError } = await supabaseAdmin.rpc('update_participante_sub_estado', {
         p_documento_id: documentId,
         p_email: user.email,
         p_sub_estado: 'firmado',
-      }).catch(() => {}); // non-critical if RPC fails
+      });
+      if (participantStateError) {
+        console.warn('[persist-evidence] No se pudo actualizar el subestado:', participantStateError.message);
+      }
     }
 
     // ── Check if ALL participants have completed and close document if so ──
@@ -263,7 +266,7 @@ export async function POST(req: NextRequest) {
           .eq('id', documentId);
 
         // Log completion activity
-        await supabaseAdmin
+        const { error: completionLogError } = await supabaseAdmin
           .from('document_activity_log')
           .insert({
             documento_id: documentId,
@@ -273,8 +276,10 @@ export async function POST(req: NextRequest) {
               motivo: 'Todos los participantes han completado su participación',
               total_participantes: participantes.length,
             },
-          })
-          .catch(() => {});
+          });
+        if (completionLogError) {
+          console.warn('[persist-evidence] No se pudo registrar el cierre:', completionLogError.message);
+        }
       } else {
         // ── Advance participation chain for sequential/mixed orders ──────────
         // Call advance-participation to notify the next participant(s) in line
@@ -297,7 +302,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Log activity
-    await supabaseAdmin
+    const { error: signatureLogError } = await supabaseAdmin
       .from('document_activity_log')
       .insert({
         documento_id: documentId,
@@ -309,8 +314,10 @@ export async function POST(req: NextRequest) {
           human_score: humanScore,
           has_biometric: !!biometric,
         },
-      })
-      .catch(() => {}); // non-critical
+      });
+    if (signatureLogError) {
+      console.warn('[persist-evidence] No se pudo registrar la firma:', signatureLogError.message);
+    }
 
     // ── Notify owner when participant signs/approves ───────────────────────
     if (documento.owner_id && documento.owner_id !== user.id) {

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { NodeViewWrapper } from '@tiptap/react';
+import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react';
 
 const FIELD_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   signature: { bg: '#EBF5FF', text: '#1A56DB', border: '#1A56DB' },
@@ -27,22 +27,7 @@ const FIELD_ICONS: Record<string, string> = {
   stamp:     '🔏',
 };
 
-interface VariableFieldViewProps {
-  node: {
-    attrs: {
-      fieldId: string;
-      fieldType: string;
-      label: string;
-      assignedTo: string;
-      required: boolean;
-    };
-  };
-  deleteNode: () => void;
-  selected: boolean;
-  editor: { isEditable: boolean };
-}
-
-export function VariableFieldView({ node, deleteNode, selected, editor }: VariableFieldViewProps) {
+export function VariableFieldView({ node, deleteNode, selected, editor }: ReactNodeViewProps) {
   const { fieldType, label } = node.attrs;
   const colors = FIELD_COLORS[fieldType] || FIELD_COLORS.text;
   const icon = FIELD_ICONS[fieldType] || '📝';

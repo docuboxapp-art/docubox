@@ -2262,17 +2262,19 @@ export function StepSubir({
     if (!plantillasEnabled) return;
     setPlantillasLoading(true);
     const supabase = createClient();
-    supabase
-      .from('plantillas')
-      .select('id, nombre, descripcion')
-      .eq('estado', 'publicada')
-      .order('created_at', { ascending: false })
-      .limit(20)
-      .then(({ data }) => {
+    void (async () => {
+      try {
+        const { data } = await supabase
+          .from('plantillas')
+          .select('id, nombre, descripcion')
+          .eq('estado', 'publicada')
+          .order('created_at', { ascending: false })
+          .limit(20);
         setPlantillas(data || []);
+      } finally {
         setPlantillasLoading(false);
-      })
-      .catch(() => setPlantillasLoading(false));
+      }
+    })();
   }, [plantillasEnabled]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {

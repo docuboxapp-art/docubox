@@ -5,8 +5,10 @@ import {
   authorizeCollaborationRequest,
   recordCollaborationAudit,
 } from '@/lib/collaboration/server';
+import { scanWithMetaDefender } from '@/lib/security/metadefender';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 const bodySchema = z.object({ workspace_id: z.string().uuid() });
 const scannerResponseSchema = z.object({
@@ -29,7 +31,9 @@ export async function POST(request: Request, context: { params: Promise<{ fileId
     );
     const scannerUrl = process.env.COLABORA_MALWARE_SCAN_URL;
     const scannerToken = process.env.COLABORA_MALWARE_SCAN_TOKEN;
-    if (!scannerUrl || !scannerToken) {
+    const metaDefenderApiKey = process.env.METADEFENDER_API_KEY;
+    const hasCustomScanner = Boolean(scannerUrl && scannerToken);
+    if (!hasCustomScanner && !metaDefenderApiKey) {
       throw new OrganizationApiError(
         503,
         'malware_scanner_not_configured',
@@ -81,20 +85,30 @@ export async function POST(request: Request, context: { params: Promise<{ fileId
       );
     }
 
-    let scanResponse: Response;
+    let scanResult: z.infer<typeof scannerResponseSchema>;
     try {
-      scanResponse = await fetch(scannerUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${scannerToken}`,
-          'Content-Type': fileResult.data.mime_type,
-          'X-File-Name': encodeURIComponent(fileResult.data.original_name),
-          'X-Content-SHA256': actualHash,
-        },
-        body: bytes,
-        signal: AbortSignal.timeout(30_000),
-        cache: 'no-store',
-      });
+      if (hasCustomScanner) {
+        const scanResponse = await fetch(scannerUrl!, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${scannerToken}`,
+            'Content-Type': fileResult.data.mime_type,
+            'X-File-Name': encodeURIComponent(fileResult.data.original_name),
+            'X-Content-SHA256': actualHash,
+          },
+          body: bytes,
+          signal: AbortSignal.timeout(30_000),
+          cache: 'no-store',
+        });
+        if (!scanResponse.ok) throw new Error(`scanner_failed:${scanResponse.status}`);
+        scanResult = scannerResponseSchema.parse(await scanResponse.json());
+      } else {
+        scanResult = await scanWithMetaDefender({
+          bytes,
+          filename: fileResult.data.original_name,
+          apiKey: metaDefenderApiKey!,
+        });
+      }
     } catch {
       await service
         .from('collaboration_request_files')
@@ -106,19 +120,7 @@ export async function POST(request: Request, context: { params: Promise<{ fileId
         'El analizador no respondio. El archivo permanece bloqueado.'
       );
     }
-    if (!scanResponse.ok) {
-      await service
-        .from('collaboration_request_files')
-        .update({ malware_scan_status: 'failed' })
-        .eq('id', fileId);
-      throw new OrganizationApiError(
-        503,
-        'malware_scanner_failed',
-        'El analizador no pudo completar la revision. El archivo permanece bloqueado.'
-      );
-    }
-    const result = scannerResponseSchema.parse(await scanResponse.json());
-    const clean = result.clean === true || result.status === 'clean';
+    const clean = scanResult.clean === true || scanResult.status === 'clean';
     const status = clean ? 'clean' : 'quarantined';
     const checkedAt = new Date().toISOString();
     const updated = await service
@@ -129,10 +131,10 @@ export async function POST(request: Request, context: { params: Promise<{ fileId
           ...(fileResult.data.metadata || {}),
           security_scan: {
             checked_at: checkedAt,
-            engine: result.engine || 'configured-provider',
-            signature_version: result.signature_version || null,
+            engine: scanResult.engine || 'configured-provider',
+            signature_version: scanResult.signature_version || null,
             result: status,
-            threat: result.threat || null,
+            threat: scanResult.threat || null,
           },
         },
       })

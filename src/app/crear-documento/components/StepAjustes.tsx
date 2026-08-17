@@ -138,7 +138,7 @@ function FieldTypeConfigModal({
           {isImagen && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Tipo de imagen</label>
-              <select value={imageType} onChange={(e) => setImageType(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white">
+              <select value={imageType} onChange={(e) => setImageType(e.target.value as typeof imageType)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white">
                 <option value="foto">Fotografía</option>
                 <option value="firma_imagen">Firma como imagen</option>
                 <option value="logo">Logotipo</option>
@@ -153,7 +153,7 @@ function FieldTypeConfigModal({
             <>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Formato de número</label>
-                <select value={numberFormat} onChange={(e) => setNumberFormat(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white">
+                <select value={numberFormat} onChange={(e) => setNumberFormat(e.target.value as typeof numberFormat)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white">
                   <option value="entero">Entero (sin decimales)</option>
                   <option value="decimal">Decimal</option>
                   <option value="porcentaje">Porcentaje (%)</option>
