@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/colabora/automations/process",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 3 * * *"
     }
   ]
 }

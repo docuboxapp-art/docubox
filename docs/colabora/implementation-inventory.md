@@ -94,7 +94,9 @@ resolverse de forma incremental para no alterar funciones historicas.
 
 - MetaDefender Cloud esta conectado desde backend mediante consulta por SHA-256, carga controlada,
   polling acotado y resultado fail-closed. La clave se conserva solo en Vercel.
-- `CRON_SECRET` esta configurado en produccion y `vercel.json` programa el worker cada 15 minutos.
+- `CRON_SECRET` esta configurado en produccion y `vercel.json` programa el worker diariamente, que
+  es la frecuencia admitida por el plan Hobby actual. El endpoint admite mayor frecuencia al usar
+  Vercel Pro o un planificador privado.
 - TypeScript se valida globalmente durante el build y la cadena de dependencias queda sin
   vulnerabilidades conocidas reportadas por `npm audit`.
 

@@ -30,8 +30,8 @@ La especificacion enumera `COL-00` a `COL-18`: son 19 experiencias funcionales. 
 ## Orden de salida recomendado
 
 1. Mantener las migraciones aplicadas en Supabase y ejecutar los contratos SQL en cada nueva entrega.
-2. Mantener el worker de Vercel Cron y verificar en cada despliegue su ejecucion autenticada cada 15
-   minutos.
+2. Mantener el worker diario de Vercel Cron y, antes de habilitar automatizaciones sensibles al
+   tiempo, migrar a Vercel Pro o conectar un planificador privado con mayor frecuencia.
 3. Ejecutar la prueba E2E del escaner MetaDefender con archivos controlados: limpio, infectado,
    alterado y proveedor caido.
 4. Validar dos tenants, un miembro suspendido y un add-on vencido en solo lectura.
