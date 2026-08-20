@@ -9,30 +9,35 @@ import AppLogo from '@/components/ui/AppLogo';
 type VerificationResult = {
   verification_uuid: string;
   overall_status: string;
+  certification: {
+    mode?: 'foundation_only';
+    capabilities?: Record<string, string>;
+  };
   document: { folio: string; body_hash_match: boolean; certified_pdf_hash_match: boolean };
-  document_chain: { hash_match: boolean; seal_valid: boolean; key_version: string };
+  document_chain: { hash_match: boolean; seal_valid: boolean; key_version: string | null };
   document_seal: {
-    seal_uuid: string;
+    seal_uuid: string | null;
     status: 'VALID' | 'INVALID' | 'UNVERIFIED' | 'REVOKED';
-    document_chain_sha256: string;
-    signature_algorithm: string;
-    key_size_bits: number;
-    signing_key_version: string;
-    public_key_fingerprint_sha256: string;
-    signed_at: string;
-    seal_sha256: string;
-    seal_base64_preview: string;
+    document_chain_sha256: string | null;
+    signature_algorithm: string | null;
+    key_size_bits: number | null;
+    signing_key_version: string | null;
+    public_key_fingerprint_sha256: string | null;
+    signed_at: string | null;
+    seal_sha256: string | null;
+    seal_base64_preview: string | null;
     downloads: string[];
   };
-  evidence_chain: { manifest_hash_match: boolean; chain_hash_match: boolean; seal_valid: boolean; audit_chain_valid: boolean; key_version: string };
+  evidence_chain: { manifest_hash_match: boolean; chain_hash_match: boolean; seal_valid: boolean; audit_chain_valid: boolean; key_version: string | null };
   timestamp: { standard: string; status: string; gen_time: string; timestamp_token_sha256: string } | null;
-  certification_root_sha256: string;
+  certification_root_sha256: string | null;
 };
 
 export default function PublicCertificationVerificationPage() {
   const { verificationUuid } = useParams<{ verificationUuid: string }>();
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [error, setError] = useState('');
+  const foundationOnly = result?.certification?.mode === 'foundation_only';
 
   useEffect(() => {
     fetch(`/api/verify/${encodeURIComponent(verificationUuid)}`, { cache: 'no-store' })
@@ -78,9 +83,9 @@ export default function PublicCertificationVerificationPage() {
                 <div className="space-y-4 p-5 lg:border-r lg:border-slate-200">
                   <SealValue label="Identificador del sello" value={result.document_seal.seal_uuid} />
                   <SealValue label="Hash de la cadena original" value={result.document_seal.document_chain_sha256} mono />
-                  <div className="grid gap-4 sm:grid-cols-2"><SealValue label="Algoritmo" value={`${result.document_seal.signature_algorithm} / ${result.document_seal.key_size_bits} bits`} /><SealValue label="Version de llave" value={result.document_seal.signing_key_version} mono /></div>
+                  <div className="grid gap-4 sm:grid-cols-2"><SealValue label="Algoritmo" value={result.document_seal.signature_algorithm && result.document_seal.key_size_bits ? `${result.document_seal.signature_algorithm} / ${result.document_seal.key_size_bits} bits` : null} /><SealValue label="Version de llave" value={result.document_seal.signing_key_version} mono /></div>
                   <SealValue label="Huella SHA-256 de la llave publica" value={result.document_seal.public_key_fingerprint_sha256} mono />
-                  <SealValue label="Fecha de generacion" value={new Date(result.document_seal.signed_at).toLocaleString('es-MX', { timeZone: 'UTC' }) + ' UTC'} />
+                  <SealValue label="Fecha de generacion" value={result.document_seal.signed_at ? new Date(result.document_seal.signed_at).toLocaleString('es-MX', { timeZone: 'UTC' }) + ' UTC' : null} />
                 </div>
                 <div className="p-5"><p className="text-xs font-700 uppercase text-slate-500">Sello Base64 abreviado</p><pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-all rounded-md border border-slate-200 bg-slate-50 p-4 font-mono text-[11px] leading-5 text-slate-600">{result.document_seal.seal_base64_preview}</pre><p className="mt-3 text-xs leading-5 text-slate-500">La validacion utiliza siempre el sello completo. Esta abreviacion es solamente visual.</p></div>
               </div>
@@ -106,7 +111,7 @@ function SealBadge({ status }: { status: VerificationResult['document_seal']['st
   return <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-700 ${valid ? 'bg-emerald-50 text-emerald-700' : status === 'REVOKED' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>{valid ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}{labels[status]}</span>;
 }
 
-function SealValue({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function SealValue({ label, value, mono = false }: { label: string; value: string | null; mono?: boolean }) {
   return <div><p className="text-[11px] font-700 uppercase text-slate-500">{label}</p><p className={`mt-1 break-all text-sm text-slate-900 ${mono ? 'font-mono text-xs leading-5' : ''}`}>{value || 'No disponible'}</p></div>;
 }
 

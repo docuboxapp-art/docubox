@@ -27,6 +27,69 @@ function ShellContent({ children }: { children: ReactNode }) {
     () => collaborationNavigation.filter((item) => can(item.permission)),
     [can],
   );
+  const standardNavigation = useMemo(
+    () => visibleNavigation.filter((item) => item.classification !== 'pro'),
+    [visibleNavigation],
+  );
+  const proNavigation = useMemo(() => {
+    const activeStatuses = ['trialing', 'active', 'past_due'];
+    const hasActiveProAccess =
+      access.commercialTier === 'pro'
+      || visibleNavigation.some(
+        (item) =>
+          item.classification === 'pro'
+          && 'entitlement' in item
+          && activeStatuses.includes(access.entitlements[item.entitlement]?.status || ''),
+      );
+    return hasActiveProAccess
+      ? visibleNavigation.filter((item) => item.classification === 'pro')
+      : [];
+  }, [access.commercialTier, access.entitlements, visibleNavigation]);
+
+  const renderNavigationItem = (item: (typeof collaborationNavigation)[number]) => {
+    const active =
+      pathname === item.href
+      || (item.href !== '/colabora' && pathname.startsWith(`${item.href}/`));
+    const proAvailable =
+      item.classification !== 'pro'
+      || ('entitlement' in item
+        && ['trialing', 'active', 'past_due'].includes(
+          access.entitlements[item.entitlement]?.status || '',
+        ));
+
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        aria-disabled={!proAvailable}
+        className={`group flex min-h-10 shrink-0 items-center gap-3 rounded-md px-3 text-sm transition-colors lg:mb-0.5 ${
+          active
+            ? 'bg-primary/10 font-medium text-primary'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+        }`}
+      >
+        <item.icon size={17} />
+        <span className="whitespace-nowrap lg:flex-1">{item.label}</span>
+        {item.classification === 'pro' && (
+          <span
+            className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
+              proAvailable
+                ? 'border-primary/20 bg-primary/10 text-primary'
+                : 'border-border bg-muted text-muted-foreground'
+            }`}
+          >
+            PRO
+          </span>
+        )}
+        <ChevronRight
+          size={14}
+          className={`hidden lg:block ${
+            active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
+          }`}
+        />
+      </Link>
+    );
+  };
 
   const startTrial = async () => {
     if (!activeWorkspace?.id) return;
@@ -70,13 +133,19 @@ function ShellContent({ children }: { children: ReactNode }) {
         <div className="lg:grid lg:grid-cols-[238px_minmax(0,1fr)]">
           <aside className="border-r border-border bg-background">
             <nav className="flex gap-1 overflow-x-auto border-b border-border p-3 lg:sticky lg:top-[104px] lg:block lg:max-h-[calc(100vh-104px)] lg:overflow-y-auto lg:border-b-0">
-              {visibleNavigation.map((item) => {
-                const active = pathname === item.href || (item.href !== '/colabora' && pathname.startsWith(`${item.href}/`));
-                const proAvailable = item.classification !== 'pro'
-                  || ('entitlement' in item
-                    && ['trialing', 'active', 'past_due'].includes(access.entitlements[item.entitlement]?.status || ''));
-                return <Link key={item.href} href={item.href} aria-disabled={!proAvailable} className={`group flex min-h-10 shrink-0 items-center gap-3 rounded-md px-3 text-sm transition-colors lg:mb-0.5 ${active ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}><item.icon size={17} /><span className="whitespace-nowrap lg:flex-1">{item.label}</span>{item.classification === 'pro' && <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${proAvailable ? 'border-primary/20 bg-primary/10 text-primary' : 'border-border bg-muted text-muted-foreground'}`}>PRO</span>}<ChevronRight size={14} className={`hidden lg:block ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'}`} /></Link>;
-              })}
+              <p className="hidden px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground lg:block">
+                Colabora
+              </p>
+              {standardNavigation.map(renderNavigationItem)}
+              {proNavigation.length > 0 && (
+                <>
+                  <div className="mx-2 h-8 w-px shrink-0 self-center bg-border lg:my-3 lg:h-auto lg:w-auto lg:border-t lg:bg-transparent" />
+                  <p className="shrink-0 self-center px-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground lg:mb-2 lg:self-auto lg:px-3">
+                    Colabora Pro
+                  </p>
+                  {proNavigation.map(renderNavigationItem)}
+                </>
+              )}
             </nav>
           </aside>
           <main className="min-w-0 p-4 sm:p-5 lg:p-7">{children}</main>

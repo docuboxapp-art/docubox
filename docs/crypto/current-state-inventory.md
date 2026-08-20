@@ -1,153 +1,141 @@
-# Inventario actual del motor criptografico
+# Inventario actual de infraestructura criptografica
 
-Fecha de corte: 2026-08-08
+Fecha de corte: 2026-08-17
 
 ## Alcance y metodo
 
-Este inventario se obtuvo por inspeccion estatica del repositorio y consultas REST de solo lectura contra el proyecto Supabase configurado localmente. No se modifico codigo de produccion, no se ejecutaron migraciones y no se desplegaron funciones durante esta fase.
+Auditoria estatica del repositorio `C:\proyectos\docubox` y consultas de solo lectura al proyecto Supabase `kbjejiclhgjmiasauxyr`. No se modifico codigo, no se instalaron dependencias y no se ejecutaron migraciones ni despliegues.
 
-Hay dos estados que deben distinguirse:
+El sistema contiene dos dominios relacionados pero distintos:
 
-- **Repositorio:** contiene un motor de certificacion y migraciones nuevas aun no desplegadas.
-- **Supabase remoto:** conserva el esquema historico; las tablas principales del motor nuevo no estaban disponibles por REST al momento de la revision.
+1. **Motor tecnico documental**: `src/lib/certification`, responsable de cadenas, sellos KMS, timestamp, constancia, PAdES y verificacion publica.
+2. **Producto Docubox Certifica**: `src/lib/certifica` y `src/app/certificaciones`, responsable de expedientes comerciales de certificacion, productos, cobro, PSC y custodia.
 
-## Flujo de certificacion existente
+No deben fusionarse sus tablas ni declarar que el segundo sustituye la verificacion criptografica del primero.
 
-La implementacion mas cercana a `CertificationOrchestrator` es `createCertification()` en `src/lib/certification/engine.ts:243`.
+## Flujo tecnico existente
 
-Responsabilidades que ya ejecuta:
+La implementacion mas cercana al orquestador solicitado es `createCertification()` en `src/lib/certification/engine.ts:243`.
 
-1. Autentica al solicitante mediante `requireApiUser()` en `src/lib/certification/auth.ts:5`.
-2. Comprueba que `documentos.estado = 'completado'` en `src/lib/certification/engine.ts:256`.
-3. Crea o reutiliza `document_certifications` con una clave de idempotencia en `src/lib/certification/engine.ts:259`.
-4. Descarga el PDF desde Storage en `src/lib/certification/engine.ts:124`.
-5. Calcula SHA-256 del documento en `src/lib/certification/engine.ts:308`.
-6. Recupera `legal_evidence_events`, `signature_evidence` y `nom151_constancias_doc` en `src/lib/certification/engine.ts:310`.
-7. Verifica continuidad de la bitacora legal en `inspectLegalEvidenceChain()` de `src/lib/certification/engine.ts:54`.
-8. Construye cadena de documento, manifiesto y cadena de evidencia con JCS en `src/lib/certification/engine.ts:373`.
-9. Solicita sellos KMS en `src/lib/certification/engine.ts:402` y `src/lib/certification/engine.ts:464`.
-10. Solicita timestamp RFC 3161 en `src/lib/certification/engine.ts:481`.
-11. Genera una constancia tecnica con `generateIntegrityCertificatePdf()` en `src/lib/certification/pdf.ts`.
-12. Anexa la constancia al documento mediante `appendCertificatePages()` en `src/lib/certification/pdf.ts`.
-13. Solicita PAdES-B-T en `src/lib/certification/engine.ts:576`.
-14. Genera reporte y paquete tecnico ZIP en `src/lib/certification/engine.ts:580`.
-15. Almacena artefactos en `certification-artifacts` sin sobrescritura en `src/lib/certification/engine.ts:197`.
-16. Registra transiciones y accesos en `certification_state_transitions` y `certification_access_logs`.
-17. Verifica publicamente hashes, sellos y cadena legal en `getPublicCertification()` de `src/lib/certification/engine.ts:714`.
+| Responsabilidad | Implementacion exacta | Estado |
+|---|---|---|
+| Autenticacion API | `requireApiUser()` en `src/lib/certification/auth.ts` | Reutilizable |
+| Documento concluido | Validacion de `documentos.estado` en `engine.ts` | Parcial |
+| Idempotencia | Consulta por `document_id` y `document_version` en `engine.ts:259` | Parcial; fija version 1 |
+| SHA-256 | `sha256Hex()` en `src/lib/certification/canonical.ts:36` | Reutilizable |
+| Canonicalizacion | `canonicalizeRFC8785()` en `canonical.ts:32` | Reutilizable con mas vectores |
+| Cadena y manifiesto | `canonicalSha256()` y ensamblado en `engine.ts` | Reutilizable |
+| Firma RSA-PSS | `signDigestWithKms()` en `src/lib/certification/adapters.ts:50` | Fail-closed, contrato ambiguo digest/mensaje |
+| Timestamp | `requestVerifiedTimestamp()` en `adapters.ts:99` | Delega validacion al gateway |
+| Constancia PDF | `generateIntegrityCertificatePdf()` en `src/lib/certification/pdf.ts:185` | Reutilizable |
+| Insercion visual | `applyCryptographicPlacements()` y `appendCertificatePages()` | Reutilizable |
+| PAdES | `signPdfWithPades()` en `adapters.ts:146` | Delega firma y validacion al gateway |
+| Artefactos | `uploadArtifact()` en `engine.ts:197`, bucket `certification-artifacts` | Privado, `upsert:false` |
+| Estado/auditoria | `transition()` en `engine.ts:151` | No atomico |
+| Portal publico | `getPublicCertification()` en `engine.ts:714` y `/verificar-certificacion/[verificationUuid]` | Parcialmente verificable |
 
 ```mermaid
 flowchart LR
   A["POST /api/documents/:id/certifications"] --> B["createCertification()"]
-  B --> C["documentos + Storage"]
-  B --> D["legal_evidence_events"]
-  B --> E["signature_evidence"]
-  B --> F["KMS gateway"]
-  B --> G["TSA gateway"]
-  B --> H["PAdES gateway"]
-  B --> I["document_certifications"]
-  B --> J["certification-artifacts"]
-  I --> K["/verificar-certificacion/:uuid"]
-  J --> K
+  B --> C["documentos + document_versions"]
+  B --> D["evidencias y auditorias heredadas"]
+  B --> E["KMS gateway"]
+  B --> F["TSA gateway"]
+  B --> G["PAdES gateway"]
+  B --> H["document_certifications"]
+  B --> I["certification-artifacts"]
+  H --> J["verificacion publica"]
 ```
 
-## Componentes criptograficos
+## Producto Docubox Certifica
 
-| Capacidad | Implementacion | Estado observado |
-|---|---|---|
-| SHA-256 central | `sha256Hex()` en `src/lib/certification/canonical.ts:33` | Reutilizable |
-| Canonicalizacion | `canonicalizeRFC8785()` en `src/lib/certification/canonical.ts:29` | Reutilizable con pruebas RFC adicionales |
-| Sello KMS | `signDigestWithKms()` en `src/lib/certification/adapters.ts:39` | Fail-closed; verifica RSA-PSS localmente |
-| Timestamp | `requestVerifiedTimestamp()` en `src/lib/certification/adapters.ts:105` | Fail-closed; confia en banderas del gateway |
-| PAdES | `signPdfWithPades()` en `src/lib/certification/adapters.ts:153` | Fail-closed; no verifica el PDF localmente |
-| Constancia visual | `src/lib/certification/pdf.ts` | Reutilizable |
-| Paquete tecnico | `src/lib/certification/zip.ts` | Reutilizable |
-| Portal publico | `src/app/verificar-certificacion/[verificationUuid]/page.tsx` | Implementado |
-| API certificacion | `src/app/api/documents/[documentId]/certifications/route.ts` | Implementada, ejecucion sincrona |
-| Descargas privadas | rutas `certificate`, `certified-pdf` y `package` bajo la API de certificaciones | Owner-only actualmente |
+El modulo nuevo esta en:
 
-## Implementaciones PAdES coexistentes
+- Dominio y productos: `src/lib/certifica/domain.ts`.
+- Proveedores: `SandboxCertificationProvider` y `HttpPscCertificationProvider` en `src/lib/certifica/provider.ts`.
+- Auditoria de casos: `appendCertificationEvent()` en `src/lib/certifica/server.ts:26`.
+- APIs: `src/app/api/certifica/cases`, `upload`, `analyze`, `submit` y `configuration`.
+- Portal publico: `src/app/api/public/certifica/[token]/route.ts` y `src/app/verificar-certificacion/c/[token]`.
+- Migraciones: `20260817044200_docubox_certifica_phase1.sql`, `20260817051500_docubox_certifica_hardening.sql` y `20260817054000_docubox_certifica_api_hardening.sql`.
 
-1. **Motor nuevo:** `src/lib/certification/adapters.ts` usa gateways KMS/TSA/PAdES y falla cerrado.
-2. **Edge Function visual:** `supabase/functions/seal-pdf/index.ts:462` declara que no aplica firma criptografica y entrega PDF visual + hash, aunque su texto y metadatos hablan de PAdES y DigiCert.
-3. **VPS pyHanko:** `vps/signer/pades_core.py` firma con una llave PEM local, usa `HTTPTimeStamper` y expone `/sign` y `/verify` desde `vps/signer/server.py`.
-4. **Puente Edge/VPS:** `supabase/functions/sign-pdf-vps/index.ts` llama al VPS y persiste el PDF resultante.
-5. **Generador inseguro retirado:** `supabase/functions/generate-docubox-cert/index.ts` responde `410 INSECURE_KEY_GENERATOR_RETIRED`.
+El proveedor sandbox marca `legal_validity: false` y `NO VALIDO / DEMOSTRACION` en `provider.ts:30-61`. El proveedor HTTP valida estructura minima de la respuesta, no sus artefactos criptograficos (`provider.ts:86-103`). El analizador solo detecta `/ByteRange` y `/Contents` por expresion regular (`analyze/route.ts:24-25`). La consulta publica compara hashes almacenados entre si, sin volver a descargar y verificar el archivo (`public/certifica/[token]/route.ts:20`).
 
-Estas rutas no son equivalentes y hoy pueden producir afirmaciones tecnicas distintas.
+## Persistencia remota confirmada
 
-## Persistencia reutilizable
+### Documento y version
 
-### Documento operativo
+- `public.documentos`: entidad operativa principal.
+- `public.documents`: entidad legal historica usada por servicios heredados.
+- `public.document_versions`: ya existe; contiene `workspace_id`, `document_id`, `version_number`, `status`, `storage_path`, `sha256`, `source_version_id`, `frozen_at` y `signed_at`. Fue creada en `20260816120000_colabora_tasks_and_reviews.sql:49`.
+- La version evita mutaciones cuando esta congelada, enviada o firmada mediante `prevent_frozen_document_version_mutation()`.
+- `document_certifications` no tiene `document_version_id`; conserva solo `document_version integer`. No existe FK que pruebe la version exacta certificada.
+- La lectura de `document_versions` depende hoy del entitlement `collaboration_advanced_reviews`, lo cual acopla versionado juridico a Colabora.
 
-- `public.documentos`: entidad usada por la UI y por el motor nuevo. Definida originalmente en `supabase/migrations/20260326210000_documentos_table.sql` y extendida por migraciones posteriores.
-- `public.documents`: modelo legal historico definido en `supabase/migrations/20260330080000_docubox_documents_and_evidence.sql:33`. Lo usan servicios heredados como `sign-pdf-vps` y `nom151-generate`.
-- No existe una tabla universal e inmutable de versiones del documento. `case_file_document_versions` solo cubre expedientes.
+### Certificacion tecnica
 
-### Evidencia y auditoria
+- `document_certifications`: cadenas, sellos, hashes, rutas, entorno y metadatos de proveedor.
+- `evidence_manifests` y `evidence_manifest_items`: manifiesto tecnico.
+- `timestamp_records`: TSQ/TSR/token, imprint, TSA y validacion.
+- `cryptographic_keys`: material publico, certificado, cadena, huellas y attestation; no tiene columna de llave privada.
+- `certification_state_transitions` y `certification_access_logs`: trazabilidad del motor.
+- No existe `crypto_provider_configurations`; `psc_providers` cubre PSC comerciales, no KMS/PAdES/TSA tecnicos por tenant.
 
-- `signature_evidence`: evidencia biometrica, autografa y tecnica; `supabase/migrations/20260511230000_signature_evidence_table.sql:4`.
-- `document_evidence`: contexto de red, dispositivo, geolocalizacion y hash; `supabase/migrations/20260330080000_docubox_documents_and_evidence.sql:153`.
-- `document_audit_trail`: auditoria legal inmutable con secuencia y hash anterior; `supabase/migrations/20260330080100_docubox_audit_trail.sql:34`.
-- `document_integrity_log`: cadena de integridad verificable; `supabase/migrations/20260330080200_docubox_integrity_log.sql:36`.
-- `document_activity_log`: bitacora funcional de UI; `supabase/migrations/20260508070000_document_activity_log.sql:9`.
-- `legal_evidence_events`: ledger canonico propuesto por la migracion local `20260808120000_security_integrity_hardening.sql:65`; aun no confirmado en remoto.
+### Casos Certifica
 
-### Certificacion
+- `certification_cases`, `certification_files`, `certification_manifests`, `certification_evidences`, `certification_case_events`, `certification_provider_transactions`, `certification_public_links` y `certification_verification_runs`.
+- `certification_cases.existing_document_certification_id` puede enlazar el caso comercial con `document_certifications`.
+- Sus escrituras autenticadas directas fueron revocadas; las mutaciones pasan por backend con `service_role`.
+- Archivos, evidencias, manifiestos y eventos tienen triggers de inmutabilidad.
 
-- `document_certifications`: registro central propuesto; migracion `20260805010000_cryptographic_certification_engine.sql:3`.
-- `evidence_manifests` y `evidence_manifest_items`: manifiesto canonico y sus elementos.
-- `timestamp_records`: artefactos y metadatos RFC 3161.
-- `cryptographic_keys`: solo material publico, huellas y procedencia de llaves.
-- `certification_state_transitions`: historial inmutable de estados.
-- `certification_access_logs`: accesos y verificaciones.
-- `document_signature_seals`: sello historico por firmante; no equivale a certificacion institucional.
-- `nom151_constancias` y `nom151_constancias_doc`: dos generaciones de persistencia NOM-151.
+### Evidencia y auditoria heredada
 
-## Storage
+Coexisten `signature_evidence`, `document_evidence`, `document_audit_trail`, `document_integrity_log`, `document_activity_log`, `legal_evidence_events`, `organization_audit_events` y `certification_case_events`. Deben normalizarse mediante adaptadores; no conviene copiarlos a una tabla nueva sin mapa de procedencia.
 
-Buckets remotos observados como privados:
+## Storage remoto
 
-- `biometrics`
-- `documents`
-- `efirma-vault`
-- `evidence`
-- `mobile-uploads`
-- `session-captures`
-- `signatures`
+Buckets relevantes confirmados como privados:
 
-Buckets requeridos por las migraciones locales y no observados en remoto:
+- `documents`, `documents-signed`, `evidence`.
+- `certification-artifacts`.
+- `certification-originals`, `certification-provider-evidence`, `certification-generated-reports`, `certification-temporary-uploads`.
 
-- `certification-artifacts`
-- `documents-signed`
-- `nom151-constancias`
+La separacion de buckets es util, pero falta una politica comun de rutas versionadas, retencion, legal hold y reconciliacion de objetos huerfanos.
 
-La migracion local de endurecimiento los define como privados y agrega politicas por documento.
+## Implementaciones PDF/PAdES coexistentes
 
-## Interfaz existente
+1. `src/lib/certification/adapters.ts`: gateway fail-closed; no verifica localmente CMS, ByteRange ni RFC 3161.
+2. `supabase/functions/seal-pdf/index.ts`: agrega constancia visual y hash; `cryptoSignatureApplied = false`, aunque imprime PAdES/DigiCert/Docubox CA.
+3. `vps/signer/pades_core.py`: pyHanko, PEM local sin passphrase y TSA HTTP configurable.
+4. `supabase/functions/sign-pdf-vps/index.ts`: puente autenticado al VPS.
+5. `supabase/functions/generate-docubox-cert/index.ts`: retirado; responde HTTP 410.
 
-La tarjeta **Integridad y Evidencia Digital** ya existe en `src/app/visor-documento/[id]/page.tsx:4929`. Muestra disponibilidad de KMS/TSA/PAdES, estado de certificacion, errores y descargas. Debe evolucionar; no debe crearse una pantalla paralela.
+## Edge Functions y autenticacion
 
-El portal publico especializado esta en `src/app/verificar-certificacion/[verificationUuid]/page.tsx`. El repositorio de verificacion general tambien consulta certificaciones desde `src/lib/public-verification/repository.ts:56`.
+Supabase reporta 24 Edge Functions con `verify_jwt=false`. Las funciones criticas inspeccionadas implementan controles propios:
 
-## Configuracion y secretos
+- `sign-pdf-vps` valida JWT con `auth.getUser()`.
+- `seal-pdf` valida JWT y acceso al documento.
+- `sign-efirma` valida JWT, participante y proveedor obligatorio.
+- `nom151-generate` exige `INTERNAL_API_TOKEN`.
 
-- Los gateways nuevos esperan `DOCUBOX_KMS_GATEWAY_URL`, `DOCUBOX_TSA_GATEWAY_URL`, `DOCUBOX_PADES_GATEWAY_URL` y opcionalmente `DOCUBOX_CRYPTO_GATEWAY_TOKEN` en `src/lib/certification/adapters.ts`.
-- Ninguna de esas variables esta presente en el archivo local inspeccionado.
-- No se encontraron archivos `.key`, `.p12`, `.pfx` o `.pem` fisicos dentro del repositorio.
-- `vps/certs/` esta ignorado por `vps/.gitignore`.
-- `generate_p12.sh` contiene una contrasena de ejemplo fija y propone almacenar un PKCS#12 en Supabase Vault. Esa estrategia no satisface el objetivo de custodia KMS/HSM.
-- `vps/signer/cert_loader.py` carga una llave PEM desde disco sin passphrase.
-- `vps/signer/pades_core.py` recibe una service-role key de Supabase, ampliando innecesariamente el privilegio del firmador.
+El flag global sigue siendo deuda operativa: cada funcion debe tener prueba de contrato de autenticacion porque Supabase no la impone automaticamente.
+
+## Secretos y llaves
+
+- No se encontraron llaves privadas fisicas en el working tree.
+- `vps/certs/` esta documentado como ignorado.
+- `vps/signer/cert_loader.py:43-44` carga PEM de disco con `key_passphrase=None`.
+- `sign-efirma` recibe `.key` cifrada y contrasena en memoria y las transmite al gateway (`index.ts:108-114`); no se observo persistencia, pero faltan pruebas de redaccion de logs y cero retencion.
+- El firmador VPS usa una credencial Supabase de servicio para persistir resultados; viola minimo privilegio.
+- Los gateways tecnicos usan un token opcional en `adapters.ts:27-35`; debe ser obligatorio o sustituido por identidad de workload/mTLS.
 
 ## Pruebas existentes
 
-- `src/lib/certification/canonical.test.ts`: orden canonico, Unicode, mutacion de valor y cambio de un byte.
-- `src/lib/public-verification/repository.test.ts`: repositorio de verificacion publica.
-- No hay pruebas automatizadas del orquestador, gateways, PAdES, RFC 3161, aislamiento tenant o recuperacion de fallos.
+- `src/lib/certification/canonical.test.ts`: cuatro pruebas basicas.
+- `src/lib/certifica/domain.test.ts`: manifiesto y modo sandbox.
+- `src/lib/certifica/provider.test.ts`: proveedor sandbox.
+- No hay pruebas integrales de orquestacion, PAdES, RFC 3161, KMS, concurrencia, recuperacion, RLS multi-tenant ni verificacion publica criptografica.
 
-## Estado remoto relevante
+## Conclusion del inventario
 
-La comprobacion anonima del remoto mostro lectura publica de datos sensibles en tablas de identidad heredadas. La migracion local `20260808115900_emergency_public_policy_lockdown.sql` prepara el cierre, pero no se aplico por falta de sesion/autorizacion de administracion. Este riesgo es independiente del orquestador y debe corregirse antes de habilitar certificacion productiva.
-
-Las tablas `document_certifications`, `signature_otp_challenges`, `legal_evidence_events` y varios modulos nuevos respondieron como esquema ausente por REST. Por tanto, el codigo nuevo existe en el repositorio, pero no puede considerarse operativo en produccion.
-
+Docubox tiene una base reutilizable amplia y el esquema remoto ya contiene las tablas principales. Aun no existe una cadena de confianza productiva demostrable: falta ligar certificaciones a versiones inmutables por FK, unificar contratos criptograficos, validar independientemente PAdES/RFC 3161, separar llaves del firmador y convertir el flujo sincrono en una saga durable.

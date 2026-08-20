@@ -12,6 +12,7 @@ export type ModuleId =
   | 'notifica'
   | 'credit-titles'
   | 'bulk-signatures'
+  | 'certifica'
   | 'lucia';
 
 export interface AppModule {
@@ -78,6 +79,14 @@ export const ALL_MODULES: AppModule[] = [
       'Genera, envia y supervisa cientos de documentos con firma y evidencia individual desde una sola campana.',
     category: 'Productividad',
     href: '/firmas-masivas',
+  },
+  {
+    id: 'certifica',
+    name: 'Docubox Certifica',
+    description:
+      'Certifica integridad, existencia, conservacion y evidencia sin alterar el documento original.',
+    category: 'Seguridad y cumplimiento',
+    href: '/certificaciones',
   },
   {
     id: 'lucia',

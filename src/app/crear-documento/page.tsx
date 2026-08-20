@@ -16,7 +16,7 @@ import { StepAjustes } from './components/StepAjustes';
 import { StepEnviar } from './components/StepEnviar';
 import type { StepEnviarHandle } from './components/StepEnviar';
 import { StepFlujoTrabajo } from './components/StepFlujoTrabajo';
-import type { Participant, DocumentSettings, DocumentConfig, ParticipantMode, GrupoFirma, SecuritySettings } from './components/types';
+import type { Participant, DocumentSettings, DocumentConfig, ParticipantMode, GrupoFirma, SecuritySettings, DocuboxSourceSelection } from './components/types';
 
 // ─── Helper: derive tipo from field label ─────────────────────────────────────
 function getLabelTipo(label: string): string {
@@ -132,6 +132,7 @@ function CrearDocumentoPageInner() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [file, setFile] = useState<File | null>(null);
+  const [docuboxSource, setDocuboxSource] = useState<DocuboxSourceSelection | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [participantMode, setParticipantMode] = useState<ParticipantMode>(null);
   const [participationOrder, setParticipationOrder] = useState<string>('');
@@ -563,7 +564,10 @@ function CrearDocumentoPageInner() {
           {currentStep === 1 && (
             <StepSubir
               file={file}
-              onFileChange={setFile}
+              onFileChange={(nextFile) => {
+                setFile(nextFile);
+                setPreProcessedFile(null);
+              }}
               config={docConfig}
               onConfigChange={setDocConfig}
               viewMode={viewMode}
@@ -572,6 +576,8 @@ function CrearDocumentoPageInner() {
               onSecurityChange={(s) => setSecuritySummary(s)}
               documentoId={documentoId}
               onPdfMetadata={(meta) => setPdfMetadata(meta)}
+              sourceSelection={docuboxSource}
+              onSourceSelectionChange={setDocuboxSource}
             />
           )}
           {currentStepLabel === 'Participantes' && (
@@ -587,7 +593,7 @@ function CrearDocumentoPageInner() {
             <StepAjustes settings={settings} onChange={setSettings} participants={participants} file={file} isCondicional={isCondicional} documentoId={documentoId} securitySettings={securitySummary} onPlacedFieldsChange={setPlacedFields} onFixarCamposChange={(fixar, hasFirma) => { setAjustesFixarCampos(fixar); setAjustesHasFirma(hasFirma); }} initialFixarCampos={ajustesFixarCampos} initialPlacedFields={placedFields} />
           )}
           {currentStepLabel === 'Enviar' && (
-            <StepEnviar ref={stepEnviarRef} file={file} participants={participants} settings={settings} docConfig={docConfig} onGoToStep={setCurrentStep} placedFields={placedFields} documentoId={documentoId} securitySettings={securitySummary} grupos={grupos} participationOrder={participationOrder} participantMode={participantMode} preProcessedFile={preProcessedFile} pdfMetadata={pdfMetadata} />
+            <StepEnviar ref={stepEnviarRef} file={file} participants={participants} settings={settings} docConfig={docConfig} onGoToStep={setCurrentStep} placedFields={placedFields} documentoId={documentoId} securitySettings={securitySummary} grupos={grupos} participationOrder={participationOrder} participantMode={participantMode} preProcessedFile={preProcessedFile} pdfMetadata={pdfMetadata} docuboxSource={docuboxSource} />
           )}
         </div>
       </main>

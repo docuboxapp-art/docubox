@@ -66,6 +66,9 @@ interface CryptographicCertification {
   documentId: string;
   documentFolio: string;
   status: string;
+  executionStatus: 'created' | 'processing' | 'completed' | 'failed';
+  documentVersionId: string | null;
+  documentVersionNumber: number;
   createdAt: string;
   completedAt: string | null;
   documentBodySha256: string | null;
@@ -73,6 +76,13 @@ interface CryptographicCertification {
   certificationRootSha256: string | null;
   timestampStatus: string | null;
   timestampGenTime: string | null;
+  integrityStatus: string;
+  pdfSignatureStatus: string;
+  certificateStatus: string;
+  verificationStatus: string;
+  evidenceSchemaVersion: string;
+  sourceDocumentHash: string | null;
+  sourceDocumentSizeBytes: number | null;
   errorCode: string | null;
   errorMessage: string | null;
 }
@@ -82,6 +92,23 @@ const CRYPTOGRAPHIC_PROVIDER_LABELS: Record<string, string> = {
   DOCUBOX_TSA_GATEWAY_URL: 'Estampa de tiempo RFC 3161',
   DOCUBOX_PADES_GATEWAY_URL: 'Firma del PDF PAdES',
 };
+
+const CRYPTO_STATUS_LABELS: Record<string, string> = {
+  not_configured: 'No configurada',
+  pending: 'Pendiente',
+  development: 'Desarrollo',
+  valid: 'Operativa',
+  invalid: 'Inválida',
+  unavailable: 'No disponible',
+  not_applicable: 'No aplica',
+};
+
+function cryptoStatusClasses(status: string) {
+  if (status === 'valid') return 'bg-emerald-500';
+  if (status === 'invalid' || status === 'unavailable') return 'bg-red-500';
+  if (status === 'pending' || status === 'development') return 'bg-amber-500';
+  return 'bg-slate-300';
+}
 
 async function apiAuthHeaders(includeJson = false): Promise<Record<string, string>> {
   const { data: { session } } = await createClient().auth.getSession();
@@ -1709,8 +1736,15 @@ export default function VisorDocumentoPage() {
           .maybeSingle();
         if (metaData) docMetadata = metaData;
 
+        const requestedFileVariant =
+          new URLSearchParams(window.location.search).get('archivo') === 'certificado'
+            ? 'certified'
+            : 'original';
+        const viewerFileUrl = `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=${requestedFileVariant}`;
+
         setDocument({
           ...data,
+          file_url: viewerFileUrl,
           vencimiento: data.fecha_vencimiento || undefined,
           owner_nombre: ownerNombre,
           carpeta_nombre: carpetaNombre,
@@ -4960,105 +4994,126 @@ export default function VisorDocumentoPage() {
                         <Shield size={15} className="text-blue-600" />
                         <span className="text-xs font-bold uppercase tracking-wide text-foreground">Integridad y Evidencia Digital</span>
                         <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          cryptographicCertification?.status === 'COMPLETED'
+                          cryptographicCertification?.verificationStatus === 'valid'
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : cryptographicCertification?.status === 'FAILED'
+                            : cryptographicCertification?.executionStatus === 'failed'
                               ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : certificationProviderChecked && !certificationProviderReady
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : cryptographicCertification?.integrityStatus === 'valid'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
                                 : 'bg-muted text-muted-foreground border-border'
                         }`}>
-                          {cryptographicCertification?.status === 'COMPLETED'
-                            ? 'Validada'
-                            : cryptographicCertification?.status === 'FAILED'
+                          {cryptographicCertification?.verificationStatus === 'valid'
+                            ? 'Verificación integral'
+                            : cryptographicCertification?.executionStatus === 'failed'
                               ? 'Requiere atención'
-                              : cryptographicCertification
-                                ? 'Procesando'
-                                : !certificationProviderChecked
-                                  ? 'Comprobando'
-                                  : certificationProviderReady
-                                    ? 'Disponible'
-                                    : 'Requiere configuración'}
+                              : cryptographicCertification?.integrityStatus === 'valid'
+                                ? 'Integridad registrada'
+                                : cryptographicCertification
+                                  ? 'Procesando'
+                                  : !certificationProviderChecked
+                                    ? 'Comprobando'
+                                    : 'Disponible'}
                         </span>
                       </div>
                       <div className="p-4 space-y-3">
                         <div>
                           <p className="text-sm font-semibold text-foreground">Constancia Técnica de Integridad y Evidencia Digital</p>
-                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">Cadenas canónicas, sellos KMS, estampa RFC 3161, raíz criptográfica y QR de verificación.</p>
+                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">Versión documental exacta, hash SHA-256 y cadena de evidencia con estados verificables por capacidad.</p>
                         </div>
 
                         {cryptographicCertification?.status === 'COMPLETED' ? (
                           <>
-                            <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Estado</span>
-                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 size={13} /> Criptográficamente válida</span>
+                            {cryptographicCertification.verificationStatus !== 'valid' && (
+                              <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2.5 text-xs text-blue-800">
+                                <span className="font-semibold">Entorno de desarrollo criptográfico.</span> La integridad está registrada; las capacidades no configuradas no se presentan como válidas.
                               </div>
-                              {cryptographicCertification.certificationRootSha256 && (
+                            )}
+                            <div className="overflow-hidden rounded-lg border border-border bg-white">
+                              {[
+                                ['Integridad SHA-256', cryptographicCertification.integrityStatus],
+                                ['Versionado documental', cryptographicCertification.documentVersionId ? 'valid' : 'pending'],
+                                ['Cadena de evidencia', cryptographicCertification.sourceDocumentHash ? 'valid' : 'pending'],
+                                ['Firma PDF PAdES', cryptographicCertification.pdfSignatureStatus],
+                                ['Certificado institucional', cryptographicCertification.certificateStatus],
+                                ['Estampa RFC 3161', cryptographicCertification.timestampStatus || 'not_configured'],
+                                ['Verificación independiente', cryptographicCertification.verificationStatus],
+                              ].map(([label, status], index) => (
+                                <div key={label} className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}>
+                                  <span className="text-xs font-medium text-foreground">{label}</span>
+                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                                    <span className={`size-2 rounded-full ${cryptoStatusClasses(status)}`} />
+                                    {CRYPTO_STATUS_LABELS[status] || status}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Versión exacta</span>
+                                <span className="text-xs font-semibold text-foreground">v{cryptographicCertification.documentVersionNumber}</span>
+                              </div>
+                              {cryptographicCertification.sourceDocumentHash && (
                                 <div>
-                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Raíz SHA-256</span>
-                                  <p className="mt-1 truncate font-mono text-[10px] text-foreground" title={cryptographicCertification.certificationRootSha256}>{cryptographicCertification.certificationRootSha256}</p>
+                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">SHA-256 de origen</span>
+                                  <p className="mt-1 truncate font-mono text-[10px] text-foreground" title={cryptographicCertification.sourceDocumentHash}>{cryptographicCertification.sourceDocumentHash}</p>
                                 </div>
                               )}
                             </div>
-                            <button
-                              onClick={() => downloadCertificationArtifact('certificate')}
-                              disabled={certificationDownload !== null}
-                              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60"
-                            >
-                              {certificationDownload === 'certificate' ? <RefreshCw size={15} className="animate-spin" /> : <Download size={15} />}
-                              {certificationDownload === 'certificate' ? 'Descargando…' : 'Descargar constancia PDF'}
-                            </button>
-                            <div className="grid grid-cols-2 gap-2">
-                              <button
-                                onClick={() => downloadCertificationArtifact('package')}
-                                disabled={certificationDownload !== null}
-                                className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
-                              >
-                                {certificationDownload === 'package' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-                                Paquete técnico
-                              </button>
-                              <button
-                                onClick={() => downloadCertificationArtifact('certified-pdf')}
-                                disabled={certificationDownload !== null}
-                                className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
-                              >
-                                {certificationDownload === 'certified-pdf' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-                                PDF certificado
-                              </button>
-                            </div>
+                            {cryptographicCertification.verificationStatus === 'valid' && (
+                              <>
+                                <button
+                                  onClick={() => downloadCertificationArtifact('certificate')}
+                                  disabled={certificationDownload !== null}
+                                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60"
+                                >
+                                  {certificationDownload === 'certificate' ? <RefreshCw size={15} className="animate-spin" /> : <Download size={15} />}
+                                  {certificationDownload === 'certificate' ? 'Descargando…' : 'Descargar constancia PDF'}
+                                </button>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button onClick={() => downloadCertificationArtifact('package')} disabled={certificationDownload !== null} className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60">
+                                    {certificationDownload === 'package' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+                                    Paquete técnico
+                                  </button>
+                                  <button onClick={() => downloadCertificationArtifact('certified-pdf')} disabled={certificationDownload !== null} className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60">
+                                    {certificationDownload === 'certified-pdf' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+                                    PDF certificado
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </>
                         ) : !certificationProviderChecked ? (
                           <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs font-semibold text-muted-foreground">
                             <RefreshCw size={14} className="animate-spin" />
                             Comprobando infraestructura criptográfica
                           </div>
-                        ) : !certificationProviderReady ? (
-                          <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 text-amber-900">
-                            <p className="text-xs font-semibold">Servicios criptográficos por configurar</p>
-                            <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed">
-                              {certificationProviderMissing.map((provider) => (
-                                <li key={provider} className="flex items-start gap-2">
-                                  <span className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500" />
-                                  <span>{CRYPTOGRAPHIC_PROVIDER_LABELS[provider] || provider}</span>
-                                </li>
-                              ))}
-                            </ul>
-                            <p className="mt-2 text-[10px] leading-relaxed text-amber-800">La constancia se habilitará cuando KMS, TSA y PAdES estén conectados y validados.</p>
-                          </div>
                         ) : (
-                          <button
-                            onClick={generateCryptographicCertification}
-                            disabled={certificationLoading || document?.estado !== 'completado'}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {certificationLoading ? <RefreshCw size={15} className="animate-spin" /> : <Shield size={15} />}
-                            {certificationLoading
-                              ? 'Certificando…'
-                              : cryptographicCertification?.status === 'FAILED'
-                                ? 'Reintentar certificación'
-                                : 'Generar certificación'}
-                          </button>
+                          <div className="space-y-3">
+                            {!certificationProviderReady && (
+                              <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 text-amber-900">
+                                <p className="text-xs font-semibold">Capacidades criptográficas aún no configuradas</p>
+                                <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed">
+                                  {certificationProviderMissing.map((provider) => (
+                                    <li key={provider} className="flex items-start gap-2">
+                                      <span className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500" />
+                                      <span>{CRYPTOGRAPHIC_PROVIDER_LABELS[provider] || provider}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                                <p className="mt-2 text-[10px] leading-relaxed text-amber-800">Puedes registrar la versión exacta, su hash y la cadena de evidencia sin declarar esas capacidades como válidas.</p>
+                              </div>
+                            )}
+                            <button onClick={generateCryptographicCertification} disabled={certificationLoading || document?.estado !== 'completado'} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
+                              {certificationLoading ? <RefreshCw size={15} className="animate-spin" /> : <Shield size={15} />}
+                              {certificationLoading
+                                ? 'Registrando integridad…'
+                                : cryptographicCertification?.status === 'FAILED'
+                                  ? 'Reintentar registro'
+                                  : certificationProviderReady
+                                    ? 'Generar certificación'
+                                    : 'Registrar integridad y evidencia'}
+                            </button>
+                          </div>
                         )}
 
                         {(certificationError || cryptographicCertification?.errorMessage) && (
@@ -5066,9 +5121,7 @@ export default function VisorDocumentoPage() {
                             {certificationError || cryptographicCertification?.errorMessage}
                           </div>
                         )}
-                        {certificationProviderReady && (
-                          <p className="text-[10px] leading-relaxed text-muted-foreground">La constancia sólo se marca como válida cuando KMS, TSA RFC 3161 y PAdES superan su verificación criptográfica.</p>
-                        )}
+                        <p className="text-[10px] leading-relaxed text-muted-foreground">Cada capacidad sólo se marca como operativa cuando existe evidencia técnica verificable de su ejecución.</p>
                       </div>
                     </div>
 

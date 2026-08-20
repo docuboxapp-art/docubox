@@ -1,0 +1,3 @@
+import { CertificationSectionPage } from '@/components/certifica/CertificationSectionPage';
+export default function Page() { return <CertificationSectionPage title="Consumo y folios" description="Reservas, cargos, liberaciones y conciliacion por operacion." items={[{ title: 'Integridad Docubox', description: 'Incluida para registrar huella, manifiesto y verificacion.', value: '$0 MXN' }, { title: 'Tiempo certificado', description: 'Precio base antes de impuestos y proveedor.', value: '$89 MXN' }, { title: 'NOM-151', description: 'Precio base por operacion.', value: '$149 MXN' }, { title: 'Evidencia Pro', description: 'Precio base por expediente tecnico.', value: '$249 MXN' }]} />; }
+

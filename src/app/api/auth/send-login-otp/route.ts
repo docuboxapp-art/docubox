@@ -37,7 +37,7 @@ function buildLoginOtpEmailHtml(params: {
               </p>
               <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px;">
                 <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:1px;">Codigo de verificacion</p>
-                <p style="margin:0;font-size:42px;font-weight:800;letter-spacing:12px;color:#1E6BFF;font-family:'Courier New',monospace;">${params.otpCode}</p>
+                <p style="margin:0;font-size:42px;font-weight:800;letter-spacing:12px;color:#1E6BFF;font-family:'Google Sans','Inter','Segoe UI',Arial,sans-serif;">${params.otpCode}</p>
                 <p style="margin:12px 0 0;font-size:12px;color:#94a3b8;">Valido por 10 minutos</p>
               </div>
               <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.6;">

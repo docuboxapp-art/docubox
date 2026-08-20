@@ -1,0 +1,3 @@
+import { CertificationSectionPage } from '@/components/certifica/CertificationSectionPage';
+export default function Page() { return <CertificationSectionPage title="API y webhooks" description="Integra operaciones empresariales sin exponer credenciales en el frontend." items={[{ title: 'API versionada', description: 'Las operaciones usan autorizacion por tenant e Idempotency-Key.' }, { title: 'Webhooks firmados', description: 'Configura endpoints HTTPS y valida la firma antes de procesar eventos.' }, { title: 'Secretos protegidos', description: 'La base solo conserva referencias; nunca tokens o llaves en texto plano.' }]} />; }
+

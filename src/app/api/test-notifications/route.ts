@@ -38,6 +38,17 @@ function buildEdgePayload(templateType: string, recipient: string, recipientName
         personalMessage: 'Por favor revisa el contrato y fírmalo antes del viernes. Cualquier duda, contáctame.',
       };
 
+    case 'participation_reminder':
+      return {
+        ...base,
+        type: 'participation_reminder',
+        senderName: 'Carlos Mendoza (Docubox)',
+        documentUrl: `${APP_URL}/portal-participante/test-token-prueba`,
+        participantRole: 'Firmante',
+        signatureMethod: 'Firma aut\u00f3grafa digital',
+        expiryDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+
     case 'signature_request':
       return {
         ...base,
@@ -145,6 +156,24 @@ function buildEdgePayload(templateType: string, recipient: string, recipientName
         participantEmail: 'sofia.ramirez@empresa.com',
         completedAt: new Date().toISOString(),
         participationMotivo: 'Requiere revisión legal adicional antes de firmar.',
+      };
+
+    case 'new_device_login':
+      return {
+        ...base,
+        type: 'new_device_login',
+        deviceName: 'Chrome en Windows',
+        ipAddress: '192.0.2.10',
+        city: 'Mazatl\u00e1n',
+        country: 'M\u00e9xico',
+        loginTime: new Date().toISOString(),
+      };
+
+    case 'login_otp':
+      return {
+        ...base,
+        type: 'login_otp',
+        otpCode: '482916',
       };
 
     case 'test_email':

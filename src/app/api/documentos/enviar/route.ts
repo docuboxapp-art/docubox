@@ -4,6 +4,11 @@ import { sendParticipantInvitationEmails } from '@/lib/emailNotifications';
 import { createNotificationServer } from '@/lib/notificationsInApp';
 import { findUnsupportedOrganizationSignatureMethods } from '@/lib/organization/governance';
 import { initializeCollaborationDocumentVersion } from '@/lib/collaboration/documents';
+import {
+  InternalSourceError,
+  resolveInternalDocumentSource,
+  type ResolvedInternalSource,
+} from '@/lib/documents/internal-source';
 
 type OrganizationGovernance = {
   workflow: Record<string, any> | null;
@@ -194,6 +199,7 @@ export async function POST(req: NextRequest) {
       selloDigital,
       estampaAutenticacion,
       metadatosAdicionales,
+      docuboxSource,
     } = JSON.parse(metaRaw);
 
     if (!documentoId || !fileName || !fileHashSha256) {
@@ -229,6 +235,36 @@ export async function POST(req: NextRequest) {
     if (!resolvedWorkspaceId) {
       resolvedWorkspaceId = await resolvePersonalWorkspace(user.id);
     }
+
+    let resolvedInternalSource: ResolvedInternalSource | null = null;
+    if (docuboxSource) {
+      if (!resolvedWorkspaceId || docuboxSource.workspaceId !== resolvedWorkspaceId) {
+        return NextResponse.json(
+          { error: 'El documento de origen no pertenece al espacio de trabajo activo.' },
+          { status: 403 }
+        );
+      }
+      resolvedInternalSource = await resolveInternalDocumentSource(supabaseAdmin, user, {
+        workspaceId: resolvedWorkspaceId,
+        documentId: docuboxSource.documentId,
+        versionId: docuboxSource.versionId || null,
+        variant: docuboxSource.variant,
+      });
+      if (
+        docuboxSource.expectedSha256
+        && resolvedInternalSource.sha256 !== String(docuboxSource.expectedSha256).toLowerCase()
+      ) {
+        return NextResponse.json(
+          { error: 'La version de origen cambio desde que fue seleccionada. Vuelve a elegirla.' },
+          { status: 409 }
+        );
+      }
+    }
+
+    const effectiveFileName = resolvedInternalSource?.fileName || fileName;
+    const effectiveFileSize = resolvedInternalSource?.fileSize ?? fileSize;
+    const effectiveFileType = resolvedInternalSource?.fileType || fileType || 'application/octet-stream';
+    const effectiveFileHash = resolvedInternalSource?.sha256 || String(fileHashSha256).toLowerCase();
 
     const governance = resolvedWorkspaceId
       ? await resolveOrganizationGovernance(resolvedWorkspaceId)
@@ -299,11 +335,11 @@ export async function POST(req: NextRequest) {
       documento_id: documentoId,
       owner_id: user.id,
       workspace_id: resolvedWorkspaceId,
-      file_name: fileName,
-      file_size: fileSize,
-      file_type: fileType || 'application/octet-stream',
-      file_hash_sha256: fileHashSha256,
-      nombre: nombre || fileName.replace(/\.[^/.]+$/, ''),
+      file_name: effectiveFileName,
+      file_size: effectiveFileSize,
+      file_type: effectiveFileType,
+      file_hash_sha256: effectiveFileHash,
+      nombre: nombre || effectiveFileName.replace(/\.[^/.]+$/, ''),
       descripcion: descripcion || null,
       numero_oficio: numeroOficio || null,
       grupo_tipo_documento_id: grupotipoId || null,
@@ -357,8 +393,20 @@ export async function POST(req: NextRequest) {
     // Upload file to storage using service role (bypasses storage RLS)
     let uploadedStoragePath: string | null = null;
     let uploadedFileUrl: string | null = null;
-    if (file) {
-      const safeFileName = fileName
+    if (resolvedInternalSource) {
+      uploadedStoragePath = resolvedInternalSource.storagePath;
+      const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin.storage
+        .from('documents')
+        .createSignedUrl(resolvedInternalSource.storagePath, 60 * 60 * 24 * 365);
+      if (signedUrlError) throw signedUrlError;
+      uploadedFileUrl = signedUrlData?.signedUrl || resolvedInternalSource.storagePath;
+      const reusedFileUpdate = await supabaseAdmin
+        .from('documentos')
+        .update({ file_url: uploadedFileUrl, storage_path: resolvedInternalSource.storagePath })
+        .eq('id', dbDocumentId);
+      if (reusedFileUpdate.error) throw reusedFileUpdate.error;
+    } else if (file) {
+      const safeFileName = effectiveFileName
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-zA-Z0-9.\-_]/g, '_');
@@ -373,7 +421,7 @@ export async function POST(req: NextRequest) {
         .from('documents')
         .upload(storagePath, fileBuffer, {
           upsert: true,
-          contentType: file.type || fileType || 'application/octet-stream',
+          contentType: file.type || effectiveFileType,
         });
 
       if (uploadError) {
@@ -405,23 +453,76 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let targetVersionId: string | null = null;
     if (resolvedWorkspaceId) {
       try {
-        await initializeCollaborationDocumentVersion({
+        const versionResult = await initializeCollaborationDocumentVersion({
           service: supabaseAdmin,
           workspaceId: resolvedWorkspaceId,
           documentId: dbDocumentId,
           actorUserId: user.id,
-          sha256: fileHashSha256,
+          sha256: effectiveFileHash,
           fileUrl: uploadedFileUrl,
           storagePath: uploadedStoragePath,
-          mimeType: file?.type || fileType || 'application/octet-stream',
-          byteSize: file?.size || fileSize || null,
-          displayName: nombre || fileName,
+          mimeType: effectiveFileType,
+          byteSize: effectiveFileSize || null,
+          displayName: nombre || effectiveFileName,
+          sourceVersionId: resolvedInternalSource?.versionId || null,
         });
+        targetVersionId = versionResult.versionId;
       } catch (collaborationError) {
         // Colabora is additive: a pending migration must not interrupt the signature flow.
         console.error('[DOCUBOX][enviar] No se pudo inicializar Colabora:', collaborationError);
+      }
+    }
+
+    if (resolvedInternalSource && resolvedWorkspaceId) {
+      const relation = await supabaseAdmin
+        .from('document_relations')
+        .insert({
+          workspace_id: resolvedWorkspaceId,
+          source_document_id: resolvedInternalSource.documentId,
+          source_version_id: resolvedInternalSource.versionId,
+          target_document_id: dbDocumentId,
+          target_version_id: targetVersionId,
+          relation_type: 'derived_from',
+          source_sha256: resolvedInternalSource.sha256,
+          target_initial_sha256: effectiveFileHash,
+          created_by: user.id,
+          metadata: {
+            schema_version: 1,
+            source_variant: resolvedInternalSource.variant,
+            source_version_number: resolvedInternalSource.versionNumber,
+            source_version_status: resolvedInternalSource.versionStatus,
+            storage_reused: true,
+          },
+        });
+      if (relation.error) {
+        await supabaseAdmin.from('documentos').update({ estado: 'borrador' }).eq('id', dbDocumentId);
+        throw new Error(`No se pudo registrar la procedencia del documento: ${relation.error.message}`);
+      }
+
+      const activity = await supabaseAdmin.from('document_activity_log').insert({
+        documento_id: dbDocumentId,
+        actor_id: user.id,
+        actor_nombre: user.user_metadata?.full_name || null,
+        actor_email: user.email || null,
+        action: 'DOCUMENT_INTERNAL_IMPORT',
+        category: 'versionado',
+        details: {
+          source_document_id: resolvedInternalSource.documentId,
+          source_documento_id: resolvedInternalSource.documentoId,
+          source_version_id: resolvedInternalSource.versionId,
+          source_variant: resolvedInternalSource.variant,
+          source_version_number: resolvedInternalSource.versionNumber,
+          source_sha256: resolvedInternalSource.sha256,
+          target_initial_sha256: effectiveFileHash,
+          relation_type: 'derived_from',
+        },
+      });
+      if (activity.error) {
+        await supabaseAdmin.from('documentos').update({ estado: 'borrador' }).eq('id', dbDocumentId);
+        throw new Error(`No se pudo registrar la auditoria de la importacion: ${activity.error.message}`);
       }
     }
 
@@ -461,26 +562,32 @@ export async function POST(req: NextRequest) {
         .eq('id', dbDocumentId);
     }
 
-    // ── Send invitation email notifications for participants with email method ──
+    // ── Send the initial invitation to every participant who selected email ──
     try {
-      // Send invitation only to participants who have 'correo' or 'email' in tipoNotificacion
-      // AND have a valid email address
-      // ── IMPORTANT: Only notify the initial visible participants based on participation order ──
-      const allEmailParticipants = (participantesConVisibilidad || []).filter(
-        (p: {
-          email?: string;
-          isCurrentUser?: boolean;
-          tipoNotificacion?: string[];
-          visible?: boolean;
-        }) => {
+      type EmailInvitationParticipant = {
+        email?: string;
+        name?: string;
+        isCurrentUser?: boolean;
+        tipoNotificacion?: string[];
+        portal_token?: string;
+        [key: string]: unknown;
+      };
+
+      const emailParticipants: EmailInvitationParticipant[] = (
+        participantesConVisibilidad || []
+      ).filter((p: EmailInvitationParticipant) => {
           if (!p.email || p.isCurrentUser) return false;
           if (!p.email.includes('@')) return false;
-          // Only notify participants who are visible (first batch based on order)
-          if (!p.visible) return false;
-          // Check if participant selected email as notification method
           const notifMethods = (p.tipoNotificacion || []).map((n: string) => n.toLowerCase());
           return notifMethods.some((n: string) => n === 'correo' || n === 'email');
-        }
+        });
+      const allEmailParticipants = Array.from(
+        new Map<string, EmailInvitationParticipant>(
+          emailParticipants.map((participant) => [
+            participant.email!.trim().toLowerCase(),
+            participant,
+          ])
+        ).values()
       );
 
       const { data: senderProfile } = await supabaseAdmin
@@ -513,7 +620,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Send invitation emails to all participants with a valid email
+      // The invitation is informational and is sent to everyone at creation time.
+      // The participant's `visible` flag still controls when they can act in a
+      // sequential or mixed workflow.
       if (allEmailParticipants.length > 0) {
         console.log(
           `[DOCUBOX][enviar] Sending invitation emails to ${allEmailParticipants.length} participants`
@@ -521,11 +630,12 @@ export async function POST(req: NextRequest) {
 
         // Build portal URLs per participant — always use the document's DB UUID as token
         // (the portal page resolves it via the /api/portal-participante/info endpoint)
+        const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || req.nextUrl.origin).replace(/\/$/, '');
         const participantsWithPortalUrl = allEmailParticipants.map((p: any) => {
           const portalToken = p.portal_token || dbDocumentId;
           return {
             ...p,
-            documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/portal-participante/${portalToken}`,
+            documentUrl: `${siteUrl}/portal-participante/${portalToken}`,
           };
         });
 
@@ -534,11 +644,11 @@ export async function POST(req: NextRequest) {
           documentName: nombre || fileName,
           documentDescription: descripcion || undefined,
           senderName,
-          documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/portal-participante/${dbDocumentId}`,
+          documentUrl: `${siteUrl}/portal-participante/${dbDocumentId}`,
         });
       } else {
         console.log(
-          '[DOCUBOX][enviar] No participants with email found — skipping email notifications'
+          '[DOCUBOX][enviar] No participants selected email notifications — skipping invitations'
         );
       }
 
@@ -557,7 +667,7 @@ export async function POST(req: NextRequest) {
             const now = new Date().toISOString();
             const updatedParticipantes = (docRow2.participantes as any[]).map((p: any) => {
               const isNotified = allNotifiedParticipants.some(
-                (ep: { email?: string }) => ep.email && ep.email === p.email
+                (ep) => ep.email && ep.email === p.email
               );
               if (isNotified) {
                 return { ...p, fecha_notificacion: now };
@@ -576,7 +686,7 @@ export async function POST(req: NextRequest) {
         // ── Log audit trail: invitacion_enviada per participant ────────────
         try {
           const auditRows = allNotifiedParticipants.map(
-            (p: { email?: string; name?: string; tipoNotificacion?: string[] }) => ({
+            (p) => ({
               documento_id: dbDocumentId,
               actor_id: user.id,
               action: 'invitacion_enviada',
@@ -585,11 +695,7 @@ export async function POST(req: NextRequest) {
                 participant_email: p.email,
                 participant_name: p.name,
                 channel: 'email',
-                email_type: (p.tipoNotificacion || []).some((n: string) =>
-                  ['correo', 'email'].includes(n.toLowerCase())
-                )
-                  ? 'participant_invitation'
-                  : 'signature_request',
+                email_type: 'participant_invitation',
               },
             })
           );
@@ -605,6 +711,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, dbDocumentId }, { status: 200 });
   } catch (err: unknown) {
+    if (err instanceof InternalSourceError) {
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: err.status }
+      );
+    }
     const msg = err instanceof Error ? err.message : 'Error interno';
     console.error('[DOCUBOX][enviar] Error inesperado:', msg);
     return NextResponse.json({ error: msg }, { status: 500 });

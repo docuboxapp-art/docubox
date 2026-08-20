@@ -1,3 +1,5 @@
+import type { CertificationExecutionStatus, CryptoCapabilityStatus } from './capabilities';
+
 export type CertificationStatus =
   | 'PENDING'
   | 'FREEZING_DOCUMENT'
@@ -70,13 +72,23 @@ export interface CertificationSummary {
   documentId: string;
   documentFolio: string;
   status: CertificationStatus;
+  executionStatus: CertificationExecutionStatus;
+  documentVersionId: string | null;
+  documentVersionNumber: number;
   createdAt: string;
   completedAt: string | null;
   documentBodySha256: string | null;
   certifiedPdfSha256: string | null;
   certificationRootSha256: string | null;
-  timestampStatus: string | null;
+  timestampStatus: CryptoCapabilityStatus;
   timestampGenTime: string | null;
+  integrityStatus: CryptoCapabilityStatus;
+  pdfSignatureStatus: CryptoCapabilityStatus;
+  certificateStatus: CryptoCapabilityStatus;
+  verificationStatus: CryptoCapabilityStatus;
+  evidenceSchemaVersion: string;
+  sourceDocumentHash: string | null;
+  sourceDocumentSizeBytes: number | null;
   errorCode: string | null;
   errorMessage: string | null;
 }

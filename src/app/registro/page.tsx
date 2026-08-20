@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
+import { normalizeWorkspaceSlug, isValidWorkspaceSlug } from '@/lib/workspaces/slug';
 import { Mail, Phone, Lock, Eye, EyeOff, User, Building2, UserCheck, Shield, Upload, CheckCircle2, QrCode, ArrowRight, ArrowLeft, FileKey, Check, AlertCircle, RefreshCw, Loader2, XCircle, Clock } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -61,6 +62,7 @@ interface RegistrationData {
   // Step 3
   accountType: 'personal' | 'empresarial' | null;
   organizationName: string;
+  workspaceSlug: string;
   // Step 4
   personalidadJuridica: 'fisica' | 'moral' | null;
   // Step 5
@@ -119,7 +121,7 @@ function FileUploadZone({
   return (
     <div
       onClick={() => inputRef.current?.click()}
-      className={`relative flex flex-col items-center justify-center gap-1.5 border-2 border-dashed rounded-xl p-4 cursor-pointer transition-all duration-200 w-full max-w-full ${
+      className={`relative flex w-full max-w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-md border-2 border-dashed p-4 transition-colors ${
         file
           ? 'border-emerald-400 bg-emerald-50' :'border-border hover:border-primary/50 hover:bg-primary/5 bg-muted/30'
       }`}
@@ -918,6 +920,8 @@ export default function RegistroPage() {
   // Step 1 duplicate check state
   const [emailCheckStatus, setEmailCheckStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const [phoneCheckStatus, setPhoneCheckStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
+  const [workspaceSlugStatus, setWorkspaceSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'unavailable'>('idle');
+  const [workspaceSlugManuallyEdited, setWorkspaceSlugManuallyEdited] = useState(false);
   const emailDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phoneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -929,6 +933,7 @@ export default function RegistroPage() {
     confirmPassword: '',
     accountType: null,
     organizationName: '',
+    workspaceSlug: '',
     personalidadJuridica: null,
     identityMethod: null,
     cerFile: null,
@@ -996,6 +1001,52 @@ export default function RegistroPage() {
     if (phoneDebounceRef.current) clearTimeout(phoneDebounceRef.current);
     phoneDebounceRef.current = setTimeout(() => checkPhone(digits), 600);
   };
+
+  const handleOrganizationNameChange = (value: string) => {
+    setData((previous) => ({
+      ...previous,
+      organizationName: value,
+      workspaceSlug: workspaceSlugManuallyEdited
+        ? previous.workspaceSlug
+        : normalizeWorkspaceSlug(value),
+    }));
+  };
+
+  const handleWorkspaceSlugChange = (value: string) => {
+    setWorkspaceSlugManuallyEdited(true);
+    update({ workspaceSlug: normalizeWorkspaceSlug(value) });
+  };
+
+  useEffect(() => {
+    if (data.accountType !== 'empresarial') {
+      setWorkspaceSlugStatus('idle');
+      return;
+    }
+    if (!isValidWorkspaceSlug(data.workspaceSlug)) {
+      setWorkspaceSlugStatus(data.workspaceSlug ? 'invalid' : 'idle');
+      return;
+    }
+
+    setWorkspaceSlugStatus('checking');
+    const timeout = setTimeout(async () => {
+      try {
+        const response = await fetch('/api/registro/check-workspace-slug', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceSlug: data.workspaceSlug }),
+        });
+        const result = await response.json();
+        if (!response.ok || result.reason === 'unavailable') {
+          setWorkspaceSlugStatus('unavailable');
+          return;
+        }
+        setWorkspaceSlugStatus(result.available ? 'available' : 'taken');
+      } catch {
+        setWorkspaceSlugStatus('unavailable');
+      }
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [data.accountType, data.workspaceSlug]);
 
   useEffect(() => {
     return () => {
@@ -1293,6 +1344,15 @@ export default function RegistroPage() {
         newErrors.organizationName = 'Ingresa el nombre de la organización';
       }
     }
+    if (currentStep === 3 && data.accountType === 'empresarial') {
+      if (!isValidWorkspaceSlug(data.workspaceSlug)) {
+        newErrors.workspaceSlug = 'Usa entre 3 y 48 caracteres: minúsculas, números y guiones.';
+      } else if (workspaceSlugStatus !== 'available') {
+        newErrors.workspaceSlug = workspaceSlugStatus === 'taken'
+          ? 'Este identificador ya está en uso.'
+          : 'Espera a que se confirme la disponibilidad.';
+      }
+    }
     if (currentStep === 4 && !data.personalidadJuridica)
       newErrors.personalidadJuridica = 'Selecciona tu personalidad jurídica';
     if (currentStep === 5 && !data.identityMethod)
@@ -1302,15 +1362,18 @@ export default function RegistroPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const isStep1NextDisabled =
-    currentStep === 1 &&
-    (emailCheckStatus === 'taken' ||
-      phoneCheckStatus === 'taken' ||
-      emailCheckStatus === 'checking' ||
-      phoneCheckStatus === 'checking');
+  const isCurrentStepNextDisabled =
+    (currentStep === 1 &&
+      (emailCheckStatus === 'taken' ||
+        phoneCheckStatus === 'taken' ||
+        emailCheckStatus === 'checking' ||
+        phoneCheckStatus === 'checking')) ||
+    (currentStep === 3 &&
+      data.accountType === 'empresarial' &&
+      workspaceSlugStatus !== 'available');
 
   const handleNext = () => {
-    if (isStep1NextDisabled) return;
+    if (isCurrentStepNextDisabled) return;
     if (!validateStep()) return;
     if (currentStep < 5) setCurrentStep((s) => s + 1);
   };
@@ -1754,6 +1817,7 @@ export default function RegistroPage() {
           phone: data.phone,
           accountType: data.accountType,
           organizationName: data.organizationName.trim() || null,
+          workspaceSlug: data.accountType === 'empresarial' ? data.workspaceSlug : null,
           personalidadJuridica: data.personalidadJuridica,
           identityMethod: data.identityMethod || (data.personalidadJuridica === 'moral' ? 'efirma_moral' : null),
           fullName,
@@ -1801,47 +1865,47 @@ export default function RegistroPage() {
 
   if (showSuccess) {
     return (
-      <div className="fixed inset-0 bg-emerald-500 flex flex-col items-center justify-center z-50 animate-fade-in">
-        <div className="flex flex-col items-center gap-6 text-white text-center px-6 max-w-md">
-          <div className="w-24 h-24 rounded-full bg-white/20 flex items-center justify-center mb-2">
-            <CheckCircle2 size={52} className="text-white" />
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-muted/40 px-4 animate-fade-in">
+        <div className="flex w-full max-w-md flex-col items-center gap-5 rounded-md border border-border bg-background px-6 py-8 text-center shadow-sm">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
+            <CheckCircle2 size={36} className="text-emerald-600" />
           </div>
-          <h1 className="text-3xl font-bold">¡Registro exitoso!</h1>
-          <p className="text-emerald-100 text-lg">
+          <h1 className="text-2xl font-semibold text-foreground">¡Registro exitoso!</h1>
+          <p className="text-sm text-muted-foreground">
             Tu cuenta ha sido creada y verificada correctamente.
           </p>
-          <div className="bg-white/15 rounded-2xl p-5 w-full text-left space-y-3 mt-2">
+          <div className="w-full space-y-3 border-y border-border py-4 text-left">
             <div className="flex items-center gap-3">
-              <Mail size={16} className="text-emerald-200 flex-shrink-0" />
+              <Mail size={16} className="flex-shrink-0 text-muted-foreground" />
               <div>
-                <p className="text-xs text-emerald-200">Correo electrónico</p>
-                <p className="text-sm font-semibold">{data.email}</p>
+                <p className="text-xs text-muted-foreground">Correo electrónico</p>
+                <p className="text-sm font-medium text-foreground">{data.email}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <User size={16} className="text-emerald-200 flex-shrink-0" />
+              <User size={16} className="flex-shrink-0 text-muted-foreground" />
               <div>
-                <p className="text-xs text-emerald-200">Tipo de cuenta</p>
-                <p className="text-sm font-semibold capitalize">{data.accountType}</p>
+                <p className="text-xs text-muted-foreground">Tipo de cuenta</p>
+                <p className="text-sm font-medium capitalize text-foreground">{data.accountType}</p>
               </div>
             </div>
             {data.validatedData && (
               <div className="flex items-center gap-3">
-                <Shield size={16} className="text-emerald-200 flex-shrink-0" />
+                <Shield size={16} className="flex-shrink-0 text-muted-foreground" />
                 <div>
-                  <p className="text-xs text-emerald-200">Identidad verificada</p>
-                  <p className="text-sm font-semibold">{data.validatedData.nombre}</p>
+                  <p className="text-xs text-muted-foreground">Identidad verificada</p>
+                  <p className="text-sm font-medium text-foreground">{data.validatedData.nombre}</p>
                 </div>
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2 bg-white/20 rounded-full px-4 py-2 text-sm">
+          <div className="flex items-center gap-2 text-sm text-emerald-700">
             <Shield size={14} />
             <span>Identidad acreditada · Cuenta activa</span>
           </div>
           <button
             onClick={() => router.push('/login')}
-            className="mt-2 bg-white text-emerald-600 font-bold px-8 py-3 rounded-xl hover:bg-emerald-50 transition-colors duration-200 text-sm"
+            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Ir al inicio de sesión
           </button>
@@ -1870,7 +1934,7 @@ export default function RegistroPage() {
                   placeholder="tu@correo.com"
                   value={data.email}
                   onChange={(e) => handleEmailChange(e.target.value)}
-                  className={`w-full pl-9 pr-10 py-2.5 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
+                  className={`h-10 w-full rounded-md border bg-background pl-9 pr-10 text-sm outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
                     errors.email || emailCheckStatus === 'taken' ?'border-red-400'
                       : emailCheckStatus === 'available' ?'border-emerald-400' :'border-border'
                   }`}
@@ -1911,7 +1975,7 @@ export default function RegistroPage() {
                   value={data.phone}
                   onChange={(e) => handlePhoneChange(e.target.value)}
                   maxLength={10}
-                  className={`w-full pl-9 pr-10 py-2.5 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
+                  className={`h-10 w-full rounded-md border bg-background pl-9 pr-10 text-sm outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
                     errors.phone || phoneCheckStatus === 'taken' ?'border-red-400'
                       : phoneCheckStatus === 'available' ?'border-emerald-400' :'border-border'
                   }`}
@@ -1953,11 +2017,11 @@ export default function RegistroPage() {
                     className="sr-only"
                   />
                   <div
-                    className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                    className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
                       data.acceptTerms
                         ? 'bg-primary border-primary'
                         : errors.terms
-                        ? 'border-red-400 bg-white' :'border-border bg-white group-hover:border-primary/50'
+                        ? 'border-red-400 bg-background' :'border-border bg-background group-hover:border-primary/50'
                     }`}
                   >
                     {data.acceptTerms && <Check size={12} className="text-white" strokeWidth={3} />}
@@ -1999,7 +2063,7 @@ export default function RegistroPage() {
                   placeholder="Mínimo 8 caracteres"
                   value={data.password}
                   onChange={(e) => update({ password: e.target.value })}
-                  className={`w-full pl-9 pr-10 py-2.5 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
+                  className={`h-10 w-full rounded-md border bg-background pl-9 pr-10 text-sm outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
                     errors.password ? 'border-red-400' : 'border-border'
                   }`}
                 />
@@ -2047,7 +2111,7 @@ export default function RegistroPage() {
                   placeholder="Repite tu contraseña"
                   value={data.confirmPassword}
                   onChange={(e) => update({ confirmPassword: e.target.value })}
-                  className={`w-full pl-9 pr-10 py-2.5 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
+                  className={`h-10 w-full rounded-md border bg-background pl-9 pr-10 text-sm outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
                     errors.confirmPassword ? 'border-red-400' : 'border-border'
                   }`}
                 />
@@ -2070,7 +2134,7 @@ export default function RegistroPage() {
                 </p>
               )}
             </div>
-            <div className="bg-muted/50 rounded-xl p-4 space-y-2">
+            <div className="space-y-2 rounded-md border border-border bg-muted/30 p-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Requisitos de contraseña
               </p>
@@ -2124,15 +2188,15 @@ export default function RegistroPage() {
                 key={opt.value}
                 onClick={() => !opt.disabled && update({ accountType: opt.value })}
                 disabled={opt.disabled}
-                className={`w-full flex items-start gap-4 p-5 rounded-xl border-2 text-left transition-all duration-200 group ${
+                className={`group flex w-full items-start gap-4 rounded-md border-2 p-5 text-left transition-colors ${
                   opt.disabled
                     ? 'border-border bg-muted/30 opacity-50 cursor-not-allowed'
                     : data.accountType === opt.value
-                    ? 'border-primary bg-primary/5 shadow-card'
-                    : 'border-border bg-white hover:border-primary/30 hover:bg-primary/5'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-background hover:border-primary/30 hover:bg-primary/5'
                 }`}
               >
-                <div className={`w-11 h-11 rounded-xl bg-muted flex items-center justify-center flex-shrink-0 ${
+                <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md bg-muted ${
                   opt.disabled ? 'bg-muted' : data.accountType === opt.value ? 'bg-primary/10' : 'bg-muted'
                 }`}>
                   <opt.icon size={22} className={opt.disabled ? 'text-muted-foreground/50' : data.accountType === opt.value ? 'text-primary' : 'text-muted-foreground'} />
@@ -2162,30 +2226,88 @@ export default function RegistroPage() {
               </button>
             ))}
             {data.accountType === 'empresarial' && (
-              <div className="pt-1">
-                <label htmlFor="organization-name" className="block text-sm font-medium text-foreground mb-1.5">
-                  Nombre de la organización <span className="text-red-500">*</span>
-                </label>
-                <input
-                  id="organization-name"
-                  value={data.organizationName}
-                  onChange={(event) => update({ organizationName: event.target.value })}
-                  placeholder="Ej. Docubox, S.A. de C.V."
-                  autoComplete="organization"
-                  className={`w-full h-12 px-4 rounded-lg border bg-background text-foreground outline-none transition-colors ${
-                    errors.organizationName
-                      ? 'border-red-400 focus:border-red-500'
-                      : 'border-border focus:border-primary'
-                  }`}
-                />
-                {errors.organizationName && (
-                  <p className="mt-1.5 text-xs text-red-500 flex items-center gap-1">
-                    <AlertCircle size={12} /> {errors.organizationName}
-                  </p>
-                )}
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Este nombre identificará el espacio de trabajo compartido de tu organización.
-                </p>
+              <div className="space-y-4 pt-1">
+                <div className="flex items-start gap-3 rounded-md border border-primary/20 bg-primary/5 p-4">
+                  <Shield size={17} className="mt-0.5 flex-shrink-0 text-primary" />
+                  <div className="space-y-1 text-xs leading-5 text-muted-foreground">
+                    <p>
+                      Esta cuenta será la administradora principal del espacio de trabajo de la organización.
+                    </p>
+                    <p>
+                      Después de darla de alta, podrás completar la configuración, definir roles y permisos,
+                      e invitar miembros desde <span className="font-medium text-foreground">Configuración → Equipo</span>.
+                    </p>
+                  </div>
+                </div>
+
+                <section className="rounded-md border border-border bg-background p-4 sm:p-5">
+                  <div className="mb-4 flex items-center gap-2">
+                    <Building2 size={16} className="text-primary" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                      Datos de la organización
+                    </h3>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="organization-name" className="mb-1.5 block text-sm font-medium text-foreground">
+                        Nombre de la organización <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        id="organization-name"
+                        value={data.organizationName}
+                        onChange={(event) => handleOrganizationNameChange(event.target.value)}
+                        placeholder="Ej. Comercializadora del Pacífico"
+                        autoComplete="organization"
+                        className={`h-10 w-full rounded-md border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
+                          errors.organizationName ? 'border-red-400' : 'border-border focus:border-primary'
+                        }`}
+                      />
+                      {errors.organizationName && (
+                        <p className="mt-1.5 flex items-center gap-1 text-xs text-red-500">
+                          <AlertCircle size={12} /> {errors.organizationName}
+                        </p>
+                      )}
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        Nombre visible con el que operará tu organización en Docubox.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label htmlFor="workspace-slug" className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
+                        Identificador del espacio de trabajo
+                        {workspaceSlugStatus === 'checking' && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
+                        {workspaceSlugStatus === 'available' && <CheckCircle2 size={13} className="text-emerald-600" />}
+                      </label>
+                      <input
+                        id="workspace-slug"
+                        value={data.workspaceSlug}
+                        onChange={(event) => handleWorkspaceSlugChange(event.target.value)}
+                        placeholder="comercializadora-del-pacifico"
+                        spellCheck={false}
+                        className={`h-10 w-full rounded-md border bg-muted/30 px-3 font-mono text-sm text-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
+                          errors.workspaceSlug || workspaceSlugStatus === 'taken' || workspaceSlugStatus === 'invalid'
+                            ? 'border-red-400'
+                            : workspaceSlugStatus === 'available'
+                              ? 'border-emerald-400'
+                              : 'border-border focus:border-primary'
+                        }`}
+                      />
+                      <div className="mt-1.5 min-h-4 text-xs">
+                        {workspaceSlugStatus === 'available' && <span className="text-emerald-600">Disponible.</span>}
+                        {workspaceSlugStatus === 'taken' && <span className="text-red-500">Este identificador ya está en uso.</span>}
+                        {workspaceSlugStatus === 'unavailable' && <span className="text-amber-600">No fue posible validar la disponibilidad.</span>}
+                        {workspaceSlugStatus !== 'available' && workspaceSlugStatus !== 'taken' && workspaceSlugStatus !== 'unavailable' && errors.workspaceSlug && (
+                          <span className="text-red-500">{errors.workspaceSlug}</span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Minúsculas, números y guiones. Es único en Docubox y podrás editarlo antes de continuar.
+                      </p>
+                    </div>
+
+                  </div>
+                </section>
               </div>
             )}
           </div>
@@ -2219,12 +2341,12 @@ export default function RegistroPage() {
               <button
                 key={opt.value}
                 onClick={() => update({ personalidadJuridica: opt.value })}
-                className={`w-full flex items-start gap-4 p-5 rounded-xl border-2 text-left transition-all duration-200 group ${
+                className={`group flex w-full items-start gap-4 rounded-md border-2 p-5 text-left transition-colors ${
                   data.personalidadJuridica === opt.value
-                    ? 'border-primary bg-primary/5' :'border-border bg-white hover:border-primary/40 hover:bg-primary/5'
+                    ? 'border-primary bg-primary/5' :'border-border bg-background hover:border-primary/40 hover:bg-primary/5'
                 }`}
               >
-                <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+                <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md transition-colors ${
                   data.personalidadJuridica === opt.value ? 'bg-primary/10' : 'bg-muted group-hover:bg-primary/10'
                 }`}>
                   <opt.icon size={22} className={`transition-colors ${data.personalidadJuridica === opt.value ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'}`} />
@@ -2384,12 +2506,12 @@ export default function RegistroPage() {
                   <button
                     key={opt.value}
                     onClick={() => setSelectedIdentityMethod(opt.value)}
-                    className={`w-full flex items-start gap-4 p-5 rounded-xl border-2 text-left transition-all duration-200 group ${
+                    className={`group flex w-full items-start gap-4 rounded-md border-2 p-5 text-left transition-colors ${
                       isSelected
-                        ? 'border-primary bg-primary/5' :'border-border bg-white hover:border-primary/40 hover:bg-primary/5'
+                        ? 'border-primary bg-primary/5' :'border-border bg-background hover:border-primary/40 hover:bg-primary/5'
                     }`}
                   >
-                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+                    <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md transition-colors ${
                       isSelected ? 'bg-primary/10' : 'bg-muted group-hover:bg-primary/10'
                     }`}>
                       <opt.icon size={22} className={`transition-colors ${isSelected ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'}`} />
@@ -2759,17 +2881,18 @@ export default function RegistroPage() {
     data.identityMethod === 'biometrico' ||
     (data.personalidadJuridica === 'moral' && !efirmaMoralValidated)
   );
+  const isBusinessAccountStep = currentStep === 3 && data.accountType === 'empresarial';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 flex flex-col">
+    <div className="min-h-screen bg-muted/30 flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-8 py-4 bg-white/80 backdrop-blur-sm border-b border-border/50">
+      <header className="flex min-h-16 items-center justify-between border-b border-border bg-background px-5 py-3 sm:px-8">
         <AppLogo size={32} />
         <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">¿Ya tienes cuenta?</span>
+          <span className="hidden text-sm text-muted-foreground sm:inline">¿Ya tienes cuenta?</span>
           <button
             onClick={() => router.push('/login')}
-            className="text-sm font-semibold text-primary hover:text-primary/80 transition-colors"
+            className="inline-flex h-9 items-center whitespace-nowrap rounded-md border border-border bg-background px-3 text-sm font-medium text-primary transition-colors hover:bg-muted"
           >
             Iniciar sesión
           </button>
@@ -2777,19 +2900,19 @@ export default function RegistroPage() {
       </header>
 
       {/* Main content */}
-      <main className="flex-1 flex items-start justify-center py-8 px-4">
-        <div className={`w-full transition-all duration-300 ${isStep5Wide ? 'max-w-3xl' : isStep5Efirma ? 'max-w-[500px]' : 'max-w-md'}`}>
+      <main className="flex-1 flex items-start justify-center px-4 py-6 sm:py-8">
+        <div className={`w-full transition-all duration-300 ${isStep5Wide || isBusinessAccountStep ? 'max-w-3xl' : isStep5Efirma ? 'max-w-[500px]' : 'max-w-md'}`}>
           {/* Step indicator */}
-          <div className="flex items-center justify-center gap-0 mb-8">
+          <div className="mb-5 flex items-center justify-center gap-0 overflow-x-auto pb-1">
             {STEPS.map((step, idx) => (
               <React.Fragment key={step.id}>
-                <div className="flex flex-col items-center gap-1.5">
+                <div className="flex flex-col items-center gap-1">
                   <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
+                    className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold transition-colors ${
                       step.id < currentStep
-                        ? 'bg-primary text-white'
+                        ? 'border-primary bg-primary text-white'
                         : step.id === currentStep
-                        ? 'bg-primary text-white ring-4 ring-primary/20' :'bg-muted text-muted-foreground'
+                        ? 'border-primary bg-primary text-white ring-2 ring-primary/15' :'border-border bg-background text-muted-foreground'
                     }`}
                   >
                     {step.id < currentStep ? (
@@ -2798,14 +2921,14 @@ export default function RegistroPage() {
                       step.id
                     )}
                   </div>
-                  <span className={`text-[10px] font-medium whitespace-nowrap ${
+                  <span className={`whitespace-nowrap text-[10px] font-medium ${
                     step.id === currentStep ? 'text-primary' : 'text-muted-foreground'
                   }`}>
                     {step.label}
                   </span>
                 </div>
                 {idx < STEPS.length - 1 && (
-                  <div className={`h-0.5 w-10 mb-4 mx-1 transition-all duration-300 ${
+                  <div className={`mx-1 mb-3.5 h-px w-8 transition-colors sm:w-10 ${
                     step.id < currentStep ? 'bg-primary' : 'bg-border'
                   }`} />
                 )}
@@ -2814,10 +2937,10 @@ export default function RegistroPage() {
           </div>
 
           {/* Card */}
-          <div className="bg-white rounded-2xl shadow-modal border border-border/50 overflow-hidden">
+          <div className="overflow-hidden rounded-md border border-border bg-background shadow-sm">
             {/* Card header */}
-            <div className="px-7 pt-7 pb-5 border-b border-border/50">
-              <h1 className="text-xl font-bold text-foreground">
+            <div className="border-b border-border px-6 py-5">
+              <h1 className="text-lg font-semibold text-foreground">
                 {stepTitles[currentStep]?.title}
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
@@ -2826,16 +2949,16 @@ export default function RegistroPage() {
             </div>
 
             {/* Card body */}
-            <div className="px-7 py-6">
+            <div className="px-6 py-5">
               {renderStep()}
             </div>
 
             {/* Card footer — hide when step 5 has method selected */}
             {!isStep5WithMethod && (
-              <div className="px-7 pb-7 flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-3 px-6 pb-6">
                 <button
                   onClick={currentStep === 1 ? () => router.push('/login') : handleBack}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150"
+                  className="flex h-10 items-center gap-2 rounded-md border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <ArrowLeft size={15} />
                   {currentStep === 1 ? 'Cancelar' : 'Anterior'}
@@ -2843,8 +2966,8 @@ export default function RegistroPage() {
                 {currentStep < 5 && (
                   <button
                     onClick={handleNext}
-                    disabled={isStep1NextDisabled}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all duration-150 shadow-card disabled:opacity-40 disabled:cursor-not-allowed"
+                    disabled={isCurrentStepNextDisabled}
+                    className="flex h-10 items-center gap-2 rounded-md bg-primary px-6 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Siguiente
                     <ArrowRight size={15} />
@@ -2860,7 +2983,7 @@ export default function RegistroPage() {
                       setErrors((prev) => ({ ...prev, identityMethod: '' }));
                       update({ identityMethod: selectedIdentityMethod });
                     }}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all duration-150 shadow-card disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex h-10 items-center gap-2 rounded-md bg-primary px-6 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Continuar
                     <ArrowRight size={15} />

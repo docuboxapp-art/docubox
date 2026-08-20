@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isValidWorkspaceSlug, normalizeWorkspaceSlug } from '@/lib/workspaces/slug';
+
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,6 +13,7 @@ export async function POST(req: NextRequest) {
       phone,
       accountType,
       organizationName,
+      workspaceSlug,
       personalidadJuridica,
       identityMethod,
       fullName,
@@ -42,14 +46,44 @@ export async function POST(req: NextRequest) {
     const normalizedOrganizationName = typeof organizationName === 'string'
       ? organizationName.trim()
       : '';
+    const normalizedWorkspaceSlug = normalizeWorkspaceSlug(String(workspaceSlug || ''));
 
     if (normalizedAccountType === 'empresarial' && normalizedOrganizationName.length < 2) {
       return NextResponse.json({ error: 'El nombre de la organización es requerido' }, { status: 400 });
     }
 
+    if (normalizedAccountType === 'empresarial' && !isValidWorkspaceSlug(normalizedWorkspaceSlug)) {
+      return NextResponse.json({ error: 'El identificador del espacio de trabajo no es válido' }, { status: 400 });
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+    if (normalizedAccountType === 'empresarial' && !serviceRoleKey) {
+      return NextResponse.json(
+        { error: 'El registro empresarial no está disponible temporalmente' },
+        { status: 503 }
+      );
+    }
+
+    if (normalizedAccountType === 'empresarial' && serviceRoleKey) {
+      const availabilityClient = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data: existingWorkspace, error: availabilityError } = await availabilityClient
+        .from('workspaces')
+        .select('id')
+        .eq('workspace_slug', normalizedWorkspaceSlug)
+        .limit(1)
+        .maybeSingle();
+      if (availabilityError) {
+        return NextResponse.json({ error: 'No fue posible validar el espacio de trabajo' }, { status: 503 });
+      }
+      if (existingWorkspace) {
+        return NextResponse.json({ error: 'El identificador del espacio de trabajo ya está en uso' }, { status: 409 });
+      }
+    }
 
     let userId: string;
 
@@ -277,6 +311,7 @@ export async function POST(req: NextRequest) {
     if (normalizedAccountType === 'empresarial' && result.workspace_id) {
       const organizationPayload = {
         name: normalizedOrganizationName,
+        workspace_slug: normalizedWorkspaceSlug,
         legal_name: efirmaNombre || normalizedOrganizationName,
         trade_name: normalizedOrganizationName,
         rfc: efirmaRfc || rfc || null,
@@ -298,6 +333,13 @@ export async function POST(req: NextRequest) {
 
       if (organizationError) {
         console.error('[registro] Could not initialize organization profile:', organizationError);
+        if (organizationError.code === '23505') {
+          await supabaseForRpc.auth.admin.deleteUser(userId).catch(() => undefined);
+          return NextResponse.json(
+            { error: 'El identificador del espacio de trabajo ya está en uso' },
+            { status: 409 }
+          );
+        }
       } else {
         const { error: auditError } = await supabaseForRpc
           .from('organization_audit_events')
@@ -314,6 +356,7 @@ export async function POST(req: NextRequest) {
         if (auditError) {
           console.warn('[registro] Could not record organization audit event:', auditError);
         }
+
       }
     }
 
@@ -336,6 +379,7 @@ export async function POST(req: NextRequest) {
       success: true,
       userId,
       workspaceId: result.workspace_id,
+      workspaceSlug: normalizedAccountType === 'empresarial' ? normalizedWorkspaceSlug : null,
       subscriptionId: result.subscription_id,
     });
   } catch (err) {

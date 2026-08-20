@@ -10,6 +10,8 @@ interface PublicTokenLayoutProps {
   token?: string;
   /** Optional: override the scope for LucIA (e.g. 'external_participant', 'public_form') */
   luciaScope?: string;
+  /** Keeps the assistant trigger aligned with compact operational screens. */
+  compactAssistant?: boolean;
 }
 
 /**
@@ -26,7 +28,12 @@ interface PublicTokenLayoutProps {
  * Mounts LucIAChat in mode="public-token" so it only consults
  * the resource associated with the token, never the full workspace.
  */
-export default function PublicTokenLayout({ children, token, luciaScope }: PublicTokenLayoutProps) {
+export default function PublicTokenLayout({
+  children,
+  token,
+  luciaScope,
+  compactAssistant = false,
+}: PublicTokenLayoutProps) {
   const [luciaOpen, setLuciaOpen] = useState(false);
 
   return (
@@ -37,11 +44,15 @@ export default function PublicTokenLayout({ children, token, luciaScope }: Publi
       {!luciaOpen && (
         <button
           onClick={() => setLuciaOpen(true)}
-          className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 shadow-lg flex items-center justify-center transition-all duration-200 hover:scale-105"
+          className={`fixed z-40 flex items-center justify-center bg-primary text-white shadow-lg transition-colors hover:bg-primary/90 ${
+            compactAssistant
+              ? 'bottom-5 right-5 h-11 w-11 rounded-lg border border-white/70'
+              : 'bottom-6 right-6 h-14 w-14 rounded-full hover:scale-105'
+          }`}
           aria-label="Abrir asistente LucIA"
           title="¿Necesitas ayuda? Pregúntale a LucIA"
         >
-          <Sparkles className="w-6 h-6 text-white" />
+          <Sparkles className={compactAssistant ? 'h-5 w-5' : 'h-6 w-6'} />
         </button>
       )}
 

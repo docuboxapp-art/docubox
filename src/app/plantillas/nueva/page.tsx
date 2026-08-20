@@ -63,6 +63,23 @@ const TIPOS_PLANTILLA = ['Externa (para firmar por clientes)', 'Interna (uso int
 const ESTADOS_PLANTILLA = ['Borrador', 'En revisión', 'Publicada', 'Archivada'];
 const TAMANOS_HOJA = ['Carta (Letter)', 'Oficio (Legal)', 'A4', 'A3', 'A5', 'Tabloide'];
 
+const DOCUBOX_TEMPLATE_BRAND = `
+  <div data-docubox-template-brand="2026" contenteditable="false" style="display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:2px solid #1E6BFF;padding:0 0 14px;margin:0 0 24px;font-family:'Google Sans','Google Sans Text',Arial,sans-serif;">
+    <img data-in-figure="true" src="/assets/images/docubox-logo-2026.png" alt="Docubox" width="126" style="display:block;width:126px;height:auto;max-width:42%;margin:0;" />
+    <div style="text-align:right;line-height:1.35;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#1E6BFF;text-transform:uppercase;">Documento Docubox</div>
+      <div style="margin-top:3px;font-size:9px;color:#64748B;">Plantilla documental</div>
+    </div>
+  </div>
+`;
+
+function ensureDocuboxTemplateBrand(html?: string | null) {
+  const content = html?.trim() || '<p><br></p>';
+  return content.includes('data-docubox-template-brand=')
+    ? content
+    : `${DOCUBOX_TEMPLATE_BRAND}${content}`;
+}
+
 const PUBLICACION_OPTIONS = [
   { id: 'borrador', title: 'Guardar como borrador', desc: 'Guarda sin publicar' },
   { id: 'publicar', title: 'Publicar plantilla', desc: 'Publica y hace disponible la plantilla' },
@@ -2510,7 +2527,7 @@ function NuevaPlantillaPage() {
   const templateId = searchParams?.get('id') || null;
 
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
-  const [currentHtml, setCurrentHtml] = useState('');
+  const [currentHtml, setCurrentHtml] = useState(() => ensureDocuboxTemplateBrand());
   const [showPreview, setShowPreview] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingTemplate, setIsLoadingTemplate] = useState(false);
@@ -2638,9 +2655,7 @@ function NuevaPlantillaPage() {
           versionPublicada: t.version_publicada || '1.0',
         });
 
-        if (t.contenido_html) {
-          setCurrentHtml(t.contenido_html);
-        }
+        setCurrentHtml(ensureDocuboxTemplateBrand(t.contenido_html));
 
         // Restore editor layout state
         if (t.margenes) setMargenes(t.margenes);
@@ -2836,7 +2851,7 @@ function NuevaPlantillaPage() {
   );
 
   const buildPayload = useCallback((estado: string, estadoPlantilla: string) => {
-    const html = multiPageEditorRef.current?.getHTML() ?? currentHtml;
+    const html = ensureDocuboxTemplateBrand(multiPageEditorRef.current?.getHTML() ?? currentHtml);
     return {
       nombre: infoData.nombre || 'Nueva Plantilla',
       descripcion: infoData.descripcion,
@@ -3196,7 +3211,7 @@ function NuevaPlantillaPage() {
                     ref={multiPageEditorRef}
                     paperSize={infoData.hojaTamano as PaperSize}
                     orientation={infoData.hojaOrientacion as PageOrientation}
-                    initialHtml="<p><br></p>"
+                    initialHtml={currentHtml}
                     margins={margenes}
                     showRulers={showRulers}
                     showHeader={showHeader}

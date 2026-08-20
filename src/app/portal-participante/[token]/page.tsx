@@ -1,11 +1,21 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import React, { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import {
+  ArrowRight,
+  CheckCircle2,
+  CircleHelp,
+  FileText,
+  KeyRound,
+  LockKeyhole,
+  PenLine,
+  RotateCcw,
+  ShieldCheck,
+} from 'lucide-react';
 
-import AppLogo from '@/components/ui/AppLogo';
 import PublicTokenLayout from '@/components/PublicTokenLayout';
-import { KeyRound, RotateCcw, PenLine, HelpCircle, ChevronRight, Loader2, Shield, FileText, Clock, CheckCircle2 } from 'lucide-react';
+import AppLogo from '@/components/ui/AppLogo';
 
 interface ParticipantInfo {
   documentName: string;
@@ -28,202 +38,225 @@ export default function PortalParticipantePage() {
         setLoading(false);
         return;
       }
+
       try {
-        const res = await fetch(`/api/portal-participante/info?token=${encodeURIComponent(token)}`);
-        if (res.ok) {
-          const data = await res.json();
+        const response = await fetch(
+          `/api/portal-participante/info?token=${encodeURIComponent(token)}`,
+        );
+
+        if (response.ok) {
+          const data = await response.json();
           setInfo({
             documentName: data.documentName || 'el documento',
             acto: data.acto || 'firmar',
-            participantName: data.participantName || null
+            participantName: data.participantName || null,
           });
         } else {
           setInfo({ documentName: 'el documento', acto: 'firmar' });
         }
       } catch {
         setInfo({ documentName: 'el documento', acto: 'firmar' });
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
+
     loadParticipantInfo();
   }, [token]);
 
-  // Extract first name only
   const getFirstName = (fullName: string | null | undefined): string | null => {
     if (!fullName) return null;
-    const parts = fullName.trim().split(/\s+/);
-    return parts[0] || null;
+    return fullName.trim().split(/\s+/)[0] || null;
   };
 
   const firstName = getFirstName(info?.participantName);
-  const actoLabel = info?.acto === 'aprobar' ? 'aprobar' : 'firmar';
-  const actionButtonLabel = info?.acto === 'aprobar' ? 'Aprobar documento' : 'Firmar documento';
+  const isApproval = info?.acto === 'aprobar';
+  const actionLabel = isApproval ? 'aprobar' : 'firmar';
 
   const options = [
     {
       id: 'login',
-      icon: <KeyRound size={22} className="text-primary" />,
-      label: `Cuento con mi usuario y contraseña para ${actoLabel} el documento`,
-      onClick: () => router.push(`/login?redirect=/visor-documento&portal_token=${token}`)
+      icon: KeyRound,
+      title: 'Ingresar con mi cuenta',
+      description: `Ya tengo usuario y contraseña para ${actionLabel} el documento.`,
+      onClick: () =>
+        router.push(`/login?redirect=/visor-documento&portal_token=${token}`),
     },
     {
       id: 'forgot',
-      icon: <RotateCcw size={22} className="text-primary" />,
-      label: `He ${actoLabel === 'aprobar' ? 'aprobado' : 'firmado'} previamente pero no recuerdo mi contraseña`,
-      onClick: () => router.push('/olvide-contrasena')
+      icon: RotateCcw,
+      title: 'Recuperar mi contraseña',
+      description: `Ya he ${isApproval ? 'aprobado' : 'firmado'} antes, pero no recuerdo mi acceso.`,
+      onClick: () => router.push('/olvide-contrasena'),
     },
     {
       id: 'register',
-      icon: <PenLine size={22} className="text-primary" />,
-      label: `Es la primera vez que ${actoLabel} un documento (iniciar proceso)`,
-      onClick: () => router.push(`/registro-participante/${token}`)
+      icon: PenLine,
+      title: 'Registrarme para participar',
+      description: `Es la primera vez que voy a ${actionLabel} un documento en Docubox.`,
+      onClick: () => router.push(`/registro-participante/${token}`),
     },
     {
       id: 'help',
-      icon: <HelpCircle size={22} className="text-primary" />,
-      label: `Necesito ayuda en el proceso de ${actoLabel === 'aprobar' ? 'aprobación' : 'firmado'} del documento`,
-      onClick: () => router.push('/ayuda-firmado')
-    }
+      icon: CircleHelp,
+      title: 'Necesito ayuda',
+      description: `Consultar orientación para completar el proceso de ${isApproval ? 'aprobación' : 'firma'}.`,
+      onClick: () => router.push('/ayuda-firmado'),
+    },
   ];
 
   return (
-    <PublicTokenLayout token={token} luciaScope="external_participant">
-    <div className="min-h-screen flex bg-background">
-      {/* Left blue panel */}
-      <div className="hidden lg:flex lg:w-[40%] bg-primary flex-col justify-center p-10 xl:p-14 relative overflow-hidden">
-        {/* Background decoration */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-white/5" />
-          <div className="absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-white/5" />
-          <div className="absolute top-1/2 right-12 w-48 h-48 rounded-full bg-accent/20" />
-          <div className="absolute bottom-1/4 left-1/3 w-32 h-32 rounded-full bg-white/5" />
-        </div>
-
-        {/* Hero content */}
-        <div className="relative z-10">
-          <h1 className="text-[calc(2.25rem-11px)] xl:text-[calc(3rem-11px)] font-800 text-white leading-tight mb-4">
-            Portal de participantes
-          </h1>
-          <p className="text-lg text-white/75 mb-10 leading-relaxed max-w-lg">
-            Revisa, firma y aprueba documentos de forma segura con validez legal en México.
-          </p>
-
-          {/* Feature list */}
-          <div className="space-y-4 mb-10">
-            {[
-              {
-                icon: <Shield size={18} className="text-accent" />,
-                title: 'Firma con validez legal',
-                desc: 'Documentos firmados con e.Firma SAT o biometría con cumplimiento NOM-151',
-              },
-              {
-                icon: <FileText size={18} className="text-accent" />,
-                title: 'Proceso guiado',
-                desc: 'Te guiamos paso a paso para que puedas firmar o aprobar sin complicaciones',
-              },
-              {
-                icon: <Clock size={18} className="text-accent" />,
-                title: 'Sellado de tiempo',
-                desc: 'Timestamp de PSC autorizado para constancia de integridad y fecha cierta',
-              },
-              {
-                icon: <CheckCircle2 size={18} className="text-accent" />,
-                title: 'Evidencia digital',
-                desc: 'Registro inmutable de tu participación: IP, geolocalización y hash del documento',
-              },
-            ]?.map((feature) => (
-              <div key={`feature-${feature?.title}`} className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  {feature?.icon}
-                </div>
-                <div>
-                  <p className="text-sm font-600 text-white">{feature?.title}</p>
-                  <p className="text-xs text-white/65 mt-0.5 leading-relaxed">{feature?.desc}</p>
-                </div>
+    <PublicTokenLayout
+      token={token}
+      luciaScope="external_participant"
+      compactAssistant
+    >
+      <div className="flex min-h-screen flex-col bg-[#f6f8fb] text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+        <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+          <div className="mx-auto flex h-16 w-full max-w-[1440px] items-center justify-between px-4 sm:px-6 lg:px-8">
+            <div className="flex min-w-0 items-center gap-4">
+              <AppLogo className="shrink-0" />
+              <div className="hidden h-7 w-px bg-slate-200 sm:block dark:bg-slate-800" />
+              <div className="hidden min-w-0 sm:block">
+                <p className="text-sm font-600 leading-tight text-slate-800 dark:text-slate-100">
+                  Portal de participantes
+                </p>
+                <p className="mt-0.5 text-xs leading-tight text-slate-500 dark:text-slate-400">
+                  Acceso a invitaciones
+                </p>
               </div>
-            ))}
-          </div>
-
-          {/* Trust badges */}
-          <div className="flex items-center gap-4 relative z-10">
-            {[
-              { label: '+12,000', sub: 'documentos firmados' },
-              { label: '99.9%', sub: 'uptime garantizado' },
-              { label: 'NOM-151', sub: 'cumplimiento legal' },
-            ]?.map((badge) => (
-              <div key={`badge-${badge?.label}`} className="text-center">
-                <p className="text-lg font-800 text-white tabular-nums">{badge?.label}</p>
-                <p className="text-[10px] text-white/60 font-500">{badge?.sub}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Right white panel */}
-      <div className="flex-1 lg:w-[60%] flex flex-col">
-        {/* Header with logo */}
-        <header className="flex justify-center pt-8 pb-4">
-          <AppLogo size={36} />
-        </header>
-
-        <main className="flex-1 flex items-center justify-center px-6 py-8">
-          <div className="w-full max-w-lg">
-            {/* Greeting */}
-            <div className="mb-6">
-              {loading ? (
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <Loader2 size={16} className="animate-spin" />
-                  <span className="text-sm">Cargando información...</span>
-                </div>
-              ) : (
-                <h1 className="text-2xl font-700 text-foreground mb-1">
-                  {firstName ? `Hola ${firstName}!` : '¡Hola!'}
-                </h1>
-              )}
-
-              {!loading && (
-                <h2 className="text-lg font-600 text-foreground mb-2 leading-snug">
-                  Recibiste una invitación a{' '}
-                  <span className="text-primary">{actoLabel}</span> el documento{' '}
-                  <span className="text-primary">&ldquo;{info?.documentName}&rdquo;</span>
-                </h2>
-              )}
-
-              <p className="text-sm text-muted-foreground">
-                Para ayudarte mejor, por favor selecciona una de las siguientes opciones:
-              </p>
             </div>
 
-            {/* Options grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {options.map((opt) => (
-                <button
-                  key={opt.id}
-                  onClick={opt.onClick}
-                  className="flex items-center gap-3 p-4 border border-border rounded-xl text-left hover:border-primary hover:bg-primary/5 transition-all duration-150 group"
-                >
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    {opt.icon}
+            <div className="flex items-center gap-2 text-xs font-600 text-slate-500 dark:text-slate-400">
+              <ShieldCheck size={16} className="text-emerald-600" />
+              <span className="hidden sm:inline">Conexión segura</span>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
+          <div className="mx-auto w-full max-w-5xl">
+            <section className="mb-6 border-b border-slate-200 pb-6 dark:border-slate-800">
+              {loading ? (
+                <div className="space-y-3" aria-label="Cargando información">
+                  <div className="h-7 w-44 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+                  <div className="h-5 w-full max-w-2xl animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+                </div>
+              ) : (
+                <>
+                  <h1 className="text-2xl font-700 leading-tight tracking-normal text-slate-950 dark:text-white">
+                    {firstName ? `Hola, ${firstName}` : 'Hola'}
+                  </h1>
+                  <p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base">
+                    Recibiste una invitación para {actionLabel} un documento. Elige cómo deseas continuar.
+                  </p>
+                </>
+              )}
+            </section>
+
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+              <aside className="min-w-0">
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                  <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                    <h2 className="text-sm font-700 text-slate-950 dark:text-white">
+                      Documento asignado
+                    </h2>
                   </div>
-                  <span className="text-sm font-500 text-foreground leading-snug flex-1">
-                    {opt.label}
-                  </span>
-                  <ChevronRight
-                    size={16}
-                    className="text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0"
-                  />
-                </button>
-              ))}
+
+                  <div className="p-5">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <FileText size={20} />
+                      </div>
+                      <div className="min-w-0">
+                        {loading ? (
+                          <div className="h-5 w-48 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+                        ) : (
+                          <p className="break-words text-sm font-700 leading-5 text-slate-950 dark:text-white">
+                            {info?.documentName}
+                          </p>
+                        )}
+                        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-1 text-xs font-600 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                          Participación pendiente
+                        </div>
+                      </div>
+                    </div>
+
+                    <dl className="mt-5 divide-y divide-slate-100 border-t border-slate-100 text-sm dark:divide-slate-800 dark:border-slate-800">
+                      <div className="flex items-center justify-between gap-4 py-3">
+                        <dt className="text-slate-500 dark:text-slate-400">Acción requerida</dt>
+                        <dd className="font-600 capitalize text-slate-800 dark:text-slate-200">
+                          {actionLabel}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 pt-3">
+                        <dt className="text-slate-500 dark:text-slate-400">Acceso</dt>
+                        <dd className="flex items-center gap-1.5 font-600 text-slate-800 dark:text-slate-200">
+                          <LockKeyhole size={14} className="text-emerald-600" />
+                          Protegido
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                  <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-primary" />
+                  <p className="leading-5">
+                    Tu acceso está vinculado a esta invitación. Selecciona la opción que corresponda a tu caso.
+                  </p>
+                </div>
+              </aside>
+
+              <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                  <h2 className="text-sm font-700 text-slate-950 dark:text-white">
+                    ¿Cómo deseas continuar?
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Selecciona una opción para avanzar con tu participación.
+                  </p>
+                </div>
+
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {options.map((option) => {
+                    const Icon = option.icon;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={option.onClick}
+                        className="group flex min-h-[82px] w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-primary/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                      >
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/5 text-primary transition-colors group-hover:border-primary/25 group-hover:bg-primary/10">
+                          <Icon size={19} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-700 text-slate-900 dark:text-slate-100">
+                            {option.title}
+                          </span>
+                          <span className="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
+                            {option.description}
+                          </span>
+                        </span>
+                        <ArrowRight
+                          size={17}
+                          className="shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
           </div>
         </main>
 
-        <footer className="text-center py-4 text-xs text-muted-foreground">
-          © {new Date().getFullYear()} Docubox — Firma electrónica con validez legal
+        <footer className="border-t border-slate-200 bg-white px-4 py-4 text-center text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+          © {new Date().getFullYear()} Docubox · Participación documental segura
         </footer>
       </div>
-    </div>
     </PublicTokenLayout>
   );
 }

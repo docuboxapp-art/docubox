@@ -11,6 +11,7 @@ type InitializeDocumentVersionInput = {
   mimeType?: string | null;
   byteSize?: number | null;
   displayName?: string | null;
+  sourceVersionId?: string | null;
 };
 
 export type CollaborationDocumentVersionResult =
@@ -30,6 +31,7 @@ export async function initializeCollaborationDocumentVersion({
   mimeType = 'application/pdf',
   byteSize = null,
   displayName = null,
+  sourceVersionId = null,
 }: InitializeDocumentVersionInput): Promise<CollaborationDocumentVersionResult> {
   const entitlement = await service
     .from('organization_entitlements')
@@ -66,11 +68,13 @@ export async function initializeCollaborationDocumentVersion({
       byte_size: byteSize,
       sha256: normalizedHash,
       change_reason: 'Version inicial enviada desde Docubox',
+      source_version_id: sourceVersionId,
       created_by: actorUserId,
       frozen_at: new Date().toISOString(),
       metadata: {
         source: 'document_send',
         display_name: displayName,
+        source_version_id: sourceVersionId,
         schema_version: 1,
       },
     })

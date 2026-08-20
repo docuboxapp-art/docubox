@@ -7,15 +7,14 @@ declare const Deno: {
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const FROM_EMAIL = "Docubox <noreply@docubox.com.mx>";
-const APP_URL = "https://firmamax4272.builtwithrocket.new";
+const FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "Docubox <noreply@docubox.com.mx>";
+const REPLY_TO_EMAIL = Deno.env.get("RESEND_REPLY_TO_EMAIL") ?? "soporte@docubox.com.mx";
+const APP_URL = (Deno.env.get("NEXT_PUBLIC_SITE_URL") ?? "https://docubox-docubox.vercel.app").replace(/\/$/, "");
 
 // Logo URLs — served from the public assets of the deployed app
-const LOGO_LIGHT = "https://docubox-myi2411.public.builtwithrocket.new/assets/images/Docubox-tipo1-1778728543285.png";
+const LOGO_LIGHT = `${APP_URL}/assets/images/docubox-logo-2026.png`;
 // LOGO_LIGHT → Logo oscuro sobre fondo BLANCO (para encabezado blanco de correos y fondos claros)
 // LOGO_WHITE → Logo blanco sobre fondo OSCURO (para el footer oscuro #111827)
-const LOGO_WHITE = "https://docubox-myi2411.public.builtwithrocket.new/assets/images/ChatGPT_Image_13_may_2026_20_28_22-1778729319274.png";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,7 +23,10 @@ const corsHeaders = {
 };
 
 type EmailType =
-  | "signature_request" |"document_completed" |"certificate_expiry" |"document_expired" |"action_required" |"participant_invitation" |"participation_completed" |"owner_participant_signed" |"owner_participant_approved" |"owner_participant_cancelled" |"owner_participant_rejected" |"new_device_login" |"login_otp";
+  | "signature_request" | "document_completed" | "certificate_expiry" | "document_expired"
+  | "action_required" | "participant_invitation" | "participation_reminder"
+  | "participation_completed" | "owner_participant_signed" | "owner_participant_approved"
+  | "owner_participant_cancelled" | "owner_participant_rejected" | "new_device_login" | "login_otp";
 
 interface EmailPayload {
   type: EmailType;
@@ -63,12 +65,56 @@ interface EmailPayload {
 
 // ─── Shared layout helpers ────────────────────────────────────────────────────
 
+const EMAIL_TYPES = new Set<EmailType>([
+  "signature_request", "document_completed", "certificate_expiry", "document_expired",
+  "action_required", "participant_invitation", "participation_reminder", "participation_completed",
+  "owner_participant_signed", "owner_participant_approved", "owner_participant_cancelled",
+  "owner_participant_rejected", "new_device_login", "login_otp",
+]);
+
+function escapeHtml(value?: string): string | undefined {
+  if (value === undefined) return undefined;
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function safeUrl(value?: string): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sanitizePayload(payload: EmailPayload): EmailPayload {
+  const textFields: Array<keyof EmailPayload> = [
+    "recipientName", "documentName", "senderName", "actionDescription", "participantRole",
+    "signatureMethod", "personalMessage", "documentDescription", "participationMotivo",
+    "participantName", "participantEmail", "deviceName", "ipAddress", "city", "country", "otpCode",
+  ];
+  const sanitized = { ...payload };
+  for (const field of textFields) {
+    const value = sanitized[field];
+    if (typeof value === "string") {
+      (sanitized as Record<string, unknown>)[field] = escapeHtml(value);
+    }
+  }
+  sanitized.documentUrl = safeUrl(payload.documentUrl);
+  return sanitized;
+}
+
 function buildHeader(): string {
   return `
     <!-- HEADER -->
     <tr>
-      <td style="background-color:#ffffff;padding:24px 40px;border-bottom:1px solid #e5e7eb;">
-        <img src="${LOGO_LIGHT}" alt="Docubox" width="130" height="auto" style="display:block;border:0;max-width:130px;" />
+      <td style="background-color:#ffffff;padding:24px 40px;border-bottom:1px solid #EBEBF0;">
+        <img src="${LOGO_LIGHT}" alt="Docubox" width="142" height="auto" style="display:block;border:0;max-width:142px;" />
       </td>
     </tr>`;
 }
@@ -123,20 +169,20 @@ function buildFooter(year: number): string {
   return `
     <!-- FOOTER -->
     <tr>
-      <td style="background-color:#111827;padding:32px 40px;">
+      <td style="background-color:#ffffff;padding:26px 40px;border-top:1px solid #EBEBF0;">
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
             <td style="vertical-align:middle;">
-              <img src="${LOGO_WHITE}" alt="Docubox" width="110" height="auto" style="display:block;border:0;max-width:110px;" />
+              <img src="${LOGO_LIGHT}" alt="Docubox" width="104" height="auto" style="display:block;border:0;max-width:104px;" />
             </td>
             <td style="vertical-align:middle;text-align:right;">
-              <a href="${APP_URL}/sign-up-login-screen" style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Mi cuenta</a>
+              <a href="${APP_URL}/login" style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:12px;color:#64748b;text-decoration:none;display:inline-block;margin-left:20px;">Mi cuenta</a>
               <a href="${APP_URL}/politica-privacidad" style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Política de privacidad</a>
               <a href="${APP_URL}/terminos-condiciones" style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Términos y condiciones</a>
             </td>
           </tr>
           <tr>
-            <td colspan="2" style="border-top:1px solid #1f2937;padding-top:20px;margin-top:20px;">
+            <td colspan="2" style="border-top:1px solid #f1f5f9;padding-top:20px;margin-top:20px;">
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr><td style="padding-top:16px;">
                   <p style="font-family:'Inter',Arial,sans-serif;font-size:11px;color:#6b7280;margin:0 0 4px;">
@@ -144,7 +190,7 @@ function buildFooter(year: number): string {
                   </p>
                   <p style="font-family:'Inter',Arial,sans-serif;font-size:11px;color:#4b5563;margin:0;line-height:1.6;">
                     Recibiste este correo porque tienes una cuenta activa en Docubox.
-                    Si no reconoces esta actividad, <a href="${APP_URL}/sign-up-login-screen" style="color:#6b7280;text-decoration:underline;">gestiona tu cuenta aquí</a>.
+                    Si no reconoces esta actividad, <a href="${APP_URL}/login" style="color:#64748b;text-decoration:underline;">gestiona tu cuenta aquí</a>.
                   </p>
                 </td></tr>
               </table>
@@ -167,7 +213,7 @@ function wrapEmail(title: string, bodyRows: string): string {
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     * { box-sizing: border-box; }
-    body { margin:0;padding:0;background-color:#f3f4f6;font-family:'Inter',Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
+    body { margin:0;padding:0;background-color:#F6F8FB;font-family:'Google Sans','Google Sans Text',Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
     @media only screen and (max-width:600px){
       .email-container{width:100%!important;border-radius:0!important;}
       .email-body{padding:24px 20px!important;}
@@ -177,9 +223,9 @@ function wrapEmail(title: string, bodyRows: string): string {
     }
   </style>
 </head>
-<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:'Inter',Arial,Helvetica,sans-serif;">
+<body style="margin:0;padding:0;background-color:#F6F8FB;font-family:'Google Sans','Google Sans Text',Arial,Helvetica,sans-serif;">
   <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${title} — Docubox Firma Electrónica</div>
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6;padding:40px 16px;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F6F8FB;padding:40px 16px;">
     <tr>
       <td align="center">
         <table class="email-container" width="600" cellpadding="0" cellspacing="0" border="0"
@@ -219,15 +265,15 @@ function buildSignatureRequestHtml(payload: EmailPayload): string {
         </p>
         <p style="font-family:'Inter',Arial,sans-serif;color:#6b7280;font-size:15px;line-height:1.7;margin:0 0 8px;">
           <strong>${senderName || "Un usuario"}</strong> te ha enviado el documento
-          <a href="${ctaUrl}" style="color:#1a56db;text-decoration:none;font-weight:500;">"${documentName || "Sin nombre"}"</a>
+          <a href="${ctaUrl}" style="color:#1E6BFF;text-decoration:none;font-weight:500;">"${documentName || "Sin nombre"}"</a>
           para que lo revises y firmes electrónicamente.
         </p>
         ${buildInfoTable(infoRows)}
-        ${buildCTA("Revisar y Firmar Documento", ctaUrl, "#1a56db")}
+        ${buildCTA("Revisar y firmar documento", ctaUrl, "#1E6BFF")}
         <!-- Enlace de respaldo visible -->
         <p style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#6b7280;margin:12px 0 0;line-height:1.6;">
           O copia y pega este enlace en tu navegador:<br/>
-          <a href="${ctaUrl}" style="color:#1a56db;word-break:break-all;">${ctaUrl}</a>
+          <a href="${ctaUrl}" style="color:#1E6BFF;word-break:break-all;">${ctaUrl}</a>
         </p>
         ${buildNoteBanner("Tu firma es legalmente válida y segura. Si no esperabas esta solicitud, puedes ignorar este correo.", "#eff6ff", "#1e40af")}
       </td>
@@ -485,7 +531,7 @@ function buildParticipantInvitationHtml(payload: EmailPayload): string {
           <tr>
             <td style="vertical-align:middle;padding-right:16px;width:56px;">
               <!-- Icono distintivo de documento pendiente -->
-              <div style="width:52px;height:52px;background-color:#1a56db;border-radius:12px;display:inline-block;text-align:center;line-height:52px;">
+              <div style="width:52px;height:52px;background-color:#1E6BFF;border-radius:8px;display:inline-block;text-align:center;line-height:52px;">
                 <img src="https://img.icons8.com/ios-filled/50/ff/contract.png" alt="Documento" width="28" height="28" style="display:inline-block;vertical-align:middle;margin-top:12px;" />
               </div>
             </td>
@@ -512,7 +558,7 @@ function buildParticipantInvitationHtml(payload: EmailPayload): string {
         </p>
 
         <!-- Nombre del documento -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb;border-radius:8px;margin:16px 0;border-left:4px solid #1a56db;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFC;border-radius:8px;margin:16px 0;border-left:4px solid #1E6BFF;">
           <tr>
             <td style="padding:14px 16px;">
               <p style="font-family:'Inter',Arial,sans-serif;font-size:12px;font-weight:600;color:#6b7280;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Documento</p>
@@ -588,12 +634,12 @@ function buildParticipantInvitationHtml(payload: EmailPayload): string {
         </table>` : ""}
 
         <!-- CTA Button — redirige a /portal-participante/:token -->
-        ${buildCTA("Revisar y Firmar Documento", ctaUrl, "#1a56db")}
+        ${buildCTA("Revisar y firmar documento", ctaUrl, "#1E6BFF")}
 
         <!-- Enlace de respaldo visible (por si el botón no renderiza) -->
         <p style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#6b7280;margin:12px 0 0;line-height:1.6;">
           O copia y pega este enlace en tu navegador:<br/>
-          <a href="${ctaUrl}" style="color:#1a56db;word-break:break-all;">${ctaUrl}</a>
+          <a href="${ctaUrl}" style="color:#1E6BFF;word-break:break-all;">${ctaUrl}</a>
         </p>
 
         <!-- Nota de seguridad -->
@@ -604,6 +650,42 @@ function buildParticipantInvitationHtml(payload: EmailPayload): string {
     ${buildFooter(year)}`;
 
   return wrapEmail("Tienes un documento pendiente de firma — Docubox", bodyRows);
+}
+
+function buildParticipationReminderHtml(payload: EmailPayload): string {
+  const { recipientName, documentName, senderName, documentUrl, participantRole, signatureMethod, expiryDate } = payload;
+  const year = new Date().getFullYear();
+  const ctaUrl = documentUrl || `${APP_URL}/mis-participaciones`;
+  const deadline = expiryDate
+    ? new Date(expiryDate).toLocaleDateString("es-MX", { day: "2-digit", month: "long", year: "numeric" })
+    : null;
+  const infoRows =
+    buildInfoRow("Documento", documentName || "Sin nombre") +
+    buildInfoRow("Solicitado por", senderName || "Un usuario") +
+    buildInfoRow("Tu participaci\u00f3n", participantRole || "Participante") +
+    buildInfoRow("M\u00e9todo", signatureMethod || "Firma electr\u00f3nica", !deadline) +
+    (deadline ? buildInfoRow("Fecha l\u00edmite", deadline, true) : "");
+
+  const bodyRows = `
+    ${buildHeader()}
+    <tr>
+      <td class="email-body" style="padding:32px 40px 36px;background-color:#ffffff;">
+        <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:12px;font-weight:700;color:#1E6BFF;text-transform:uppercase;letter-spacing:.6px;margin:0 0 10px;">Recordatorio de participaci&oacute;n</p>
+        <h2 class="email-title" style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;color:#18181B;font-size:24px;margin:0 0 12px;font-weight:700;line-height:1.3;">Tienes una participaci&oacute;n pendiente</h2>
+        <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;color:#52525B;font-size:15px;line-height:1.7;margin:0 0 8px;">
+          Hola <strong>${recipientName || "Usuario"}</strong>. A&uacute;n falta completar tu participaci&oacute;n en este documento.
+        </p>
+        ${buildInfoTable(infoRows)}
+        ${buildCTA("Continuar participaci&oacute;n", ctaUrl, "#1E6BFF")}
+        <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:13px;color:#64748B;margin:14px 0 0;line-height:1.6;">
+          Si el bot&oacute;n no funciona, copia este enlace:<br><a href="${ctaUrl}" style="color:#1E6BFF;word-break:break-all;">${ctaUrl}</a>
+        </p>
+        ${buildNoteBanner("Este es un recordatorio autom&aacute;tico de Docubox. Si ya completaste tu participaci&oacute;n, no necesitas realizar otra acci&oacute;n.", "#EFF6FF", "#1E40AF")}
+      </td>
+    </tr>
+    ${buildFooter(year)}`;
+
+  return wrapEmail("Recordatorio de participaci\u00f3n - Docubox", bodyRows);
 }
 
 function buildParticipationCompletedHtml(payload: EmailPayload): string {
@@ -830,9 +912,24 @@ function buildLoginOtpHtml(payload: EmailPayload): string {
         <table cellpadding="0" cellspacing="0" width="100%">
           <tr>
             <td style="vertical-align:middle;padding-right:16px;width:52px;">
-              <div style="width:48px;height:48px;background-color:#1a56db;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;">
-                <span style="font-size:22px;line-height:1;">🔐</span>
-              </div>
+              <table role="presentation" cellpadding="0" cellspacing="0" width="48" height="48" style="width:48px;height:48px;background-color:#1E6BFF;border-radius:8px;">
+                <tr>
+                  <td align="center" valign="middle" style="width:48px;height:48px;text-align:center;vertical-align:middle;">
+                    <table role="presentation" data-email-icon="lock" cellpadding="0" cellspacing="0" width="22" style="width:22px;margin:0 auto;">
+                      <tr>
+                        <td align="center" style="height:8px;text-align:center;">
+                          <div style="width:12px;height:8px;border:2px solid #FFFFFF;border-bottom:0;border-radius:8px 8px 0 0;margin:0 auto;box-sizing:border-box;font-size:0;line-height:0;">&nbsp;</div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td align="center" valign="middle" style="width:22px;height:16px;border:2px solid #FFFFFF;border-radius:3px;text-align:center;vertical-align:middle;box-sizing:border-box;color:#FFFFFF;font-family:Arial,sans-serif;font-size:13px;font-weight:700;line-height:12px;">
+                          &bull;
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
             </td>
             <td style="vertical-align:middle;">
               <h2 style="font-family:'Inter',Arial,sans-serif;color:#1e3a8a;font-size:20px;margin:0 0 2px;font-weight:700;line-height:1.3;">
@@ -865,7 +962,7 @@ function buildLoginOtpHtml(payload: EmailPayload): string {
               <table cellpadding="0" cellspacing="0" style="background-color:#f8faff;border:2px solid #dbeafe;border-radius:12px;padding:20px 32px;display:inline-block;">
                 <tr>
                   <td align="center">
-                    <p style="font-family:'Courier New',Courier,monospace;font-size:40px;font-weight:700;letter-spacing:12px;color:#1a56db;margin:0;line-height:1.2;">
+                    <p style="font-family:'Google Sans','Google Sans Text',Arial,Helvetica,sans-serif;font-size:40px;font-weight:700;letter-spacing:12px;color:#1E6BFF;margin:0;line-height:1.2;">
                       ${code}
                     </p>
                     <p style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#6b7280;margin:8px 0 0;letter-spacing:0.3px;">
@@ -889,7 +986,7 @@ function buildLoginOtpHtml(payload: EmailPayload): string {
                     <table cellpadding="0" cellspacing="0">
                       <tr>
                         <td style="width:22px;vertical-align:top;padding-top:1px;">
-                          <span style="font-family:'Inter',Arial,sans-serif;font-size:12px;font-weight:700;color:#1a56db;">1.</span>
+                          <span style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:12px;font-weight:700;color:#1E6BFF;">1.</span>
                         </td>
                         <td style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#6b7280;line-height:1.5;">Regresa a la pantalla de inicio de sesión de Docubox</td>
                       </tr>
@@ -901,7 +998,7 @@ function buildLoginOtpHtml(payload: EmailPayload): string {
                     <table cellpadding="0" cellspacing="0">
                       <tr>
                         <td style="width:22px;vertical-align:top;padding-top:1px;">
-                          <span style="font-family:'Inter',Arial,sans-serif;font-size:12px;font-weight:700;color:#1a56db;">2.</span>
+                          <span style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:12px;font-weight:700;color:#1E6BFF;">2.</span>
                         </td>
                         <td style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#6b7280;line-height:1.5;">Ingresa el código de 6 dígitos en los campos correspondientes</td>
                       </tr>
@@ -913,7 +1010,7 @@ function buildLoginOtpHtml(payload: EmailPayload): string {
                     <table cellpadding="0" cellspacing="0">
                       <tr>
                         <td style="width:22px;vertical-align:top;padding-top:1px;">
-                          <span style="font-family:'Inter',Arial,sans-serif;font-size:12px;font-weight:700;color:#1a56db;">3.</span>
+                          <span style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:12px;font-weight:700;color:#1E6BFF;">3.</span>
                         </td>
                         <td style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#6b7280;line-height:1.5;">Haz clic en <strong>"Verificar código"</strong> para acceder a tu cuenta</td>
                       </tr>
@@ -959,6 +1056,8 @@ function getSubject(type: EmailType, documentName?: string, participationStatus?
       return `Acción requerida: ${name}`;
     case "participant_invitation":
       return `Invitación a participar: ${name}`;
+    case "participation_reminder":
+      return `Recordatorio de participaci\u00f3n: ${name}`;
     case "participation_completed": {
       const labels: Record<string, string> = { firmado: "Participación completada", rechazado: "Participación rechazada", cancelado: "Participación cancelada", vencido: "Participación vencida" };
       return `${labels[participationStatus ?? "firmado"] ?? "Participación"}: ${name}`;
@@ -992,6 +1091,8 @@ function buildHtml(payload: EmailPayload): string {
       return buildActionRequiredHtml(payload);
     case "participant_invitation":
       return buildParticipantInvitationHtml(payload);
+    case "participation_reminder":
+      return buildParticipationReminderHtml(payload);
     case "participation_completed":
       return buildParticipationCompletedHtml(payload);
     case "owner_participant_signed":
@@ -1009,6 +1110,20 @@ function buildHtml(payload: EmailPayload): string {
   }
 }
 
+function getJwtRole(authorization: string): string | null {
+  const token = authorization.replace(/^Bearer\s+/i, "");
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    return JSON.parse(atob(padded)).role ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Edge Function handler ────────────────────────────────────────────────────
 
 serve(async (req) => {
@@ -1018,21 +1133,32 @@ serve(async (req) => {
 
   try {
     const authorization = req.headers.get("Authorization") ?? "";
-    if (!SUPABASE_SERVICE_ROLE_KEY || authorization !== `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) {
+    // Supabase verifies the JWT at the gateway; this second check limits the
+    // function to trusted server-side callers using the service role.
+    if (getJwtRole(authorization) !== "service_role") {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
 
-    const payload: EmailPayload = await req.json();
+    const rawPayload: EmailPayload = await req.json();
 
-    if (!payload.to || !payload.type) {
+    if (!rawPayload.to || !rawPayload.type) {
       return new Response(JSON.stringify({ error: "Missing required fields: to, type" }), {
         status: 400,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
+
+    if (!EMAIL_TYPES.has(rawPayload.type)) {
+      return new Response(JSON.stringify({ error: "Unsupported email type" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    const payload = sanitizePayload(rawPayload);
 
     if (!RESEND_API_KEY) {
       console.error("[send-email-notifications] RESEND_API_KEY is not set as a Supabase Edge Function secret.");
@@ -1042,7 +1168,12 @@ serve(async (req) => {
       });
     }
 
-    const subject = getSubject(payload.type, payload.documentName, payload.participationStatus, payload.participantName);
+    const subject = getSubject(
+      rawPayload.type,
+      rawPayload.documentName?.replace(/[\r\n]+/g, " "),
+      rawPayload.participationStatus,
+      rawPayload.participantName?.replace(/[\r\n]+/g, " "),
+    );
     const html = buildHtml(payload);
 
     console.log(`[send-email-notifications] Sending type=${payload.type} to=${payload.to} from=${FROM_EMAIL}`);
@@ -1055,7 +1186,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: FROM_EMAIL,
-        reply_to: "noreply@docubox.com.mx",
+        reply_to: REPLY_TO_EMAIL,
         to: [payload.to],
         subject,
         html,

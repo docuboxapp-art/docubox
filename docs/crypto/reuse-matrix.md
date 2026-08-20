@@ -1,91 +1,61 @@
 # Matriz de reutilizacion
 
-Esta matriz decide que conservar, extender, refactorizar, sustituir o crear. Ninguna decision implica implementacion hasta recibir aprobacion explicita.
+Fecha de corte: 2026-08-17
 
 | Elemento | Implementacion existente | Decision | Modificacion requerida | Riesgo | Archivo afectado |
 |---|---|---|---|---|---|
-| SHA-256 | `sha256Hex()` | Conservar | Convertirlo en unica utilidad admitida para certificacion; vectores de prueba | Bajo | `src/lib/certification/canonical.ts` |
-| Canonicalizacion | `canonicalizeRFC8785()` | Extender | Validar contra vectores oficiales JCS, numeros y Unicode | Medio | `src/lib/certification/canonical.ts`, `canonical.test.ts` |
-| Flujo central | `createCertification()` | Refactorizar | Extraer `CertificationOrchestrator`; conservar firma publica de la API | Alto | `src/lib/certification/engine.ts` |
-| Estados | `CertificationStatus` y `certification_state_transitions` | Conservar | Agregar lease, intento, checkpoint y timestamps de fallo | Medio | `src/lib/certification/types.ts`, migracion futura |
-| Idempotencia | `idempotency_key` y uniques | Extender | Reclamo atomico por tenant/documento/version; respuesta estable por clave | Alto | `document_certifications`, orquestador |
-| Documento principal | `documentos` | Conservar | Declararlo fuente operativa autoritativa | Medio | Repositorios y adaptadores |
-| Modelo `documents` | Tabla legal historica | Compatibilidad | Adaptador de lectura; prohibir nuevas escrituras directas gradualmente | Alto | `sign-pdf-vps`, `nom151-generate` |
-| Version definitiva | Solo `document_version = 1` | Crear | Tabla universal de snapshots inmutables; `case_file_document_versions` no cubre todos los documentos | Alto | Migracion futura; orquestador |
-| Bloqueo documental | Estado `FREEZING_DOCUMENT` | Sustituir | Bloqueo real en BD, hash/version precondicion y rechazo de mutaciones | Critico | Migracion futura; rutas de edicion |
-| Evidencia de firma | `signature_evidence` | Extender | Normalizador tipado; no duplicar participantes ni firmas | Medio | `src/lib/certification/engine.ts` |
-| Evidencia tecnica | `document_evidence` | Conservar | Incluir por referencia/hash en manifiesto | Medio | Normalizador de evidencia |
-| Auditoria legal | `document_audit_trail` | Conservar | Adaptador de legado hacia ledger canonico | Medio | Migraciones y repositorio |
-| Integridad historica | `document_integrity_log` | Conservar | Adaptador y prueba de continuidad; no eliminar | Medio | Migraciones y repositorio |
-| Actividad UI | `document_activity_log` | Conservar | Mantener como telemetria funcional, no como evidencia unica | Bajo | Sin cambio inicial |
-| Ledger canonico | `legal_evidence_events` propuesto | Extender | Desplegar, backfill por referencia y append RPC; no duplicar payload sensible | Alto | `20260808120000_security_integrity_hardening.sql` |
-| Manifiesto | `evidence_manifests` e items | Conservar | Reintento por upsert controlado o staging por intento | Medio | Motor y migracion futura |
-| Registro central | `document_certifications` | Extender | Reutilizar como `certification_records`; agregar campos faltantes | Medio | Migracion futura no destructiva |
-| Configuracion de proveedor | No existe equivalente seguro | Crear | `crypto_provider_configurations` con referencias, nunca secretos | Alto | Migracion futura |
-| Inventario de llaves publicas | `cryptographic_keys` | Conservar | Renombrado no requerido; agregar procedencia/attestation ya propuesta | Medio | Hardening local |
-| Timestamp | `timestamp_records` | Extender | Guardar resultado de validacion local, trust anchor y revocacion | Alto | Tabla y adaptador TSA |
-| NOM-151 | `nom151_constancias` y `nom151_constancias_doc` | Unificar por adaptador | Elegir `nom151_constancias_doc` para `documentos`; preservar ambas | Alto | Rutas NOM-151 y normalizador |
-| Constancia visual | `src/lib/certification/pdf.ts` | Conservar | Separar render visual de firma criptografica | Bajo | `pdf.ts` |
-| PAdES gateway | `signPdfWithPades()` | Extender | Contrato tipado, verificacion independiente y reporte firmado | Critico | `adapters.ts` |
-| VPS pyHanko | `vps/signer` | Sustituir gradualmente | Adaptarlo a `PadesProvider`; retirar llave PEM local de produccion | Critico | `vps/signer/*` |
-| Edge `seal-pdf` | Constancia visual + hash | Restringir | No llamarlo PAdES/TSA; mantener solo para compatibilidad visual | Critico | `supabase/functions/seal-pdf/index.ts` |
-| Edge `sign-pdf-vps` | Puente a VPS | Compatibilidad | Encapsular detras de proveedor; corregir `documents`/`documentos` | Alto | `supabase/functions/sign-pdf-vps/index.ts` |
-| Generador local de CA | Endpoint retirado 410 | Conservar retiro | No reactivar | Bajo | `supabase/functions/generate-docubox-cert/index.ts` |
-| KMS adapter | `signDigestWithKms()` | Extender | Autenticacion obligatoria, attestation, contrato digest/bytes inequívoco | Critico | `src/lib/certification/adapters.ts` |
-| TSA adapter | `requestVerifiedTimestamp()` | Refactorizar | Verificacion RFC 3161 local, cadena y EKU `timeStamping` | Critico | `src/lib/certification/adapters.ts` |
-| Reporte tecnico | JSON generado en engine | Extender | Persistir verificador/version/trust policy; descarga desde tarjeta | Medio | `engine.ts`, UI existente |
-| Storage de artefactos | `certification-artifacts` | Conservar | Crear remoto, versionar, write-once, retention y RLS | Alto | Migracion de hardening |
-| PDF firmado | `documents-signed` | Conservar | Normalizar rutas y escritura inmutable | Alto | Storage policies y adaptadores |
-| Portal publico | `/verificar-certificacion/:uuid` | Conservar | Mostrar entorno, confianza, PAdES y timestamp sin filtrar PII | Medio | Pagina y API verify |
-| Tarjeta de integridad | Visor documento | Extender | Incorporar estado de infraestructura y prueba integral | Bajo | `src/app/visor-documento/[id]/page.tsx` |
-| Autorizacion API | `requireApiUser()` + owner | Refactorizar | Politica RBAC tenant/documento compartida | Alto | `auth.ts`, `document-access.ts` |
-| RLS | Politicas locales de hardening | Extender y desplegar | Cobertura de workspace/participantes; pruebas cruzadas | Critico | Migraciones futuras |
-| Observabilidad | Transiciones y logs de acceso | Extender | correlation id, attempt id, duraciones, metricas y alertas | Medio | Tablas y orquestador |
-| ZIP tecnico | `createStoredZip()` | Conservar | Limites, nombres deterministas y manifiesto de contenido | Bajo | `src/lib/certification/zip.ts` |
-| QR | URL de `verification_uuid` | Conservar | Entorno y estado de confianza; nunca incluir secretos | Bajo | `engine.ts`, portal publico |
-| Cifrado AES-256-GCM | Flujos de identidad/documentos existentes | Separar | No mezclar con firma institucional; conservar DEK/KEK | Medio | Sin cambio inicial |
-| e.firma SAT | `validate-efirma` y `sign-efirma` | Separar | Mantener como firma de participante, no llave institucional | Critico | Sin cambio inicial |
+| SHA-256 | `sha256Hex()` | Conservar | Declarar utilidad autoritativa y agregar vectores | Bajo | `src/lib/certification/canonical.ts` |
+| SHA-256 Certifica | `sha256()` duplicado | Refactorizar | Delegar en utilidad autoritativa | Medio | `src/lib/certifica/server.ts` |
+| RFC 8785 | `canonicalizeRFC8785()` | Extender | Vectores oficiales de numeros/Unicode | Medio | `src/lib/certification/canonical.ts` |
+| `stableStringify()` | Orden con `localeCompare` | Sustituir | Usar canonicalizador autoritativo | Alto | `src/lib/certifica/domain.ts` |
+| Orquestador tecnico | `createCertification()` | Refactorizar | Extraer etapas/checkpoints sin cambiar API | Alto | `src/lib/certification/engine.ts` |
+| Producto Certifica | Casos, productos, PSC, custodia | Conservar | Integrar por `existing_document_certification_id` | Medio | `src/lib/certifica`, APIs Certifica |
+| Documento operativo | `documentos` | Conservar | Fuente de negocio autoritativa | Medio | Repositorios documentales |
+| Documento historico | `documents` | Compatibilidad | Adaptador de lectura y retiro gradual | Alto | Edge Functions heredadas |
+| Versiones | `document_versions` | Extender | Acceso desacoplado de Colabora y estados de cierre | Alto | Migracion Colabora + nueva migracion |
+| Version certificada | Entero en `document_certifications` | Extender | Agregar FK `document_version_id` y constraints cruzados | Critico | `document_certifications` |
+| Origen caso Certifica | `source_document_id` | Extender | Agregar `source_document_version_id` | Alto | `certification_cases` |
+| Congelamiento | Trigger de version | Conservar | Claim atomico + write-once Storage | Alto | RPC y politicas Storage |
+| Cadena original | Motor tecnico | Conservar | Versionar schema y fixtures | Medio | `src/lib/certification/engine.ts` |
+| Cadena de evidencia | Motor tecnico | Extender | Normalizadores de fuentes heredadas | Alto | `engine.ts`, adaptadores |
+| Auditoria legal | `legal_evidence_events` | Conservar | Fuente canonica; backfill verificable | Alto | Migraciones de seguridad |
+| Auditoria Certifica | `certification_case_events` | Extender | Append atomico RPC, canonicalizacion unica | Alto | `src/lib/certifica/server.ts` |
+| Auditorias heredadas | Cuatro tablas documentales | Compatibilidad | Adaptadores con procedencia, no borrar | Alto | Repositorios de evidencia |
+| Constancia tecnica | `src/lib/certification/pdf.ts` | Conservar | Alimentar solo resultados verificados | Medio | `pdf.ts` |
+| Constancia visual legacy | `seal-pdf` | Restringir | Eliminar afirmaciones PAdES/TSA cuando no aplica firma | Critico | `supabase/functions/seal-pdf/index.ts` |
+| KMS adapter | `signDigestWithKms()` | Extender | Auth obligatoria, attestation, contrato digest | Alto | `src/lib/certification/adapters.ts` |
+| Registro de llaves | `cryptographic_keys` | Conservar | Huella DER, politica de exposicion minima | Medio | Migracion/configuracion |
+| Configuracion PSC | `psc_providers` | Conservar | Solo para PSC comercial | Bajo | Tablas Certifica |
+| Configuracion crypto | No existe equivalente completo | Crear | Referencias a secretos, health, tenant/entorno | Alto | Nueva migracion aditiva |
+| VPS pyHanko | Firma/verificacion PAdES | Adaptar | Firma remota KMS; quitar PEM y DB | Alto | `vps/signer/*` |
+| Gateway PAdES | `signPdfWithPades()` | Extender | Verificador independiente obligatorio | Critico | `adapters.ts`, verificador nuevo |
+| TSA gateway | `requestVerifiedTimestamp()` | Extender | Parser/verificador independiente | Critico | `adapters.ts`, verificador nuevo |
+| Timestamp DB | `timestamp_records` | Conservar | Completar resultados del verificador | Bajo | Tabla existente |
+| NOM-151 | Dos modelos | Consolidar por adaptador | Elegir autoritativo sin borrar historial | Alto | `nom151_constancias*` |
+| Storage tecnico | `certification-artifacts` | Conservar | Staging por intento, write-once, retencion | Medio | Storage/RPC |
+| Storage comercial | Cuatro buckets Certifica | Conservar | Reconciliacion y legal hold | Medio | Storage Certifica |
+| Portal tecnico | `/verificar-certificacion/[verificationUuid]` | Extender | Re-hash y validar PAdES/TSA en backend | Alto | `engine.ts`, portal |
+| Portal comercial | `/verificar-certificacion/c/[token]` | Conservar | Mostrar reporte tecnico enlazado | Medio | API publica Certifica |
+| Idempotencia tecnica | Uniques + consulta previa | Extender | Claim atomico, attempt, lease, checkpoints | Critico | BD y orquestador |
+| Idempotencia PSC | Transacciones proveedor | Extender | Upsert atomico y recuperacion de respuesta | Alto | `submit/route.ts` |
+| RBAC | Permisos de organizacion | Conservar | Permisos crypto dedicados | Medio | Organizacion/RLS |
+| Tarjeta Integridad | UI existente en visor | Conservar | Mostrar entorno/proveedor/verificador | Bajo | `visor-documento/[id]/page.tsx` |
+| Tests actuales | Canonical + sandbox | Extender | Suite T01-T24 y regresion | Critico | Tests TS/Python/SQL |
 
-## Tablas objetivo
+## Componentes que no deben tocarse en la primera implementacion
 
-### Reutilizar `document_certifications`
+- Flujos actuales de e.firma SAT, autografa, Click & Sign y OTP.
+- Archivo original y documentos cerrados existentes.
+- IDs, folios y tablas historicas.
+- Generador visual de constancia, salvo correccion de afirmaciones no verificadas.
+- Sandbox Certifica y su marca `NO VALIDO / DEMOSTRACION`.
 
-No se recomienda crear `certification_records`. La tabla existente ya contiene identificadores, tenant, documento, version, idempotencia, estados, hashes, cadenas, sellos, rutas, errores y auditoria de creacion.
+## Componentes nuevos estrictamente necesarios
 
-Columnas candidatas para una migracion futura no destructiva:
+1. Contratos `KeyManagementProvider`, `TimestampAuthorityProvider`, `PdfSignatureProvider`, `CertificateProvider` y `CryptoVerifier`.
+2. Configuracion criptografica por tenant/entorno sin secretos directos.
+3. RPCs atomicos de claim, transicion, evento y cierre.
+4. Worker durable/reconciliador.
+5. Verificador RFC 3161 y PAdES independiente.
 
-- `document_version_id uuid`
-- `source_storage_bucket text`
-- `source_storage_path text`
-- `source_storage_version text`
-- `source_document_updated_at timestamptz`
-- `pades_profile text`
-- `key_provider text`
-- `certificate_serial_number text`
-- `certificate_fingerprint_sha256 char(64)`
-- `tsa_provider text`
-- `tsa_policy_oid text`
-- `verification_report_path text`
-- `failed_at timestamptz`
-- `failure_detail jsonb` con datos sanitizados
-- `attempt_count integer`
-- `lease_owner uuid`
-- `lease_expires_at timestamptz`
-
-### Crear `crypto_provider_configurations`
-
-No existe una estructura equivalente. `cryptographic_keys` representa llaves publicas y procedencia, no configuracion por tenant. La nueva tabla solo guardaria referencias:
-
-- `provider_type`, `provider_name`, `environment`, `enabled`
-- `configuration_reference`
-- `secret_reference`
-- `health_status`, `last_health_check_at`
-- `certificate_expires_at`
-- `metadata` no sensible
-
-No guardaria tokens, PIN, claves privadas, PKCS#12 ni contrasenas.
-
-### Crear versionado universal
-
-No existe un equivalente seguro de `document_versions` para `documentos`. `case_file_document_versions` es especifica de expedientes. Una tabla universal es necesaria para demostrar que se certifico exactamente una version y para impedir carreras con ediciones concurrentes.
-
+No se requiere una nueva tabla de documentos, versiones, llaves publicas, timestamps, manifiestos ni casos comerciales.

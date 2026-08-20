@@ -1,6 +1,6 @@
-// DOCUBOX — seal-pdf Edge Function
-// Genera constancia visual con pdf-lib y aplica firma criptográfica PKCS#7/PAdES
-// usando implementación nativa Deno (sin @signpdf que no es compatible con esm.sh en Deno).
+// DOCUBOX - VisualSealRenderer
+// Genera una constancia visual con pdf-lib. Esta funcion no aplica una firma
+// criptografica PDF, un certificado X.509 ni una estampa RFC 3161.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -180,25 +180,24 @@ async function addSealPage(params: {
 
   y -= 10
 
-  // ── Certificado de firma digital ─────────────────────────────────────────────
+  // Registro visual e integridad
   page.drawRectangle({ x: 27, y: y - 130, width: width - 54, height: 140, color: colorLight })
   page.drawRectangle({ x: 27, y: y - 130, width: 3, height: 140, color: colorPrimary })
 
-  page.drawText('CERTIFICADO DE FIRMA DIGITAL — PAdES', {
+  page.drawText('CONSTANCIA VISUAL DE FIRMA E INTEGRIDAD', {
     x: 38, y: y - 4, size: 9, font: helveticaBold, color: colorPrimary,
   })
   y -= 18
 
   const certData = [
-    ['Entidad emisora (CN)', 'Docubox CA'],
-    ['Organización (O)', 'Docubox'],
-    ['País (C)', 'MX'],
-    ['Validez del certificado', '825 días'],
-    ['Algoritmo', 'RSA-2048 + SHA-256'],
-    ['Sellado de tiempo (TSA)', 'DigiCert RFC 3161'],
-    ['URL TSA', 'http://timestamp.digicert.com'],
-    ['Nivel de firma', 'PAdES — Fase 1'],
-    ['Estándar legal', 'Código de Comercio Arts. 89-97'],
+    ['Generado por', 'Docubox VisualSealRenderer'],
+    ['Tipo de evidencia', 'Constancia visual'],
+    ['Algoritmo de integridad', 'SHA-256'],
+    ['Firma PDF criptográfica', 'No aplicada'],
+    ['Certificado institucional', 'No configurado'],
+    ['Estampa RFC 3161', 'No aplicada'],
+    ['Nivel técnico', 'Sello visual'],
+    ['Referencia legal', 'Código de Comercio Arts. 89-97'],
   ]
 
   for (const [label, value] of certData) {
@@ -211,8 +210,9 @@ async function addSealPage(params: {
 
   // ── Fundamento legal ─────────────────────────────────────────────────────────
   const legalText =
-    'La presente firma electrónica tiene validez jurídica conforme al Código de Comercio de los Estados Unidos ' +
-    'Mexicanos (Arts. 89-97), la Ley de Firma Electrónica Avanzada (LFEA) y los Lineamientos del SAT para firma '+ 'electrónica. El sellado de tiempo mediante DigiCert TSA (RFC 3161) acredita la existencia del documento en la '+ 'fecha y hora indicadas. El hash SHA-256 garantiza la integridad e inalterabilidad del documento. Certificado '+ 'emitido por Docubox CA bajo los estándares X.509 v3, RSA-2048, SHA-256.'
+    'Esta página documenta datos visibles del proceso de firma y la huella SHA-256 calculada por Docubox. ' +
+    'La huella permite detectar cambios posteriores al archivo registrado. Esta constancia visual no contiene ' +
+    'por sí sola una firma PDF PAdES, un certificado X.509 ni una estampa de tiempo RFC 3161.'
 
   // Dividir en líneas de ~100 chars
   const words = legalText.split(' ')
@@ -400,18 +400,18 @@ serve(async (req) => {
 
     // Metadata del PDF
     pdfDoc.setTitle(`Documento firmado — DOCUBOX — ${folio}`)
-    pdfDoc.setAuthor('Docubox CA — Docubox — MX')
+    pdfDoc.setAuthor('Docubox')
     pdfDoc.setSubject(`Firma electrónica — ${signer_name} — ${reason}`)
     pdfDoc.setCreator('DOCUBOX — Plataforma de firma electrónica')
-    pdfDoc.setProducer('DOCUBOX v1.0 | PAdES Fase 1 | Docubox CA')
-    pdfDoc.setKeywords(['firma electrónica', 'DOCUBOX', 'PAdES', 'RSA-2048', 'Código de Comercio', 'México', 'Docubox CA'])
+    pdfDoc.setProducer('DOCUBOX VisualSealRenderer v1.0')
+    pdfDoc.setKeywords(['firma electrónica', 'DOCUBOX', 'constancia visual', 'SHA-256', 'México'])
 
     console.log('[seal-pdf] [3/9] ✓ Metadata del PDF establecida', {
       title: `Documento firmado — DOCUBOX — ${folio}`,
-      author: 'Docubox CA — Docubox — MX',
+      author: 'Docubox',
       subject: `Firma electrónica — ${signer_name} — ${reason}`,
       creator: 'DOCUBOX — Plataforma de firma electrónica',
-      producer: 'DOCUBOX v1.0 | PAdES Fase 1 | Docubox CA',
+      producer: 'DOCUBOX VisualSealRenderer v1.0',
     })
 
     // Agregar página de constancia visual
@@ -454,18 +454,16 @@ serve(async (req) => {
     let pdfBytes = await pdfDoc.save()
     console.log('[seal-pdf] [3/9] ✓ PDF con constancia visual serializado', { sizeBytes: pdfBytes.length })
 
-    // ── 4. Hash del PDF con constancia (antes de firma criptográfica) ─────────
+    // Hash del PDF con constancia visual
     let sealed_hash = await sha256Hex(pdfBytes)
     console.log('[seal-pdf] [4/9] ✓ Hash SHA-256 del PDF con constancia visual', { sealedHashPreCrypto: sealed_hash })
 
-    // ── FIRMA CRIPTOGRÁFICA — nota: @signpdf no es compatible con Deno/esm.sh ──
-    // La firma criptográfica PKCS#7/PAdES requiere @signpdf que no puede ser
-    // importado en Deno Edge Functions. El PDF se entrega con constancia visual
-    // completa y hash SHA-256 como prueba de integridad.
+    // Responsabilidad delimitada: el firmador criptografico PDF es un proveedor
+    // separado y no forma parte de VisualSealRenderer.
     const cryptoSignatureApplied = false
     console.log('[seal-pdf] [CRYPTO] Firma criptográfica PKCS#7 omitida (incompatibilidad Deno/esm.sh)', {
       fallback: 'PDF con constancia visual + hash SHA-256 entregado',
-      note: 'Para firma PKCS#7 completa usar VPS Python con sign-pdf-vps',
+      note: 'CryptographicPdfSigner no fue invocado por esta funcion',
     })
 
     // ── 5. Hash final sobre el PDF ya firmado ─────────────────────────────────
@@ -606,13 +604,13 @@ serve(async (req) => {
       headers: {
         ...corsHeaders,
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="DOCUBOX_${document_id}_PAdES.pdf"`,
+        'Content-Disposition': `attachment; filename="DOCUBOX_${document_id}_constancia_visual.pdf"`,
         'X-Folio': folio,
         'X-Original-Hash': originalHash,
         'X-Sealed-Hash': sealed_hash,
         'X-Crypto-Signature': 'visual-only',
         'X-Signature-Level': 'Visual-Seal',
-        'X-Certificate': 'CN=Docubox CA,O=Docubox,C=MX',
+        'X-Certificate': 'not-configured',
         'X-Sealed-Path': sealedPath,
       },
     })

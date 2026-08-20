@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
-import { sendEmailNotification } from '@/lib/emailNotifications';
+import { sendParticipationReminderEmail } from '@/lib/emailNotifications';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -84,12 +84,16 @@ export async function POST(req: NextRequest) {
 
     // Build portal URL: prefer participant's portal_token, fall back to documentId (DB UUID)
     let portalToken = documentId;
+    let participantRole = 'Participante';
+    let signatureMethod = 'Firma electr\u00f3nica';
+    let expiryDate: string | undefined;
     if (documentId) {
       const { data: docForToken } = await supabaseAdmin
         .from('documentos')
-        .select('participantes')
+        .select('participantes, fecha_vencimiento')
         .eq('id', documentId)
         .single();
+      expiryDate = docForToken?.fecha_vencimiento || undefined;
       if (docForToken?.participantes) {
         const participant = (docForToken.participantes as any[]).find(
           (p: any) => p.email === participantEmail
@@ -97,6 +101,15 @@ export async function POST(req: NextRequest) {
         if (participant?.portal_token) {
           portalToken = participant.portal_token;
         }
+        participantRole = participant?.acto || participant?.role || 'Participante';
+        const methods = Array.isArray(participant?.tipoFirma) ? participant.tipoFirma : [];
+        const labels: Record<string, string> = {
+          autografa: 'Firma aut\u00f3grafa digital',
+          efirma: 'e.firma SAT',
+          biometria: 'Biometr\u00eda',
+          click: 'Click & Sign',
+        };
+        signatureMethod = methods.map((method: string) => labels[method] || method).join(', ') || 'Firma electr\u00f3nica';
       }
     }
 
@@ -105,15 +118,15 @@ export async function POST(req: NextRequest) {
       : `${process.env.NEXT_PUBLIC_SITE_URL}/mis-participaciones`;
 
     // Send reminder email via Resend
-    await sendEmailNotification({
-      type: 'participant_invitation',
-      to: participantEmail,
-      recipientName: participantName,
+    await sendParticipationReminderEmail({
+      participantEmail,
+      participantName,
       documentName,
       senderName,
       documentUrl,
-      participantRole: 'Participante',
-      signatureMethod: 'Firma Electrónica',
+      participantRole,
+      signatureMethod,
+      expiryDate,
     });
 
     // ── Update fecha_recordatorio in participant JSONB (non-blocking) ──────

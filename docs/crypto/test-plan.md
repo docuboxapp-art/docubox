@@ -1,105 +1,129 @@
 # Plan de pruebas
 
-## Estrategia
+Fecha de corte: 2026-08-17
 
-La piramide combina pruebas unitarias deterministas, integracion con proveedores simulados, integracion criptografica real en desarrollo y E2E contra Supabase aislado. Ninguna prueba usa llaves o certificados productivos.
+## Estrategia
 
 ```mermaid
 flowchart TB
-  U["Unitarias: hash, JCS, estados"] --> I["Integracion: DB, Storage, adapters"]
-  I --> C["Criptograficas: OpenBao, TSA, pyHanko"]
-  C --> E["E2E: documento a verificacion publica"]
-  E --> R["Regresion de firmas existentes"]
+  U["Unitarias: hash, JCS, estados"] --> D["DB: RPC, RLS, concurrencia"]
+  D --> P["Proveedores: KMS, TSA, PAdES"]
+  P --> E["E2E: version a portal publico"]
+  E --> R["Regresion de firmas actuales"]
 ```
+
+Ninguna prueba usa llaves productivas. Los fixtures criptograficos de desarrollo deben ser reproducibles y estar claramente marcados.
 
 ## Fixtures
 
-- PDF minimo valido de una pagina.
-- PDF multipagina con formulario y firmas visuales.
-- PDF corrupto y PDF con un byte alterado.
+- PDF minimo, multipagina, formulario, corrupto y con un byte alterado.
+- Versiones original, editable, congelada, firmada y certificada.
 - CA raiz/intermedia de desarrollo.
-- Certificado valido, expirado, aun no valido, no confiable y proximo a vencer.
-- Certificado TSA con y sin EKU `timeStamping`.
-- TSR valido y tokens con imprint, firma, nonce y policy alterados.
-- Respuestas KMS RSA-PSS validas e invalidas.
-- Dos tenants, propietarios, administradores, participantes y usuario externo.
+- Certificados valido, expirado, aun no valido, no confiable, revocado y proximo a vencer.
+- Certificado TSA valido y sin EKU `timeStamping`.
+- TSQ/TSR valido y mutaciones de imprint, nonce, policy y firma.
+- CMS/PAdES valido y mutaciones de ByteRange, Contents y certificado.
+- Dos tenants con owner, admin, certificador, participante y usuario ajeno.
+- Fallos deterministas de KMS, TSA, PAdES, Storage y DB.
 
 ## Casos obligatorios
 
 | ID | Caso | Nivel | Resultado esperado |
 |---|---|---|---|
-| T01 | Hash correcto | Unitario | Coincide con vector SHA-256 conocido |
-| T02 | Cambio de un byte | Unitario/E2E | Cambia hash y verificacion falla |
-| T03 | Firma valida | Criptografico | CMS, ByteRange y cadena validos |
-| T04 | Firma alterada | Criptografico | `PADES_SIGNATURE_INVALID` |
-| T05 | Certificado expirado | Criptografico | Falla cerrado, sin `COMPLETED` |
-| T06 | Certificado no confiable | Criptografico | Estado no confiable; produccion rechazada |
-| T07 | Timestamp valido | Criptografico | Imprint, firma, EKU, policy y cadena validos |
-| T08 | Timestamp alterado | Criptografico | `RFC3161_VALIDATION_FAILED` |
-| T09 | TSA no disponible | Integracion | Error reintentable; checkpoint preservado |
-| T10 | KMS no disponible | Integracion | Error reintentable; sin sello simulado |
-| T11 | Reintento idempotente | Integracion | Misma certificacion/artefactos, sin duplicados |
-| T12 | Solicitud duplicada concurrente | Integracion | Un solo claim gana; otra obtiene resultado existente |
-| T13 | Documento cambia durante certificacion | Integracion | Precondicion de version/hash rechaza commit |
-| T14 | Acceso entre tenants | Seguridad | 404/403 y cero filtracion de metadatos |
-| T15 | Usuario sin permiso | Seguridad | No puede ejecutar, reintentar ni descargar |
-| T16 | PDF corrupto | Unitario/Integracion | Falla antes de KMS y registra codigo sanitizado |
-| T17 | Certificado proximo a vencer | Health/UI | Estado `CERTIFICATE_EXPIRING`, no produccion sana |
-| T18 | Fallo parcial | Integracion | Artefactos en staging, estado consistente |
-| T19 | Recuperacion posterior | Integracion | Reanuda desde checkpoint sin repetir efectos |
-| T20 | Verificacion E2E | E2E | Documento, cadenas, sellos, TSA, PAdES y root validos |
+| T01 | SHA-256 conocido | Unitario | Coincide con vector |
+| T02 | Cambio de un byte | Unitario/E2E | Hash distinto y rechazo |
+| T03 | Canonicalizacion RFC 8785 | Unitario | Vectores oficiales pasan |
+| T04 | Misma canonica en Node/proveedor | Integracion | Bytes y hash identicos |
+| T05 | Version exacta certificada | DB/E2E | FK, hash y Storage coinciden |
+| T06 | Cambio durante certificacion | Integracion | Commit rechazado |
+| T07 | Firma RSA-PSS valida | Criptografico | Verificador independiente valida |
+| T08 | Firma alterada | Criptografico | Falla cerrado |
+| T09 | Certificado expirado/no confiable | Criptografico | No completa produccion |
+| T10 | Certificado proximo a vencer | Health/UI | Estado degradado/advertencia |
+| T11 | RFC 3161 valido | Criptografico | Imprint, firma, EKU, policy y cadena validos |
+| T12 | RFC 3161 alterado | Criptografico | Rechazo por componente exacto |
+| T13 | TSA no disponible | Integracion | Fallo reintentable, checkpoint preservado |
+| T14 | PAdES B-T valido | Criptografico | ByteRange, CMS, cadena y timestamp validos |
+| T15 | PAdES alterado | Criptografico | Rechazo aunque gateway diga VALID |
+| T16 | KMS no disponible | Integracion | Sin sello simulado ni estado completo |
+| T17 | Reintento idempotente | Integracion | Mismo resultado, sin duplicados |
+| T18 | Duplicado concurrente | DB | Un claim y respuesta estable |
+| T19 | Evento concurrente Certifica | DB | Secuencias unicas, cadena continua |
+| T20 | Fallo despues de upload | Integracion | Reconciliacion/reanudacion sin colision |
+| T21 | Acceso entre tenants | Seguridad | 403/404, cero metadata |
+| T22 | Usuario sin permiso | Seguridad | No ejecuta, reintenta, descarga ni configura |
+| T23 | PDF corrupto | Integracion | Falla antes de KMS |
+| T24 | Verificacion publica E2E | E2E | Re-hash y verificacion completa |
 
-## Pruebas adicionales de seguridad
+## Contratos de proveedores
 
-- RLS `SELECT/INSERT/UPDATE/DELETE` para cada tabla de certificacion.
-- Storage por tenant, documento y path malformado.
-- Idempotency key reutilizada con otro documento.
-- Manipulacion de `tenant_id` en payload.
-- Token de gateway ausente, incorrecto y expirado.
-- Respuesta de proveedor con algoritmo degradado o RSA menor a 3072.
-- Certificado distinto al esperado por key id/version.
-- Error del proveedor con secreto en detalle: el frontend debe recibir codigo sanitizado.
-- URL publica aleatoria no existente y certificacion revocada.
-- Descarga privada por participante autorizado y usuario ajeno.
-- Intento de sobrescribir PDF certificado.
-- Intento de modificar/borrar transiciones y ledger.
+### KMS
 
-## Pruebas de compatibilidad
+- Token/workload identity ausente o incorrecta.
+- Algoritmo degradado, RSA menor a 3072 y key version inesperada.
+- Firma de digest frente a firma de mensaje: vectores interoperables obligatorios.
+- Attestation ausente, llave revocada y respuesta duplicada.
 
-Antes de tocar firmas actuales:
+### TSA
 
-1. Firma autografa completa y evidencia persistida.
-2. e.firma SAT valida, invalida y archivo corrupto.
-3. Click & Sign con OTP.
-4. Orden secuencial y paralelo.
-5. Descarga del documento actual.
-6. NOM-151 actual.
-7. Visor y portal de verificacion existentes.
-8. `seal-pdf` y `sign-pdf-vps` bajo feature flags separados.
+- Response malformada, serial repetido, nonce distinto y policy no permitida.
+- Certificado TSA sin EKU, expirado o no confiable.
+- Gateway reporta valido con token alterado: el verificador debe rechazar.
 
-## Pruebas de estados y transacciones
+### PAdES
 
-- Cada transicion acepta solo el estado anterior esperado.
-- Estado y evento se escriben en una sola transaccion.
-- Lease expirado puede ser reclamado; lease vigente no.
-- `COMPLETED` requiere todas las rutas/hashes/reporte.
-- `FAILED` conserva codigo, etapa, intento y detalle sanitizado.
-- La caida despues de KMS, TSA, upload o DB commit se recupera sin duplicar.
+- ByteRange fuera de limites, digest distinto y firma CMS corrupta.
+- Certificado distinto al key id esperado.
+- Perfil declarado B-T que realmente solo alcanza B-B.
+- Cambios incrementales permitidos y no permitidos posteriores a la firma.
 
-## Herramientas y ubicacion propuesta
+## Seguridad Supabase
 
-- Mantener `node:test` para canonicalizacion y utilidades puras.
-- Pruebas TypeScript junto a `src/lib/certification`.
-- Pruebas Python junto a `vps/signer` para pyHanko/verificacion.
-- Entorno Supabase local o proyecto staging desechable para RLS/Storage.
-- No depender del remoto productivo para CI.
+- RLS `SELECT/INSERT/UPDATE/DELETE` para todas las tablas tecnicas y Certifica.
+- `document_versions` accesible a certificador autorizado sin depender de Colabora y negada a otro tenant.
+- `SECURITY DEFINER` sin EXECUTE publico salvo wrappers justificados.
+- Funciones criticas con `search_path` fijo.
+- Storage: path de otro tenant, traversal, bucket equivocado y overwrite de artefacto cerrado.
+- Edge Functions: sin token, JWT invalido, usuario sin acceso y token interno incorrecto.
+- Politica publica de `cryptographic_keys` no expone metadata sensible.
+
+## e.firma y secretos
+
+- `.key` y password nunca aparecen en logs, errores, DB, Storage ni trazas.
+- Gateway recibe datos solo sobre canal autenticado.
+- Timeout/cancelacion no persiste buffers temporales.
+- Error del proveedor se sanitiza antes de frontend.
+
+## Regresion obligatoria
+
+Antes de modificar el comportamiento actual:
+
+1. Firma autografa digital y evidencias.
+2. Click & Sign/OTP.
+3. e.firma SAT valida, password incorrecta y archivos corruptos.
+4. Orden secuencial/paralelo y participantes.
+5. Descarga original, firmado y constancia.
+6. NOM-151 existente.
+7. Visor y ambos portales publicos.
+8. `seal-pdf` y `sign-pdf-vps` tras feature flags separados.
+9. Caso Certifica sandbox permanece `NO VALIDO / DEMOSTRACION`.
+
+## Recuperacion
+
+Inyectar una caida despues de cada etapa: freeze, evidencia, cadena, KMS, constancia, PAdES, TSA, verificacion, upload y commit. Al reanudar:
+
+- no repetir efectos externos ya confirmados;
+- no crear otro folio/certificacion;
+- conservar auditoria continua;
+- no sobrescribir artefactos;
+- cerrar solo si todos los hashes/rutas/reporte coinciden.
 
 ## Criterio de aprobacion
 
-- 100% de los casos T01-T20 pasan.
-- Cero hallazgos criticos abiertos.
-- Pruebas de acceso entre tenants pasan en tablas, APIs y Storage.
-- El verificador independiente valida un PDF generado y rechaza todas las mutaciones.
-- Regresion de firmas actuales sin cambios observables.
-- Reporte de salud distingue desarrollo de produccion.
-
+- T01-T24 pasan en CI y staging.
+- Cero riesgos criticos abiertos.
+- Cero cruce de tenant en DB, API y Storage.
+- Verificador independiente acepta el PDF valido y rechaza todas las mutaciones.
+- Regresion actual sin cambios observables.
+- Advisor Supabase sin hallazgos relevantes nuevos.
+- La UI distingue desarrollo, degradado y produccion.

@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
+  BadgeCheck,
   Check,
   ClipboardList,
   ExternalLink,
@@ -97,6 +98,13 @@ const modulePresentation: Record<
     categoryLabel: 'Productividad documental',
     iconClass: 'text-blue-700',
     surfaceClass: 'border-blue-200 bg-blue-50',
+  },
+  certifica: {
+    icon: BadgeCheck,
+    category: 'seguridad',
+    categoryLabel: 'Seguridad y cumplimiento',
+    iconClass: 'text-cyan-700',
+    surfaceClass: 'border-cyan-200 bg-cyan-50',
   },
   lucia: {
     icon: Sparkles,

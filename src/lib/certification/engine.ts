@@ -2,7 +2,18 @@ import { constants, createPublicKey, randomUUID, verify } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { canonicalSha256, canonicalizeRFC8785, sha256Hex } from './canonical';
-import { requestVerifiedTimestamp, signDigestWithKms, signPdfWithPades } from './adapters';
+import { getCryptographicProviderStatus, requestVerifiedTimestamp, signDigestWithKms, signPdfWithPades } from './adapters';
+import {
+  EVIDENCE_SCHEMA_VERSION,
+  FOUNDATION_CAPABILITIES,
+  SOURCE_HASH_ALGORITHM,
+  VERIFIED_PROVIDER_CAPABILITIES,
+} from './capabilities';
+import {
+  downloadCurrentDocumentBytes,
+  resolveAndFreezeCertificationSource,
+  verifyFrozenCertificationSource,
+} from './foundation';
 import { abbreviateBase64, appendCertificatePages, applyCryptographicPlacements, generateIntegrityCertificatePdf } from './pdf';
 import { createStoredZip } from './zip';
 import { CertificationError, CertificationStatus, CertificationSummary, EvidenceItem } from './types';
@@ -15,6 +26,7 @@ type DocumentRow = {
   owner_id: string;
   workspace_id: string | null;
   file_url: string | null;
+  storage_path: string | null;
   file_name: string | null;
   file_type: string | null;
   file_size: number | null;
@@ -37,6 +49,9 @@ type CertificationRow = Record<string, any> & {
   document_id: string;
   document_folio: string;
   status: CertificationStatus;
+  execution_status: 'created' | 'processing' | 'completed' | 'failed';
+  document_version_id: string | null;
+  document_version: number;
   created_at: string;
   completed_at: string | null;
 };
@@ -116,38 +131,6 @@ function displayChain(schema: string, values: Record<string, string | number | n
   return lines.join('\n');
 }
 
-function parseStorageReference(raw: string) {
-  try {
-    const url = new URL(raw);
-    const match = url.pathname.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/]+)\/(.+)$/);
-    return match ? { bucket: decodeURIComponent(match[1]), path: decodeURIComponent(match[2]) } : null;
-  } catch {
-    return null;
-  }
-}
-
-async function downloadDocumentBytes(supabase: SupabaseClient, document: DocumentRow) {
-  const candidates: Array<{ bucket: string; path: string }> = [];
-  if (document.sealed_pdf_path) {
-    candidates.push({ bucket: 'documents-signed', path: document.sealed_pdf_path });
-    candidates.push({ bucket: 'documents', path: document.sealed_pdf_path });
-  }
-  if (document.file_url) {
-    const reference = parseStorageReference(document.file_url);
-    if (reference) candidates.push(reference);
-    else if (!/^https?:/i.test(document.file_url)) candidates.push({ bucket: 'documents', path: document.file_url });
-  }
-  for (const candidate of candidates) {
-    const { data, error } = await supabase.storage.from(candidate.bucket).download(candidate.path);
-    if (!error && data) return new Uint8Array(await data.arrayBuffer());
-  }
-  if (document.file_url && /^https?:/i.test(document.file_url)) {
-    const response = await fetch(document.file_url, { signal: AbortSignal.timeout(30_000) }).catch(() => null);
-    if (response?.ok) return new Uint8Array(await response.arrayBuffer());
-  }
-  throw new CertificationError('DOCUMENT_BYTES_UNAVAILABLE', 'No fue posible recuperar los bytes del documento cerrado.', 422);
-}
-
 async function transition(
   supabase: SupabaseClient,
   certification: CertificationRow,
@@ -156,7 +139,12 @@ async function transition(
   metadata: Record<string, unknown> = {},
 ) {
   const fromStatus = certification.status;
-  const { error } = await supabase.from('document_certifications').update({ status: toStatus }).eq('id', certification.id);
+  const update: Record<string, unknown> = { status: toStatus };
+  if (certification.execution_status === 'created') {
+    update.execution_status = 'processing';
+    update.started_at = new Date().toISOString();
+  }
+  const { error } = await supabase.from('document_certifications').update(update).eq('id', certification.id);
   if (error) throw new CertificationError('CERTIFICATION_STATE_WRITE_FAILED', error.message, 500);
   await supabase.from('certification_state_transitions').insert({
     tenant_id: certification.tenant_id,
@@ -168,6 +156,7 @@ async function transition(
     metadata,
   });
   certification.status = toStatus;
+  certification.execution_status = 'processing';
 }
 
 async function markFailed(supabase: SupabaseClient, certification: CertificationRow, actorId: string, error: unknown): Promise<never> {
@@ -177,6 +166,9 @@ async function markFailed(supabase: SupabaseClient, certification: Certification
   const fromStatus = certification.status;
   await supabase.from('document_certifications').update({
     status: 'FAILED',
+    execution_status: 'failed',
+    failed_at: new Date().toISOString(),
+    failure_detail: failure.message,
     error_code: failure.code,
     error_message: failure.message,
   }).eq('id', certification.id);
@@ -211,13 +203,25 @@ function mapSummary(row: CertificationRow, timestamp?: Record<string, any> | nul
     documentId: row.document_id,
     documentFolio: row.document_folio,
     status: row.status,
+    executionStatus: row.execution_status || (row.status === 'COMPLETED' ? 'completed' : row.status === 'FAILED' ? 'failed' : 'processing'),
+    documentVersionId: row.document_version_id || null,
+    documentVersionNumber: Number(row.document_version || 1),
     createdAt: row.created_at,
     completedAt: row.completed_at,
     documentBodySha256: row.document_body_sha256 || null,
     certifiedPdfSha256: row.certified_pdf_sha256 || null,
     certificationRootSha256: row.certification_root_sha256 || null,
-    timestampStatus: timestamp?.status || null,
+    timestampStatus: row.timestamp_status || (timestamp?.status === 'VALID' ? 'valid' : 'not_configured'),
     timestampGenTime: timestamp?.gen_time || null,
+    integrityStatus: row.integrity_status || 'pending',
+    pdfSignatureStatus: row.pdf_signature_status || 'not_configured',
+    certificateStatus: row.certificate_status || 'not_configured',
+    verificationStatus: row.verification_status || 'pending',
+    evidenceSchemaVersion: row.evidence_schema_version || EVIDENCE_SCHEMA_VERSION,
+    sourceDocumentHash: row.source_document_hash || row.document_body_sha256 || null,
+    sourceDocumentSizeBytes: row.source_document_size_bytes === null || row.source_document_size_bytes === undefined
+      ? null
+      : Number(row.source_document_size_bytes),
     errorCode: row.error_code || null,
     errorMessage: row.error_message || null,
   };
@@ -245,10 +249,11 @@ export async function createCertification(
   documentId: string,
   userId: string,
   idempotencyKey: string,
+  requestedVersionId?: string | null,
 ) {
   const { data: documentData, error: documentError } = await supabase
     .from('documentos')
-    .select('id,documento_id,nombre,estado,owner_id,workspace_id,file_url,file_name,file_type,file_size,file_hash_sha256,sealed_pdf_path,sealed_pdf_hash,created_at,fecha_completado,updated_at,participantes,campos_solicitados,sello_digital')
+    .select('id,documento_id,nombre,estado,owner_id,workspace_id,file_url,storage_path,file_name,file_type,file_size,file_hash_sha256,sealed_pdf_path,sealed_pdf_hash,created_at,fecha_completado,updated_at,participantes,campos_solicitados,sello_digital')
     .eq('id', documentId)
     .maybeSingle();
   const document = documentData as DocumentRow | null;
@@ -256,7 +261,32 @@ export async function createCertification(
   if (document.estado !== 'completado') throw new CertificationError('DOCUMENT_NOT_COMPLETED', 'Solo pueden certificarse documentos completados.', 422);
 
   const tenantId = document.workspace_id || document.owner_id;
-  const { data: existing } = await supabase.from('document_certifications').select('*').eq('document_id', documentId).eq('document_version', 1).maybeSingle();
+  const source = await resolveAndFreezeCertificationSource({
+    supabase,
+    document,
+    actorUserId: userId,
+    requestedVersionId,
+  });
+  const { data: idempotentCertification } = await supabase
+    .from('document_certifications')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('document_version_id', source.versionId)
+    .eq('certification_type', 'integrity_evidence')
+    .eq('idempotency_key', idempotencyKey)
+    .maybeSingle();
+  if (idempotentCertification && idempotentCertification.status !== 'FAILED') {
+    return mapSummary(
+      idempotentCertification as CertificationRow,
+      await getTimestamp(supabase, idempotentCertification.id),
+    );
+  }
+  const { data: existing } = await supabase
+    .from('document_certifications')
+    .select('*')
+    .eq('document_version_id', source.versionId)
+    .eq('certification_type', 'integrity_evidence')
+    .maybeSingle();
   if (existing?.status === 'COMPLETED') return mapSummary(existing as CertificationRow, await getTimestamp(supabase, existing.id));
 
   let certification: CertificationRow;
@@ -264,7 +294,8 @@ export async function createCertification(
     certification = existing as CertificationRow;
     if (certification.status !== 'FAILED') return mapSummary(certification, await getTimestamp(supabase, certification.id));
     const { error } = await supabase.from('document_certifications').update({
-      status: 'PENDING', idempotency_key: idempotencyKey, error_code: null, error_message: null,
+      status: 'PENDING', error_code: null, error_message: null,
+      execution_status: 'created', failed_at: null, failure_detail: null,
       execution_environment: executionEnvironment(),
     }).eq('id', certification.id);
     if (error) throw new CertificationError('CERTIFICATION_RETRY_FAILED', error.message, 500);
@@ -276,9 +307,23 @@ export async function createCertification(
       document_id: document.id,
       document_uuid: document.id,
       document_folio: document.documento_id,
-      document_version: 1,
+      document_version_id: source.versionId,
+      document_version: source.versionNumber,
+      certification_type: 'integrity_evidence',
       idempotency_key: idempotencyKey,
       status: 'PENDING',
+      execution_status: 'created',
+      source_document_hash: source.sha256,
+      source_document_hash_algorithm: SOURCE_HASH_ALGORITHM,
+      source_document_size_bytes: source.sizeBytes,
+      source_storage_bucket: source.storageBucket,
+      source_storage_path: source.storagePath,
+      integrity_status: 'pending',
+      pdf_signature_status: 'not_configured',
+      certificate_status: 'not_configured',
+      timestamp_status: 'not_configured',
+      verification_status: 'pending',
+      evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
       created_by: userId,
       schema_version: '1.0',
       execution_environment: executionEnvironment(),
@@ -298,7 +343,7 @@ export async function createCertification(
 
   try {
     await transition(supabase, certification, 'FREEZING_DOCUMENT', userId);
-    const documentBytes = await downloadDocumentBytes(supabase, document);
+    const documentBytes = source.bytes;
     const documentPdf = await PDFDocument.load(documentBytes);
     const pageCount = documentPdf.getPageCount();
     const completedAt = new Date(document.fecha_completado || document.updated_at).toISOString();
@@ -306,6 +351,9 @@ export async function createCertification(
 
     await transition(supabase, certification, 'HASHING_DOCUMENT', userId);
     const documentBodySha256 = sha256Hex(documentBytes);
+    if (documentBodySha256 !== source.sha256) {
+      throw new CertificationError('DOCUMENT_VERSION_HASH_MISMATCH', 'La version cambio despues de congelarse.', 409);
+    }
 
     const [{ data: auditRows, error: auditError }, { data: signatureRows }, { data: nom151 }] = await Promise.all([
       supabase.from('legal_evidence_events').select('event_uuid,sequence_number,event_type,event_result,event_hash,previous_event_hash,chain_material,occurred_at').eq('document_id', document.id).order('sequence_number', { ascending: true }),
@@ -331,7 +379,12 @@ export async function createCertification(
       evidence_uuid: document.id,
       evidence_type: 'DOCUMENT',
       file_sha256: documentBodySha256,
-      metadata_sha256: sha256Hex(canonicalizeRFC8785({ mime_type: 'application/pdf', page_count: pageCount, version: 1 })),
+      metadata_sha256: sha256Hex(canonicalizeRFC8785({
+        mime_type: 'application/pdf',
+        page_count: pageCount,
+        version: source.versionNumber,
+        document_version_id: source.versionId,
+      })),
       mime_type: 'application/pdf',
       size_bytes: documentBytes.byteLength,
       storage_object_version: null,
@@ -365,6 +418,88 @@ export async function createCertification(
     }
     evidenceItems.sort((a, b) => a.evidence_uuid.localeCompare(b.evidence_uuid));
 
+    const foundationEvidencePayload = {
+      schema: EVIDENCE_SCHEMA_VERSION,
+      document_id: document.id,
+      document_version_id: source.versionId,
+      document_version_number: source.versionNumber,
+      document_sha256: documentBodySha256,
+      legal_events: normalizedAudits,
+      signature_evidence: (signatureRows || []).map((row) => ({
+        id: row.id,
+        type: row.evidence_type,
+        hash: row.file_hash || row.signature_hash || row.evidence_hash || null,
+        captured_at: row.captured_at || null,
+      })).sort((a, b) => String(a.id).localeCompare(String(b.id))),
+      nom151_constancia_sha256: nom151?.constancia_sha256 || null,
+    };
+    const foundationEvidence = canonicalSha256(foundationEvidencePayload);
+    const providerStatus = getCryptographicProviderStatus();
+
+    if (!providerStatus.ready) {
+      await verifyFrozenCertificationSource(supabase, source);
+      const completedAtNow = new Date().toISOString();
+      const { error: foundationError } = await supabase.from('document_certifications').update({
+        status: 'COMPLETED',
+        execution_status: 'completed',
+        document_body_sha256: documentBodySha256,
+        evidence_chain_canonical_json: foundationEvidencePayload,
+        evidence_chain_sha256: foundationEvidence.sha256,
+        evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
+        integrity_status: FOUNDATION_CAPABILITIES.integrityStatus,
+        pdf_signature_status: FOUNDATION_CAPABILITIES.pdfSignatureStatus,
+        certificate_status: FOUNDATION_CAPABILITIES.certificateStatus,
+        timestamp_status: FOUNDATION_CAPABILITIES.timestampStatus,
+        verification_status: FOUNDATION_CAPABILITIES.verificationStatus,
+        provider_metadata: {
+          mode: 'foundation_only',
+          environment: executionEnvironment(),
+          missing_capabilities: providerStatus.missing,
+          source_snapshot: {
+            bucket: source.storageBucket,
+            path: source.storagePath,
+            sha256: source.sha256,
+          },
+        },
+        validator_version: 'docubox-certification-foundation/1.0',
+        completed_at: completedAtNow,
+        error_code: null,
+        error_message: null,
+        failure_detail: null,
+      }).eq('id', certification.id);
+      if (foundationError) {
+        throw new CertificationError('CERTIFICATION_FOUNDATION_FINALIZE_FAILED', foundationError.message, 500);
+      }
+      await supabase.from('certification_state_transitions').insert({
+        tenant_id: tenantId,
+        certification_id: certification.id,
+        from_status: certification.status,
+        to_status: 'COMPLETED',
+        actor_id: userId,
+        result: 'SUCCESS',
+        metadata: {
+          mode: 'foundation_only',
+          document_version_id: source.versionId,
+          source_document_hash: source.sha256,
+        },
+      });
+      certification = {
+        ...certification,
+        status: 'COMPLETED',
+        execution_status: 'completed',
+        document_body_sha256: documentBodySha256,
+        evidence_chain_sha256: foundationEvidence.sha256,
+        integrity_status: FOUNDATION_CAPABILITIES.integrityStatus,
+        pdf_signature_status: FOUNDATION_CAPABILITIES.pdfSignatureStatus,
+        certificate_status: FOUNDATION_CAPABILITIES.certificateStatus,
+        timestamp_status: FOUNDATION_CAPABILITIES.timestampStatus,
+        verification_status: FOUNDATION_CAPABILITIES.verificationStatus,
+        evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
+        completed_at: completedAtNow,
+      };
+      return mapSummary(certification, null);
+    }
+
     const evidenceManifestUuid = randomUUID();
     const certificationUuid = certification.certification_uuid;
     const documentSealUuid = randomUUID();
@@ -375,7 +510,7 @@ export async function createCertification(
       schema: 'DOCUBOX_DOCUMENT', schema_version: '1.0', certification_uuid: certificationUuid,
       document_seal_uuid: documentSealUuid,
       document_uuid: document.id, document_folio: document.documento_id, tenant_id: tenantId,
-      workspace_id: document.workspace_id, document_type: 'DOCUMENTO_FIRMADO', document_version: 1,
+      workspace_id: document.workspace_id, document_type: 'DOCUMENTO_FIRMADO', document_version: source.versionNumber,
       document_status: 'COMPLETED', workflow_type: 'MIXED', created_at: new Date(document.created_at).toISOString(),
       completed_at: completedAt, certification_started_at: certificationStartedAt,
       document_body_sha256: documentBodySha256, document_size_bytes: documentBytes.byteLength,
@@ -389,7 +524,7 @@ export async function createCertification(
       CERTIFICATION_UUID: certificationUuid, DOCUMENT_SEAL_UUID: documentSealUuid,
       DOCUMENT_UUID: document.id, DOCUMENT_FOLIO: document.documento_id,
       TENANT_ID: tenantId, WORKSPACE_ID: document.workspace_id, DOCUMENT_TYPE: 'DOCUMENTO_FIRMADO',
-      DOCUMENT_VERSION: 1, DOCUMENT_STATUS: 'COMPLETED', WORKFLOW_TYPE: 'MIXED',
+      DOCUMENT_VERSION: source.versionNumber, DOCUMENT_STATUS: 'COMPLETED', WORKFLOW_TYPE: 'MIXED',
       CREATED_AT: new Date(document.created_at).toISOString(), COMPLETED_AT: completedAt,
       DOCUMENT_BODY_SHA256: upper(documentBodySha256), AUDIT_LOG_FINAL_HASH: upper(auditLogFinalHash),
       DOCUMENT_SIZE_BYTES: documentBytes.byteLength, PAGE_COUNT: pageCount,
@@ -521,7 +656,7 @@ export async function createCertification(
     await transition(supabase, certification, 'RENDERING_CERTIFICATE', userId);
     const certificateBytes = await generateIntegrityCertificatePdf({
       folio: document.documento_id, documentUuid: document.id, certificationUuid, verificationUrl,
-      documentType: 'Documento firmado', documentVersion: 1, completedAt, certifiedAt: certificationStartedAt,
+      documentType: 'Documento firmado', documentVersion: source.versionNumber, completedAt, certifiedAt: certificationStartedAt,
       pageCount, documentBodySha256, documentChainSha256: documentChain.sha256,
       documentChainDisplay,
       documentSeal: {
@@ -644,9 +779,11 @@ export async function createCertification(
     ]);
     const technicalPackagePath = await uploadArtifact(supabase, `${artifactRoot}/certification-package.zip`, technicalPackage, 'application/zip');
 
+    await verifyFrozenCertificationSource(supabase, source);
     const completedAtNow = new Date().toISOString();
     const { error: completeError } = await supabase.from('document_certifications').update({
-      status: 'COMPLETED', document_body_sha256: documentBodySha256, certified_pdf_sha256: certifiedPdfSha256,
+      status: 'COMPLETED', execution_status: 'completed',
+      document_body_sha256: documentBodySha256, certified_pdf_sha256: certifiedPdfSha256,
       document_chain_canonical_json: documentPayload, document_chain_display_text: documentChainDisplay,
       document_chain_sha256: documentChain.sha256, document_seal_base64: documentSeal.signatureBase64,
       document_seal_sha256: documentSeal.signatureSha256, document_signing_key_id: documentSeal.keyId,
@@ -672,6 +809,12 @@ export async function createCertification(
         tsa: { name: timestamp.tsaName, policy_oid: timestamp.tsaPolicyOid },
         pades: { profile: 'PAdES-B-T', verified: true },
       },
+      integrity_status: VERIFIED_PROVIDER_CAPABILITIES.integrityStatus,
+      pdf_signature_status: VERIFIED_PROVIDER_CAPABILITIES.pdfSignatureStatus,
+      certificate_status: VERIFIED_PROVIDER_CAPABILITIES.certificateStatus,
+      timestamp_status: VERIFIED_PROVIDER_CAPABILITIES.timestampStatus,
+      verification_status: VERIFIED_PROVIDER_CAPABILITIES.verificationStatus,
+      evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
       validator_version: 'docubox-certification-engine/1.1',
       certificate_pdf_path: certificatePath, certified_pdf_path: certifiedPdfPath,
       technical_package_path: technicalPackagePath, sealed_at: certificationStartedAt, completed_at: completedAtNow,
@@ -682,7 +825,21 @@ export async function createCertification(
       tenant_id: tenantId, certification_id: certification.id, from_status: 'SIGNING_FINAL_PDF',
       to_status: 'COMPLETED', actor_id: userId, result: 'SUCCESS', metadata: { certified_pdf_sha256: certifiedPdfSha256 },
     });
-    certification = { ...certification, status: 'COMPLETED', document_body_sha256: documentBodySha256, certified_pdf_sha256: certifiedPdfSha256, certification_root_sha256: certificationRoot.sha256, completed_at: completedAtNow };
+    certification = {
+      ...certification,
+      status: 'COMPLETED',
+      execution_status: 'completed',
+      document_body_sha256: documentBodySha256,
+      certified_pdf_sha256: certifiedPdfSha256,
+      certification_root_sha256: certificationRoot.sha256,
+      integrity_status: VERIFIED_PROVIDER_CAPABILITIES.integrityStatus,
+      pdf_signature_status: VERIFIED_PROVIDER_CAPABILITIES.pdfSignatureStatus,
+      certificate_status: VERIFIED_PROVIDER_CAPABILITIES.certificateStatus,
+      timestamp_status: VERIFIED_PROVIDER_CAPABILITIES.timestampStatus,
+      verification_status: VERIFIED_PROVIDER_CAPABILITIES.verificationStatus,
+      evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
+      completed_at: completedAtNow,
+    };
     return mapSummary(certification, timestampRow);
   } catch (error) {
     return markFailed(supabase, certification, userId, error);
@@ -714,6 +871,117 @@ export async function getCertificationArtifact(
 export async function getPublicCertification(supabase: SupabaseClient, verificationUuid: string) {
   const { data: certification } = await supabase.from('document_certifications').select('*').eq('verification_uuid', verificationUuid).in('status', ['COMPLETED', 'REVOKED']).maybeSingle();
   if (!certification) throw new CertificationError('CERTIFICATION_NOT_FOUND', 'Certificacion no encontrada.', 404);
+  if (certification.verification_status !== 'valid') {
+    let sourceHashMatch = false;
+    try {
+      const sourceBytes = await verifyFrozenCertificationSource(supabase, {
+        storageBucket: certification.source_storage_bucket,
+        storagePath: certification.source_storage_path,
+        sha256: certification.source_document_hash,
+      });
+      sourceHashMatch = sha256Hex(sourceBytes) === certification.document_body_sha256;
+    } catch {
+      sourceHashMatch = false;
+    }
+    const evidenceHashMatch = Boolean(
+      certification.evidence_chain_canonical_json
+      && certification.evidence_chain_sha256
+      && sha256Hex(canonicalizeRFC8785(certification.evidence_chain_canonical_json)) === certification.evidence_chain_sha256,
+    );
+    const integrityValid = sourceHashMatch && evidenceHashMatch;
+    const overallStatus = certification.status === 'REVOKED'
+      ? 'REVOKED'
+      : integrityValid
+        ? 'PENDING'
+        : 'INVALID';
+    await supabase.from('certification_access_logs').insert({
+      tenant_id: certification.tenant_id,
+      certification_id: certification.id,
+      verification_uuid: certification.verification_uuid,
+      actor_id: null,
+      action: 'PUBLIC_VERIFY',
+      result: integrityValid ? 'SUCCESS' : 'FAILED',
+      metadata: { mode: 'foundation_only', verification_status: certification.verification_status },
+    });
+    return {
+      verification_uuid: certification.verification_uuid,
+      overall_status: overallStatus,
+      certification: {
+        certification_uuid: certification.certification_uuid,
+        verification_uuid: certification.verification_uuid,
+        environment: certification.execution_environment || 'UNKNOWN',
+        status: certification.status,
+        mode: 'foundation_only',
+        capabilities: {
+          integrity: certification.integrity_status || 'pending',
+          pdf_signature: certification.pdf_signature_status || 'not_configured',
+          certificate: certification.certificate_status || 'not_configured',
+          timestamp: certification.timestamp_status || 'not_configured',
+          verification: certification.verification_status || 'pending',
+        },
+      },
+      ...(integrityValid ? {} : {
+        failure_code: 'FOUNDATION_INTEGRITY_MISMATCH',
+        failure_message: 'La version congelada o su cadena de evidencia no coincide con el registro.',
+      }),
+      document: {
+        body_hash_match: sourceHashMatch,
+        certified_pdf_hash_match: false,
+        folio: certification.document_folio,
+      },
+      document_chain: {
+        hash_match: false,
+        seal_hash_match: false,
+        seal_valid: false,
+        key_version: null,
+        sha256: null,
+        display_text: null,
+      },
+      document_seal: {
+        seal_uuid: null,
+        status: 'UNVERIFIED',
+        document_chain_sha256: null,
+        signature_algorithm: null,
+        key_size_bits: null,
+        signing_key_version: null,
+        public_key_fingerprint_sha256: null,
+        signed_at: null,
+        seal_sha256: null,
+        seal_base64_preview: null,
+        verification_url: null,
+        downloads: [],
+      },
+      evidence_chain: {
+        manifest_hash_match: false,
+        chain_hash_match: evidenceHashMatch,
+        seal_hash_match: false,
+        seal_valid: false,
+        audit_chain_valid: evidenceHashMatch,
+        key_version: null,
+        sha256: certification.evidence_chain_sha256,
+        display_text: null,
+      },
+      evidence_seal: {
+        status: 'UNVERIFIED',
+        signature_algorithm: null,
+        signing_key_version: null,
+        seal_sha256: null,
+        seal_base64_preview: null,
+      },
+      certification_package: { hash_match: false },
+      timestamp: null,
+      audit: {
+        event_count: Array.isArray(certification.evidence_chain_canonical_json?.legal_events)
+          ? certification.evidence_chain_canonical_json.legal_events.length
+          : 0,
+        final_hash: null,
+        merkle_root: null,
+        valid: evidenceHashMatch,
+      },
+      certification_root_sha256: null,
+      certification_root_match: false,
+    };
+  }
   const timestamp = await getTimestamp(supabase, certification.id);
   const [{ data: keyRows }, { data: manifestRow }, { data: documentRow }, { data: auditRows }, certifiedPdfResult, timestampTokenResult] = await Promise.all([
     supabase.from('cryptographic_keys').select('*').in('kms_key_id', [certification.document_signing_key_id, certification.evidence_signing_key_id]),
@@ -749,9 +1017,20 @@ export async function getPublicCertification(supabase: SupabaseClient, verificat
   const documentSealHashMatch = sha256Hex(Buffer.from(certification.document_seal_base64 || '', 'base64')) === certification.document_seal_sha256;
   const evidenceSealHashMatch = sha256Hex(Buffer.from(certification.evidence_seal_base64 || '', 'base64')) === certification.evidence_seal_sha256;
   let documentBodyHashMatch = false;
-  if (documentRow) {
+  if (certification.source_storage_bucket && certification.source_storage_path && certification.source_document_hash) {
     try {
-      documentBodyHashMatch = sha256Hex(await downloadDocumentBytes(supabase, documentRow as DocumentRow)) === certification.document_body_sha256;
+      const sourceBytes = await verifyFrozenCertificationSource(supabase, {
+        storageBucket: certification.source_storage_bucket,
+        storagePath: certification.source_storage_path,
+        sha256: certification.source_document_hash,
+      });
+      documentBodyHashMatch = sha256Hex(sourceBytes) === certification.document_body_sha256;
+    } catch {
+      documentBodyHashMatch = false;
+    }
+  } else if (documentRow) {
+    try {
+      documentBodyHashMatch = sha256Hex(await downloadCurrentDocumentBytes(supabase, documentRow as DocumentRow)) === certification.document_body_sha256;
     } catch {
       documentBodyHashMatch = false;
     }

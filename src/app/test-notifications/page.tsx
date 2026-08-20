@@ -47,6 +47,12 @@ const EMAIL_TEMPLATES = [
     category: 'participante',
   },
   {
+    value: 'participation_reminder',
+    label: 'Recordatorio de participaci\u00f3n',
+    description: 'Aviso para continuar una participaci\u00f3n pendiente',
+    category: 'participante',
+  },
+  {
     value: 'action_required',
     label: '⚡ Acción Requerida',
     description: 'Correo indicando que se requiere una acción del destinatario',
@@ -118,9 +124,22 @@ const EMAIL_TEMPLATES = [
     description: 'Aviso al propietario de que un participante rechazó',
     category: 'aviso_propietario',
   },
+  {
+    value: 'new_device_login',
+    label: 'Nuevo dispositivo detectado',
+    description: 'Alerta de seguridad por acceso desde un dispositivo nuevo',
+    category: 'seguridad',
+  },
+  {
+    value: 'login_otp',
+    label: 'C\u00f3digo OTP de acceso',
+    description: 'C\u00f3digo temporal para iniciar sesi\u00f3n',
+    category: 'seguridad',
+  },
 ];
 
 const CATEGORY_LABELS: Record<string, string> = {
+  seguridad: 'Seguridad y acceso',
   prueba: '🧪 Prueba',
   participante: '👤 Para Participantes',
   propietario: '📁 Para Propietarios',

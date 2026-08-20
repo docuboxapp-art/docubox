@@ -1,135 +1,112 @@
 # Analisis de brechas
 
+Fecha de corte: 2026-08-17
+
 ## Resumen ejecutivo
 
-Docubox ya tiene un esqueleto avanzado de certificacion, pero aun no cumple los criterios para presentarse como infraestructura productiva PAdES/KMS/RFC 3161. Las brechas principales son el versionado inmutable, la atomicidad del orquestador, la verificacion criptografica independiente, el aislamiento tenant consistente y la eliminacion de afirmaciones PAdES en flujos que solo agregan una constancia visual.
+Docubox ya dispone de modelos, Storage privado, cadenas canonicas, un generador de constancia, un gateway PAdES y un producto comercial de certificacion. No debe reconstruirse esa base. Las brechas para produccion se concentran en identidad exacta de version, orquestacion durable, verificacion criptografica independiente, custodia de llaves y eliminacion de afirmaciones tecnicas no demostradas.
 
-## Brechas por responsabilidad del orquestador
+## CertificationOrchestrator
 
-| Responsabilidad | Estado actual | Brecha |
+| Responsabilidad | Estado actual | Brecha concreta |
 |---|---|---|
-| Confirmar documento concluido | Implementado sobre `documentos.estado` | Falta verificar participantes, firmas, jobs pendientes y estado legal consolidado |
-| Obtener version definitiva | Descarga `file_url`/`sealed_pdf_path` | No existe snapshot universal ni `document_version_id`; version fija en 1 |
-| Bloquear modificaciones | Transicion `FREEZING_DOCUMENT` | No bloquea filas, Storage ni rutas de edicion |
-| Hash previo | Implementado | Falta comparar con hash persistido y registrar procedencia exacta del objeto |
-| Recuperar evidencias | Implementado parcialmente | Normalizacion incompleta de tipos; no incluye toda evidencia historica/adjuntos |
-| Cadena original | Implementada con JCS + texto | Debe congelarse como esquema versionado y validarse con vectores externos |
-| Cadena de evidencia | Implementada | Depende de ledger local aun no desplegado; backfill no validado remotamente |
-| Constancia tecnica | Implementada | Debe desacoplarse por completo de afirmaciones no verificadas |
-| Preparar PDF | Implementado con `pdf-lib` | Falta snapshot del PDF intermedio y reglas deterministas de metadatos |
-| Firma por proveedor | Implementada como gateway | Contrato no versionado; token es opcional; no hay attestation obligatoria |
-| Insertar certificado/cadena | Delegado a gateway PAdES | Respuesta no se inspecciona localmente |
-| Timestamp RFC 3161 | Delegado a gateway | No se parsea ni valida ASN.1 localmente |
-| Finalizar PAdES | Delegado a gateway | No hay validacion independiente de perfil B-T |
-| Verificacion criptografica | Parcial en portal | Verifica sellos KMS, no CMS/ByteRange/cadena PAdES de forma independiente |
-| Hash final | Implementado | Falta bind explicito al objeto Storage versionado e inmutable |
-| Guardar evidencias | Implementado | Reintentos pueden colisionar con archivos ya subidos (`upsert:false`) |
-| Auditoria | Implementada por transiciones | Actualizacion de estado y evento no son atomicos |
-| Estado final | Implementado | No hay transaccion de commit final que compruebe todos los precondicionados |
+| Confirmar conclusion | `createCertification()` exige `documentos.estado = completado` | No consolida firmas, participantes, jobs y bloqueos pendientes |
+| Obtener version definitiva | Existe `document_versions` | `engine.ts:259,279` fija version 1; `document_certifications` no tiene FK a `document_versions` |
+| Bloquear modificaciones | Trigger bloquea versiones congeladas | El motor no congela/reclama la fila exacta ni inmoviliza el objeto Storage antes del hash |
+| Hash previo | `sha256Hex()` | Falta comparar BD, bytes descargados y version Storage en un mismo checkpoint |
+| Recuperar evidencia | Lee fuentes existentes | Falta normalizador versionado y mapa de procedencia completo |
+| Cadenas canonicas | Implementadas en `src/lib/certification` | `src/lib/certifica/stableStringify()` duplica y no acredita RFC 8785 |
+| Constancia tecnica | Implementada con `pdf-lib` | Debe recibir solo resultados verificados, no banderas declarativas |
+| Firma de cadenas | Gateway KMS + verificacion RSA-PSS | Contrato `DIGEST` frente a verificacion de mensaje ambiguo |
+| Timestamp | Gateway TSA | No se parsea/valida localmente ASN.1/CMS, imprint, nonce, EKU, policy ni cadena |
+| PAdES | Gateway y pyHanko heredado | No existe verificador independiente obligatorio tras la firma |
+| Hash final | Implementado | Falta bind a `document_version_id` y objeto Storage inmutable |
+| Persistencia | Varias tablas y buckets privados | No hay commit atomico entre BD y Storage ni reconciliador |
+| Auditoria | Transiciones y eventos | Escrituras de estado/evento no son atomicas; el append de Certifica tiene carrera |
+| Estado final | `COMPLETED`/`validated` | Existen dos semanticas de estado que pueden confundirse |
 
-## Idempotencia y reintentos
+## Versionado e inmutabilidad
 
-- Existe `UNIQUE (tenant_id, idempotency_key)` y `UNIQUE (document_id, document_version)`.
-- La busqueda principal ignora la clave de idempotencia y busca documento/version.
-- Un registro `FAILED` se reinicia en la misma fila, pero no existe `attempt_id` ni checkpoints durables.
-- Los artefactos usan rutas deterministas y `upsert:false`; un fallo posterior a una carga puede hacer fallar el reintento.
-- Dos solicitudes simultaneas pueden competir antes de que una insercion gane el constraint.
-- No existe lease, `SELECT ... FOR UPDATE SKIP LOCKED`, cola ni worker recuperable.
+`document_versions` cubre la estructura requerida y debe extenderse, no recrearse. Brechas:
 
-Conclusión: hay protecciones parciales contra duplicados, pero el flujo no es aun idempotente ni reintentable de extremo a extremo.
+- Su `status` no incluye explicitamente `certified`; puede representarse con metadata a corto plazo, pero conviene un estado compatible o una tabla de cierre.
+- La politica de lectura depende de Colabora, por lo que usuarios con derecho a certificar pero sin el addon pueden no leer la version.
+- `document_certifications.document_version` es un entero sin FK.
+- `certification_cases.source_document_id` enlaza `documentos`, pero no `document_versions`.
+- No hay constraint que garantice coincidencia entre `workspace_id`, `document_id` y la version vinculada.
+- Storage no tiene una regla central de write-once por version cerrada.
 
-## Transaccionalidad
+## Idempotencia, concurrencia y recuperacion
 
-`transition()` actualiza `document_certifications` y luego inserta la transicion en dos operaciones independientes. El manifiesto, items, timestamp, artefactos y cierre tambien se persisten por separado. Supabase Storage no puede formar parte de una transaccion PostgreSQL.
+- El motor tecnico consulta por documento/version antes de insertar; necesita claim atomico por `tenant_id + document_version_id + idempotency_key`.
+- `uploadArtifact()` usa rutas deterministas y `upsert:false`; un fallo despues del upload puede bloquear el reintento.
+- `CertificationOrchestrator` corre dentro de una solicitud HTTP y puede exceder limites de Vercel.
+- `appendCertificationEvent()` consulta la ultima secuencia y despues inserta (`src/lib/certifica/server.ts:43-73`); dos escritores pueden calcular la misma secuencia.
+- `submit/route.ts` realiza manifiesto, proveedor, evidencia, enlace, estado y evento en operaciones separadas (`:43-88`).
+- No existen lease, checkpoint por etapa, outbox ni reconciliador de objetos.
 
-Se requiere un patron saga con:
+Se requiere una saga durable con RPCs transaccionales cortas y proveedores idempotentes.
 
-- transacciones cortas por checkpoint;
-- outbox durable;
-- operaciones externas idempotentes;
-- staging de artefactos por intento;
-- commit final atomico en BD;
-- reconciliador de artefactos huerfanos.
+## KMS y certificados
 
-## Multi-tenant y RBAC
-
-- El motor asigna `tenant_id = workspace_id || owner_id`, lo cual es razonable como compatibilidad.
-- Las APIs privadas autorizan solamente al `owner_id`; no modelan roles de workspace.
-- Las politicas nuevas `can_access_documento()` amplian lectura a miembros/participantes, pero aun no estan desplegadas.
-- No existe permiso dedicado como `certification.execute`, `certification.view` o `certification.configure`.
-- `cryptographic_keys` fue originalmente legible con `USING (true)`; el hardening local debe reemplazar esa politica por lectura controlada o una proyeccion publica minima.
-
-## KMS y custodia de llaves
-
-- El adaptador moderno evita llaves privadas en Node y valida RSA-PSS localmente.
-- `DOCUBOX_CRYPTO_GATEWAY_TOKEN` es opcional; un endpoint sin autenticacion podria aceptarse accidentalmente.
-- No se registra attestation obligatoria, politica de uso, identidad del workload ni prueba de custodia.
-- El VPS heredado usa una llave PEM de software, RSA-2048 y `key_passphrase=None`.
-- `generate_p12.sh` contiene una contrasena fija de ejemplo y recomienda poner un PKCS#12 en Supabase Vault.
-- `vps/signer/pades_core.py` posee service-role de Supabase, acoplando firma y acceso total a datos.
-
-Brecha recomendada: OpenBao Transit como primer proveedor de desarrollo, con AppRole/workload identity, RSA-3072, politicas por proposito y sin exportacion de llave.
+- El adaptador moderno evita llaves privadas en Next.js y verifica RSA-PSS.
+- El token de gateway es opcional.
+- No existe `crypto_provider_configurations`; `psc_providers` no modela KMS/PAdES/TSA por tenant.
+- `cryptographic_keys` es reutilizable para material publico y attestation.
+- La huella de certificado se calcula sobre texto PEM (`adapters.ts:94`), no sobre DER.
+- El VPS usa RSA-2048, certificado autofirmado y PEM sin passphrase; solo puede considerarse desarrollo.
+- El firmador posee credencial Supabase de alto privilegio.
 
 ## PAdES
 
-- El gateway moderno solicita `PAdES-B-T`, pero solo comprueba banderas JSON del proveedor.
-- El VPS pyHanko puede firmar y verificar, pero su llave local no satisface el modelo de custodia objetivo.
-- `seal-pdf` reconoce que no aplica criptografia, pero inserta textos que afirman PAdES, DigiCert y Docubox CA.
-- No hay pruebas automatizadas de `ByteRange`, CMS, cadena X.509, EKU, firma alterada o PDF corrupto.
-- No existe una politica documentada de confianza, revocacion, LTV o perfiles B-B/B-T/B-LT.
+- `signPdfWithPades()` acepta `status`, `byte_range_valid` y un PDF Base64 del mismo gateway.
+- No valida localmente ByteRange, digest CMS, certificado, EKU, cadena, timestamp ni perfil B-T.
+- `seal-pdf` declara en codigo que no aplica PKCS#7/PAdES, pero su documento visible afirma PAdES, DigiCert RFC 3161 y Docubox CA.
+- `sign-pdf-vps` usa pyHanko, pero la llave local y el acoplamiento a Supabase impiden considerarlo arquitectura objetivo.
+- El analizador de Certifica solo reconoce marcadores PDF por regex; no es verificacion.
 
-## RFC 3161
+## RFC 3161 y NOM-151
 
-- El adaptador acepta `VALID`, `token_signature_valid` y `tsa_certificate_valid` enviados por el gateway.
-- No se verifica localmente la firma del token, el `messageImprint`, nonce, policy OID, EKU `timeStamping`, cadena o revocacion.
-- El VPS usa por defecto `http://timestamp.digicert.com`; la confianza y disponibilidad no estan encapsuladas por tenant/entorno.
-- NOM-151 y RFC 3161 son flujos distintos y no deben presentarse como equivalentes.
+- El motor confia en `token_signature_valid` y `tsa_certificate_valid` devueltos por el proveedor.
+- Falta verificar token, `messageImprint`, nonce, policy OID, EKU `timeStamping`, cadena, vigencia y revocacion con un componente independiente.
+- `timestamp_records` ya puede conservar artefactos; no hace falta otra tabla.
+- NOM-151 y RFC 3161 deben seguir como productos/evidencias distintas.
+- Coexisten `nom151_constancias` y `nom151_constancias_doc`; requieren adaptador y estrategia de retiro gradual.
 
-## Datos y duplicidades
+## Docubox Certifica
 
-1. `documentos` y `documents` modelan el mismo concepto con identificadores y estados distintos.
-2. `document_audit_trail`, `document_integrity_log`, `document_activity_log` y `legal_evidence_events` se superponen.
-3. `nom151_constancias` y `nom151_constancias_doc` son dos modelos activos.
-4. `document_signature_seals` y `document_certifications` pueden confundirse, aunque uno registra sellos de firma y el otro certificacion institucional.
-5. Existen al menos tres caminos de PDF final: `seal-pdf`, `sign-pdf-vps` y `CertificationOrchestrator` propuesto.
+El modulo comercial es util como capa de venta, autorizacion, declaracion, PSC y custodia. No debe marcar criptografia valida por si solo.
 
-La solucion es una capa de adaptadores y un modelo autoritativo, no eliminar tablas historicas.
+- `integrity` puede terminar `validated` con hash y manifiesto, sin sello institucional.
+- `HttpPscCertificationProvider` verifica campos, no firmas ni artefactos.
+- `legal_validity` se deriva de `provider_mode === production`, no del reporte criptografico.
+- La consulta publica compara dos hashes almacenados, no re-hashea el archivo.
+- El sandbox esta correctamente marcado no valido; debe conservarse asi.
+- `existing_document_certification_id` es el punto de integracion correcto con el motor tecnico.
+
+## Multi-tenant, RLS y funciones
+
+- Las tablas criticas tienen RLS y politicas de lectura por documento/workspace.
+- `document_versions` esta acoplada al entitlement de Colabora.
+- `cryptographic_keys` expone material publico mediante politica `public SELECT`; debe confirmarse que la tabla nunca reciba metadata sensible y preferirse una vista publica minima.
+- Las 24 Edge Functions tienen `verify_jwt=false`; algunas validan JWT o token interno manualmente, pero no existe garantia uniforme.
+- Los asesores de Supabase reportan 65 funciones con `search_path` mutable y funciones `SECURITY DEFINER` ejecutables por `anon`/`authenticated`, incluidas funciones de acceso y verificacion documental.
+- Hay politicas permisivas multiples en tablas relacionadas con documentos y sellos.
+
+Referencias de remediacion: [search_path mutable](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable), [SECURITY DEFINER anon](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable), [SECURITY DEFINER authenticated](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable), [politicas permisivas multiples](https://supabase.com/docs/guides/database/database-linter?lint=0006_multiple_permissive_policies).
 
 ## Observabilidad
 
-Ya existen `correlation_id`, transiciones y logs de acceso en migraciones locales. Faltan:
+Existen `correlation_id`, transiciones, accesos, eventos de caso y transacciones de proveedor. Faltan:
 
-- `attempt_id` y `attempt_count`;
-- duracion por etapa;
-- nombre/version del proveedor por llamada;
+- `attempt_id`, etapa actual, lease y numero de intento;
+- duracion y resultado por llamada externa;
+- version del proveedor/verificador;
 - clasificacion reintentable/no reintentable;
-- health checks persistidos;
-- metricas y alertas por tenant/entorno;
-- redaccion central de errores;
-- outbox para notificaciones y reanudacion.
+- health checks persistidos para KMS/TSA/PAdES;
+- alertas de certificado/TSA/proveedor;
+- redaccion central y trazas sin secretos.
 
-## Interfaz
+## Veredicto
 
-La tarjeta existente muestra estado del documento y presencia de tres variables. No muestra todavia:
-
-- entorno;
-- proveedor y tipo de proteccion;
-- certificado, vigencia y confianza;
-- motor/perfil PAdES;
-- TSA/policy OID;
-- ultima prueba integral;
-- incidencias clasificadas;
-- descarga del reporte de salud.
-
-No debe mostrar `Produccion operativa` mientras la llave sea PEM/software o la CA sea interna.
-
-## Brechas del remoto Supabase
-
-- Esquema del motor nuevo no confirmado/desplegado.
-- Buckets nuevos ausentes.
-- Funciones nuevas no desplegadas.
-- Politicas anonimas de identidad aun expuestas al momento de la revision.
-- No hay credenciales administrativas activas en la sesion para aplicar o verificar DDL.
-
-Estas brechas impiden declarar el motor operativo, aun cuando el codigo local exista.
-
+El sistema es una base avanzada de desarrollo, no una infraestructura certificadora productiva. La activacion debe permanecer fail-closed hasta que una version inmutable, una firma PAdES y una estampa RFC 3161 sean verificadas de manera independiente y asociadas por FK a los artefactos exactos.

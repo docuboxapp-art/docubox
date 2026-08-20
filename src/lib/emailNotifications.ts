@@ -18,7 +18,10 @@ function getSupabase(): SupabaseClient {
 }
 
 type EmailType =
-  | 'signature_request' |'document_completed' |'certificate_expiry' |'document_expired' |'action_required' |'participant_invitation' |'participation_completed' |'owner_participant_signed' |'owner_participant_approved' |'owner_participant_cancelled' |'owner_participant_rejected' |'new_device_login' |'login_otp';
+  | 'signature_request' | 'document_completed' | 'certificate_expiry' | 'document_expired'
+  | 'action_required' | 'participant_invitation' | 'participation_reminder'
+  | 'participation_completed' | 'owner_participant_signed' | 'owner_participant_approved'
+  | 'owner_participant_cancelled' | 'owner_participant_rejected' | 'new_device_login' | 'login_otp';
 
 interface SendEmailParams {
   type: EmailType;
@@ -359,6 +362,34 @@ export async function sendParticipantInvitationEmails(params: {
     if (r.status === 'rejected') {
       console.error(`[emailNotifications] participant_invitation failed for ${emailParticipants[i]?.email}:`, r.reason);
     }
+  });
+
+  const failed = results.filter((result) => result.status === 'rejected');
+  if (failed.length === results.length) {
+    throw new Error('No se pudo entregar ninguna invitaci\u00f3n por correo.');
+  }
+}
+
+export async function sendParticipationReminderEmail(params: {
+  participantEmail: string;
+  participantName?: string;
+  documentName: string;
+  senderName?: string;
+  documentUrl: string;
+  participantRole?: string;
+  signatureMethod?: string;
+  expiryDate?: string;
+}): Promise<void> {
+  await sendEmailNotification({
+    type: 'participation_reminder',
+    to: params.participantEmail,
+    recipientName: params.participantName,
+    documentName: params.documentName,
+    senderName: params.senderName,
+    documentUrl: params.documentUrl,
+    participantRole: params.participantRole || 'Participante',
+    signatureMethod: params.signatureMethod || 'Firma electr\u00f3nica',
+    expiryDate: params.expiryDate,
   });
 }
 

@@ -33,6 +33,7 @@ import {
   Files,
   Building2,
   Workflow,
+  BadgeCheck,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
@@ -87,6 +88,10 @@ export default function Sidebar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const { isModuleActive } = useAppModules();
   const { activeWorkspace } = useWorkspace();
+  const isBusinessWorkspace = activeWorkspace?.workspaceType === 'business';
+  const canManageOrganization =
+    isBusinessWorkspace &&
+    (activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin');
 
   const userFullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Usuario';
   const userEmail = user?.email || '';
@@ -100,14 +105,16 @@ export default function Sidebar() {
 
   // Build nav sections with conditional module items
   const navSections = BASE_NAV_SECTIONS.map((section) => {
-    if (section.label === 'Principal' && activeWorkspace?.workspaceType === 'business') {
+    if (section.label === 'Principal' && isBusinessWorkspace) {
       return {
         ...section,
         items: [
           ...section.items,
-          { href: '/organizacion', icon: Building2, label: 'Organización', badge: null },
-          ...(activeWorkspace.collaborationEnabled
-            ? [{ href: '/colabora', icon: Workflow, label: 'Colabora', badge: null }]
+          ...(canManageOrganization
+            ? [{ href: '/organizacion', icon: Building2, label: 'Mi organización', badge: null }]
+            : []),
+          ...(canManageOrganization || activeWorkspace?.collaborationEnabled
+            ? [{ href: '/colabora', icon: Workflow, label: 'Colaboración', badge: null }]
             : []),
         ],
       };
@@ -159,6 +166,14 @@ export default function Sidebar() {
         href: '/firmas-masivas',
         icon: Files,
         label: 'Firmas Masivas',
+        badge: null,
+      });
+    }
+    if (isModuleActive('certifica')) {
+      moduleItems.push({
+        href: '/certificaciones',
+        icon: BadgeCheck,
+        label: 'Docubox Certifica',
         badge: null,
       });
     }
@@ -247,7 +262,11 @@ export default function Sidebar() {
             )}
             {section?.items?.map((item) => {
               const isActive =
-                pathname === item?.href && item?.label === 'Dashboard'
+                item?.href === '/organizacion'
+                  ? pathname.startsWith('/organizacion')
+                  : item?.href === '/colabora'
+                    ? pathname.startsWith('/colabora')
+                  : pathname === item?.href && item?.label === 'Dashboard'
                   ? true
                   : pathname === item?.href && item?.href !== '/inicio'
                     ? true

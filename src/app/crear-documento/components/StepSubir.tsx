@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Upload, ExternalLink, FileText, CheckCircle2, Eye, EyeOff, Trash2, ShieldCheck, Folder, Tag, Monitor, Smartphone, Clock, AlertTriangle, Search, Star, X, ChevronRight, Layers, Plus, Lock } from 'lucide-react';
@@ -6,9 +6,10 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { SearchableSelect, InfoTooltip } from './SharedComponents';
-import type { DocumentConfig, GrupoTipoDocumento, TipoDocumento, Etiqueta, Carpeta } from './types';
+import { DocuboxSourceSelector } from './DocuboxSourceSelector';
+import type { DocumentConfig, GrupoTipoDocumento, TipoDocumento, Etiqueta, Carpeta, DocuboxSourceSelection } from './types';
 
-// ─── Brand Icons ──────────────────────────────────────────────────────────────
+// --- Brand Icons --------------------------------------------------------------
 
 function GoogleDriveIcon({ size = 20 }: { size?: number }) {
   return (
@@ -40,7 +41,7 @@ function DropboxIcon({ size = 20 }: { size?: number }) {
   );
 }
 
-// ─── QR Code helper ───────────────────────────────────────────────────────────
+// --- QR Code helper -----------------------------------------------------------
 
 function QRCodeDisplay({ url }: { url: string }) {
   const [qrSrc, setQrSrc] = useState<string | null>(null);
@@ -52,7 +53,7 @@ function QRCodeDisplay({ url }: { url: string }) {
   return <img src={qrSrc} alt="Código QR para subir desde móvil" className="w-[160px] h-[160px] rounded-lg border border-gray-200" />;
 }
 
-// ─── Phone Upload Tab ─────────────────────────────────────────────────────────
+// --- Phone Upload Tab ---------------------------------------------------------
 
 function PhoneUploadTab({ onFileReceived }: { onFileReceived: (file: File) => void }) {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
@@ -134,9 +135,9 @@ function PhoneUploadTab({ onFileReceived }: { onFileReceived: (file: File) => vo
   const expired = sessionToken && timeLeft === 0;
 
   return (
-    <div className="flex flex-col items-center py-6 px-4">
+    <div className="flex h-full flex-col items-center justify-center px-6 py-10">
       {received ? (
-        <div className="flex flex-col items-center gap-3 py-8">
+        <div className="flex flex-col items-center gap-3">
           <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center">
             <CheckCircle2 size={28} className="text-emerald-500" />
           </div>
@@ -144,7 +145,7 @@ function PhoneUploadTab({ onFileReceived }: { onFileReceived: (file: File) => vo
           <p className="text-sm text-gray-500 text-center">El documento fue cargado desde tu teléfono.</p>
         </div>
       ) : !sessionToken ? (
-        <div className="flex flex-col items-center gap-4 py-4">
+        <div className="flex flex-col items-center gap-4">
           <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
             <Smartphone size={28} className="text-primary" />
           </div>
@@ -159,7 +160,7 @@ function PhoneUploadTab({ onFileReceived }: { onFileReceived: (file: File) => vo
             </div>
           )}
           <button onClick={generateQR} disabled={generating} className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60">
-            {generating ? (<><svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Generando…</>) : (<><Smartphone size={15} />Generar código QR</>)}
+            {generating ? (<><svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Generando...</>) : (<><Smartphone size={15} />Generar código QR</>)}
           </button>
         </div>
       ) : (
@@ -175,7 +176,7 @@ function PhoneUploadTab({ onFileReceived }: { onFileReceived: (file: File) => vo
           </div>
           <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
             <svg className="animate-pulse h-3 w-3 text-blue-500" fill="currentColor" viewBox="0 0 8 8"><circle cx="3" cy="3" r="4" /></svg>
-            <span className="text-xs text-blue-600">Esperando archivo desde el móvil…</span>
+            <span className="text-xs text-blue-600">Esperando archivo desde el móvil...</span>
           </div>
           <button onClick={() => { setSessionToken(null); setExpiresAt(null); }} className="text-xs text-gray-400 hover:text-gray-600 underline transition-colors">
             Cancelar y generar nuevo código
@@ -186,7 +187,7 @@ function PhoneUploadTab({ onFileReceived }: { onFileReceived: (file: File) => vo
   );
 }
 
-// ─── Search Field + Modal (replaces FavoriteSearchableSelect) ─────────────────
+// --- Search Field + Modal (replaces FavoriteSearchableSelect) -----------------
 
 interface SearchModalOption {
   id: string;
@@ -377,7 +378,7 @@ function SearchFieldWithModal({
   );
 }
 
-// ─── Etiquetas Search Field + Modal ───────────────────────────────────────────
+// --- Etiquetas Search Field + Modal -------------------------------------------
 
 function EtiquetasSearchFieldWithModal({
   etiquetas,
@@ -584,7 +585,7 @@ function EtiquetasSearchFieldWithModal({
   );
 }
 
-// ─── Merged Document Type Selector Modal ──────────────────────────────────────
+// --- Merged Document Type Selector Modal --------------------------------------
 
 interface DocTypeOption {
   grupoId: string;
@@ -619,7 +620,7 @@ function DocumentTypeSelectorModal({
   const [favorites, setFavorites] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  // Build flat list of all options — sorted A-Z by tipo name
+  // Build flat list of all options - sorted A-Z by tipo name
   const allOptions: DocTypeOption[] = grupos.flatMap((g) =>
     (tiposDocumento[g.id] || []).map((t) => ({
       grupoId: g.id,
@@ -630,7 +631,7 @@ function DocumentTypeSelectorModal({
     }))
   ).sort((a, b) => a.tipoNombre.localeCompare(b.tipoNombre, 'es'));
 
-  // Derive selected label — show only tipo name in the field
+  // Derive selected label - show only tipo name in the field
   const selectedGrupo = grupos.find((g) => g.id === selectedGrupoId);
   const selectedTipoLabel = (() => {
     if (!selectedGrupoId || !selectedTipoId) return '';
@@ -834,7 +835,7 @@ function DocumentTypeSelectorModal({
 
             {/* Tab content */}
             <div className="flex-1 overflow-y-auto px-5 py-3" style={{ minHeight: 0 }}>
-              {/* ── Favoritos tab ── */}
+              {/* -- Favoritos tab -- */}
               {activeTab === 'favoritos' && (
                 <>
                   {filteredFavs.length === 0 ? (
@@ -879,7 +880,7 @@ function DocumentTypeSelectorModal({
                 </>
               )}
 
-              {/* ── Por grupo tab ── */}
+              {/* -- Por grupo tab -- */}
               {activeTab === 'por_grupo' && (
                 <>
                   {filteredGrupos.length === 0 ? (
@@ -983,7 +984,7 @@ function DocumentTypeSelectorModal({
                 </>
               )}
 
-              {/* ── Libre tab ── */}
+              {/* -- Libre tab -- */}
               {activeTab === 'libre' && (
                 <>
                   {filteredLibre.length === 0 ? (
@@ -1030,7 +1031,7 @@ function DocumentTypeSelectorModal({
   );
 }
 
-// ─── Metadata Modal ───────────────────────────────────────────────────────────
+// --- Metadata Modal -----------------------------------------------------------
 
 interface MetaEtiqueta {
   clave: string;
@@ -1292,7 +1293,7 @@ function MetadatosModal({
   );
 }
 
-// ─── Access Code Modal ────────────────────────────────────────────────────────
+// --- Access Code Modal --------------------------------------------------------
 function CodigoAccesoModal({
   documentoId,
   existingCode,
@@ -1485,7 +1486,7 @@ function CodigoAccesoModal({
   );
 }
 
-// ─── File Uploaded Layout ─────────────────────────────────────────────────────
+// --- File Uploaded Layout -----------------------------------------------------
 
 function FileUploadedLayout({
   file,
@@ -1561,7 +1562,7 @@ function FileUploadedLayout({
   const [evitarMontaje, setEvitarMontaje] = useState(false);
 
   const [grupos, setGrupos] = useState<GrupoTipoDocumento[]>([]);
-  // tiposDocumento is now a map: grupoId → TipoDocumento[]
+  // tiposDocumento is now a map: grupoId -> TipoDocumento[]
   const [tiposDocumentoMap, setTiposDocumentoMap] = useState<Record<string, TipoDocumento[]>>({});
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
   const [carpetas, setCarpetas] = useState<Carpeta[]>([]);
@@ -1805,7 +1806,7 @@ function FileUploadedLayout({
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <h2 className="text-lg font-semibold text-gray-900 mb-1">Configuración del documento</h2>
             <p className="text-sm text-gray-400 mb-4">Configura la seguridad y propiedades de tu documento.</p>
-            {/* Tabs — Configuración general FIRST (default), Seguridad y protección SECOND */}
+            {/* Tabs - Configuración general FIRST (default), Seguridad y protección SECOND */}
             <div className="flex gap-2 mb-4 bg-gray-100 rounded-xl p-1">
               <button onClick={() => setActiveTab('general')} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all flex-1 justify-center ${activeTab === 'general' ? 'bg-white text-primary shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700'}`}>
                 <FileText size={15} />Configuración general
@@ -1815,7 +1816,7 @@ function FileUploadedLayout({
               </button>
             </div>
 
-            {/* ── Configuración general tab ── */}
+            {/* -- Configuración general tab -- */}
             {activeTab === 'general' && (
               <div className="space-y-1.5">
                 <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
@@ -1825,8 +1826,16 @@ function FileUploadedLayout({
                 </label>
                 <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
                   <input type="checkbox" checked={publico} onChange={(e) => setPublico(e.target.checked)} className="w-4 h-4 rounded border-gray-300 accent-primary" />
-                  <span className="text-sm text-gray-700 flex-1 font-normal">Publicar al completar en el portal de verificación</span>
-                  <InfoTooltip text="Cuando el documento quede completado, habilita una ficha pública verificable y un código QR. Antes de completarse no será visible públicamente." />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-normal text-gray-700">
+                      Permitir consulta pública del documento firmado
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-5 text-gray-400">
+                      Al completarse podrá visualizarse desde el portal de verificación. Si no
+                      activas esta opción, su consulta y descarga permanecerán privadas.
+                    </span>
+                  </span>
+                  <InfoTooltip text="La publicación sólo se habilita cuando el documento está completado. El portal mostrará el documento firmado mediante su enlace o código QR de verificación." />
                 </label>
                 <div>
                   <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
@@ -1894,7 +1903,7 @@ function FileUploadedLayout({
               </div>
             )}
 
-            {/* ── Seguridad y protección tab ── */}
+            {/* -- Seguridad y protección tab -- */}
             {activeTab === 'seguridad' && (
               <div className="space-y-1.5">
                 {/* Vencimiento */}
@@ -2224,7 +2233,7 @@ function FileUploadedLayout({
   );
 }
 
-// ─── Step 1: Subir ────────────────────────────────────────────────────────────
+// --- Step 1: Subir ------------------------------------------------------------
 
 export function StepSubir({
   file,
@@ -2237,6 +2246,8 @@ export function StepSubir({
   onSecurityChange,
   documentoId,
   onPdfMetadata,
+  sourceSelection,
+  onSourceSelectionChange,
 }: {
   file: File | null;
   onFileChange: (f: File | null) => void;
@@ -2248,10 +2259,13 @@ export function StepSubir({
   onSecurityChange?: (s: import('./types').SecuritySettings & { urgente: boolean; publico: boolean; selloDigital: boolean; selloUbicacion: 'calce' | 'libre'; estampaAutenticacion: boolean; metadatosAdicionales: boolean }) => void;
   documentoId?: string;
   onPdfMetadata?: (meta: { pageCount: number; title?: string; author?: string; creationDate?: string }) => void;
+  sourceSelection?: DocuboxSourceSelection | null;
+  onSourceSelectionChange?: (selection: DocuboxSourceSelection | null) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
-  const [activeTab, setActiveTab] = useState<'computadora' | 'telefono' | 'gdrive' | 'onedrive' | 'dropbox'>('computadora');
+  const [activeTab, setActiveTab] = useState<'computadora' | 'telefono' | 'docubox' | 'gdrive' | 'onedrive' | 'dropbox'>('computadora');
+  const [showDocuboxSelector, setShowDocuboxSelector] = useState(false);
   const { isModuleActive } = useAppModules();
   const plantillasEnabled = isModuleActive('plantillas');
   const [plantillas, setPlantillas] = useState<{ id: string; nombre: string; descripcion?: string }[]>([]);
@@ -2280,20 +2294,43 @@ export function StepSubir({
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragging(false);
     const dropped = e.dataTransfer.files[0];
-    if (dropped) onFileChange(dropped);
-  }, [onFileChange]);
+    if (dropped) {
+      onSourceSelectionChange?.(null);
+      onFileChange(dropped);
+    }
+  }, [onFileChange, onSourceSelectionChange]);
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
   const handleDragLeave = () => setDragging(false);
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { const selected = e.target.files?.[0] ?? null; onFileChange(selected); };
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0] ?? null;
+    onSourceSelectionChange?.(null);
+    onFileChange(selected);
+  };
 
   if (file) {
-    return <FileUploadedLayout file={file} onRemove={() => onFileChange(null)} config={config} onConfigChange={onConfigChange} viewMode={viewMode} onGuardarAvance={onGuardarAvance} savingDraft={savingDraft} onSecurityChange={onSecurityChange} documentoId={documentoId} onPdfMetadata={onPdfMetadata} />;
+    return (
+      <div className="space-y-3">
+        {sourceSelection && (
+          <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/50 px-4 py-3 sm:flex-row sm:items-center">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-primary shadow-sm"><Layers size={18} /></div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-700 uppercase text-primary">Origen Docubox</p>
+              <p className="truncate text-sm font-700 text-slate-900">{sourceSelection.sourceDocumentName}</p>
+              <p className="mt-0.5 text-xs text-slate-500">{sourceSelection.sourceDocumentoId} · {sourceSelection.sourceVersionLabel} · SHA-256 {sourceSelection.sourceSha256.slice(0, 12)}...</p>
+            </div>
+            <span className="rounded-md bg-white px-2.5 py-1 text-xs font-600 text-slate-600 shadow-sm">Copia derivada</span>
+          </div>
+        )}
+        <FileUploadedLayout file={file} onRemove={() => { onSourceSelectionChange?.(null); onFileChange(null); }} config={config} onConfigChange={onConfigChange} viewMode={viewMode} onGuardarAvance={onGuardarAvance} savingDraft={savingDraft} onSecurityChange={onSecurityChange} documentoId={documentoId} onPdfMetadata={onPdfMetadata} />
+      </div>
+    );
   }
 
-  const tabs: Array<{ id: 'computadora' | 'telefono' | 'gdrive' | 'onedrive' | 'dropbox'; label: string; icon?: React.ComponentType<{ size?: number; className?: string }>; brandIcon?: React.ReactNode; active: boolean }> = [
+  const tabs: Array<{ id: 'computadora' | 'telefono' | 'docubox' | 'gdrive' | 'onedrive' | 'dropbox'; label: string; icon?: React.ComponentType<{ size?: number; className?: string }>; brandIcon?: React.ReactNode; active: boolean }> = [
     { id: 'computadora', label: 'Equipo de cómputo', icon: Monitor, active: true },
     { id: 'telefono', label: 'Teléfono', icon: Smartphone, active: true },
+    { id: 'docubox', label: 'Docubox', icon: Layers, active: true },
     { id: 'gdrive', label: 'Google Drive', brandIcon: <GoogleDriveIcon size={22} />, active: false },
     { id: 'onedrive', label: 'OneDrive', brandIcon: <OneDriveIcon size={22} />, active: false },
     { id: 'dropbox', label: 'Dropbox', brandIcon: <DropboxIcon size={22} />, active: false },
@@ -2315,10 +2352,10 @@ export function StepSubir({
                 const isDisabled = !tab.active;
                 return (
                   <button key={tab.id} onClick={() => { if (!isDisabled) setActiveTab(tab.id); }} disabled={isDisabled} title={isDisabled ? 'Próximamente' : undefined}
-                    className={`group relative flex w-full items-center gap-2.5 px-3 py-3 text-left transition-colors ${isDisabled ? 'cursor-not-allowed opacity-40' : isActive ? 'border-r-2 border-primary bg-white font-semibold text-primary' : 'text-slate-600 hover:bg-white/70 hover:text-slate-950'}`}
+                    className={`group relative flex w-full items-center gap-2.5 px-3 py-3 text-left transition-colors ${isDisabled ? 'cursor-not-allowed opacity-40' : isActive ? 'border-r-2 border-primary bg-white text-primary' : 'text-slate-600 hover:bg-white/70 hover:text-slate-950'}`}
                   >
-                    <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isActive ? 'bg-primary text-white' : isDisabled ? 'bg-gray-200 text-gray-500' : 'bg-gray-200 text-gray-600'}`}>{tabs.indexOf(tab) + 1}</span>
-                    <span className="text-[15px] leading-tight">{tab.label}</span>
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${isActive ? 'bg-primary text-white' : isDisabled ? 'bg-gray-200 text-gray-500' : 'bg-gray-200 text-gray-600'}`}>{tabs.indexOf(tab) + 1}</span>
+                    <span className="text-[15px] font-medium leading-tight">{tab.label}</span>
                   </button>
                 );
               })}
@@ -2339,7 +2376,17 @@ export function StepSubir({
                   </button>
                 </div>
               )}
-              {activeTab === 'telefono' && <PhoneUploadTab onFileReceived={onFileChange} />}
+              {activeTab === 'telefono' && <PhoneUploadTab onFileReceived={(receivedFile) => { onSourceSelectionChange?.(null); onFileChange(receivedFile); }} />}
+              {activeTab === 'docubox' && (
+                <div className="flex h-full flex-col items-center justify-center px-6 py-10 text-center">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary"><Layers size={28} /></div>
+                  <h3 className="mb-1 mt-4 text-sm font-semibold text-gray-800">Reutilizar desde Docubox</h3>
+                  <p className="w-full text-xs text-gray-500">Selecciona un documento del repositorio. Docubox utilizará siempre el archivo original cargado.</p>
+                  <button type="button" onClick={() => setShowDocuboxSelector(true)} className="mt-4 flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90">
+                    <Search size={15} />Explorar documentos
+                  </button>
+                </div>
+              )}
               {(activeTab === 'gdrive' || activeTab === 'onedrive' || activeTab === 'dropbox') && (
                 <div className="flex flex-col items-center justify-center h-full py-10 px-6 gap-3">
                   <div className="w-14 h-14 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center shadow-sm">
@@ -2387,6 +2434,14 @@ export function StepSubir({
           </div>
         )}
       </div>
+      <DocuboxSourceSelector
+        open={showDocuboxSelector}
+        onClose={() => setShowDocuboxSelector(false)}
+        onSelect={(selectedFile, selection) => {
+          onSourceSelectionChange?.(selection);
+          onFileChange(selectedFile);
+        }}
+      />
     </div>
   );
 }

@@ -55,6 +55,7 @@ import {
   Zap,
   FilePlus2,
   Workflow,
+  BadgeCheck,
 } from 'lucide-react';
 import { useWorkspace, type Workspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
@@ -180,6 +181,7 @@ export default function TopNav() {
     pathname === '/plantillas' ||
     pathname.startsWith('/formularios') ||
     pathname.startsWith('/expedientes') ||
+    pathname.startsWith('/certificaciones') ||
     pathname === '/reportes' ||
     pathname === '/app-market' ||
     pathname === '/mi-perfil' ||
@@ -431,6 +433,12 @@ export default function TopNav() {
     if (base === '/mis-documentos' && pathname.startsWith('/visor-documento/')) {
       return true;
     }
+    if (base === '/organizacion') {
+      return pathname.startsWith('/organizacion');
+    }
+    if (base === '/colabora') {
+      return pathname.startsWith('/colabora');
+    }
     return pathname === base;
   };
 
@@ -443,7 +451,7 @@ export default function TopNav() {
   const displayName = wsLoading
     ? 'Cargando...'
     : isPersonal
-      ? 'Espacio personal'
+      ? userFullName
       : (activeWorkspace?.name ?? 'Espacio Personal');
 
   const rememberSearch = (value: string) => {
@@ -744,6 +752,11 @@ export default function TopNav() {
     };
   }, [user]);
 
+  const isBusinessWorkspace = activeWorkspace?.workspaceType === 'business';
+  const canManageOrganization =
+    isBusinessWorkspace &&
+    (activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin');
+
   // Build dynamic nav tabs based on active modules
   const navTabs = [
     ...BASE_NAV_TABS.slice(0, 6), // up to Mis Contactos
@@ -765,30 +778,43 @@ export default function TopNav() {
     ...(isModuleActive('bulk-signatures')
       ? [{ href: '/firmas-masivas', label: 'Firmas Masivas', icon: Files }]
       : []),
+    ...(isModuleActive('certifica')
+      ? [{ href: '/certificaciones', label: 'Certifica', icon: BadgeCheck }]
+      : []),
     ...(isModuleActive('firmado-prueba-vida')
       ? [{ href: '/configuracion/verificacion-identidad', label: 'Identidad', icon: Fingerprint }]
       : []),
-    ...(activeWorkspace?.workspaceType === 'business'
-      ? [{ href: '/organizacion', label: 'Organización', icon: Building2 }]
+    ...(canManageOrganization
+      ? [{ href: '/organizacion', label: 'Mi organización', icon: Building2 }]
       : []),
-    ...(activeWorkspace?.workspaceType === 'business' && activeWorkspace.collaborationEnabled
-      ? [{ href: '/colabora', label: 'Colabora', icon: Workflow }]
+    ...(isBusinessWorkspace && (canManageOrganization || activeWorkspace?.collaborationEnabled)
+      ? [{ href: '/colabora', label: 'Colaboración', icon: Workflow }]
       : []),
     ...BASE_NAV_TABS.slice(6), // Reportes and beyond
   ];
 
-  const accountMenuItems = activeWorkspace?.workspaceType === 'business'
+  const accountMenuItems = canManageOrganization
     ? [
-        { icon: Building2, label: 'Organización', href: '/organizacion' },
-        ...(activeWorkspace.collaborationEnabled
-          ? [{ icon: Workflow, label: 'Colabora', href: '/colabora' }]
-          : []),
+        { icon: Building2, label: 'Mi organización', href: '/organizacion' },
+        { icon: Workflow, label: 'Colaboración', href: '/colabora' },
         ...avatarMenuItems,
       ]
-    : avatarMenuItems;
+    : isBusinessWorkspace && activeWorkspace?.collaborationEnabled
+      ? [{ icon: Workflow, label: 'Colaboración', href: '/colabora' }, ...avatarMenuItems]
+      : avatarMenuItems;
 
   // Build dynamic sidebar nav sections based on active modules
   const sidebarNavSections = BASE_SIDEBAR_NAV_SECTIONS.map((section) => {
+    if (section.label === 'Principal') {
+      const businessItems: typeof section.items = [];
+      if (canManageOrganization) {
+        businessItems.push({ href: '/organizacion', icon: Building2, label: 'Mi organización' });
+      }
+      if (isBusinessWorkspace && (canManageOrganization || activeWorkspace?.collaborationEnabled)) {
+        businessItems.push({ href: '/colabora', icon: Workflow, label: 'Colaboración' });
+      }
+      return { ...section, items: [...section.items, ...businessItems] };
+    }
     if (section.label !== 'Gestión') return section;
     const moduleItems: typeof section.items = [];
     if (isModuleActive('plantillas')) {
@@ -808,6 +834,9 @@ export default function TopNav() {
     }
     if (isModuleActive('bulk-signatures')) {
       moduleItems.push({ href: '/firmas-masivas', icon: Files, label: 'Firmas Masivas' });
+    }
+    if (isModuleActive('certifica')) {
+      moduleItems.push({ href: '/certificaciones', icon: BadgeCheck, label: 'Docubox Certifica' });
     }
     if (isModuleActive('firmado-prueba-vida')) {
       moduleItems.push({
@@ -868,10 +897,10 @@ export default function TopNav() {
                 </div>
                 <div className="text-left flex-1 min-w-0">
                   <p className="text-[10px] font-600 uppercase leading-none tracking-[0.1em] text-slate-500">
-                    Espacio de Trabajo
+                    {isPersonal ? 'Espacio de Trabajo Personal' : 'Espacio de Trabajo'}
                   </p>
                   <p className="mt-0.5 truncate text-sm font-600 leading-none text-slate-950">
-                    {isPersonal ? 'Espacio personal' : displayName}
+                    {displayName}
                   </p>
                 </div>
                 <ChevronDown
@@ -921,15 +950,23 @@ export default function TopNav() {
                             <p
                               className={`text-sm truncate ${isActive ? 'font-600 text-primary' : 'font-500 text-foreground'}`}
                             >
-                              {ws.name}
+                              {isWsPersonal ? userFullName : ws.name}
                             </p>
-                            {!isWsPersonal && (
+                            {isWsPersonal ? (
+                              <>
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                  Espacio personal
+                                </p>
+                                {isActive && (
+                                  <p className="mt-0.5 text-[11px] font-medium text-emerald-600">
+                                    Activo
+                                  </p>
+                                )}
+                              </>
+                            ) : (
                               <p className="text-[11px] text-muted-foreground capitalize">
                                 {ws.role}
                               </p>
-                            )}
-                            {isWsPersonal && isActive && (
-                              <p className="text-[11px] text-primary/70">Activo</p>
                             )}
                           </div>
                           {isActive && <Check size={14} className="text-primary flex-shrink-0" />}
@@ -1558,7 +1595,7 @@ export default function TopNav() {
             {sidebarNavSections
               .flatMap((section) => section.items)
               .map((item) => {
-                const isActive = pathname === item.href;
+                const isActive = getTabActive(item.href);
                 return (
                   <Link
                     key={item.label}

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, Search, FileText, Clock, CheckCircle, AlertCircle, MoreHorizontal, Eye, Edit, Copy, Trash2, Tag, Grid3X3, List, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
+import AppImage from '@/components/ui/AppImage';
 
 interface Plantilla {
   id: string;
@@ -56,6 +57,53 @@ function getPlantillaFields(p: Plantilla) { return p.campos_insertados || p.fiel
 function formatDate(dateStr: string) {
   const d = new Date(dateStr);
   return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function TemplateDocumentPreview({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50">
+        <div className="flex h-8 w-6 flex-col overflow-hidden rounded-[2px] border border-slate-200 bg-white px-1 pt-1 shadow-[0_1px_2px_rgba(15,23,42,0.08)]">
+          <AppImage
+            src="/assets/images/docubox-logo-2026.png"
+            alt="Docubox"
+            width={20}
+            height={5}
+            className="h-auto w-5 object-contain"
+            showLoadingBackground={false}
+          />
+          <span className="mt-1 h-px w-full bg-[#1E6BFF]" />
+          <span className="mt-1 h-px w-full bg-slate-200" />
+          <span className="mt-1 h-px w-4/5 bg-slate-200" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-[122px] w-[94px] overflow-hidden rounded-[3px] border border-slate-200 bg-white px-3 pb-3 pt-3 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.35)] transition-transform duration-200 group-hover:-translate-y-0.5">
+      <AppImage
+        src="/assets/images/docubox-logo-2026.png"
+        alt="Docubox"
+        width={54}
+        height={11}
+        className="h-auto w-[54px] object-contain"
+        showLoadingBackground={false}
+      />
+      <div className="mt-2 h-[2px] w-full bg-[#1E6BFF]" />
+      <div className="mt-2.5 h-1.5 w-4/5 rounded-sm bg-slate-700" />
+      <div className="mt-2 space-y-1.5">
+        <div className="h-1 w-full rounded-sm bg-slate-200" />
+        <div className="h-1 w-11/12 rounded-sm bg-slate-200" />
+        <div className="h-1 w-3/4 rounded-sm bg-slate-200" />
+      </div>
+      <div className="mt-2.5 rounded-[2px] border border-blue-100 bg-blue-50/70 p-1.5">
+        <div className="h-1 w-4/5 rounded-sm bg-blue-200" />
+        <div className="mt-1 h-1 w-full rounded-sm bg-blue-100" />
+      </div>
+      <span className="absolute bottom-2.5 right-3 text-[6px] font-medium text-slate-300">DOCUBOX</span>
+    </div>
+  );
 }
 
 function DeleteConfirmModal({
@@ -131,30 +179,21 @@ function TemplateCard({
   const catColor = CATEGORY_COLORS[plantilla.category || ''] || 'bg-gray-100 text-gray-600';
 
   return (
-    <article className="group flex min-h-[282px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+    <article className="group flex min-h-[292px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_10px_28px_-18px_rgba(30,107,255,0.45)]">
       {/* Preview area */}
-      <div className="relative flex h-36 items-center justify-center border-b border-slate-200 bg-slate-50">
-        <div className="flex h-[106px] w-[82px] flex-col gap-1.5 rounded-sm border border-slate-200 bg-white p-2.5 shadow-sm transition-transform duration-200 group-hover:-translate-y-0.5">
-          <div className="mb-0.5 h-2 w-7 rounded-sm bg-blue-500" />
-          <div className="h-1.5 bg-gray-300 rounded w-full" />
-          <div className="h-1.5 bg-gray-200 rounded w-4/5" />
-          <div className="h-1.5 bg-gray-200 rounded w-3/5" />
-          <div className="h-1.5 bg-blue-200 rounded w-full border border-dashed border-blue-300" />
-          <div className="h-1.5 bg-gray-200 rounded w-4/5" />
-          <div className="h-1.5 bg-gray-200 rounded w-3/5" />
-          <div className="h-1.5 bg-blue-200 rounded w-full border border-dashed border-blue-300" />
-          <div className="h-1.5 bg-gray-200 rounded w-2/3" />
-        </div>
+      <div className="relative flex h-40 items-center justify-center border-b border-slate-200 bg-[#f7f9fc]">
+        <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-slate-100/70 to-transparent" />
+        <TemplateDocumentPreview />
         <div className="absolute right-2.5 top-2.5">
           <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${statusCfg.color}`}>
             <StatusIcon size={10} />
             {statusCfg.label}
           </span>
         </div>
-        <div className="absolute inset-0 flex items-center justify-center bg-blue-50/70 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="absolute inset-0 flex items-center justify-center bg-white/75 opacity-0 backdrop-blur-[1px] transition-opacity group-hover:opacity-100">
           <button
             onClick={() => onEdit(plantilla.id)}
-            className="flex h-8 items-center gap-1.5 rounded-md border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50"
+            className="flex h-9 items-center gap-1.5 rounded-md bg-[#1E6BFF] px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#1557d6]"
           >
             <Edit size={12} />
             Editar
@@ -165,7 +204,7 @@ function TemplateCard({
       {/* Content */}
       <div className="flex flex-1 flex-col p-4">
         <div className="flex items-start justify-between gap-2 mb-1">
-          <h3 className="text-sm font-semibold text-foreground leading-tight line-clamp-2 flex-1">{getPlantillaName(plantilla)}</h3>
+          <h3 className="line-clamp-2 flex-1 text-sm font-semibold leading-5 text-slate-950">{getPlantillaName(plantilla)}</h3>
           <div className="relative flex-shrink-0">
             <button
               onClick={() => setMenuOpen(!menuOpen)}
@@ -196,7 +235,7 @@ function TemplateCard({
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground line-clamp-2 mb-3 flex-1">{getPlantillaDesc(plantilla)}</p>
+        <p className="mb-3 line-clamp-2 flex-1 text-xs leading-5 text-slate-500">{getPlantillaDesc(plantilla) || 'Plantilla reutilizable de Docubox'}</p>
 
         <div className="flex items-center gap-1.5 mb-3 flex-wrap">
           {plantilla.category && (
@@ -424,7 +463,7 @@ export default function PlantillasGalleryPage() {
             {/* New template card */}
             <Link
               href="/plantillas/nueva"
-              className="group flex min-h-[282px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/30 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-400 hover:bg-blue-50 hover:shadow-sm"
+              className="group flex min-h-[292px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-blue-300 bg-white transition-all duration-200 hover:-translate-y-0.5 hover:border-[#1E6BFF] hover:bg-blue-50/40 hover:shadow-sm"
             >
               <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-blue-200 bg-white shadow-sm transition-colors group-hover:border-blue-300">
                 <Plus size={20} className="text-blue-600" />
@@ -459,9 +498,7 @@ export default function PlantillasGalleryPage() {
                     <tr key={p.id} className="transition-colors hover:bg-slate-50/70">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-blue-50">
-                            <FileText size={14} className="text-blue-600" />
-                          </div>
+                          <TemplateDocumentPreview compact />
                           <div>
                             <p className="font-medium text-foreground text-sm">{getPlantillaName(p)}</p>
                             <p className="text-xs text-muted-foreground line-clamp-1">{getPlantillaDesc(p)}</p>

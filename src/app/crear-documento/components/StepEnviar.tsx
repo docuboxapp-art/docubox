@@ -5,7 +5,7 @@ import { FileText, Users, Edit3, Folder, Clock, Lock, CheckCircle2, AlertTriangl
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { PDFDocument } from 'pdf-lib';
-import type { Participant, DocumentSettings, DocumentConfig, PlacedField, GrupoFirma, SecuritySettings } from './types';
+import type { Participant, DocumentSettings, DocumentConfig, PlacedField, GrupoFirma, SecuritySettings, DocuboxSourceSelection } from './types';
 import type { PreProcessedFile } from '../page';
 import { createNotification } from '@/lib/notificationsInApp';
 
@@ -108,6 +108,8 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   preProcessedFile?: PreProcessedFile | null;
   /** Metadata extraída del PDF en el paso Subir */
   pdfMetadata?: { pageCount: number; title?: string; author?: string; creationDate?: string } | null;
+  /** Version exacta elegida desde el repositorio interno de Docubox. */
+  docuboxSource?: DocuboxSourceSelection | null;
 }>(function StepEnviar(
   {
     file,
@@ -123,6 +125,7 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
     participantMode,
     preProcessedFile,
     pdfMetadata,
+    docuboxSource,
   },
   ref
 ) {
@@ -210,13 +213,25 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       let uploadContentType: string;
       let detectedMime: string | null;
 
-      if (preProcessedFile && preProcessedFile.status !== 'ready') {
+      if (!docuboxSource && preProcessedFile && preProcessedFile.status !== 'ready') {
         if (preProcessedFile.status === 'error_grande') { setScanState('error_grande'); throw new Error('El archivo supera el límite de 50MB.'); }
         if (preProcessedFile.status === 'error_tipo') { setScanState('error_tipo'); throw new Error('Tipo de archivo no permitido. Solo se aceptan PDF, Word, Excel, PNG y JPG.'); }
         if (preProcessedFile.status === 'error_invalido') { setScanState('error_invalido'); throw new Error('El PDF está dañado o no es válido.'); }
       }
 
-      if (preProcessedFile && preProcessedFile.status === 'ready') {
+      if (docuboxSource) {
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+          setScanState('error_grande');
+          throw new Error('El archivo supera el límite de 50MB.');
+        }
+        detectedMime = await validateMimeByMagicBytes(file);
+        if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
+          setScanState('error_tipo');
+          throw new Error('La versión seleccionada tiene un tipo de archivo no permitido.');
+        }
+        uploadContentType = docuboxSource.fileType || file.type || detectedMime;
+        uploadBlob = file;
+      } else if (preProcessedFile && preProcessedFile.status === 'ready') {
         console.log('[DOCUBOX][security] Usando pipeline pre-ejecutado (sin reprocesar)');
         detectedMime = preProcessedFile.mime;
         uploadContentType = preProcessedFile.mime === 'application/pdf' ? 'application/pdf' : (file.type || 'application/octet-stream');
@@ -247,6 +262,10 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       // ─────────────────────────────────────────────────────────────────────
 
       const hash = await computeSHA256(file);
+      if (docuboxSource && hash.toLowerCase() !== docuboxSource.sourceSha256.toLowerCase()) {
+        setScanState('error_invalido');
+        throw new Error('La huella de la versión seleccionada cambió. Vuelve a elegir el documento desde Docubox.');
+      }
       const docId = documentoId || generateDocumentoId();
       const workspaceId = activeWorkspace?.id || null;
 
@@ -317,7 +336,9 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
 
       // Enviar archivo + metadata al servidor (usa service role — bypasa RLS y storage policies)
       const uploadFormData = new FormData();
-      uploadFormData.append('file', new File([uploadBlob], sanitizeFileName(file.name), { type: uploadContentType }));
+      if (!docuboxSource) {
+        uploadFormData.append('file', new File([uploadBlob], sanitizeFileName(file.name), { type: uploadContentType }));
+      }
       uploadFormData.append('meta', JSON.stringify({
         documentoId: docId,
         fileName: sanitizeFileName(file.name),
@@ -342,6 +363,14 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         selloUbicacion: effectiveSecurity?.selloUbicacion || 'calce',
         estampaAutenticacion: effectiveSecurity?.estampaAutenticacion ?? false,
         metadatosAdicionales: effectiveSecurity?.metadatosAdicionales ?? false,
+        docuboxSource: docuboxSource ? {
+          workspaceId: docuboxSource.workspaceId,
+          documentId: docuboxSource.sourceDocumentId,
+          versionId: docuboxSource.sourceVersionId,
+          variant: docuboxSource.sourceVariant,
+          expectedSha256: docuboxSource.sourceSha256,
+          relationType: docuboxSource.relationType,
+        } : null,
       }));
 
       const enviarRes = await fetch('/api/documentos/enviar', {

@@ -33,17 +33,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const user = await requireApiUser(request);
     const { documentId } = await params;
-    const providerStatus = getCryptographicProviderStatus();
-    if (!providerStatus.ready) {
-      throw new CertificationError(
-        'CRYPTOGRAPHIC_PROVIDER_NOT_CONFIGURED',
-        'La infraestructura KMS, TSA RFC 3161 y PAdES aun no esta configurada.',
-        503,
-      );
-    }
     const idempotencyKey = request.headers.get('idempotency-key') || crypto.randomUUID();
     if (idempotencyKey.length > 160) throw new CertificationError('IDEMPOTENCY_KEY_INVALID', 'Idempotency-Key no es valido.', 400);
-    const certification = await createCertification(createServiceClient(), documentId, user.id, idempotencyKey);
+    const body = await request.json().catch(() => ({})) as { documentVersionId?: unknown };
+    const documentVersionId = typeof body.documentVersionId === 'string' && body.documentVersionId.trim()
+      ? body.documentVersionId.trim()
+      : null;
+    const certification = await createCertification(
+      createServiceClient(),
+      documentId,
+      user.id,
+      idempotencyKey,
+      documentVersionId,
+    );
     return NextResponse.json({ certification }, { status: certification.status === 'COMPLETED' ? 200 : 202 });
   } catch (error) {
     return errorResponse(error);

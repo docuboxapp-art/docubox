@@ -68,6 +68,23 @@ export interface DocumentConfig {
   etiquetasIds: string[];
 }
 
+export interface DocuboxSourceSelection {
+  workspaceId: string;
+  sourceDocumentId: string;
+  sourceVersionId: string | null;
+  sourceVariant: 'original' | 'version' | 'certified';
+  sourceDocumentoId: string;
+  sourceDocumentName: string;
+  sourceVersionNumber: number;
+  sourceVersionLabel: string;
+  sourceStatus: string;
+  sourceSha256: string;
+  fileName: string;
+  fileSize: number | null;
+  fileType: string;
+  relationType: 'derived_from';
+}
+
 export interface GrupoTipoDocumento {
   id: string;
   nombre: string;

@@ -242,6 +242,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const [webAuthnDevices, setWebAuthnDevices] = useState<WebAuthnDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const passwordEnabled = emailValue.trim().length > 0;
+  const isOtpMode = activeTab === 'otp';
 
   const currentDeviceCategory = useMemo(() => {
     if (typeof navigator === 'undefined') return 'desktop';
@@ -756,6 +757,11 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     setBiometricError(null);
   };
 
+  const handleChangeAuthMethod = () => {
+    setActiveTab('password');
+    setOtpError(null);
+  };
+
   // ── RENDER ─────────────────────────────────────────────────────────────
   return (
     <div>
@@ -802,7 +808,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
           {passwordEnabled && (
             <>
-              <div className="space-y-3">
+              {!isOtpMode && <div className="space-y-3">
                 {newDeviceWarning && (
                   <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
                     <ShieldAlert size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
@@ -867,9 +873,9 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                     'Iniciar sesión'
                   )}
                 </button>
-              </div>
+              </div>}
 
-              {emailLoading && (
+              {!isOtpMode && emailLoading && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                   Buscando opciones adicionales...
@@ -878,24 +884,25 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
               {availableTabs.some((tab) => tab !== 'password') && (
                 <div className="space-y-3">
-                  <div>
+                  {!isOtpMode && <div>
                     <p className="text-sm font-700 text-foreground">Opciones adicionales</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       También puedes iniciar sesión con otro método disponible.
                     </p>
-                  </div>
+                  </div>}
 
                   {/* ── OTP ── */}
                   {availableTabs.includes('otp') && (
-                    <AccordionItem
-                      id="otp"
-                      icon={<Mail size={17} />}
-                      label="Ingresa con código OTP a tu correo"
-                      sublabel="Recibirás un código de 6 dígitos"
-                      isOpen={activeTab === 'otp'}
-                      onToggle={() => handleAccordionToggle('otp')}
-                    >
-                      <div className="space-y-4 pt-2">
+                    <>
+                      <AccordionItem
+                        id="otp"
+                        icon={<Mail size={17} />}
+                        label="Ingresa con código OTP a tu correo"
+                        sublabel="Recibirás un código de 6 dígitos"
+                        isOpen={activeTab === 'otp'}
+                        onToggle={() => handleAccordionToggle('otp')}
+                      >
+                        <div className="space-y-4 pt-2">
                         {otpError && (
                           <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
                             <AlertTriangle
@@ -967,12 +974,22 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                             )}
                           </>
                         ) : null}
-                      </div>
-                    </AccordionItem>
+                        </div>
+                      </AccordionItem>
+                      {isOtpMode && (
+                        <button
+                          type="button"
+                          onClick={handleChangeAuthMethod}
+                          className="mx-auto block text-xs font-600 text-primary transition-colors hover:text-primary/80 hover:underline"
+                        >
+                          Cambiar método
+                        </button>
+                      )}
+                    </>
                   )}
 
                   {/* ── Biométrico ── */}
-                  {availableTabs.includes('biometric') && (
+                  {!isOtpMode && availableTabs.includes('biometric') && (
                     <AccordionItem
                       id="biometric"
                       icon={<Fingerprint size={17} />}
