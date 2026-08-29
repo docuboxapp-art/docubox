@@ -65,8 +65,9 @@ try {
   if (!url || !serviceKey) throw new Error('SUPABASE_SERVER_CONFIGURATION_MISSING');
   const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
   const runtime = await loadRuntime();
+  const requestedDocumentId = process.env.NOM151_TEST_DOCUMENT_ID?.trim();
 
-  const certifications = await supabase
+  let certificationsQuery = supabase
     .from('document_certifications')
     .select(
       'id,document_id,document_version_id,certified_pdf_path,certified_pdf_sha256,pades_verified_at'
@@ -79,8 +80,11 @@ try {
     .eq('timestamp_status', 'valid')
     .eq('verification_status', 'valid')
     .not('certified_pdf_path', 'is', null)
-    .order('pades_verified_at', { ascending: false })
-    .limit(20);
+    .order('pades_verified_at', { ascending: false });
+  if (requestedDocumentId) {
+    certificationsQuery = certificationsQuery.eq('document_id', requestedDocumentId);
+  }
+  const certifications = await certificationsQuery.limit(20);
   if (certifications.error) throw certifications.error;
   if (!certifications.data?.length) throw new Error('VERIFIED_PADES_BT_DOCUMENT_NOT_FOUND');
 
