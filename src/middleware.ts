@@ -8,6 +8,7 @@ const PUBLIC_ROUTES = [
   '/registro',
   '/olvide-contrasena',
   '/verificar-correo',
+  '/auth/confirm',
   '/login/totp-verification',
   '/register-device',
   '/verificar-documento',

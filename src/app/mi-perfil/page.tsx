@@ -1528,7 +1528,7 @@ export default function MiPerfilPage() {
   const [showEfirmaModal, setShowEfirmaModal] = useState(false);
   const [efirmaUnlinking, setEfirmaUnlinking] = useState(false);
   const [efirmaStampStyle, setEfirmaStampStyle] = useState<string>('EC1');
-  const [autografaStampStyle, setAutografaStampStyle] = useState<string>('AC1');
+  const [autografaStampStyle, setAutografaStampStyle] = useState<string>('AC0');
   const [clickSignStampStyle, setClickSignStampStyle] = useState<string>('CC1');
   const [firmasTab, setFirmasTab] = useState<'autografa' | 'efirma' | 'clicksign'>('autografa');
 

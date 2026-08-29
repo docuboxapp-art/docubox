@@ -1,0 +1,8 @@
+# Development CA and certificate issuance state must remain outside Git.
+private/
+generated/
+*.key
+*.key.pem
+*.srl
+*.p12
+*.pfx

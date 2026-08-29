@@ -12,6 +12,9 @@ type InitializeDocumentVersionInput = {
   byteSize?: number | null;
   displayName?: string | null;
   sourceVersionId?: string | null;
+  requireCollaborationEntitlement?: boolean;
+  additionalDocumentMetadataSnapshot?: Array<{ name: string; dataType: string; value: string | boolean }>;
+  additionalDocumentMetadataSnapshotHash?: string | null;
 };
 
 export type CollaborationDocumentVersionResult =
@@ -32,17 +35,22 @@ export async function initializeCollaborationDocumentVersion({
   byteSize = null,
   displayName = null,
   sourceVersionId = null,
+  requireCollaborationEntitlement = true,
+  additionalDocumentMetadataSnapshot = [],
+  additionalDocumentMetadataSnapshotHash = null,
 }: InitializeDocumentVersionInput): Promise<CollaborationDocumentVersionResult> {
-  const entitlement = await service
-    .from('organization_entitlements')
-    .select('id,status,ends_at,read_only_at')
-    .eq('workspace_id', workspaceId)
-    .eq('entitlement_key', 'collaboration_core')
-    .in('status', ACTIVE_ENTITLEMENT_STATUSES)
-    .maybeSingle();
+  if (requireCollaborationEntitlement) {
+    const entitlement = await service
+      .from('organization_entitlements')
+      .select('id,status,ends_at,read_only_at')
+      .eq('workspace_id', workspaceId)
+      .eq('entitlement_key', 'collaboration_core')
+      .in('status', ACTIVE_ENTITLEMENT_STATUSES)
+      .maybeSingle();
 
-  if (entitlement.error) throw entitlement.error;
-  if (!entitlement.data) return { enabled: false, versionId: null, created: false };
+    if (entitlement.error) throw entitlement.error;
+    if (!entitlement.data) return { enabled: false, versionId: null, created: false };
+  }
 
   const current = await service
     .from('document_versions')
@@ -76,6 +84,10 @@ export async function initializeCollaborationDocumentVersion({
         display_name: displayName,
         source_version_id: sourceVersionId,
         schema_version: 1,
+        ...(additionalDocumentMetadataSnapshot.length > 0 ? {
+          additional_document_metadata_snapshot: additionalDocumentMetadataSnapshot,
+          additional_document_metadata_snapshot_sha256: additionalDocumentMetadataSnapshotHash,
+        } : {}),
       },
     })
     .select('id')

@@ -97,7 +97,11 @@ export async function requireDocumentAccess(
   if (!isOwner && !isWorkspaceManager && !listedParticipant && !hasParticipation) {
     throw new DocumentAccessError('DOCUMENT_ACCESS_DENIED', 'No tienes acceso a este documento.', 403);
   }
-  const role: 'OWNER' | 'AUTHORIZED' = isOwner ? 'OWNER' : 'AUTHORIZED';
+  const role: 'OWNER' | 'WORKSPACE_ADMIN' | 'AUTHORIZED' = isOwner
+    ? 'OWNER'
+    : isWorkspaceManager
+      ? 'WORKSPACE_ADMIN'
+      : 'AUTHORIZED';
   return { user: user as User, document, service, role };
 }
 

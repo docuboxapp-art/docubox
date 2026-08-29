@@ -1,0 +1,30 @@
+{
+  "id": "open-tsa-v1",
+  "provider": "open-tsa",
+  "version": 1,
+  "status": "active",
+  "role": "FALLBACK",
+  "priority": 2,
+  "endpoint": "https://tsr.open-tsa.eu",
+  "installedAt": "2026-08-29T01:48:46.530Z",
+  "supersededAt": null,
+  "policyOid": null,
+  "tsaCertificateValidFrom": "2026-04-04T08:38:57.000Z",
+  "tsaCertificateValidTo": "2028-04-03T08:38:57.000Z",
+  "trustRootValidFrom": "2026-04-04T08:38:55.000Z",
+  "trustRootValidTo": "2051-03-29T08:38:55.000Z",
+  "tsaCertificate": {
+    "path": "tsa.crt",
+    "sha256": "1433116ba8a5189bd3802aaa875fac87d682d57a201761797bf0c357640e4048"
+  },
+  "certificateChain": {
+    "path": "chain.pem",
+    "sha256": "a7a3f5b520805bc243c6955ebd7ff5e1041f11d77c0fdf6ee213a22df27268e1"
+  },
+  "trustRoot": {
+    "path": "ca.crt",
+    "sha256": "0edd16f56d0dcbdc18742dbaecadbe48a28973cb8b522290a26be40fd99bfff8"
+  },
+  "tsaCertificateFingerprintSha256": "cda5253f30385ce0f7067d2fb51a1726c3db5f73a02a0eede24ce868cd9497d4",
+  "trustRootFingerprintSha256": "e45a75cb526087638107d4a3e9535b51145efddf88c5cabea9b09e0ab439af95"
+}

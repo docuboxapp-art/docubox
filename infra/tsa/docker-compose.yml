@@ -1,0 +1,16 @@
+services:
+  tsa:
+    build:
+      context: ../..
+      dockerfile: infra/tsa/Dockerfile
+    environment:
+      TSA_PORT: "8080"
+      TSA_INTERNAL_TOKEN: ${TSA_INTERNAL_TOKEN:?Set a backend-only TSA_INTERNAL_TOKEN}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - tsa-development-data:/opt/docubox-tsa/data
+    restart: unless-stopped
+
+volumes:
+  tsa-development-data:

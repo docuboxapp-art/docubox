@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendEmailNotification } from '@/lib/emailNotifications';
+import { getParticipantPortalUrl } from '@/lib/publicAppUrl';
 
 // One-shot endpoint: sends a participant_invitation to luishb.mzt@gmail.com
 export async function GET(_req: NextRequest) {
@@ -10,7 +11,7 @@ export async function GET(_req: NextRequest) {
       recipientName: 'Luis',
       documentName: 'Documento para firma',
       senderName: 'Docubox',
-      documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/portal-participante/test-token-demo`,
+      documentUrl: getParticipantPortalUrl('test-token-demo'),
       participantRole: 'Firmante',
       signatureMethod: 'Firma Electrónica',
     });

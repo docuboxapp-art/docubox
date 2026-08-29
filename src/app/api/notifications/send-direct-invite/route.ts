@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendEmailNotification } from '@/lib/emailNotifications';
+import { getParticipantPortalUrl, rebaseToPublicAppUrl } from '@/lib/publicAppUrl';
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,7 +16,9 @@ export async function POST(req: NextRequest) {
       recipientName: recipientName || undefined,
       documentName: documentName || 'Documento',
       senderName: senderName || 'Docubox',
-      documentUrl: documentUrl || `${process.env.NEXT_PUBLIC_SITE_URL}/portal-participante/invite`,
+      documentUrl: documentUrl
+        ? rebaseToPublicAppUrl(documentUrl)
+        : getParticipantPortalUrl('invite'),
       participantRole: 'Firmante',
       signatureMethod: 'Firma Electrónica',
     });

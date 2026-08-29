@@ -3413,7 +3413,7 @@ function NuevaPlantillaPage() {
                   const h = orientation === 'horizontal' ? dims.width : dims.height;
                   const printWindow = window.open('', '_blank', `width=${w + 100},height=${h + 100}`);
                   if (!printWindow) return;
-                  printWindow.document.write(`<!DOCTYPE html><html><head><title>${infoData.nombre || 'Plantilla'}</title><style>*{box-sizing:border-box;margin:0;padding:0;}body{background:white;font-family:Arial,sans-serif;font-size:12px;color:#111;}@page{size:${w}px ${h}px;margin:0;}.page{width:${w}px;min-height:${h}px;padding:40px 60px;margin:0 auto;page-break-after:always;}table{border-collapse:collapse;width:100%;}td,th{border:1px solid #d1d5db;padding:6px 10px;}hr{border:none;border-top:2px solid #e5e7eb;margin:16px 0;}ul{list-style-type:disc;padding-left:1.5em;}ol{list-style-type:decimal;padding-left:1.5em;}h1{font-size:28px;font-weight:700;margin:16px 0 8px;}h2{font-size:22px;font-weight:600;margin:14px 0 8px;}h3{font-size:18px;font-weight:600;margin:12px 0 6px;}p{margin:0 0 8px;line-height:1.5;}img{max-width:100%;height:auto;}@media print{body{margin:0;}.page{page-break-after:always;}}</style></head><body><div class="page">${currentHtml || '<p><em>Sin contenido</em></p>'}</div></body></html>`);
+                  printWindow.document.write(`<!DOCTYPE html><html><head><title>${infoData.nombre || 'Plantilla'}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=swap"><style>*{box-sizing:border-box;margin:0;padding:0;}body{background:white;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:12px;color:#111;}@page{size:${w}px ${h}px;margin:0;}.page{width:${w}px;min-height:${h}px;padding:40px 60px;margin:0 auto;page-break-after:always;}table{border-collapse:collapse;width:100%;}td,th{border:1px solid #d1d5db;padding:6px 10px;}hr{border:none;border-top:2px solid #e5e7eb;margin:16px 0;}ul{list-style-type:disc;padding-left:1.5em;}ol{list-style-type:decimal;padding-left:1.5em;}h1{font-size:28px;font-weight:700;margin:16px 0 8px;}h2{font-size:22px;font-weight:600;margin:14px 0 8px;}h3{font-size:18px;font-weight:600;margin:12px 0 6px;}p{margin:0 0 8px;line-height:1.5;}img{max-width:100%;height:auto;}@media print{body{margin:0;}.page{page-break-after:always;}}</style></head><body><div class="page">${currentHtml || '<p><em>Sin contenido</em></p>'}</div></body></html>`);
                   printWindow.document.close();
                   printWindow.focus();
                   setTimeout(() => { printWindow.print(); printWindow.close(); }, 300);
@@ -3459,7 +3459,7 @@ function NuevaPlantillaPage() {
                     margin: '0 auto',
                     boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
                     borderRadius: '2px',
-                    fontFamily: 'Arial, sans-serif',
+                    fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
                     fontSize: '12px',
                     color: '#111',
                     lineHeight: '1.5',

@@ -1,0 +1,30 @@
+{
+  "id": "freetsa-v1",
+  "provider": "freetsa",
+  "version": 1,
+  "status": "active",
+  "role": "PRIMARY",
+  "priority": 1,
+  "endpoint": "https://freetsa.org/tsr",
+  "installedAt": "2026-08-29T01:48:46.530Z",
+  "supersededAt": null,
+  "policyOid": null,
+  "tsaCertificateValidFrom": "2026-02-15T19:44:22.000Z",
+  "tsaCertificateValidTo": "2040-02-02T19:44:22.000Z",
+  "trustRootValidFrom": "2016-03-13T01:52:13.000Z",
+  "trustRootValidTo": "2041-03-07T01:52:13.000Z",
+  "tsaCertificate": {
+    "path": "tsa.crt",
+    "sha256": "8bfb0305bb64e2571ca507552ef3245cb1c2fee8728e0ff8689225081ea13467"
+  },
+  "certificateChain": {
+    "path": "chain.pem",
+    "sha256": "2151b61137ffa86bf664691ba67e7da0b19f98c758e3d228d5d8ebf27e044438"
+  },
+  "trustRoot": {
+    "path": "ca.pem",
+    "sha256": "2151b61137ffa86bf664691ba67e7da0b19f98c758e3d228d5d8ebf27e044438"
+  },
+  "tsaCertificateFingerprintSha256": "32e841a95cc1164101ffde41298ef2fc75c1c4372ef095e88a6bbd47dfb191fc",
+  "trustRootFingerprintSha256": "a6379e7cecc05faa3cbf076013d745e327bbbaa38c0b9af22469d4701d18aabc"
+}

@@ -1,22 +1,33 @@
-import { constants, createPublicKey, randomUUID, verify } from 'node:crypto';
+import { constants, createPublicKey, randomUUID, verify, X509Certificate } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { canonicalSha256, canonicalizeRFC8785, sha256Hex } from './canonical';
-import { getCryptographicProviderStatus, requestVerifiedTimestamp, signDigestWithKms, signPdfWithPades } from './adapters';
 import {
   EVIDENCE_SCHEMA_VERSION,
   FOUNDATION_CAPABILITIES,
   SOURCE_HASH_ALGORITHM,
-  VERIFIED_PROVIDER_CAPABILITIES,
+  DEVELOPMENT_PROVIDER_CAPABILITIES,
+  PADES_BB_CAPABILITIES,
+  PADES_BT_CAPABILITIES,
 } from './capabilities';
 import {
   downloadCurrentDocumentBytes,
   resolveAndFreezeCertificationSource,
   verifyFrozenCertificationSource,
 } from './foundation';
+import {
+  claimCertificationLease,
+  finalizeCertificationExecution,
+  recordCertificationCheckpoint,
+  type CertificationExecutionContext,
+} from './execution';
 import { abbreviateBase64, appendCertificatePages, applyCryptographicPlacements, generateIntegrityCertificatePdf } from './pdf';
+import { createCertificationProviderSet, type CertificationProviderSet } from './providers';
 import { createStoredZip } from './zip';
 import { CertificationError, CertificationStatus, CertificationSummary, EvidenceItem } from './types';
+import type { CertificationArtifactKind } from './types';
+import { requireCertificationManagerAccess } from './access';
+import { assertProductionCertificationEnabled } from './provider-mode';
 
 type DocumentRow = {
   id: string;
@@ -49,7 +60,14 @@ type CertificationRow = Record<string, any> & {
   document_id: string;
   document_folio: string;
   status: CertificationStatus;
-  execution_status: 'created' | 'processing' | 'completed' | 'failed';
+  execution_status: 'created' | 'queued' | 'processing' | 'retrying' | 'manual_review' | 'completed' | 'failed';
+  execution_attempt?: number | null;
+  execution_trace_id?: string | null;
+  lease_owner?: string | null;
+  lease_expires_at?: string | null;
+  last_checkpoint?: string | null;
+  __executionContext?: CertificationExecutionContext;
+  __activeCheckpoint?: CertificationStatus;
   document_version_id: string | null;
   document_version: number;
   created_at: string;
@@ -139,12 +157,24 @@ async function transition(
   metadata: Record<string, unknown> = {},
 ) {
   const fromStatus = certification.status;
-  const update: Record<string, unknown> = { status: toStatus };
-  if (certification.execution_status === 'created') {
-    update.execution_status = 'processing';
+  const context = certification.__executionContext;
+  if (certification.__activeCheckpoint) {
+    await recordCertificationCheckpoint(
+      supabase,
+      certification,
+      context,
+      certification.__activeCheckpoint,
+      'completed',
+      { next_checkpoint: toStatus },
+    );
+  }
+  const update: Record<string, unknown> = { status: toStatus, execution_status: 'processing' };
+  if (certification.execution_status === 'created' || certification.execution_status === 'queued' || certification.execution_status === 'retrying') {
     update.started_at = new Date().toISOString();
   }
-  const { error } = await supabase.from('document_certifications').update(update).eq('id', certification.id);
+  let query = supabase.from('document_certifications').update(update).eq('id', certification.id);
+  if (context) query = query.eq('lease_owner', context.leaseOwner).gt('lease_expires_at', new Date().toISOString());
+  const { error } = await query;
   if (error) throw new CertificationError('CERTIFICATION_STATE_WRITE_FAILED', error.message, 500);
   await supabase.from('certification_state_transitions').insert({
     tenant_id: certification.tenant_id,
@@ -153,10 +183,12 @@ async function transition(
     to_status: toStatus,
     actor_id: actorId,
     result: 'SUCCESS',
-    metadata,
+    metadata: { ...metadata, attempt: context?.attempt || null, trace_id: context?.traceId || null },
   });
+  await recordCertificationCheckpoint(supabase, certification, context, toStatus, 'started', metadata);
   certification.status = toStatus;
   certification.execution_status = 'processing';
+  certification.__activeCheckpoint = toStatus;
 }
 
 async function markFailed(supabase: SupabaseClient, certification: CertificationRow, actorId: string, error: unknown): Promise<never> {
@@ -164,14 +196,25 @@ async function markFailed(supabase: SupabaseClient, certification: Certification
     ? error
     : new CertificationError('CERTIFICATION_FAILED', error instanceof Error ? error.message : 'La certificacion fallo.', 500);
   const fromStatus = certification.status;
-  await supabase.from('document_certifications').update({
+  const context = certification.__executionContext;
+  if (certification.__activeCheckpoint) {
+    await recordCertificationCheckpoint(supabase, certification, context, certification.__activeCheckpoint, 'failed', {
+      error_code: failure.code,
+      error_message: failure.message,
+    });
+  }
+  const requiresManualReview = failure.httpStatus >= 400 && failure.httpStatus < 500;
+  let failedQuery = supabase.from('document_certifications').update({
     status: 'FAILED',
-    execution_status: 'failed',
+    execution_status: requiresManualReview ? 'manual_review' : 'failed',
     failed_at: new Date().toISOString(),
     failure_detail: failure.message,
     error_code: failure.code,
     error_message: failure.message,
   }).eq('id', certification.id);
+  if (context) failedQuery = failedQuery.eq('lease_owner', context.leaseOwner).gt('lease_expires_at', new Date().toISOString());
+  const failedWrite = await failedQuery;
+  if (failedWrite.error) throw new CertificationError('CERTIFICATION_FAILURE_WRITE_FAILED', failedWrite.error.message, 500);
   await supabase.from('certification_state_transitions').insert({
     tenant_id: certification.tenant_id,
     certification_id: certification.id,
@@ -180,8 +223,15 @@ async function markFailed(supabase: SupabaseClient, certification: Certification
     actor_id: actorId,
     result: 'FAILED',
     error_code: failure.code,
-    metadata: {},
+    metadata: { attempt: context?.attempt || null, trace_id: context?.traceId || null },
   });
+  await finalizeCertificationExecution(
+    supabase,
+    certification,
+    context,
+    requiresManualReview ? 'manual_review' : 'failed',
+    { error_code: failure.code, error_message: failure.message },
+  );
   certification.status = 'FAILED';
   throw failure;
 }
@@ -192,11 +242,21 @@ async function uploadArtifact(supabase: SupabaseClient, path: string, bytes: Uin
     upsert: false,
     cacheControl: 'private, max-age=0',
   });
-  if (error) throw new CertificationError('ARTIFACT_STORAGE_FAILED', error.message, 500);
+  if (error) {
+    const existing = await supabase.storage.from(ARTIFACT_BUCKET).download(path);
+    if (!existing.error && existing.data) {
+      const existingBytes = Buffer.from(await existing.data.arrayBuffer());
+      if (existingBytes.equals(Buffer.from(bytes))) return path;
+      throw new CertificationError('ARTIFACT_STORAGE_CONFLICT', `El artefacto inmutable ${path} ya existe con contenido diferente.`, 409);
+    }
+    throw new CertificationError('ARTIFACT_STORAGE_FAILED', error.message, 500);
+  }
   return path;
 }
 
 function mapSummary(row: CertificationRow, timestamp?: Record<string, any> | null): CertificationSummary {
+  const kms = row.provider_metadata?.kms || {};
+  const certificate = row.provider_metadata?.certificate || {};
   return {
     certificationUuid: row.certification_uuid,
     verificationUuid: row.verification_uuid,
@@ -213,10 +273,31 @@ function mapSummary(row: CertificationRow, timestamp?: Record<string, any> | nul
     certificationRootSha256: row.certification_root_sha256 || null,
     timestampStatus: row.timestamp_status || (timestamp?.status === 'VALID' ? 'valid' : 'not_configured'),
     timestampGenTime: timestamp?.gen_time || null,
+    timestampProvider: timestamp?.tsa_name || null,
+    timestampProviderRole: timestamp?.tsa_provider_role || null,
+    timestampPolicyOid: timestamp?.tsa_policy_oid || null,
+    timestampSerialNumber: timestamp?.tsa_serial_number || null,
+    timestampCertificateFingerprintSha256: timestamp?.tsa_certificate_fingerprint_sha256 || null,
+    timestampTrustBundleId: timestamp?.trust_bundle_id || null,
+    timestampTrustRootFingerprintSha256: timestamp?.tsa_root_fingerprint_sha256 || null,
+    timestampFallbackUsed: timestamp?.fallback_used === true,
     integrityStatus: row.integrity_status || 'pending',
     pdfSignatureStatus: row.pdf_signature_status || 'not_configured',
     certificateStatus: row.certificate_status || 'not_configured',
     verificationStatus: row.verification_status || 'pending',
+    nom151Status: row.nom151_status || 'not_configured',
+    padesProfile: row.pades_profile || null,
+    padesSignatureAlgorithm: row.pades_signature_algorithm || null,
+    padesDigestAlgorithm: row.pades_digest_algorithm || null,
+    padesCertificateSerial: row.pades_certificate_serial || null,
+    padesCertificateFingerprintSha256: row.pades_certificate_fingerprint_sha256 || null,
+    padesSigningTimeDeclared: row.pades_signing_time_declared || null,
+    padesVerifiedAt: row.pades_verified_at || null,
+    cryptoEnvironment: row.provider_metadata?.environment || null,
+    kmsProvider: kms.provider || null,
+    kmsProtectionLevel: kms.protection_level || null,
+    kmsKeyVersion: kms.document_key_version || null,
+    certificatePublicKeyFingerprintSha256: certificate.public_key_fingerprint_sha256 || null,
     evidenceSchemaVersion: row.evidence_schema_version || EVIDENCE_SCHEMA_VERSION,
     sourceDocumentHash: row.source_document_hash || row.document_body_sha256 || null,
     sourceDocumentSizeBytes: row.source_document_size_bytes === null || row.source_document_size_bytes === undefined
@@ -233,8 +314,7 @@ async function getTimestamp(supabase: SupabaseClient, certificationId: string) {
 }
 
 export async function getCertificationSummary(supabase: SupabaseClient, documentId: string, userId: string) {
-  const { data: document } = await supabase.from('documentos').select('id,owner_id').eq('id', documentId).maybeSingle();
-  if (!document || document.owner_id !== userId) throw new CertificationError('DOCUMENT_NOT_FOUND', 'Documento no encontrado.', 404);
+  await requireCertificationManagerAccess(supabase, documentId, userId);
   const { data, error } = await supabase.from('document_certifications').select('*').eq('document_id', documentId).order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (error) {
     if (error.code === '42P01' || error.code === 'PGRST205') return null;
@@ -250,7 +330,22 @@ export async function createCertification(
   userId: string,
   idempotencyKey: string,
   requestedVersionId?: string | null,
+  options: {
+    providers?: CertificationProviderSet;
+    leaseOwner?: string;
+  } = {},
 ) {
+  const providers = options.providers || createCertificationProviderSet();
+  assertProductionCertificationEnabled();
+  if (providers.mode === 'production' && !providers.productionEnabled) {
+    throw new CertificationError('PRODUCTION_CERTIFICATION_DISABLED', 'La certificacion de produccion esta deshabilitada hasta completar la activacion controlada.', 503);
+  }
+  if (providers.mode === 'production') {
+    const providerHealth = await providers.healthCheck();
+    if (!providerHealth.ready) {
+      throw new CertificationError('PRODUCTION_PROVIDER_CHAIN_NOT_READY', 'La cadena criptografica de produccion no esta lista para certificar.', 503);
+    }
+  }
   const { data: documentData, error: documentError } = await supabase
     .from('documentos')
     .select('id,documento_id,nombre,estado,owner_id,workspace_id,file_url,storage_path,file_name,file_type,file_size,file_hash_sha256,sealed_pdf_path,sealed_pdf_hash,created_at,fecha_completado,updated_at,participantes,campos_solicitados,sello_digital')
@@ -275,7 +370,7 @@ export async function createCertification(
     .eq('certification_type', 'integrity_evidence')
     .eq('idempotency_key', idempotencyKey)
     .maybeSingle();
-  if (idempotentCertification && idempotentCertification.status !== 'FAILED') {
+  if (idempotentCertification?.status === 'COMPLETED') {
     return mapSummary(
       idempotentCertification as CertificationRow,
       await getTimestamp(supabase, idempotentCertification.id),
@@ -292,14 +387,15 @@ export async function createCertification(
   let certification: CertificationRow;
   if (existing) {
     certification = existing as CertificationRow;
-    if (certification.status !== 'FAILED') return mapSummary(certification, await getTimestamp(supabase, certification.id));
-    const { error } = await supabase.from('document_certifications').update({
-      status: 'PENDING', error_code: null, error_message: null,
-      execution_status: 'created', failed_at: null, failure_detail: null,
-      execution_environment: executionEnvironment(),
-    }).eq('id', certification.id);
-    if (error) throw new CertificationError('CERTIFICATION_RETRY_FAILED', error.message, 500);
-    certification.status = 'PENDING';
+    if (certification.status === 'FAILED') {
+      const { error } = await supabase.from('document_certifications').update({
+        status: 'PENDING', error_code: null, error_message: null,
+        execution_status: 'retrying', failed_at: null, failure_detail: null,
+        execution_environment: executionEnvironment(),
+      }).eq('id', certification.id);
+      if (error) throw new CertificationError('CERTIFICATION_RETRY_FAILED', error.message, 500);
+      certification.status = 'PENDING';
+    }
   } else {
     const { data, error } = await supabase.from('document_certifications').insert({
       tenant_id: tenantId,
@@ -328,18 +424,39 @@ export async function createCertification(
       schema_version: '1.0',
       execution_environment: executionEnvironment(),
     }).select('*').single();
-    if (error || !data) {
+    if (error?.code === '23505') {
+      const raced = await supabase
+        .from('document_certifications')
+        .select('*')
+        .eq('document_version_id', source.versionId)
+        .eq('certification_type', 'integrity_evidence')
+        .maybeSingle();
+      if (raced.error || !raced.data) {
+        throw new CertificationError('CERTIFICATION_CONCURRENT_CREATE_FAILED', raced.error?.message || 'No se pudo recuperar la certificacion concurrente.', 409);
+      }
+      certification = raced.data as CertificationRow;
+    } else if (error || !data) {
       if (error?.code === '42P01' || error?.code === 'PGRST205') {
         throw new CertificationError('CERTIFICATION_SCHEMA_MISSING', 'Falta aplicar la migracion del motor de certificacion.', 503);
       }
       throw new CertificationError('CERTIFICATION_CREATE_FAILED', error?.message || 'No se pudo iniciar la certificacion.', 500);
+    } else {
+      certification = data as CertificationRow;
     }
-    certification = data as CertificationRow;
   }
 
   await supabase.from('certification_state_transitions').insert({
     tenant_id: tenantId, certification_id: certification.id, from_status: null, to_status: 'PENDING', actor_id: userId, result: 'PENDING', metadata: {},
   });
+
+  if (options.leaseOwner) {
+    const context = await claimCertificationLease(supabase, certification, options.leaseOwner);
+    if (!context) return mapSummary(certification, await getTimestamp(supabase, certification.id));
+    certification.__executionContext = context;
+    certification.execution_attempt = context.attempt;
+    certification.execution_trace_id = context.traceId;
+    certification.lease_owner = context.leaseOwner;
+  }
 
   try {
     await transition(supabase, certification, 'FREEZING_DOCUMENT', userId);
@@ -434,12 +551,12 @@ export async function createCertification(
       nom151_constancia_sha256: nom151?.constancia_sha256 || null,
     };
     const foundationEvidence = canonicalSha256(foundationEvidencePayload);
-    const providerStatus = getCryptographicProviderStatus();
+    const providerStatus = await providers.healthCheck();
 
     if (!providerStatus.ready) {
       await verifyFrozenCertificationSource(supabase, source);
       const completedAtNow = new Date().toISOString();
-      const { error: foundationError } = await supabase.from('document_certifications').update({
+      let foundationFinalizeQuery = supabase.from('document_certifications').update({
         status: 'COMPLETED',
         execution_status: 'completed',
         document_body_sha256: documentBodySha256,
@@ -467,6 +584,12 @@ export async function createCertification(
         error_message: null,
         failure_detail: null,
       }).eq('id', certification.id);
+      if (certification.__executionContext) {
+        foundationFinalizeQuery = foundationFinalizeQuery
+          .eq('lease_owner', certification.__executionContext.leaseOwner)
+          .gt('lease_expires_at', new Date().toISOString());
+      }
+      const { error: foundationError } = await foundationFinalizeQuery;
       if (foundationError) {
         throw new CertificationError('CERTIFICATION_FOUNDATION_FINALIZE_FAILED', foundationError.message, 500);
       }
@@ -497,8 +620,44 @@ export async function createCertification(
         evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
         completed_at: completedAtNow,
       };
+      if (certification.__activeCheckpoint) {
+        await recordCertificationCheckpoint(supabase, certification, certification.__executionContext, certification.__activeCheckpoint, 'completed');
+      }
+      await recordCertificationCheckpoint(supabase, certification, certification.__executionContext, 'COMPLETED', 'completed', { mode: 'foundation_only' });
+      await finalizeCertificationExecution(supabase, certification, certification.__executionContext, 'completed', { mode: 'foundation_only' });
       return mapSummary(certification, null);
     }
+
+    // A visual certificate is never sufficient evidence. Do not continue when
+    // the configured X.509 material is expired, untrusted, or bound to a key
+    // other than the KeyManagementProvider key that will sign this record.
+    const certificateVerification = await providers.certificate.verifyCertificateChain();
+    if (certificateVerification.status !== 'valid' && certificateVerification.status !== 'expiring_soon') {
+      throw new CertificationError(
+        `CERTIFICATE_${certificateVerification.status.toUpperCase()}`,
+        'El certificado institucional no supera la validacion requerida para certificar el documento.',
+        503,
+      );
+    }
+    const signingCertificate = certificateVerification.certificate;
+    if (!signingCertificate) {
+      throw new CertificationError('SIGNING_CERTIFICATE_NOT_CONFIGURED', 'No existe un certificado institucional disponible.', 503);
+    }
+    if (!certificateVerification.keyId || !certificateVerification.keyMatches || !certificateVerification.chainValid) {
+      throw new CertificationError('CERTIFICATE_KEY_MISMATCH', 'El certificado institucional no esta vinculado a la llave KMS activa.', 503);
+    }
+    const signingKeyMetadata = await providers.keyManagement.getKeyMetadata(certificateVerification.keyId);
+    const keyPublicPem = signingKeyMetadata.publicKeyPem || await providers.keyManagement.getPublicKey(signingKeyMetadata.keyId);
+    const keyPublicKeyFingerprintSha256 = sha256Hex(createPublicKey(keyPublicPem).export({ type: 'spki', format: 'der' }));
+    const certificatePublicKeyFingerprintSha256 = sha256Hex(
+      new X509Certificate(signingCertificate.pem).publicKey.export({ type: 'spki', format: 'der' })
+    );
+    if (keyPublicKeyFingerprintSha256 !== certificatePublicKeyFingerprintSha256) {
+      throw new CertificationError('CERTIFICATE_KEY_MISMATCH', 'La huella SPKI del certificado no coincide con la llave KMS activa.', 503);
+    }
+    const kmsResource = 'resourceName' in providers.keyManagement
+      ? String((providers.keyManagement as { resourceName?: unknown }).resourceName || '') || null
+      : null;
 
     const evidenceManifestUuid = randomUUID();
     const certificationUuid = certification.certification_uuid;
@@ -517,7 +676,7 @@ export async function createCertification(
       page_count: pageCount, mime_type: 'application/pdf', audit_log_final_hash: auditLogFinalHash,
       evidence_manifest_uuid: evidenceManifestUuid, verification_url: verificationUrl,
       canonicalization_algorithm: 'JCS-RFC8785', digest_algorithm: 'SHA-256',
-      signature_algorithm: 'RSA-PSS-SHA256', signing_key_id: 'KMS_GATEWAY_DOCUMENT_KEY', signing_key_version: 'ACTIVE',
+      signature_algorithm: signingKeyMetadata.algorithm, signing_key_id: signingKeyMetadata.keyId, signing_key_version: signingKeyMetadata.keyVersion,
     };
     const documentChain = canonicalSha256(documentPayload);
     const documentChainDisplay = displayChain('DOCUBOX_DOCUMENT', {
@@ -529,12 +688,16 @@ export async function createCertification(
       DOCUMENT_BODY_SHA256: upper(documentBodySha256), AUDIT_LOG_FINAL_HASH: upper(auditLogFinalHash),
       DOCUMENT_SIZE_BYTES: documentBytes.byteLength, PAGE_COUNT: pageCount,
       EVIDENCE_MANIFEST_UUID: evidenceManifestUuid, VERIFICATION_URL: verificationUrl,
-      CANONICALIZATION: 'JCS-RFC8785', DIGEST_ALGORITHM: 'SHA-256', SIGNATURE_ALGORITHM: 'RSA-PSS-SHA256',
+      CANONICALIZATION: 'JCS-RFC8785', DIGEST_ALGORITHM: 'SHA-256', SIGNATURE_ALGORITHM: signingKeyMetadata.algorithm,
       SIGNING_KEY_VERSION: documentPayload.signing_key_version,
     });
 
     await transition(supabase, certification, 'SIGNING_DOCUMENT_CHAIN', userId);
-    const documentSeal = await signDigestWithKms('DOCUMENT_SEAL', documentChain.sha256, Buffer.from(documentChain.canonical, 'utf8'));
+    const documentSeal = await providers.keyManagement.signDigest({
+      purpose: 'DOCUMENT_SEAL',
+      digestSha256: documentChain.sha256,
+      canonicalBytes: Buffer.from(documentChain.canonical, 'utf8'),
+    });
 
     await transition(supabase, certification, 'BUILDING_EVIDENCE_MANIFEST', userId);
     const workflowDefinitionSha256 = sha256Hex(canonicalizeRFC8785((document.participantes || []).map((participant) => ({
@@ -579,7 +742,7 @@ export async function createCertification(
       evidence_count: evidenceItems.length, attachment_count: manifestPayload.attachment_count,
       audit_event_count: normalizedAudits.length, generated_at: certificationStartedAt,
       sealed_at: certificationStartedAt, canonicalization_algorithm: 'JCS-RFC8785',
-      digest_algorithm: 'SHA-256', signature_algorithm: 'RSA-PSS-SHA256', signing_key_version: 'ACTIVE',
+      digest_algorithm: 'SHA-256', signature_algorithm: signingKeyMetadata.algorithm, signing_key_version: signingKeyMetadata.keyVersion,
     };
     const evidenceChain = canonicalSha256(evidencePayload);
     const evidenceChainDisplay = displayChain('DOCUBOX_EVIDENCE', {
@@ -591,12 +754,16 @@ export async function createCertification(
       AUDIT_MERKLE_ROOT: auditMerkleRoot ? upper(auditMerkleRoot) : null,
       EVIDENCE_COUNT: evidenceItems.length, ATTACHMENT_COUNT: manifestPayload.attachment_count,
       AUDIT_EVENT_COUNT: normalizedAudits.length, GENERATED_AT: certificationStartedAt, SEALED_AT: certificationStartedAt,
-      CANONICALIZATION: 'JCS-RFC8785', DIGEST_ALGORITHM: 'SHA-256', SIGNATURE_ALGORITHM: 'RSA-PSS-SHA256',
+      CANONICALIZATION: 'JCS-RFC8785', DIGEST_ALGORITHM: 'SHA-256', SIGNATURE_ALGORITHM: signingKeyMetadata.algorithm,
       SIGNING_KEY_VERSION: evidencePayload.signing_key_version,
     });
 
     await transition(supabase, certification, 'SIGNING_EVIDENCE_CHAIN', userId);
-    const evidenceSeal = await signDigestWithKms('EVIDENCE_SEAL', evidenceChain.sha256, Buffer.from(evidenceChain.canonical, 'utf8'));
+    const evidenceSeal = await providers.keyManagement.signDigest({
+      purpose: 'EVIDENCE_SEAL',
+      digestSha256: evidenceChain.sha256,
+      canonicalBytes: Buffer.from(evidenceChain.canonical, 'utf8'),
+    });
 
     const packagePayload = {
       schema: 'DOCUBOX_CERTIFICATION_PACKAGE', schema_version: '1.0', certification_uuid: certificationUuid,
@@ -612,45 +779,50 @@ export async function createCertification(
     };
     const certificationPackage = canonicalSha256(packagePayload);
 
-    await transition(supabase, certification, 'REQUESTING_TIMESTAMP', userId);
-    const timestamp = await requestVerifiedTimestamp(certificationPackage.sha256);
-    await transition(supabase, certification, 'VALIDATING_TIMESTAMP', userId);
-    const timestampTokenSha256 = sha256Hex(timestamp.tokenBytes);
     const rootPayload = {
       certification_uuid: certificationUuid, document_chain_sha256: documentChain.sha256,
       document_seal_sha256: documentSeal.signatureSha256, evidence_chain_sha256: evidenceChain.sha256,
-      evidence_seal_sha256: evidenceSeal.signatureSha256, timestamp_token_sha256: timestampTokenSha256,
+      evidence_seal_sha256: evidenceSeal.signatureSha256,
+      // WP-05 is intentionally PAdES-B-B. A RFC 3161 token is introduced in
+      // WP-06 and must never be represented as present before then.
+      timestamp_token_sha256: null,
     };
     const certificationRoot = canonicalSha256(rootPayload);
 
-    const artifactRoot = `${tenantId}/${document.id}/${certificationUuid}`;
-    const requestPath = timestamp.requestBytes ? `${artifactRoot}/timestamp-request.tsq` : null;
-    if (timestamp.requestBytes && requestPath) await uploadArtifact(supabase, requestPath, timestamp.requestBytes, 'application/octet-stream');
-    const responsePath = await uploadArtifact(supabase, `${artifactRoot}/timestamp-response.tsr`, timestamp.responseBytes, 'application/octet-stream');
-    const tokenPath = await uploadArtifact(supabase, `${artifactRoot}/timestamp-token.tst`, timestamp.tokenBytes, 'application/octet-stream');
-
-    const { data: timestampRow, error: timestampError } = await supabase.from('timestamp_records').insert({
-      tenant_id: tenantId, document_certification_id: certification.id, standard: 'RFC3161', status: 'VALID',
-      message_imprint_algorithm: 'SHA-256', message_imprint_sha256: timestamp.messageImprintSha256,
-      timestamp_request_sha256: timestamp.requestBytes ? sha256Hex(timestamp.requestBytes) : null,
-      timestamp_response_sha256: sha256Hex(timestamp.responseBytes), timestamp_token_sha256: timestampTokenSha256,
-      gen_time: timestamp.genTime, tsa_name: timestamp.tsaName, tsa_policy_oid: timestamp.tsaPolicyOid,
-      tsa_serial_number: timestamp.tsaSerialNumber, tsa_nonce: timestamp.tsaNonce,
-      tsa_certificate_serial_number: timestamp.certificateSerialNumber,
-      tsa_certificate_fingerprint_sha256: timestamp.certificateFingerprintSha256,
-      tsa_issuer: timestamp.issuer, request_storage_path: requestPath, response_storage_path: responsePath,
-      token_storage_path: tokenPath, verified_at: timestamp.verifiedAt,
-    }).select('*').single();
-    if (timestampError || !timestampRow) throw new CertificationError('TIMESTAMP_WRITE_FAILED', timestampError?.message || 'No se pudo registrar la estampa.', 500);
+    const executionAttempt = Math.max(1, Number(certification.execution_attempt || 1));
+    const artifactRoot = `${tenantId}/${document.id}/${certificationUuid}/attempt-${executionAttempt}`;
+    let timestampRow: Record<string, unknown> | null = null;
 
     for (const [purpose, seal] of [['DOCUMENT_SEAL', documentSeal], ['EVIDENCE_SEAL', evidenceSeal]] as const) {
-      await supabase.from('cryptographic_keys').upsert({
+      const { error: keyEvidenceError } = await supabase.from('cryptographic_keys').upsert({
         key_purpose: purpose, kms_key_id: seal.keyId, kms_key_version: seal.keyVersion,
         algorithm: seal.algorithm, public_key_pem: seal.publicKeyPem,
         public_key_fingerprint_sha256: seal.publicKeyFingerprintSha256,
-        certificate_pem: seal.certificatePem, certificate_fingerprint_sha256: seal.certificateFingerprintSha256,
+        certificate_pem: signingCertificate.pem, certificate_fingerprint_sha256: signingCertificate.fingerprintSha256,
+        certificate_serial_number: signingCertificate.serialNumber,
+        certificate_subject: signingCertificate.subject,
+        certificate_issuer: signingCertificate.issuer,
+        certificate_not_before: signingCertificate.notBefore,
+        certificate_not_after: signingCertificate.notAfter,
+        certificate_signature_algorithm: signingCertificate.signatureAlgorithm,
+        certificate_public_key_algorithm: signingCertificate.publicKeyAlgorithm,
+        certificate_key_usage: signingCertificate.keyUsage,
+        certificate_extended_key_usage: signingCertificate.extendedKeyUsage,
+        certificate_chain_status: certificateVerification.status,
+        certificate_environment: signingCertificate.environment,
+        protection_level: signingKeyMetadata.protectionLevel === 'hsm' ? 'hardware' : signingKeyMetadata.protectionLevel,
+        provider_metadata: {
+          provider: signingKeyMetadata.provider,
+          environment: signingCertificate.environment.toLowerCase(),
+          kms_key_resource: kmsResource,
+          public_key_fingerprint_sha256: keyPublicKeyFingerprintSha256,
+          certificate_public_key_fingerprint_sha256: certificatePublicKeyFingerprintSha256,
+        },
         status: 'ACTIVE', activated_at: seal.signedAt,
       }, { onConflict: 'kms_key_id,kms_key_version' });
+      if (keyEvidenceError) {
+        throw new CertificationError('CRYPTOGRAPHIC_KEY_EVIDENCE_WRITE_FAILED', keyEvidenceError.message, 500);
+      }
     }
 
     await transition(supabase, certification, 'RENDERING_CERTIFICATE', userId);
@@ -676,11 +848,6 @@ export async function createCertification(
       evidenceChainSha256: evidenceChain.sha256, evidenceChainDisplay,
       evidenceSealSha256: evidenceSeal.signatureSha256, evidenceSealBase64: evidenceSeal.signatureBase64,
       evidenceKeyVersion: evidenceSeal.keyVersion, certificationRootSha256: certificationRoot.sha256,
-      timestamp: {
-        genTime: timestamp.genTime, tsaName: timestamp.tsaName, policyOid: timestamp.tsaPolicyOid,
-        serialNumber: timestamp.tsaSerialNumber, messageImprintSha256: timestamp.messageImprintSha256,
-        tokenSha256: timestampTokenSha256,
-      },
     });
     const certificatePath = await uploadArtifact(supabase, `${artifactRoot}/constancia-integridad-evidencia.pdf`, certificateBytes, 'application/pdf');
 
@@ -697,20 +864,135 @@ export async function createCertification(
         documentSealSha256: documentSeal.signatureSha256,
         documentKeyVersion: documentSeal.keyVersion,
         evidenceChainDisplay,
-        timestamp: {
-          genTime: timestamp.genTime,
-          tsaName: timestamp.tsaName,
-          policyOid: timestamp.tsaPolicyOid,
-          serialNumber: timestamp.tsaSerialNumber,
-          tokenSha256: timestampTokenSha256,
-        },
       },
     );
     const appendedPdf = await appendCertificatePages(documentWithVisibleCertification, certificateBytes);
     await transition(supabase, certification, 'SIGNING_FINAL_PDF', userId);
-    const certifiedPdf = await signPdfWithPades(appendedPdf);
-    const certifiedPdfSha256 = sha256Hex(certifiedPdf);
+    const preparedPdf = await providers.pdfSignature.preparePdf({
+      pdfBytes: appendedPdf,
+      reason: 'Certificacion criptografica Docubox',
+      signerName: 'Docubox',
+      contactInfo: verificationUrl,
+    });
+    const timestampHealth = await providers.timestampAuthority.healthCheck();
+    const requestedPadesProfile = timestampHealth.ready ? 'PAdES-B-T' : 'PAdES-B-B';
+    const signedPdf = await providers.pdfSignature.embedSignature({
+      prepared: preparedPdf,
+      profile: requestedPadesProfile,
+      tenantId,
+      idempotencyKey: certification.idempotency_key,
+    });
+    const padesVerification = await providers.pdfSignature.verifyPdf({
+      pdfBytes: signedPdf.pdfBytes,
+      expectedCertificateFingerprintSha256: signedPdf.certificateFingerprintSha256,
+    });
+    if (!padesVerification.valid) {
+      throw new CertificationError('PADES_VERIFICATION_FAILED', padesVerification.detail || 'La firma PAdES no supero la verificacion criptografica.', 502);
+    }
+    const independentPadesVerification = await providers.independentVerification.verifyPdf({
+      pdfBytes: signedPdf.pdfBytes,
+      expectedCertificateFingerprintSha256: signedPdf.certificateFingerprintSha256,
+    });
+    if (!independentPadesVerification.valid) {
+      throw new CertificationError('INDEPENDENT_PADES_VERIFICATION_FAILED', independentPadesVerification.detail || 'La verificacion independiente PAdES no supero la comprobacion criptografica.', 502);
+    }
+    if (requestedPadesProfile === 'PAdES-B-T' && (!signedPdf.timestamp || !padesVerification.timestamp?.valid)) {
+      throw new CertificationError('PADES_TIMESTAMP_VERIFICATION_FAILED', 'La firma PAdES-B-T no contiene una estampa RFC 3161 verificable.', 502);
+    }
+    const certifiedPdf = signedPdf.pdfBytes;
+    const certifiedPdfSha256 = signedPdf.pdfHashAfterSignature;
     const certifiedPdfPath = await uploadArtifact(supabase, `${artifactRoot}/documento-certificado-pades.pdf`, certifiedPdf, 'application/pdf');
+    if (signedPdf.timestamp) {
+      const timestamp = signedPdf.timestamp;
+      const requestPath = await uploadArtifact(supabase, `${artifactRoot}/timestamp/request.tsq`, timestamp.request, 'application/timestamp-query');
+      const responsePath = await uploadArtifact(supabase, `${artifactRoot}/timestamp/response.tsr`, timestamp.response, 'application/timestamp-reply');
+      const tokenPath = await uploadArtifact(supabase, `${artifactRoot}/timestamp/token.tst`, timestamp.token, 'application/timestamp-token');
+      const { data: storedTimestamp, error: timestampError } = await supabase.from('timestamp_records').upsert({
+        tenant_id: tenantId,
+        document_certification_id: certification.id,
+        standard: 'RFC3161', status: 'VALID',
+        message_imprint_algorithm: timestamp.messageImprintAlgorithm,
+        message_imprint_sha256: timestamp.messageImprintSha256,
+        timestamp_request_sha256: timestamp.requestSha256,
+        timestamp_response_sha256: timestamp.responseSha256,
+        timestamp_token_sha256: timestamp.tokenSha256,
+        gen_time: timestamp.genTime,
+        tsa_name: timestamp.provider,
+        tsa_policy_oid: timestamp.policyOid,
+        tsa_serial_number: timestamp.serialNumber,
+        tsa_nonce: timestamp.nonce,
+        tsa_certificate_serial_number: timestamp.tsaCertificateSerialNumber,
+        tsa_certificate_fingerprint_sha256: timestamp.tsaCertificateFingerprintSha256,
+        tsa_issuer: timestamp.tsaIssuer,
+        tsa_provider_role: timestamp.providerRole || null,
+        tsa_endpoint_id: timestamp.endpointId || null,
+        tsa_certificate_subject: timestamp.tsaCertificateSubject,
+        tsa_root_fingerprint_sha256: timestamp.trustRootFingerprintSha256 || null,
+        tsa_chain_fingerprints_sha256: timestamp.trustChainFingerprintsSha256 || [],
+        trust_bundle_id: timestamp.trustBundleId || null,
+        fallback_used: timestamp.fallbackUsed === true,
+        fallback_reason: timestamp.fallbackReason || null,
+        primary_failure_code: timestamp.primaryFailureCode || null,
+        primary_failure_class: timestamp.primaryFailureClass || null,
+        request_storage_path: requestPath,
+        response_storage_path: responsePath,
+        token_storage_path: tokenPath,
+        verified_at: new Date().toISOString(),
+      }, { onConflict: 'document_certification_id' }).select().single();
+      if (timestampError || !storedTimestamp) {
+        throw new CertificationError('RFC3161_EVIDENCE_WRITE_FAILED', timestampError?.message || 'No se pudo guardar la evidencia RFC 3161.', 500);
+      }
+      if (timestamp.fallbackUsed) {
+        const failoverTransition = await supabase.from('certification_state_transitions').insert({
+          tenant_id: tenantId,
+          certification_id: certification.id,
+          from_status: 'REQUESTING_TIMESTAMP',
+          to_status: 'VALIDATING_TIMESTAMP',
+          actor_id: userId,
+          result: 'SUCCESS',
+          error_code: timestamp.primaryFailureCode || timestamp.fallbackReason || 'TSA_PRIMARY_UNAVAILABLE',
+          metadata: {
+            event_type: timestamp.primaryFailureClass === 'SECURITY_VALIDATION_FAILURE'
+              ? 'TSA_PRIMARY_SECURITY_VALIDATION_FAILURE'
+              : 'TSA_PRIMARY_TEMPORARY_FAILURE',
+            primary_provider: 'freetsa',
+            selected_provider: timestamp.provider,
+            selected_provider_role: timestamp.providerRole || 'FALLBACK',
+            trust_bundle_id: timestamp.trustBundleId || null,
+            fallback_used: true,
+          },
+          occurred_at: new Date().toISOString(),
+        });
+        if (failoverTransition.error) {
+          console.error('[certification] TSA failover transition could not be persisted', {
+            code: 'TSA_FAILOVER_AUDIT_WRITE_FAILED',
+            certificationId: certification.id,
+          });
+        }
+      }
+      timestampRow = storedTimestamp;
+    }
+    const { error: padesEvidenceError } = await supabase.from('document_pdf_signatures').upsert({
+      tenant_id: tenantId,
+      document_id: document.id,
+      document_certification_id: certification.id,
+      timestamp_record_id: timestampRow?.id || null,
+      pades_profile: signedPdf.profile,
+      status: 'VALID',
+      signature_algorithm: signedPdf.signatureAlgorithm,
+      digest_algorithm: signedPdf.digestAlgorithm,
+      certificate_serial: signedPdf.certificateSerialNumber,
+      certificate_fingerprint_sha256: signedPdf.certificateFingerprintSha256,
+      byte_range: signedPdf.byteRange,
+      cms_sha256: signedPdf.cmsHashSha256,
+      pdf_hash_after_signature: signedPdf.pdfHashAfterSignature,
+      signing_time_declared: signedPdf.signingTimeDeclared,
+      verification_result: { primary: padesVerification, independent: independentPadesVerification },
+      verified_at: new Date().toISOString(),
+    }, { onConflict: 'document_certification_id' });
+    if (padesEvidenceError) {
+      throw new CertificationError('PADES_EVIDENCE_WRITE_FAILED', padesEvidenceError.message, 500);
+    }
 
     const report = {
       verification_uuid: certification.verification_uuid, overall_status: 'VALID',
@@ -729,17 +1011,50 @@ export async function createCertification(
         signed_at: documentSeal.signedAt,
       },
       evidence_chain: { manifest_hash_match: true, chain_hash_match: true, seal_valid: true, audit_chain_valid: true, key_version: evidenceSeal.keyVersion },
-      timestamp: { standard: 'RFC3161', status: 'VALID', message_imprint_match: true, token_signature_valid: true, tsa_certificate_valid: true, gen_time: timestamp.genTime, timestamp_token_sha256: timestampTokenSha256 },
+      pdf_signature: {
+        profile: signedPdf.profile,
+        status: 'VALID',
+        byte_range: signedPdf.byteRange,
+        byte_range_valid: padesVerification.byteRangeValid,
+        cms_valid: padesVerification.cmsValid,
+        certificate_valid: padesVerification.certificateValid,
+        independently_verified: independentPadesVerification.valid,
+        independent_verifier: independentPadesVerification.verifier,
+        signature_algorithm: signedPdf.signatureAlgorithm,
+        digest_algorithm: signedPdf.digestAlgorithm,
+        certificate_serial_number: signedPdf.certificateSerialNumber,
+        certificate_fingerprint_sha256: signedPdf.certificateFingerprintSha256,
+        cms_sha256: signedPdf.cmsHashSha256,
+        pdf_hash_after_signature: signedPdf.pdfHashAfterSignature,
+        signing_time_declared: signedPdf.signingTimeDeclared,
+        key_id: signedPdf.keyId,
+        key_version: signedPdf.keyVersion,
+      },
+      timestamp: signedPdf.timestamp ? {
+        standard: 'RFC3161', status: 'VALID', provider: signedPdf.timestamp.provider,
+        policy_oid: signedPdf.timestamp.policyOid, serial_number: signedPdf.timestamp.serialNumber,
+        gen_time: signedPdf.timestamp.genTime, nonce: signedPdf.timestamp.nonce,
+        message_imprint_sha256: signedPdf.timestamp.messageImprintSha256,
+        token_sha256: signedPdf.timestamp.tokenSha256,
+        tsa_certificate_fingerprint_sha256: signedPdf.timestamp.tsaCertificateFingerprintSha256,
+      } : { standard: 'RFC3161', status: 'NOT_CONFIGURED' },
       certification_root_sha256: certificationRoot.sha256,
     };
     const publicVerificationArtifacts = [
       { name: 'document-chain.json', data: Buffer.from(documentChain.canonical, 'utf8'), contentType: 'application/json' },
-      { name: 'document-chain.txt', data: Buffer.from(documentChainDisplay, 'utf8'), contentType: 'text/plain; charset=utf-8' },
-      { name: 'document-chain.sha256', data: Buffer.from(documentChain.sha256, 'ascii'), contentType: 'text/plain; charset=us-ascii' },
+      { name: 'document-chain.txt', data: Buffer.from(documentChainDisplay, 'utf8'), contentType: 'text/plain' },
+      { name: 'document-chain.sha256', data: Buffer.from(documentChain.sha256, 'ascii'), contentType: 'text/plain' },
       { name: 'document-seal.sig', data: Buffer.from(documentSeal.signatureBase64, 'base64'), contentType: 'application/octet-stream' },
-      { name: 'document-seal.base64.txt', data: Buffer.from(documentSeal.signatureBase64, 'ascii'), contentType: 'text/plain; charset=us-ascii' },
-      { name: 'document-seal.sha256', data: Buffer.from(documentSeal.signatureSha256, 'ascii'), contentType: 'text/plain; charset=us-ascii' },
-      { name: 'public-key.pem', data: Buffer.from(documentSeal.publicKeyPem, 'utf8'), contentType: 'application/x-pem-file' },
+      { name: 'document-seal.base64.txt', data: Buffer.from(documentSeal.signatureBase64, 'ascii'), contentType: 'text/plain' },
+      { name: 'document-seal.sha256', data: Buffer.from(documentSeal.signatureSha256, 'ascii'), contentType: 'text/plain' },
+      { name: 'public-key.pem', data: Buffer.from(documentSeal.publicKeyPem, 'utf8'), contentType: 'application/octet-stream' },
+      { name: 'pdf-signature.cms', data: Buffer.from(signedPdf.cmsBytes), contentType: 'application/octet-stream' },
+      { name: 'pdf-signature.cms.sha256', data: Buffer.from(signedPdf.cmsHashSha256, 'ascii'), contentType: 'text/plain' },
+      { name: 'pdf-signature-verification.json', data: Buffer.from(JSON.stringify({ primary: padesVerification, independent: independentPadesVerification }, null, 2), 'utf8'), contentType: 'application/json' },
+      ...(signedPdf.timestamp ? [
+        { name: 'timestamp.tst', data: Buffer.from(signedPdf.timestamp.token), contentType: 'application/timestamp-token' },
+        { name: 'timestamp-verification.json', data: Buffer.from(JSON.stringify(signedPdf.timestamp.verification, null, 2), 'utf8'), contentType: 'application/json' },
+      ] : []),
       { name: 'verification-result.json', data: Buffer.from(JSON.stringify(report, null, 2), 'utf8'), contentType: 'application/json' },
     ];
     await Promise.all(publicVerificationArtifacts.map((artifact) => uploadArtifact(
@@ -748,6 +1063,15 @@ export async function createCertification(
       artifact.data,
       artifact.contentType,
     )));
+    await Promise.all([
+      uploadArtifact(supabase, `${artifactRoot}/technical/verification-report.json`, Buffer.from(JSON.stringify(report, null, 2), 'utf8'), 'application/json'),
+      uploadArtifact(supabase, `${artifactRoot}/technical/signing-certificate.pem`, Buffer.from(signingCertificate.pem, 'utf8'), 'application/octet-stream'),
+      uploadArtifact(supabase, `${artifactRoot}/technical/certificate-chain.pem`, Buffer.from(
+        (await providers.certificate.getCertificateChain()).map((certificate) => certificate.pem).join('\n'),
+        'utf8',
+      ), 'application/octet-stream'),
+      uploadArtifact(supabase, `${artifactRoot}/technical/evidence-manifest.json`, Buffer.from(manifest.canonical, 'utf8'), 'application/json'),
+    ]);
     const technicalPackage = createStoredZip([
       { name: 'certification-package/certification-report.json', data: JSON.stringify(report, null, 2) },
       { name: 'certification-package/certification-root.json', data: JSON.stringify(rootPayload, null, 2) },
@@ -768,12 +1092,16 @@ export async function createCertification(
       { name: 'certification-package/evidence-seal.sha256', data: evidenceSeal.signatureSha256 },
       { name: 'certification-package/certification-package.json', data: certificationPackage.canonical },
       { name: 'certification-package/certification-package.sha256', data: certificationPackage.sha256 },
-      ...(timestamp.requestBytes ? [{ name: 'certification-package/timestamp-request.tsq', data: timestamp.requestBytes }] : []),
-      { name: 'certification-package/timestamp-response.tsr', data: timestamp.responseBytes },
-      { name: 'certification-package/timestamp-token.tst', data: timestamp.tokenBytes },
-      { name: 'certification-package/timestamp-token.sha256', data: timestampTokenSha256 },
-      { name: 'certification-package/tsa-certificate.pem', data: timestamp.certificatePem },
-      { name: 'certification-package/tsa-chain.pem', data: timestamp.chainPem },
+      { name: 'certification-package/pdf-signature.cms', data: Buffer.from(signedPdf.cmsBytes) },
+      { name: 'certification-package/pdf-signature.cms.sha256', data: signedPdf.cmsHashSha256 },
+      { name: 'certification-package/pdf-signature-verification.json', data: JSON.stringify({ primary: padesVerification, independent: independentPadesVerification }, null, 2) },
+      ...(signedPdf.timestamp ? [
+        { name: 'certification-package/timestamp/request.tsq', data: Buffer.from(signedPdf.timestamp.request) },
+        { name: 'certification-package/timestamp/response.tsr', data: Buffer.from(signedPdf.timestamp.response) },
+        { name: 'certification-package/timestamp/token.tst', data: Buffer.from(signedPdf.timestamp.token) },
+        { name: 'certification-package/timestamp/verification.json', data: JSON.stringify(signedPdf.timestamp.verification, null, 2) },
+      ] : []),
+      { name: 'certification-package/signing-certificate.pem', data: signingCertificate.pem },
       { name: 'certification-package/verification-result.json', data: JSON.stringify(report, null, 2) },
       { name: 'certification-package/public-keys.json', data: JSON.stringify({ document: documentSeal.publicKeyPem, evidence: evidenceSeal.publicKeyPem }, null, 2) },
     ]);
@@ -781,7 +1109,7 @@ export async function createCertification(
 
     await verifyFrozenCertificationSource(supabase, source);
     const completedAtNow = new Date().toISOString();
-    const { error: completeError } = await supabase.from('document_certifications').update({
+    let completeFinalizeQuery = supabase.from('document_certifications').update({
       status: 'COMPLETED', execution_status: 'completed',
       document_body_sha256: documentBodySha256, certified_pdf_sha256: certifiedPdfSha256,
       document_chain_canonical_json: documentPayload, document_chain_display_text: documentChainDisplay,
@@ -800,26 +1128,78 @@ export async function createCertification(
       audit_log_final_hash: auditLogFinalHash, audit_merkle_root: auditMerkleRoot,
       audit_event_count: normalizedAudits.length,
       provider_metadata: {
+        artifact_root: artifactRoot,
+        execution_attempt: executionAttempt,
+        environment: signingCertificate.environment.toLowerCase(),
         kms: {
+          provider: signingKeyMetadata.provider === 'google-cloud-kms' ? 'gcp' : signingKeyMetadata.provider,
+          implementation: signingKeyMetadata.provider,
+          protection_level: signingKeyMetadata.protectionLevel,
+          key_resource: kmsResource,
           document_key_id: documentSeal.keyId,
           document_key_version: documentSeal.keyVersion,
           evidence_key_id: evidenceSeal.keyId,
           evidence_key_version: evidenceSeal.keyVersion,
+          public_key_fingerprint_sha256: keyPublicKeyFingerprintSha256,
         },
-        tsa: { name: timestamp.tsaName, policy_oid: timestamp.tsaPolicyOid },
-        pades: { profile: 'PAdES-B-T', verified: true },
+        certificate: {
+          environment: signingCertificate.environment.toLowerCase(),
+          fingerprint_sha256: signingCertificate.fingerprintSha256,
+          public_key_fingerprint_sha256: certificatePublicKeyFingerprintSha256,
+          key_matches: true,
+          chain_status: certificateVerification.status,
+        },
+        tsa: signedPdf.timestamp ? {
+          status: 'valid', standard: 'RFC3161', provider: signedPdf.timestamp.provider,
+          policy_oid: signedPdf.timestamp.policyOid, serial_number: signedPdf.timestamp.serialNumber,
+          gen_time: signedPdf.timestamp.genTime, token_sha256: signedPdf.timestamp.tokenSha256,
+          certificate_fingerprint_sha256: signedPdf.timestamp.tsaCertificateFingerprintSha256,
+        } : { status: 'not_configured', standard: 'RFC3161' },
+        pades: {
+          profile: signedPdf.profile,
+          verified: padesVerification.valid,
+          byte_range: signedPdf.byteRange,
+          cms_sha256: signedPdf.cmsHashSha256,
+          signature_algorithm: signedPdf.signatureAlgorithm,
+          digest_algorithm: signedPdf.digestAlgorithm,
+          certificate_serial_number: signedPdf.certificateSerialNumber,
+          certificate_fingerprint_sha256: signedPdf.certificateFingerprintSha256,
+          signing_time_declared: signedPdf.signingTimeDeclared,
+          pdf_hash_after_signature: signedPdf.pdfHashAfterSignature,
+          key_id: signedPdf.keyId,
+          key_version: signedPdf.keyVersion,
+          verification_result: { primary: padesVerification, independent: independentPadesVerification },
+        },
       },
-      integrity_status: VERIFIED_PROVIDER_CAPABILITIES.integrityStatus,
-      pdf_signature_status: VERIFIED_PROVIDER_CAPABILITIES.pdfSignatureStatus,
-      certificate_status: VERIFIED_PROVIDER_CAPABILITIES.certificateStatus,
-      timestamp_status: VERIFIED_PROVIDER_CAPABILITIES.timestampStatus,
-      verification_status: VERIFIED_PROVIDER_CAPABILITIES.verificationStatus,
+      pades_profile: signedPdf.profile,
+      pades_signature_algorithm: signedPdf.signatureAlgorithm,
+      pades_digest_algorithm: signedPdf.digestAlgorithm,
+      pades_certificate_serial: signedPdf.certificateSerialNumber,
+      pades_certificate_fingerprint_sha256: signedPdf.certificateFingerprintSha256,
+      pades_byte_range: signedPdf.byteRange,
+      pades_cms_sha256: signedPdf.cmsHashSha256,
+      pades_pdf_hash_after_signature: signedPdf.pdfHashAfterSignature,
+      pades_signing_time_declared: signedPdf.signingTimeDeclared,
+      pades_verification_result: { primary: padesVerification, independent: independentPadesVerification },
+      pades_verified_at: completedAtNow,
+      integrity_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).integrityStatus,
+      pdf_signature_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).pdfSignatureStatus,
+      certificate_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).certificateStatus,
+      timestamp_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).timestampStatus,
+      verification_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).verificationStatus,
+      nom151_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).nom151Status,
       evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
       validator_version: 'docubox-certification-engine/1.1',
       certificate_pdf_path: certificatePath, certified_pdf_path: certifiedPdfPath,
       technical_package_path: technicalPackagePath, sealed_at: certificationStartedAt, completed_at: completedAtNow,
       error_code: null, error_message: null,
     }).eq('id', certification.id);
+    if (certification.__executionContext) {
+      completeFinalizeQuery = completeFinalizeQuery
+        .eq('lease_owner', certification.__executionContext.leaseOwner)
+        .gt('lease_expires_at', new Date().toISOString());
+    }
+    const { error: completeError } = await completeFinalizeQuery;
     if (completeError) throw new CertificationError('CERTIFICATION_FINALIZE_FAILED', completeError.message, 500);
     await supabase.from('certification_state_transitions').insert({
       tenant_id: tenantId, certification_id: certification.id, from_status: 'SIGNING_FINAL_PDF',
@@ -832,14 +1212,20 @@ export async function createCertification(
       document_body_sha256: documentBodySha256,
       certified_pdf_sha256: certifiedPdfSha256,
       certification_root_sha256: certificationRoot.sha256,
-      integrity_status: VERIFIED_PROVIDER_CAPABILITIES.integrityStatus,
-      pdf_signature_status: VERIFIED_PROVIDER_CAPABILITIES.pdfSignatureStatus,
-      certificate_status: VERIFIED_PROVIDER_CAPABILITIES.certificateStatus,
-      timestamp_status: VERIFIED_PROVIDER_CAPABILITIES.timestampStatus,
-      verification_status: VERIFIED_PROVIDER_CAPABILITIES.verificationStatus,
+      integrity_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).integrityStatus,
+      pdf_signature_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).pdfSignatureStatus,
+      certificate_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).certificateStatus,
+      timestamp_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).timestampStatus,
+      verification_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).verificationStatus,
+      nom151_status: (signedPdf.profile === 'PAdES-B-T' ? PADES_BT_CAPABILITIES : PADES_BB_CAPABILITIES).nom151Status,
       evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
       completed_at: completedAtNow,
     };
+    if (certification.__activeCheckpoint) {
+      await recordCertificationCheckpoint(supabase, certification, certification.__executionContext, certification.__activeCheckpoint, 'completed');
+    }
+    await recordCertificationCheckpoint(supabase, certification, certification.__executionContext, 'COMPLETED', 'completed', { mode: 'provider' });
+    await finalizeCertificationExecution(supabase, certification, certification.__executionContext, 'completed', { mode: 'provider' });
     return mapSummary(certification, timestampRow);
   } catch (error) {
     return markFailed(supabase, certification, userId, error);
@@ -851,13 +1237,35 @@ export async function getCertificationArtifact(
   documentId: string,
   certificationUuid: string,
   userId: string,
-  kind: 'certificate' | 'package' | 'certified-pdf',
+  kind: CertificationArtifactKind,
 ) {
-  const { data: document } = await supabase.from('documentos').select('id,owner_id').eq('id', documentId).maybeSingle();
-  if (!document || document.owner_id !== userId) throw new CertificationError('DOCUMENT_NOT_FOUND', 'Documento no encontrado.', 404);
+  await requireCertificationManagerAccess(supabase, documentId, userId);
   const { data } = await supabase.from('document_certifications').select('*').eq('document_id', documentId).eq('certification_uuid', certificationUuid).maybeSingle();
   if (!data || data.status !== 'COMPLETED') throw new CertificationError('CERTIFICATION_NOT_READY', 'La certificacion aun no esta disponible.', 409);
-  const path = kind === 'certificate' ? data.certificate_pdf_path : kind === 'package' ? data.technical_package_path : data.certified_pdf_path;
+  const artifactRoot = data.provider_metadata?.artifact_root
+    || `${data.tenant_id}/${data.document_id}/${data.certification_uuid}`;
+  const timestampResult = kind === 'timestamp-token'
+    ? await supabase.from('timestamp_records')
+      .select('token_storage_path')
+      .eq('document_certification_id', data.id)
+      .eq('status', 'VALID')
+      .maybeSingle()
+    : { data: null, error: null };
+  if (timestampResult.error) {
+    throw new CertificationError('CERTIFICATION_ARTIFACT_READ_FAILED', timestampResult.error.message, 500);
+  }
+  const padesBtReportPath = data.provider_metadata?.product_integration?.pades_bt?.verification_report_path || null;
+  const paths: Record<CertificationArtifactKind, string | null> = {
+    certificate: data.certificate_pdf_path,
+    package: data.technical_package_path,
+    'certified-pdf': data.certified_pdf_path,
+    'verification-report': padesBtReportPath || `${artifactRoot}/technical/verification-report.json`,
+    'timestamp-token': timestampResult.data?.token_storage_path || `${artifactRoot}/timestamp/token.tst`,
+    'signing-certificate': `${artifactRoot}/technical/signing-certificate.pem`,
+    'certificate-chain': `${artifactRoot}/technical/certificate-chain.pem`,
+    'evidence-manifest': `${artifactRoot}/technical/evidence-manifest.json`,
+  };
+  const path = paths[kind];
   if (!path) throw new CertificationError('CERTIFICATION_ARTIFACT_MISSING', 'El archivo solicitado no esta disponible.', 404);
   const { data: blob, error } = await supabase.storage.from(ARTIFACT_BUCKET).download(path);
   if (error || !blob) throw new CertificationError('CERTIFICATION_ARTIFACT_READ_FAILED', error?.message || 'No se pudo descargar el archivo.', 500);
@@ -1037,9 +1445,23 @@ export async function getPublicCertification(supabase: SupabaseClient, verificat
   }
   const certifiedPdfBytes = certifiedPdfResult.data ? new Uint8Array(await certifiedPdfResult.data.arrayBuffer()) : null;
   const certifiedPdfHashMatch = Boolean(certifiedPdfBytes && sha256Hex(certifiedPdfBytes) === certification.certified_pdf_sha256);
+  const requiresTimestamp = ['PAdES-B-T', 'PAdES-B-LT', 'PAdES-B-LTA'].includes(String(certification.pades_profile || ''));
+  const publicPadesVerification = certifiedPdfBytes
+    ? await createCertificationProviderSet().pdfSignature.verifyPdf({
+      pdfBytes: certifiedPdfBytes,
+      expectedCertificateFingerprintSha256: certification.pades_certificate_fingerprint_sha256,
+    })
+    : null;
   const timestampTokenBytes = timestampTokenResult.data ? new Uint8Array(await timestampTokenResult.data.arrayBuffer()) : null;
   const timestampTokenHashMatch = Boolean(timestamp && timestampTokenBytes && sha256Hex(timestampTokenBytes) === timestamp.timestamp_token_sha256);
-  const timestampImprintMatch = Boolean(timestamp && timestamp.message_imprint_sha256 === certification.certification_package_sha256);
+  const timestampImprintMatch = Boolean(timestamp && publicPadesVerification?.timestamp?.messageImprintValid);
+  const timestampValidForProfile = !requiresTimestamp || Boolean(
+    timestamp?.status === 'VALID'
+      && timestampTokenHashMatch
+      && timestampImprintMatch
+      && publicPadesVerification?.profile === 'PAdES-B-T'
+      && publicPadesVerification.timestamp?.valid,
+  );
   const auditInspection = inspectLegalEvidenceChain((auditRows || []) as LegalEvidenceRow[]);
   const auditChainValid = auditInspection.valid
     && auditInspection.normalized.length === Number(certification.audit_event_count || 0)
@@ -1053,7 +1475,9 @@ export async function getPublicCertification(supabase: SupabaseClient, verificat
     document_seal_sha256: certification.document_seal_sha256,
     evidence_chain_sha256: certification.evidence_chain_sha256,
     evidence_seal_sha256: certification.evidence_seal_sha256,
-    timestamp_token_sha256: timestamp?.timestamp_token_sha256,
+    // The timestamp seals the CMS signature after the canonical certification
+    // root is fixed. Including it here would create a circular dependency.
+    timestamp_token_sha256: null,
   }).sha256;
   const certificationRootMatch = expectedRoot === certification.certification_root_sha256;
   const documentSealStatus = certification.status === 'REVOKED' || documentKey?.status === 'REVOKED'
@@ -1065,7 +1489,7 @@ export async function getPublicCertification(supabase: SupabaseClient, verificat
         : 'INVALID';
   const overallValid = documentBodyHashMatch && documentHashMatch && documentSealValid && documentSealHashMatch
     && manifestHashMatch && evidenceHashMatch && evidenceSealValid && evidenceSealHashMatch
-    && packageHashMatch && certifiedPdfHashMatch && timestampTokenHashMatch && timestampImprintMatch
+    && packageHashMatch && certifiedPdfHashMatch && timestampValidForProfile
     && certificationRootMatch && auditChainValid;
   await supabase.from('certification_access_logs').insert({
     tenant_id: certification.tenant_id, certification_id: certification.id, verification_uuid: certification.verification_uuid,
@@ -1167,13 +1591,15 @@ export async function getPublicCertificationArtifact(
   if (!contentType) throw new CertificationError('ARTIFACT_NOT_ALLOWED', 'Artefacto no disponible.', 404);
   const { data: certification } = await supabase
     .from('document_certifications')
-    .select('id,tenant_id,document_id,certification_uuid,verification_uuid,status')
+    .select('id,tenant_id,document_id,certification_uuid,verification_uuid,status,provider_metadata')
     .eq('verification_uuid', verificationUuid)
     .in('status', ['COMPLETED', 'REVOKED'])
     .maybeSingle();
   if (!certification) throw new CertificationError('CERTIFICATION_NOT_FOUND', 'Certificacion no encontrada.', 404);
 
-  const storagePath = `${certification.tenant_id}/${certification.document_id}/${certification.certification_uuid}/public/${artifactName}`;
+  const artifactRoot = certification.provider_metadata?.artifact_root
+    || `${certification.tenant_id}/${certification.document_id}/${certification.certification_uuid}`;
+  const storagePath = `${artifactRoot}/public/${artifactName}`;
   const { data, error } = await supabase.storage.from(ARTIFACT_BUCKET).download(storagePath);
   if (error || !data) throw new CertificationError('ARTIFACT_NOT_FOUND', 'Artefacto no disponible.', 404);
   await supabase.from('certification_access_logs').insert({

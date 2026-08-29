@@ -180,14 +180,44 @@ export async function POST(request: NextRequest) {
 
     const documentName = escapeHtml(String(document.nombre || body.documentName || 'Documento'));
     const recipientName = escapeHtml(String(body.recipientName || user.user_metadata?.full_name || user.email));
+    const appUrl = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://docubox-docubox.vercel.app').replace(/\/$/, '');
+    const logoUrl = `${appUrl}/assets/images/docubox-logo-2026.png`;
+    const configuredFrom = process.env.FROM_EMAIL?.trim();
+    const fromEmail = configuredFrom
+      ? configuredFrom.includes('<') ? configuredFrom : `Docubox <${configuredFrom}>`
+      : 'Docubox <noreply@docubox.com.mx>';
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: process.env.FROM_EMAIL || 'noreply@docubox.com.mx',
+        from: fromEmail,
+        reply_to: 'noreply@docubox.com.mx',
         to: [authenticatedEmail],
-        subject: `Codigo de verificacion para firma - ${documentName}`,
-        html: `<!doctype html><html lang="es"><body style="margin:0;background:#f4f6f9;font-family:Arial,sans-serif;color:#18181b"><table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px"><table width="560" style="max-width:100%;background:#fff;border:1px solid #ebebf0;border-radius:8px"><tr><td style="padding:32px"><p style="margin:0 0 12px;font-size:18px;font-weight:700">Hola, ${recipientName}</p><p style="margin:0 0 24px;color:#52525b;line-height:1.6">Usa este codigo para confirmar tu firma en <strong>${documentName}</strong>.</p><div style="padding:22px;text-align:center;background:#f5f7ff;border:1px solid #dbe3ff;border-radius:8px"><div style="font:700 38px/1.2 monospace;letter-spacing:10px;color:#1E6BFF">${otp}</div><p style="margin:12px 0 0;color:#71717a;font-size:12px">Expira en ${OTP_EXPIRY_MINUTES} minutos y solo puede utilizarse una vez.</p></div><p style="margin:24px 0 0;color:#71717a;font-size:12px;line-height:1.5">Si no solicitaste este codigo, ignora el mensaje. Docubox nunca te pedira compartirlo.</p></td></tr></table></td></tr></table></body></html>`,
+        subject: `Código de verificación para firma - ${documentName}`,
+        html: `<!doctype html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Código de verificación para firma - ${documentName}</title></head>
+<body style="margin:0;padding:0;background:#F6F8FB;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;color:#18181B;-webkit-text-size-adjust:100%;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F6F8FB;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#FFFFFF;border:1px solid #EBEBF0;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.08);">
+        <tr><td style="padding:24px 40px;border-bottom:1px solid #EBEBF0;background:#FFFFFF;"><img src="${logoUrl}" alt="Docubox" width="142" style="display:block;width:142px;height:auto;border:0;"></td></tr>
+        <tr><td style="padding:32px 40px 36px;">
+          <p style="margin:0 0 8px;font-size:24px;line-height:1.3;font-weight:700;color:#18181B;">Código de verificación para firma</p>
+          <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#52525B;">Hola <strong style="color:#18181B;">${recipientName}</strong>. Usa este código para confirmar tu firma en <strong style="color:#18181B;">${documentName}</strong>.</p>
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;margin:0 0 24px;"><tr><td align="center" style="padding:24px;">
+            <p style="margin:0 0 8px;font-size:12px;line-height:1.4;font-weight:700;color:#1E6BFF;text-transform:uppercase;letter-spacing:1px;">Código de un solo uso</p>
+            <p style="margin:0;font-size:40px;line-height:1.2;font-weight:700;letter-spacing:12px;color:#1E6BFF;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;">${otp}</p>
+            <p style="margin:12px 0 0;font-size:12px;line-height:1.5;color:#64748B;">Expira en ${OTP_EXPIRY_MINUTES} minutos y solo puede utilizarse una vez.</p>
+          </td></tr></table>
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F8FAFC;border-radius:8px;margin:0 0 24px;"><tr><td style="padding:16px;font-size:13px;line-height:1.6;color:#475569;">Si no solicitaste este código, ignora este mensaje. Docubox nunca te pedirá compartirlo.</td></tr></table>
+          <p style="margin:0;font-size:12px;line-height:1.6;color:#94A3B8;">Por seguridad, nunca compartas este código por teléfono o chat.</p>
+        </td></tr>
+        <tr><td style="padding:20px 40px;border-top:1px solid #EBEBF0;background:#FFFFFF;text-align:center;"><p style="margin:0;font-size:11px;color:#94A3B8;">Este correo fue enviado de forma segura por Docubox.</p></td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`,
       }),
       signal: AbortSignal.timeout(15_000),
     });

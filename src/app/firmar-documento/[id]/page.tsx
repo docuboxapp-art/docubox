@@ -10,6 +10,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import AppLogo from '@/components/ui/AppLogo';
 import { createNotification } from '@/lib/notificationsInApp';
 import { sendParticipationCompletionEmail, sendOwnerParticipantActionEmail } from '@/lib/emailNotifications';
+import { getPublicAppUrl } from '@/lib/publicAppUrl';
 import AutographSignatureFlow from './AutographSignatureFlow';
 import { useEfirmaEvidence, fileToBase64 } from '@/hooks/useEfirmaEvidence';
 
@@ -2470,7 +2471,7 @@ function SignatureStampDisplay({
           {fieldRow('IP', ip)}
           {fieldRow('GEOLOC', geoloc)}
           {fieldRow('DISPOSITIVO', 'Navegador Web')}
-          {fieldRow('SELLO RFC 3161', 'DigiCert ✓')}
+          {fieldRow('SELLO RFC 3161', 'No configurado')}
         </div>
         <div className="flex items-end justify-between gap-2">
           <div className="flex-1">{urlLine()}</div>
@@ -2510,7 +2511,7 @@ function SignatureStampDisplay({
             {fieldRow('GEOLOC', geoloc)}
             {fieldRow('OCSP', 'Válido ✓')}
             {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('SELLO', 'DigiCert ✓')}
+            {fieldRow('SELLO', 'No configurado')}
           </div>
           {urlLine()}
         </div>
@@ -2573,7 +2574,7 @@ function SignatureStampDisplay({
           {fieldRow('GEOLOC', geoloc)}
           {fieldRow('OCSP', 'Válido ✓')}
           {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('SELLO RFC 3161', 'DigiCert ✓')}
+          {fieldRow('SELLO RFC 3161', 'No configurado')}
           {fieldRow('NIVEL', 'Avanzada')}
           {fieldRow('ORDEN', '#1')}
           {fieldRow('VIGENCIA', vigencia)}
@@ -2626,7 +2627,7 @@ function SignatureStampDisplay({
             {fieldRow('GEOLOC', geoloc)}
             {fieldRow('OCSP', 'Válido ✓')}
             {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('SELLO', 'DigiCert ✓')}
+            {fieldRow('SELLO', 'No configurado')}
             {fieldRow('NIVEL', 'Avanzada')}
             {fieldRow('ORDEN', '#1')}
             {fieldRow('VIGENCIA', vigencia)}
@@ -2655,7 +2656,7 @@ function SignatureStampDisplay({
           {fieldRow('GEOLOC', geoloc)}
           {fieldRow('OCSP', 'Válido ✓')}
           {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('SELLO RFC 3161', 'DigiCert ✓')}
+          {fieldRow('SELLO RFC 3161', 'No configurado')}
           {fieldRow('NIVEL', 'Avanzada')}
           {fieldRow('XML EVIDENCE', 'Incluido ✓')}
         </div>
@@ -2883,7 +2884,7 @@ function SignatureStampDisplay({
           {fieldRow('ORDEN', '#1')}
           {fieldRow('CURP', '—')}
           {fieldRow('RFC', rfc)}
-          {fieldRow('SELLO', 'DigiCert ✓')}
+          {fieldRow('SELLO', 'No configurado')}
         </div>
         <div className="flex items-end justify-between gap-2">
           <div className="flex-1">{urlLine()}</div>
@@ -2938,7 +2939,7 @@ function SignatureStampDisplay({
             {fieldRow('ORDEN', '#1')}
             {fieldRow('CURP', '—')}
             {fieldRow('RFC', rfc)}
-            {fieldRow('SELLO', 'DigiCert ✓')}
+            {fieldRow('SELLO', 'No configurado')}
           </div>
           {urlLine()}
         </div>
@@ -2962,7 +2963,7 @@ function SignatureStampDisplay({
           {fieldRow('GEOLOC', geoloc)}
           {fieldRow('DISPOSITIVO', 'Web')}
           {fieldRow('OTP CANAL', 'Correo ✓')}
-          {fieldRow('SELLO RFC 3161', 'DigiCert ✓')}
+          {fieldRow('SELLO RFC 3161', 'No configurado')}
           {fieldRow('BIOMETRÍA TRAZO', 'Presión · Velocidad')}
           {fieldRow('NIVEL FIRMA', 'Simple')}
         </div>
@@ -3490,7 +3491,7 @@ export default function FirmarDocumentoPage() {
 
   // ── Stamp styles from user profile ────────────────────────────────────────
   const [efirmaStampStyle, setEfirmaStampStyle] = useState<string>('EC1');
-  const [autografaStampStyle, setAutografaStampStyle] = useState<string>('AC1');
+  const [autografaStampStyle, setAutografaStampStyle] = useState<string>('AC0');
   const [clickSignStampStyle, setClickSignStampStyle] = useState<string>('CC1');
 
   // ── Protección adicional para participar ──────────────────────────────────
@@ -3633,17 +3634,26 @@ export default function FirmarDocumentoPage() {
       const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
       const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const fontMono = await pdfDoc.embedFont(StandardFonts.Courier);
+      const brandLogo = await (async () => {
+        try {
+          const response = await fetch('/assets/images/docubox-logo-2026.png');
+          if (!response.ok) return null;
+          return pdfDoc.embedPng(await response.arrayBuffer());
+        } catch {
+          return null;
+        }
+      })();
 
       // Colors
-      const black = rgb(0.05, 0.05, 0.05);
-      const darkGray = rgb(0.2, 0.2, 0.2);
-      const midGray = rgb(0.45, 0.45, 0.45);
-      const lightGray = rgb(0.88, 0.88, 0.88);
-      const veryLightGray = rgb(0.96, 0.96, 0.98);
+      const black = rgb(0.094, 0.094, 0.106); // #18181B
+      const darkGray = rgb(0.204, 0.227, 0.263); // #343A43
+      const midGray = rgb(0.322, 0.322, 0.357); // #52525B
+      const lightGray = rgb(0.922, 0.922, 0.941); // #EBEBF0
+      const veryLightGray = rgb(0.973, 0.98, 0.988); // #F8FAFC
       const white = rgb(1, 1, 1);
-      const accentBlue = rgb(0.11, 0.47, 0.78);
-      const darkBg = rgb(0.08, 0.08, 0.12);
-      const sectionBg = rgb(0.97, 0.97, 0.98);
+      const accentBlue = rgb(0.118, 0.42, 1); // #1E6BFF
+      const accentBlueDark = rgb(0.118, 0.251, 0.569); // #1E4091
+      const accentBlueLight = rgb(0.937, 0.961, 1); // #EFF5FF
       const certSectionBg = rgb(0.973, 0.980, 0.988); // #F8FAFC
       const certBorderBlue = rgb(0.118, 0.420, 1.0);  // #1E6BFF
 
@@ -3655,25 +3665,42 @@ export default function FirmarDocumentoPage() {
       let currentPage = pdfDoc.addPage([pageW, pageH]);
       let y = pageH;
 
+      const drawCompactBrandHeader = () => {
+        if (brandLogo) {
+          currentPage.drawImage(brandLogo, { x: margin, y: pageH - 43, width: 104, height: 21 });
+        } else {
+          currentPage.drawText('Docubox', { x: margin, y: pageH - 37, size: 13, font: fontBold, color: darkGray });
+        }
+        currentPage.drawText('Constancia individual de participaci\u00f3n', {
+          x: pageW - margin - 170, y: pageH - 36, size: 7.5, font: fontRegular, color: midGray,
+        });
+        currentPage.drawLine({
+          start: { x: margin, y: pageH - 52 }, end: { x: pageW - margin, y: pageH - 52 },
+          thickness: 1, color: lightGray,
+        });
+      };
+
       const ensureSpace = (needed: number) => {
         if (y - needed < 50) {
           currentPage = pdfDoc.addPage([pageW, pageH]);
-          y = pageH - 30;
+          drawCompactBrandHeader();
+          y = pageH - 66;
         }
       };
 
       const drawSectionHeading = (title: string) => {
         ensureSpace(30);
-        currentPage.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 20, color: darkBg });
-        currentPage.drawText(safe(title), { x: margin + 8, y: y - 12, size: 8, font: fontBold, color: white });
-        y -= 26;
+        currentPage.drawRectangle({ x: margin, y: y - 20, width: contentW, height: 22, color: accentBlueLight, borderColor: lightGray, borderWidth: 0.4 });
+        currentPage.drawRectangle({ x: margin, y: y - 20, width: 3, height: 22, color: accentBlue });
+        currentPage.drawText(safe(title), { x: margin + 11, y: y - 13, size: 8, font: fontBold, color: accentBlueDark });
+        y -= 28;
       };
 
       const drawKV = (label: string, value: string) => {
         ensureSpace(22);
         const rowH = 18;
-        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: veryLightGray, borderColor: lightGray, borderWidth: 0.3 });
-        currentPage.drawText(safe(label), { x: margin + 6, y: y - 12, size: 7.5, font: fontBold, color: darkGray });
+        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: white, borderColor: lightGray, borderWidth: 0.35 });
+        currentPage.drawText(safe(label), { x: margin + 8, y: y - 12, size: 7.2, font: fontBold, color: midGray });
         const valStr = safe(value);
         const displayVal = valStr.length > 72 ? valStr.slice(0, 72) + '...' : valStr;
         currentPage.drawText(displayVal, { x: margin + 180, y: y - 12, size: 7.5, font: fontRegular, color: black });
@@ -3683,8 +3710,8 @@ export default function FirmarDocumentoPage() {
       const drawKVMono = (label: string, value: string) => {
         ensureSpace(22);
         const rowH = 18;
-        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: veryLightGray, borderColor: lightGray, borderWidth: 0.3 });
-        currentPage.drawText(safe(label), { x: margin + 6, y: y - 12, size: 7.5, font: fontBold, color: darkGray });
+        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: white, borderColor: lightGray, borderWidth: 0.35 });
+        currentPage.drawText(safe(label), { x: margin + 8, y: y - 12, size: 7.2, font: fontBold, color: midGray });
         const valStr = safe(value);
         currentPage.drawText(valStr, { x: margin + 180, y: y - 12, size: 7, font: fontMono, color: black });
         y -= rowH;
@@ -3704,7 +3731,7 @@ export default function FirmarDocumentoPage() {
       const signedAt = ev?.signedAt || new Date().toISOString();
       const shortDocId = document?.id?.slice(0, 8) || 'doc';
       const folioPrefix = isEfirma ? 'EFI' : 'AUT';
-      const folioId = `DOCUBOX-IND-${folioPrefix}-${new Date().getFullYear()}-${shortDocId.toUpperCase()}`;
+      const folioId = `DBX-IND-${folioPrefix}-${new Date().getFullYear()}-${shortDocId.toUpperCase()}`;
       const userName = userProfile.nombre_completo || user?.user_metadata?.full_name || '—';
       const userEmail = userProfile.email || user?.email || '—';
       const methodLabel = isEfirma ? 'FIRMA ELECTRONICA AVANZADA - E.FIRMA SAT' : 'FIRMA AUTOGRAFA DIGITALIZADA';
@@ -3712,39 +3739,59 @@ export default function FirmarDocumentoPage() {
       // ════════════════════════════════════════════════════════════════════════
       // HEADER
       // ════════════════════════════════════════════════════════════════════════
-      currentPage.drawRectangle({ x: 0, y: pageH - 55, width: pageW, height: 55, color: darkBg });
-      currentPage.drawText('CONSTANCIA INDIVIDUAL DE PARTICIPACION', {
-        x: margin, y: pageH - 22, size: 13, font: fontBold, color: white,
+      if (brandLogo) {
+        currentPage.drawImage(brandLogo, { x: margin, y: pageH - 49, width: 128, height: 26 });
+      } else {
+        currentPage.drawText('Docubox', { x: margin, y: pageH - 42, size: 16, font: fontBold, color: darkGray });
+      }
+      currentPage.drawRectangle({
+        x: pageW - margin - 96, y: pageH - 47, width: 96, height: 22,
+        color: accentBlueLight, borderColor: lightGray, borderWidth: 0.5,
       });
-      currentPage.drawText('Documento confidencial - uso exclusivo del firmante', {
-        x: margin, y: pageH - 36, size: 8, font: fontRegular, color: rgb(0.75, 0.75, 0.85),
+      currentPage.drawText('CONSTANCIA LEGAL', {
+        x: pageW - margin - 83, y: pageH - 40, size: 7, font: fontBold, color: accentBlueDark,
       });
-      currentPage.drawText('DOCUBOX', {
-        x: pageW - 90, y: pageH - 28, size: 10, font: fontBold, color: accentBlue,
+      currentPage.drawText('Constancia individual de participaci\u00f3n', {
+        x: margin, y: pageH - 78, size: 15, font: fontBold, color: black,
       });
-      y = pageH - 55;
+      currentPage.drawText('Evidencia individual del proceso de firma electr\u00f3nica', {
+        x: margin, y: pageH - 94, size: 8.5, font: fontRegular, color: midGray,
+      });
+      currentPage.drawLine({
+        start: { x: margin, y: pageH - 108 }, end: { x: pageW - margin, y: pageH - 108 },
+        thickness: 1.5, color: accentBlue,
+      });
+      y = pageH - 120;
 
       // Confidential banner
-      currentPage.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 18, color: rgb(0.95, 0.95, 0.97), borderColor: rgb(0.6, 0.6, 0.7), borderWidth: 0.5 });
+      currentPage.drawRectangle({ x: margin, y: y - 22, width: contentW, height: 22, color: accentBlueLight, borderColor: lightGray, borderWidth: 0.5 });
       currentPage.drawText('CONFIDENCIAL - SOLO PARA EL FIRMANTE', {
-        x: margin + 8, y: y - 12, size: 7.5, font: fontBold, color: rgb(0.3, 0.3, 0.4),
+        x: margin + 10, y: y - 14, size: 7.2, font: fontBold, color: accentBlueDark,
       });
       currentPage.drawText(`METODO: ${methodLabel}`, {
-        x: margin + 260, y: y - 12, size: 7.5, font: fontBold, color: accentBlue,
+        x: margin + 260, y: y - 14, size: 7.2, font: fontBold, color: accentBlue,
       });
-      y -= 22;
+      y -= 30;
 
-      // Folio table header
-      currentPage.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 18, color: rgb(0.2, 0.2, 0.25) });
-      currentPage.drawText('FOLIO', { x: margin + 6, y: y - 12, size: 7, font: fontBold, color: white });
-      currentPage.drawText('GENERADA (UTC)', { x: margin + 200, y: y - 12, size: 7, font: fontBold, color: white });
-      currentPage.drawText('FIRMANTE', { x: margin + 370, y: y - 12, size: 7, font: fontBold, color: white });
-      y -= 18;
-      currentPage.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 18, color: veryLightGray, borderColor: lightGray, borderWidth: 0.3 });
-      currentPage.drawText(safe(folioId), { x: margin + 6, y: y - 12, size: 7, font: fontRegular, color: black });
-      currentPage.drawText(safe(signedAt), { x: margin + 200, y: y - 12, size: 7, font: fontRegular, color: black });
-      currentPage.drawText(safe(userEmail), { x: margin + 370, y: y - 12, size: 7, font: fontRegular, color: black });
-      y -= 24;
+      const summaryItems = [
+        { label: 'FOLIO', value: folioId },
+        { label: 'GENERADA (UTC)', value: signedAt },
+        { label: 'FIRMANTE', value: userEmail },
+      ];
+      const summaryGap = 7;
+      const summaryW = (contentW - summaryGap * 2) / 3;
+      summaryItems.forEach((item, index) => {
+        const x = margin + index * (summaryW + summaryGap);
+        currentPage.drawRectangle({
+          x, y: y - 42, width: summaryW, height: 42,
+          color: white, borderColor: lightGray, borderWidth: 0.6,
+        });
+        currentPage.drawText(item.label, { x: x + 9, y: y - 13, size: 6.5, font: fontBold, color: accentBlue });
+        const value = safe(item.value);
+        const displayValue = value.length > 29 ? `${value.slice(0, 29)}...` : value;
+        currentPage.drawText(displayValue, { x: x + 9, y: y - 29, size: 7.2, font: fontRegular, color: black });
+      });
+      y -= 52;
 
       // ── DATOS DEL PARTICIPANTE ────────────────────────────────────────────────
       drawSectionHeading('DATOS DEL PARTICIPANTE');
@@ -3756,25 +3803,24 @@ export default function FirmarDocumentoPage() {
       y -= 8;
 
       // ── CERTIFICADO DE FIRMA DIGITAL ──────────────────────────────────────────
-      ensureSpace(40);
-      // Section background with left border accent
-      const certSectionStartY = y;
       const certRows = 9;
       const certSectionH = certRows * 17 + 30;
+      ensureSpace(certSectionH + 8);
+      // Section background with left border accent
       currentPage.drawRectangle({ x: margin, y: y - certSectionH, width: contentW, height: certSectionH, color: certSectionBg });
       currentPage.drawRectangle({ x: margin, y: y - certSectionH, width: 3, height: certSectionH, color: certBorderBlue });
       // Section heading
-      currentPage.drawRectangle({ x: margin, y: y - 20, width: contentW, height: 20, color: rgb(0.118, 0.420, 1.0) });
-      currentPage.drawText('CERTIFICADO DE FIRMA DIGITAL', { x: margin + 10, y: y - 14, size: 8, font: fontBold, color: white });
+      currentPage.drawRectangle({ x: margin, y: y - 20, width: contentW, height: 20, color: accentBlueLight, borderColor: lightGray, borderWidth: 0.4 });
+      currentPage.drawText('ESTADO CRIPTOGRÁFICO', { x: margin + 10, y: y - 14, size: 8, font: fontBold, color: accentBlueDark });
       y -= 26;
-      drawCertKV('Entidad emisora (CN)', 'Docubox CA');
-      drawCertKV('Organizacion (O)', 'Docubox');
-      drawCertKV('Pais (C)', 'MX');
-      drawCertKV('Validez del certificado', '825 dias');
-      drawCertKV('Algoritmo', 'RSA-2048 + SHA-256');
-      drawCertKV('Sellado de tiempo (TSA)', 'DigiCert RFC 3161');
-      drawCertKV('URL TSA', 'http://timestamp.digicert.com');
-      drawCertKV('Nivel de firma', 'PAdES - Fase 1');
+      drawCertKV('Proveedor de certificado', 'No configurado');
+      drawCertKV('Certificado institucional', 'No verificado');
+      drawCertKV('Cadena de confianza', 'No verificada');
+      drawCertKV('Vigencia del certificado', 'No disponible');
+      drawCertKV('Algoritmo institucional', 'No configurado');
+      drawCertKV('Sellado de tiempo (TSA)', 'No configurado');
+      drawCertKV('URL TSA', 'No disponible');
+      drawCertKV('Nivel PAdES', 'No configurado');
       drawCertKV('Estandar legal', 'Codigo de Comercio Arts. 89-97');
       y -= 8;
 
@@ -3823,7 +3869,7 @@ export default function FirmarDocumentoPage() {
         currentPage.drawText('La clave privada (.key) fue procesada exclusivamente en memoria RAM del servidor y nunca fue persistida.', {
           x: margin + 6, y: y - 12, size: 6.5, font: fontRegular, color: midGray,
         });
-        currentPage.drawText('El certificado fue validado contra el arbol de confianza del SAT con verificacion OCSP en tiempo real al momento de la firma.', {
+        currentPage.drawText('El certificado aportado por el participante se conserva como evidencia. Su vigencia y OCSP requieren verificación independiente.', {
           x: margin + 6, y: y - 22, size: 6.5, font: fontRegular, color: midGray,
         });
         y -= 32;
@@ -3891,6 +3937,7 @@ export default function FirmarDocumentoPage() {
         }
       } else {
         // Autograph section
+        ensureSpace(145);
         drawSectionHeading('FIRMA AUTOGRAFA DIGITALIZADA');
         const sigDataUrl = firmaData || savedSignature;
         if (sigDataUrl && sigDataUrl.startsWith('data:image/')) {
@@ -3940,16 +3987,16 @@ export default function FirmarDocumentoPage() {
       ensureSpace(22);
       {
         const rowH = 18;
-        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: veryLightGray, borderColor: lightGray, borderWidth: 0.3 });
-        currentPage.drawText('HASH SHA-256 DOC. ORIGINAL', { x: margin + 6, y: y - 12, size: 7.5, font: fontBold, color: darkGray });
+        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: white, borderColor: lightGray, borderWidth: 0.35 });
+        currentPage.drawText('HASH SHA-256 DOC. ORIGINAL', { x: margin + 8, y: y - 12, size: 7.2, font: fontBold, color: midGray });
         currentPage.drawText(originalHash.length > 64 ? originalHash.slice(0, 64) : originalHash, { x: margin + 180, y: y - 12, size: 7, font: fontMono, color: black });
         y -= rowH;
       }
       ensureSpace(22);
       {
         const rowH = 18;
-        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: veryLightGray, borderColor: lightGray, borderWidth: 0.3 });
-        currentPage.drawText('HASH SHA-256 DOC. FIRMADO', { x: margin + 6, y: y - 12, size: 7.5, font: fontBold, color: darkGray });
+        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: white, borderColor: lightGray, borderWidth: 0.35 });
+        currentPage.drawText('HASH SHA-256 DOC. FIRMADO', { x: margin + 8, y: y - 12, size: 7.2, font: fontBold, color: midGray });
         currentPage.drawText(sealedHash.length > 64 ? sealedHash.slice(0, 64) : sealedHash, { x: margin + 180, y: y - 12, size: 7, font: fontMono, color: black });
         y -= rowH;
       }
@@ -3986,9 +4033,9 @@ export default function FirmarDocumentoPage() {
       const legalParrafo = [
         'La presente firma electronica tiene validez juridica conforme al Codigo de Comercio de los Estados Unidos',
         'Mexicanos (Arts. 89-97), la Ley de Firma Electronica Avanzada (LFEA) y los Lineamientos del SAT para firma',
-        'electronica. El sellado de tiempo mediante DigiCert TSA (RFC 3161) acredita la existencia del documento en',
-        'la fecha y hora indicadas. El hash SHA-256 garantiza la integridad e inalterabilidad del documento.',
-        'Certificado emitido por Docubox CA bajo los estandares X.509 v3, RSA-2048, SHA-256.',
+        'electronica. La fecha de registro y el hash SHA-256 se muestran como evidencia del proceso documentado.',
+        'Una estampa RFC 3161 o certificado institucional solo se declara cuando sus artefactos se generan y verifican.',
+        'Esta constancia no sustituye la verificación independiente de PAdES, X.509, OCSP o TSA.',
       ];
       currentPage.drawRectangle({ x: margin, y: y - (legalParrafo.length * 12 + 10), width: contentW, height: legalParrafo.length * 12 + 10, color: rgb(0.97, 0.97, 0.98), borderColor: lightGray, borderWidth: 0.3 });
       for (const line of legalParrafo) {
@@ -3999,11 +4046,23 @@ export default function FirmarDocumentoPage() {
       y -= 8;
 
       // ── Footer ────────────────────────────────────────────────────────────────
-      ensureSpace(30);
-      currentPage.drawLine({ start: { x: margin, y: y - 4 }, end: { x: pageW - margin, y: y - 4 }, thickness: 0.5, color: lightGray });
-      currentPage.drawText('Generado por: DOCUBOX - https://docubox.mx', { x: margin, y: y - 16, size: 7, font: fontRegular, color: midGray });
-      currentPage.drawText(`Generado automaticamente al momento de la firma - ${safe(signedAt)}`, {
-        x: margin, y: y - 26, size: 7, font: fontRegular, color: midGray,
+      const generatedPages = pdfDoc.getPages();
+      generatedPages.forEach((pdfPage, index) => {
+        pdfPage.drawLine({
+          start: { x: margin, y: 31 }, end: { x: pageW - margin, y: 31 },
+          thickness: 0.5, color: lightGray,
+        });
+        if (brandLogo) {
+          pdfPage.drawImage(brandLogo, { x: margin, y: 12, width: 76, height: 15 });
+        } else {
+          pdfPage.drawText('Docubox', { x: margin, y: 16, size: 8, font: fontBold, color: darkGray });
+        }
+        pdfPage.drawText(`Generada autom\u00e1ticamente - ${safe(signedAt)}`, {
+          x: margin + 92, y: 17, size: 6.5, font: fontRegular, color: midGray,
+        });
+        pdfPage.drawText(`P\u00e1gina ${index + 1} de ${generatedPages.length}`, {
+          x: pageW - margin - 55, y: 17, size: 6.5, font: fontRegular, color: midGray,
+        });
       });
 
       // ── METADATA DEL PDF ──────────────────────────────────────────────────────
@@ -4012,11 +4071,11 @@ export default function FirmarDocumentoPage() {
       const docFolio = safe(folioId);
       const signMethod = isEfirma ? 'Firma Electronica Avanzada - e.firma SAT' : 'Firma Autografa Digitalizada';
       pdfDoc.setTitle(`Documento firmado - DOCUBOX - ${docFolio}`);
-      pdfDoc.setAuthor('Docubox CA - Docubox - MX');
+      pdfDoc.setAuthor('Docubox - MX');
       pdfDoc.setSubject(`Firma electronica - ${signerName} - ${signMethod}`);
       pdfDoc.setCreator('DOCUBOX - Plataforma de firma electronica');
-      pdfDoc.setProducer('DOCUBOX v1.0 | PAdES Fase 1 | Docubox CA');
-      pdfDoc.setKeywords(['firma electronica', 'DOCUBOX', 'PAdES', 'RSA-2048', 'Codigo de Comercio', 'Mexico', 'Docubox CA']);
+      pdfDoc.setProducer('DOCUBOX v1.0 | Constancia visual');
+      pdfDoc.setKeywords(['firma electronica', 'DOCUBOX', 'SHA-256', 'Codigo de Comercio', 'Mexico']);
 
       const pdfBytes = await pdfDoc.save();
       const downloadBytes = new Uint8Array(pdfBytes.byteLength);
@@ -4037,6 +4096,45 @@ export default function FirmarDocumentoPage() {
       setGeneratingPdf(false);
     }
   }, [document?.id, document?.nombre, userProfile, user, myRole, savedSignatureType, savedSignature, firmaData, signatureEvidence, nubariumValidationResult]);
+
+  const downloadParticipationCertificate = useCallback(async () => {
+    if (!document?.id) return;
+    setGeneratingPdf(true);
+    setSubmitError(null);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Tu sesión ya no está disponible. Inicia sesión nuevamente.');
+
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(document.id)}/mi-constancia`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'No fue posible generar la constancia de participación.');
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get('content-disposition') || '';
+      const responseName = disposition.match(/filename="([^"]+)"/i)?.[1];
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement('a');
+      anchor.href = url;
+      anchor.download = responseName || `constancia-participacion-${document.id.slice(0, 8)}.pdf`;
+      anchor.style.display = 'none';
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      window.document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No fue posible descargar la constancia de participación.';
+      setSubmitError(message);
+      console.error('Error descargando constancia de participación:', error);
+    } finally {
+      setGeneratingPdf(false);
+    }
+  }, [document?.id]);
 
   // ── Download original document ─────────────────────────────────────────────
   const downloadOriginalDocument = useCallback(async () => {
@@ -4903,6 +5001,16 @@ export default function FirmarDocumentoPage() {
       const sigTypeLabel = isEfirmaSAT ? 'e.firma (SAT)'
         : savedSignatureType === 'efirma' ? 'e.firma (SAT)'
         : savedSignatureType === 'firma_electronica'? 'Firma Electrónica Digital' :'Firma Autógrafa Digital';
+      const selectedSignatureMethod = isEfirmaSAT || savedSignatureType === 'efirma'
+        ? 'efirma'
+        : savedSignatureType === 'autografa' || autographFlowDone
+          ? 'autografa'
+          : 'clicksign';
+      const selectedStampStyle = selectedSignatureMethod === 'efirma'
+        ? efirmaStampStyle
+        : selectedSignatureMethod === 'autografa'
+          ? autografaStampStyle
+          : clickSignStampStyle;
 
       // Validate and persist the cryptographic signature before changing any
       // participant or document state. A provider failure must leave the
@@ -4956,6 +5064,18 @@ export default function FirmarDocumentoPage() {
         firma_data: myRole === 'firmante' ? finalFirmaData : null,
         firma_completada: myRole === 'firmante' ? (finalFirmaData !== null) : false,
         firma_completada_at: myRole === 'firmante' && finalFirmaData ? now : null,
+        signature_method: myRole === 'firmante' ? selectedSignatureMethod : null,
+        signature_stamp_style: myRole === 'firmante' ? selectedStampStyle : null,
+        signature_hash: myRole === 'firmante' ? signatureHash || null : null,
+        signature_ip: myRole === 'firmante' ? ipAddress : null,
+        signature_metadata: myRole === 'firmante' ? {
+          rfc: isEfirmaSAT ? (profileEfirma?.rfc || userProfile.rfc || null) : (userProfile.rfc || null),
+          certificate_serial: isEfirmaSAT ? (profileEfirma?.serial || null) : null,
+          certificate_algorithm: isEfirmaSAT ? 'RSA / SHA-256' : null,
+          certificate_valid_until: isEfirmaSAT ? (profileEfirma?.vigenciaFin || null) : null,
+          ocsp_status: isEfirmaSAT ? (nubariumValidationResult?.estado || 'No disponible') : null,
+          verification_url: `${getPublicAppUrl()}/verificar-documento?documento=${document.id}`,
+        } : {},
         aprobacion_completada: myRole === 'aprobador',
         aprobacion_completada_at: myRole === 'aprobador' ? now : null,
         observaciones: observaciones || null,
@@ -5068,6 +5188,45 @@ export default function FirmarDocumentoPage() {
             .from('documentos')
             .update({ estado: 'completado', fecha_completado: new Date().toISOString() })
             .eq('id', document.id);
+        }
+      }
+
+      // Generate final artifacts only after the last participant has completed.
+      // NOM-151 is requested after the derived PDF has finished, never in parallel.
+      if (documentoEstado === 'completado') {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const authorizationHeaders: Record<string, string> = session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {};
+
+          const sealResponse = await fetch(`/api/documentos/${document.id}/seal-signatures`, {
+            method: 'POST',
+            headers: authorizationHeaders,
+          });
+          if (!sealResponse.ok) {
+            const payload = await sealResponse.json().catch(() => ({}));
+            const noSignatureFields = sealResponse.status === 409
+              && /no tiene campos de firma configurados/i.test(String(payload?.error || ''));
+            if (!noSignatureFields) {
+              console.error('[firmar-documento] No se pudo estampar el PDF final:', payload?.error || sealResponse.status);
+            }
+          }
+
+          const nom151Response = await fetch('/api/nom151/generate', {
+            method: 'POST',
+            headers: {
+              ...authorizationHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ documento_id: document.id, requested_by: user.id }),
+          });
+          if (!nom151Response.ok) {
+            const payload = await nom151Response.json().catch(() => ({}));
+            console.error('[firmar-documento] No se pudo emitir automáticamente la NOM-151:', payload?.error || nom151Response.status);
+          }
+        } catch (artifactError) {
+          console.error('[firmar-documento] Error al generar los artefactos finales:', artifactError);
         }
       }
 
@@ -5886,7 +6045,7 @@ export default function FirmarDocumentoPage() {
                     </div>
 
                     <button
-                      onClick={generateConstanciaPDF}
+                      onClick={downloadParticipationCertificate}
                       disabled={generatingPdf}
                       className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                     >
@@ -5942,7 +6101,7 @@ export default function FirmarDocumentoPage() {
                         <div className={`flex items-start gap-2 rounded-lg px-3 py-2 ${isDark ? 'bg-purple-900/20 border border-purple-800' : 'bg-purple-50 border border-purple-100'}`}>
                           <ShieldCheck size={11} className="text-purple-500 shrink-0 mt-0.5" />
                           <p className={`text-[10px] leading-relaxed ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>
-                            Constancia emitida conforme a NOM-151-SCFI-2016. Válida ante cualquier autoridad o tribunal mexicano. Archivo .ans vinculado al PDF por hash criptográfico.
+                            Constancia emitida conforme a NOM-151-SCFI-2016. Válida ante cualquier autoridad o tribunal mexicano. Archivo .asn1 vinculado al PDF por hash criptográfico.
                           </p>
                         </div>
                         <a
@@ -6066,7 +6225,7 @@ export default function FirmarDocumentoPage() {
             {/* Bottom action bar */}
             <div className={`border-t px-4 sm:px-6 py-3 flex flex-col gap-2 flex-shrink-0 shadow-sm transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-card'}`}>
               <button
-                onClick={generateConstanciaPDF}
+                onClick={downloadParticipationCertificate}
                 disabled={generatingPdf}
                 className="w-full flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
@@ -6078,7 +6237,7 @@ export default function FirmarDocumentoPage() {
                 className={`flex items-center justify-center gap-2 w-full px-5 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
               >
                 <Eye size={16} />
-                Ver documento
+                Salir y ver documento
               </button>
             </div>
           </div>
@@ -8072,7 +8231,7 @@ export default function FirmarDocumentoPage() {
                   {submitting ? (
                     <><Loader2 size={14} className="animate-spin" /> Enviando...</>
                   ) : (
-                    <><Save size={14} /> Enviar firma</>
+                    <><Save size={14} /> Firmar ahora</>
                   )}
                 </button>
               )}

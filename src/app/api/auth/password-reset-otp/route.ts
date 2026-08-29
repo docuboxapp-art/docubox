@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Restablecer contraseña</title>
 </head>
-<body style="margin:0;padding:0;background:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
+<body style="margin:0;padding:0;background:#f4f6f9;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f9;padding:32px 0;">
     <tr>
       <td align="center">

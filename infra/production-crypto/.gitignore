@@ -1,0 +1,9 @@
+# All production material is supplied at deploy time by a secret manager.
+*.key
+*.key.pem
+*.p12
+*.pfx
+*.crt.pem
+*.csr.pem
+secrets/
+state/

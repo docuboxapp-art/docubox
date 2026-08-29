@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Users, MessageSquare, Activity, FileText, RefreshCw, Info, CheckCircle2, XCircle, Clock, Mail, Tag, Send, Eye, FilePlus, UserPlus, Download, Shield, AlertTriangle, PenLine, Bell, Calendar, StickyNote, Edit3, Upload, X, Save, PanelRightClose, PanelRightOpen, Copy, ExternalLink, Globe2, QrCode, ListChecks, History } from 'lucide-react';
+import { ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Users, MessageSquare, Activity, FileText, RefreshCw, Info, CheckCircle2, XCircle, Clock, Mail, Tag, Send, Eye, FilePlus, UserPlus, Download, Shield, AlertTriangle, PenLine, Bell, Calendar, StickyNote, Edit3, Upload, X, Save, Copy, ExternalLink, Globe2, QrCode, ListChecks, History, Lock, Folder } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -66,7 +66,7 @@ interface CryptographicCertification {
   documentId: string;
   documentFolio: string;
   status: string;
-  executionStatus: 'created' | 'processing' | 'completed' | 'failed';
+  executionStatus: 'created' | 'queued' | 'processing' | 'retrying' | 'manual_review' | 'completed' | 'failed';
   documentVersionId: string | null;
   documentVersionNumber: number;
   createdAt: string;
@@ -76,10 +76,36 @@ interface CryptographicCertification {
   certificationRootSha256: string | null;
   timestampStatus: string | null;
   timestampGenTime: string | null;
+  timestampProvider: string | null;
+  timestampProviderRole: string | null;
+  timestampPolicyOid: string | null;
+  timestampSerialNumber: string | null;
+  timestampCertificateFingerprintSha256: string | null;
+  timestampTrustBundleId: string | null;
+  timestampTrustRootFingerprintSha256: string | null;
+  timestampFallbackUsed: boolean;
   integrityStatus: string;
   pdfSignatureStatus: string;
   certificateStatus: string;
   verificationStatus: string;
+  nom151Status: string;
+  padesProfile: string | null;
+  padesSignatureAlgorithm: string | null;
+  padesDigestAlgorithm: string | null;
+  padesCertificateSerial: string | null;
+  padesCertificateFingerprintSha256: string | null;
+  padesSigningTimeDeclared: string | null;
+  padesVerifiedAt: string | null;
+  cryptoEnvironment: string | null;
+  kmsProvider: string | null;
+  kmsProtectionLevel: string | null;
+  kmsKeyVersion: string | null;
+  kmsKeySizeBits: number | null;
+  certificatePublicKeyFingerprintSha256: string | null;
+  certificateKeyMatches: boolean | null;
+  certificateChainStatus: string | null;
+  certificateEnvironment: string | null;
+  timestampTrustStatus: string | null;
   evidenceSchemaVersion: string;
   sourceDocumentHash: string | null;
   sourceDocumentSizeBytes: number | null;
@@ -89,25 +115,59 @@ interface CryptographicCertification {
 
 const CRYPTOGRAPHIC_PROVIDER_LABELS: Record<string, string> = {
   DOCUBOX_KMS_GATEWAY_URL: 'Sellado digital KMS',
-  DOCUBOX_TSA_GATEWAY_URL: 'Estampa de tiempo RFC 3161',
+  DOCUBOX_TSA_URL: 'Estampa de tiempo RFC 3161',
   DOCUBOX_PADES_GATEWAY_URL: 'Firma del PDF PAdES',
 };
 
 const CRYPTO_STATUS_LABELS: Record<string, string> = {
   not_configured: 'No configurada',
   pending: 'Pendiente',
+  processing: 'Procesando',
   development: 'Desarrollo',
   valid: 'Operativa',
   invalid: 'Inválida',
   unavailable: 'No disponible',
+  manual_review: 'Requiere revisión',
   not_applicable: 'No aplica',
 };
 
 function cryptoStatusClasses(status: string) {
   if (status === 'valid') return 'bg-emerald-500';
   if (status === 'invalid' || status === 'unavailable') return 'bg-red-500';
-  if (status === 'pending' || status === 'development') return 'bg-amber-500';
+  if (status === 'pending' || status === 'development' || status === 'manual_review') return 'bg-amber-500';
+  if (status === 'processing') return 'bg-primary animate-pulse';
   return 'bg-slate-300';
+}
+
+type PadesUiStatus = 'SIN PADES' | 'PAdES EN PROCESO' | 'PAdES VERIFICADO' | 'PAdES ERROR';
+
+function derivePadesUiStatus(certification: CryptographicCertification | null): PadesUiStatus {
+  if (!certification) return 'SIN PADES';
+  const supportedProfile = certification.padesProfile === 'PAdES-B-B'
+    || certification.padesProfile === 'PAdES-B-T';
+  const timestampValid = certification.padesProfile !== 'PAdES-B-T'
+    || certification.timestampStatus === 'valid';
+  const verified = certification.status === 'COMPLETED'
+    && certification.executionStatus === 'completed'
+    && supportedProfile
+    && timestampValid
+    && certification.pdfSignatureStatus === 'valid'
+    && certification.certificateStatus === 'valid'
+    && certification.verificationStatus === 'valid'
+    && Boolean(certification.certifiedPdfSha256)
+    && Boolean(certification.padesCertificateFingerprintSha256)
+    && Boolean(certification.padesVerifiedAt);
+  if (verified) return 'PAdES VERIFICADO';
+  if (
+    certification.executionStatus === 'failed'
+    || certification.executionStatus === 'manual_review'
+    || certification.status === 'FAILED'
+    || certification.pdfSignatureStatus === 'invalid'
+    || certification.certificateStatus === 'invalid'
+    || certification.verificationStatus === 'invalid'
+  ) return 'PAdES ERROR';
+  if (['created', 'queued', 'processing', 'retrying'].includes(certification.executionStatus)) return 'PAdES EN PROCESO';
+  return 'SIN PADES';
 }
 
 async function apiAuthHeaders(includeJson = false): Promise<Record<string, string>> {
@@ -198,6 +258,53 @@ interface CampoSolicitado {
   } | null;
   tipo?: string;
   id?: string;
+}
+
+interface AdditionalMetadataRecord {
+  id: string;
+  metadata_scope: 'document' | 'management';
+  data_type: string;
+  name: string;
+  value_json: string | boolean;
+  value_display: string;
+  document_version_id: string | null;
+  document_version_number: number;
+  locked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const ADDITIONAL_METADATA_TYPE_LABELS: Record<string, string> = {
+  text: 'Texto',
+  number: 'Número',
+  currency: 'Moneda',
+  date: 'Fecha',
+  datetime: 'Fecha y hora',
+  boolean: 'Sí / No',
+  list: 'Lista',
+  rfc: 'RFC',
+  curp: 'CURP',
+  email: 'Email',
+  identifier: 'Identificador',
+  reference: 'Referencia',
+};
+
+function isConfiguredSignatureField(field: CampoSolicitado) {
+  const type = String(field.tipo || '').trim().toLowerCase();
+  if (type === 'firma') return true;
+
+  const legacyLabel = String(field.label || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
+  return !type && ['firma', 'firma digital', 'firma electronica', 'firma autografa'].includes(legacyLabel);
+}
+
+function isGeneratedSignatureStampPath(path: string | null | undefined) {
+  return String(path || '').startsWith('documents-signed/');
 }
 
 // NEW: participation response data
@@ -454,9 +561,14 @@ export default function VisorDocumentoPage() {
     seguridad: true,
     ubicacion: true,
   });
-  const [activeTab, setActiveTab] = useState<'details' | 'participants' | 'comments' | 'activity' | 'fields' | 'vencimientos' | 'editar' | 'descargas'>('details');
-  const [isSidePanelOpen, setIsSidePanelOpen] = useState(true);
+  const [activeTab, setActiveTab] = useState<'details' | 'metadata' | 'participants' | 'comments' | 'activity' | 'fields' | 'vencimientos' | 'editar' | 'descargas'>('details');
   const [participantes, setParticipantes] = useState<Participante[]>([]);
+  const [additionalMetadata, setAdditionalMetadata] = useState<AdditionalMetadataRecord[]>([]);
+  const [canManageAdditionalMetadata, setCanManageAdditionalMetadata] = useState(false);
+  const [editingMetadataId, setEditingMetadataId] = useState<string | null>(null);
+  const [editingMetadataValue, setEditingMetadataValue] = useState<string | boolean>('');
+  const [metadataSaving, setMetadataSaving] = useState(false);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showChangesModal, setShowChangesModal] = useState(false);
   const [rejectMotivo, setRejectMotivo] = useState('');
@@ -482,6 +594,10 @@ export default function VisorDocumentoPage() {
   const [participantSubEstado, setParticipantSubEstado] = useState<string | null>(null);
 
   const [camposSolicitados, setCamposSolicitados] = useState<CampoSolicitado[]>([]);
+  const hasConfiguredSignatureFields = useMemo(
+    () => camposSolicitados.some(isConfiguredSignatureField),
+    [camposSolicitados],
+  );
   const [showCampos, setShowCampos] = useState(true);
   const [showFullscreenModal, setShowFullscreenModal] = useState(false);
   const [isViewerMaximized, setIsViewerMaximized] = useState(false);
@@ -506,28 +622,46 @@ export default function VisorDocumentoPage() {
   const [nom151Data, setNom151Data] = useState<{
     id: string;
     status: string;
+    verification_status: string;
+    environment: 'development' | 'production' | 'sandbox' | 'unknown' | null;
+    production_trusted: boolean;
+    psc_name: string | null;
     nubarium_codigo_validacion: string;
     nubarium_hash: string;
     constancia_sha256: string;
     constancia_path: string;
     nubarium_request_payload?: Record<string, unknown> | null;
     nubarium_response_payload?: Record<string, unknown> | null;
+    issued_at?: string | null;
     created_at: string;
   } | null>(null);
   const [nom151Polling, setNom151Polling] = useState(false);
   const [nom151Generating, setNom151Generating] = useState(false);
+  const [nom151Error, setNom151Error] = useState('');
+  const [nom151LookupComplete, setNom151LookupComplete] = useState(false);
+  const [nom151Ready, setNom151Ready] = useState(false);
   const [downloadingAns, setDownloadingAns] = useState(false);
   const [downloadingNom151Pdf, setDownloadingNom151Pdf] = useState(false);
 
   // ── Constancia General state ───────────────────────────────────────────────
   const [downloadingConstanciaGeneral, setDownloadingConstanciaGeneral] = useState(false);
+  const [downloadingAuditCertificate, setDownloadingAuditCertificate] = useState(false);
+  const [downloadingMyParticipationCertificate, setDownloadingMyParticipationCertificate] = useState(false);
   const [cryptographicCertification, setCryptographicCertification] = useState<CryptographicCertification | null>(null);
   const [certificationProviderReady, setCertificationProviderReady] = useState(false);
   const [certificationProviderChecked, setCertificationProviderChecked] = useState(false);
   const [certificationProviderMissing, setCertificationProviderMissing] = useState<string[]>([]);
+  const [certificationE2eEnabled, setCertificationE2eEnabled] = useState(false);
   const [certificationLoading, setCertificationLoading] = useState(false);
   const [certificationError, setCertificationError] = useState('');
-  const [certificationDownload, setCertificationDownload] = useState<'certificate' | 'package' | 'certified-pdf' | null>(null);
+  const [certificationDownload, setCertificationDownload] = useState<
+    'certificate' | 'package' | 'certified-pdf' | 'verification-report' | 'timestamp-token' | 'signing-certificate' | 'certificate-chain' | 'evidence-manifest' | null
+  >(null);
+  const padesUiStatus = derivePadesUiStatus(cryptographicCertification);
+  const padesVerified = padesUiStatus === 'PAdES VERIFICADO';
+  const padesBtVerified = padesVerified
+    && cryptographicCertification?.padesProfile === 'PAdES-B-T'
+    && cryptographicCertification.timestampStatus === 'valid';
 
   // ── Signed PDF state ───────────────────────────────────────────────────────
   const [downloadingSignedPdf, setDownloadingSignedPdf] = useState(false);
@@ -542,8 +676,12 @@ export default function VisorDocumentoPage() {
     xml_generated_at: string;
   } | null>(null);
   const [downloadingXml, setDownloadingXml] = useState(false);
+  const [xmlDownloadError, setXmlDownloadError] = useState('');
   const [xmlPolling, setXmlPolling] = useState(false);
   const [xmlGenerating, setXmlGenerating] = useState(false);
+  const [xmlGenerationError, setXmlGenerationError] = useState('');
+  const artifactGenerationAttemptsRef = useRef<Set<string>>(new Set());
+  const signatureStampGenerationRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setPublicVerificationOrigin(window.location.origin);
@@ -596,17 +734,6 @@ export default function VisorDocumentoPage() {
     }
   }, [publicVerificationUrl]);
 
-  useEffect(() => {
-    const desktopPanel = window.matchMedia('(min-width: 1280px)');
-    const syncPanelWithViewport = (event?: MediaQueryListEvent) => {
-      setIsSidePanelOpen(event ? event.matches : desktopPanel.matches);
-    };
-
-    syncPanelWithViewport();
-    desktopPanel.addEventListener('change', syncPanelWithViewport);
-    return () => desktopPanel.removeEventListener('change', syncPanelWithViewport);
-  }, []);
-
   // ── Activity logger helper ─────────────────────────────────────────────────
   const logActivity = useCallback(async (
     action: string,
@@ -650,7 +777,12 @@ export default function VisorDocumentoPage() {
       if (!response.ok) throw new Error(payload.error || 'No fue posible consultar la certificación.');
       setCryptographicCertification(payload.certification || null);
       setCertificationProviderReady(Boolean(payload.providerStatus?.ready));
-      setCertificationProviderMissing(Array.isArray(payload.providerStatus?.missing) ? payload.providerStatus.missing : []);
+      setCertificationProviderMissing(
+        Array.isArray(payload.providerStatus?.missing)
+          ? Array.from(new Set<string>(payload.providerStatus.missing.filter((entry: unknown) => typeof entry === 'string') as string[]))
+          : [],
+      );
+      setCertificationE2eEnabled(payload.e2eEnabled === true);
       setCertificationProviderChecked(true);
       setCertificationError('');
     } catch (error) {
@@ -665,6 +797,10 @@ export default function VisorDocumentoPage() {
 
   const generateCryptographicCertification = useCallback(async () => {
     if (!docId) return;
+    if (!certificationE2eEnabled) {
+      setCertificationError('La certificacion criptografica integral esta deshabilitada en este entorno.');
+      return;
+    }
     setCertificationLoading(true);
     setCertificationError('');
     try {
@@ -691,10 +827,10 @@ export default function VisorDocumentoPage() {
     } finally {
       setCertificationLoading(false);
     }
-  }, [docId, loadCryptographicCertification, logActivity]);
+  }, [certificationE2eEnabled, docId, loadCryptographicCertification, logActivity]);
 
   const downloadCertificationArtifact = useCallback(async (
-    kind: 'certificate' | 'package' | 'certified-pdf',
+    kind: 'certificate' | 'package' | 'certified-pdf' | 'verification-report' | 'timestamp-token' | 'signing-certificate' | 'certificate-chain' | 'evidence-manifest',
   ) => {
     if (!docId || !cryptographicCertification?.certificationUuid) return;
     setCertificationDownload(kind);
@@ -703,8 +839,11 @@ export default function VisorDocumentoPage() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('La sesión no está disponible.');
+      const directArtifact = kind === 'certificate' || kind === 'package' || kind === 'certified-pdf';
       const response = await fetch(
-        `/api/documents/${docId}/certifications/${cryptographicCertification.certificationUuid}/${kind}`,
+        directArtifact
+          ? `/api/documents/${docId}/certifications/${cryptographicCertification.certificationUuid}/${kind}`
+          : `/api/documents/${docId}/certifications/${cryptographicCertification.certificationUuid}/artifacts/${kind}`,
         { headers: { Authorization: `Bearer ${session.access_token}` } },
       );
       if (!response.ok) {
@@ -714,15 +853,20 @@ export default function VisorDocumentoPage() {
       const blob = await response.blob();
       const disposition = response.headers.get('content-disposition') || '';
       const matchedName = disposition.match(/filename="([^"]+)"/i)?.[1];
-      const fallbackName = kind === 'certificate'
-        ? `constancia_integridad_${document?.documento_id || docId}.pdf`
-        : kind === 'package'
-          ? `paquete_certificacion_${document?.documento_id || docId}.zip`
-          : `documento_certificado_${document?.documento_id || docId}.pdf`;
+      const fallbackNames = {
+        certificate: `constancia_integridad_${document?.documento_id || docId}.pdf`,
+        package: `paquete_certificacion_${document?.documento_id || docId}.zip`,
+        'certified-pdf': `documento_certificado_${document?.documento_id || docId}.pdf`,
+        'verification-report': `reporte_verificacion_${document?.documento_id || docId}.json`,
+        'timestamp-token': `estampa_rfc3161_${document?.documento_id || docId}.tsr`,
+        'signing-certificate': `certificado_firmante_${document?.documento_id || docId}.pem`,
+        'certificate-chain': `cadena_certificados_${document?.documento_id || docId}.pem`,
+        'evidence-manifest': `manifiesto_evidencia_${document?.documento_id || docId}.json`,
+      };
       const url = URL.createObjectURL(blob);
       const anchor = window.document.createElement('a');
       anchor.href = url;
-      anchor.download = matchedName || fallbackName;
+      anchor.download = matchedName || fallbackNames[kind];
       anchor.style.display = 'none';
       window.document.body.appendChild(anchor);
       anchor.click();
@@ -740,86 +884,81 @@ export default function VisorDocumentoPage() {
   useEffect(() => {
     if (!docId || document?.estado !== 'completado') return;
     let cancelled = false;
+    let pollTimeout: ReturnType<typeof setTimeout> | null = null;
+    let pollAttempts = 0;
+    const maxPollAttempts = 24;
+    setNom151LookupComplete(false);
 
-    const fetchNom151 = async () => {
+    const fetchNom151 = async (): Promise<boolean> => {
       try {
         // Use API route that queries nom151_constancias_doc (references documentos.id)
         const res = await fetch(`/api/nom151/constancia?documento_id=${docId}`, {
           headers: await apiAuthHeaders(),
+          cache: 'no-store',
         });
         if (res.ok) {
           const json = await res.json();
           if (!cancelled) {
-            if (json.data) {
+            if (json.data && json.verified) {
               setNom151Data(json.data ?? null);
+              setNom151Error('');
               setNom151Polling(false);
             } else {
-              // No record found — show "Pendiente" state, not "Generando"
               setNom151Data(null);
-              setNom151Polling(false);
+              setNom151Polling(Boolean(json.processing));
+              setNom151Error(
+                json.failed || json.data
+                  ? String(json.message || 'La constancia NOM-151 no superó la verificación técnica.')
+                  : ''
+              );
             }
+            setNom151Ready(Boolean(json.ready));
+            setNom151LookupComplete(true);
           }
+          return Boolean((json.data && json.verified) || json.failed);
         } else if (!cancelled) {
           setNom151Polling(false);
+          setNom151LookupComplete(true);
         }
       } catch {
-        if (!cancelled) setNom151Polling(false);
+        if (!cancelled) {
+          setNom151Polling(false);
+          setNom151LookupComplete(true);
+        }
+      }
+      return false;
+    };
+
+    const pollNom151 = async () => {
+      pollAttempts += 1;
+      const terminal = await fetchNom151();
+      if (!cancelled && !terminal && pollAttempts < maxPollAttempts) {
+        pollTimeout = setTimeout(pollNom151, 5000);
       }
     };
 
-    fetchNom151();
-    const interval = setInterval(() => {
-      if (nom151Generating) fetchNom151();
-      else clearInterval(interval);
-    }, 5000);
+    void pollNom151();
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (pollTimeout) clearTimeout(pollTimeout);
     };
-  }, [docId, document?.estado, nom151Generating]);
+  }, [apiAuthHeaders, docId, document?.estado]);
 
   // ── Download original PDF ──────────────────────────────────────────────────
   const downloadOriginalDocument = useCallback(async () => {
-    if (!document?.file_url) return;
+    if (!docId || !document?.file_url) return;
     setDownloadingOriginal(true);
     try {
-      const supabase = createClient();
-      // Extract storage path from file_url
-      // file_url is a public URL like: https://<project>.supabase.co/storage/v1/object/public/documents/<path>
-      // We need to get a signed URL for private buckets
-      const fileUrl = document.file_url;
-      let blob: Blob | null = null;
-
-      // Try direct fetch first (works if bucket is public or URL has token)
-      try {
-        const res = await fetch(fileUrl);
-        if (res.ok) {
-          blob = await res.blob();
-        }
-      } catch {
-        // ignore, try signed URL below
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=original`,
+        { headers: await apiAuthHeaders() },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'No se pudo descargar el archivo.');
       }
-
-      if (!blob) {
-        // Extract path from URL and use signed URL
-        const urlParts = fileUrl.split('/storage/v1/object/');
-        if (urlParts.length > 1) {
-          const pathPart = urlParts[1].replace(/^public\//, '').replace(/^sign\//, '');
-          const bucketAndPath = pathPart.split('/');
-          const bucket = bucketAndPath[0];
-          const filePath = bucketAndPath.slice(1).join('/');
-          const { data: signedData } = await supabase.storage
-            .from(bucket)
-            .createSignedUrl(filePath, 60);
-          if (signedData?.signedUrl) {
-            const res = await fetch(signedData.signedUrl);
-            if (res.ok) blob = await res.blob();
-          }
-        }
-      }
-
-      if (!blob) throw new Error('No se pudo descargar el archivo');
+      const blob = await response.blob();
 
       const url = URL.createObjectURL(blob);
       const a = window.document.createElement('a');
@@ -832,53 +971,42 @@ export default function VisorDocumentoPage() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Error descargando documento:', err);
+      alert(err instanceof Error ? err.message : 'No se pudo descargar el archivo.');
     } finally {
       setDownloadingOriginal(false);
     }
-  }, [document?.file_url, document?.nombre]);
+  }, [apiAuthHeaders, docId, document?.file_url, document?.nombre]);
 
-  // ── Download .ans NOM-151 file ─────────────────────────────────────────────
+  // ── Download .asn1 NOM-151 file ───────────────────────────────────────────
   const downloadAnsFile = useCallback(async () => {
-    if (!nom151Data?.constancia_path) return;
+    if (!docId || !nom151Data?.constancia_path) return;
     setDownloadingAns(true);
     try {
-      const supabase = createClient();
-      // Try nom151-constancias bucket first, then evidence bucket as fallback
-      let blob: Blob | null = null;
-      const bucketsToTry = ['nom151-constancias', 'evidence'];
-      for (const bucket of bucketsToTry) {
-        const { data, error } = await supabase.storage
-          .from(bucket)
-          .download(nom151Data.constancia_path);
-        if (!error && data) {
-          blob = data;
-          break;
-        }
-        // Try signed URL
-        const { data: signedData } = await supabase.storage
-          .from(bucket)
-          .createSignedUrl(nom151Data.constancia_path, 60);
-        if (signedData?.signedUrl) {
-          const res = await fetch(signedData.signedUrl);
-          if (res.ok) { blob = await res.blob(); break; }
-        }
+      const response = await fetch(
+        `/api/nom151/download?documento_id=${encodeURIComponent(docId)}`,
+        { headers: await apiAuthHeaders() },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Archivo .asn1 no disponible.');
       }
-      if (!blob) throw new Error('Archivo .ans no disponible');
+      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = window.document.createElement('a');
       a.href = url;
-      a.download = `nom151_${docId?.slice(0, 8) || 'doc'}.ans`;
+      a.download = `constancia-nom151-${docId.slice(0, 8)}.asn1`;
       a.style.display = 'none';
       window.document.body.appendChild(a);
       a.click();
       window.document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Error descargando .ans:', err);
+      console.error('Error descargando .asn1:', err);
+      alert(err instanceof Error ? err.message : 'No fue posible descargar el archivo .asn1.');
     } finally {
       setDownloadingAns(false);
     }
-  }, [nom151Data?.constancia_path, docId]);
+  }, [apiAuthHeaders, docId, nom151Data?.constancia_path]);
 
   // ── XML Evidence polling (only when completado) ────────────────────────────
   useEffect(() => {
@@ -934,213 +1062,61 @@ export default function VisorDocumentoPage() {
 
   // ── Download XML evidence file ─────────────────────────────────────────────
   const downloadXmlEvidence = useCallback(async () => {
-    if (!xmlEvidenceData?.xml_evidencia_path) return;
+    if (!xmlEvidenceData?.xml_evidencia_path || !docId) return;
     setDownloadingXml(true);
+    setXmlDownloadError('');
     try {
-      const supabase = createClient();
-      // Try multiple buckets: evidence (STORAGE_BUCKET_EVIDENCIA), documentos-evidencia
-      const bucketsToTry = ['evidence', 'documentos-evidencia'];
-      let blob: Blob | null = null;
-      for (const bucket of bucketsToTry) {
-        const { data, error } = await supabase.storage
-          .from(bucket)
-          .download(xmlEvidenceData.xml_evidencia_path);
-        if (!error && data) {
-          blob = data;
-          break;
-        }
-        // Try signed URL
-        const { data: signedData } = await supabase.storage
-          .from(bucket)
-          .createSignedUrl(xmlEvidenceData.xml_evidencia_path, 60);
-        if (signedData?.signedUrl) {
-          const res = await fetch(signedData.signedUrl);
-          if (res.ok) { blob = await res.blob(); break; }
-        }
+      const response = await fetch(
+        `/api/nom151/xml-evidence/download?documento_id=${encodeURIComponent(docId)}`,
+        { headers: await apiAuthHeaders() },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'No fue posible descargar el XML de evidencia.');
       }
-      if (!blob) throw new Error('XML no disponible');
+
+      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = window.document.createElement('a');
       a.href = url;
-      a.download = `evidencia_${docId?.slice(0, 8) || 'doc'}.xml`;
+      a.download = `evidencia_${document?.documento_id || docId.slice(0, 8)}.xml`;
       a.style.display = 'none';
       window.document.body.appendChild(a);
       a.click();
       window.document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch (err) {
       console.error('Error descargando XML:', err);
+      setXmlDownloadError(
+        err instanceof Error ? err.message : 'No fue posible descargar el XML de evidencia.',
+      );
     } finally {
       setDownloadingXml(false);
     }
-  }, [xmlEvidenceData?.xml_evidencia_path, docId]);
+  }, [xmlEvidenceData?.xml_evidencia_path, docId, document?.documento_id]);
 
   // ── Download signed PDF (with certification elements, readable in Acrobat) ─
   const downloadSignedPdf = useCallback(async () => {
     if (!docId) return;
+    if (!document?.sealed_pdf_path) {
+      alert('El PDF firmado todavía se está preparando. La descarga se habilitará cuando el cierre del documento termine y su huella se valide.');
+      return;
+    }
+    if (!padesVerified) {
+      alert('La descarga certificada estará disponible cuando la firma PAdES del PDF termine su verificación técnica.');
+      return;
+    }
     setDownloadingSignedPdf(true);
     try {
-      const supabase = createClient();
-      let blob: Blob | null = null;
-      let errorMsg = '';
-
-      // 1. Try sealed_pdf_path from documentos table
-      if (document?.sealed_pdf_path) {
-        const bucketsToTry = ['documents-signed', 'documents'];
-        for (const bucket of bucketsToTry) {
-          try {
-            const { data, error } = await supabase.storage
-              .from(bucket)
-              .download(document.sealed_pdf_path);
-            if (!error && data) { blob = data; break; }
-
-            const { data: signedData } = await supabase.storage
-              .from(bucket)
-              .createSignedUrl(document.sealed_pdf_path, 120);
-            if (signedData?.signedUrl) {
-              const res = await fetch(signedData.signedUrl);
-              if (res.ok) { blob = await res.blob(); break; }
-            }
-          } catch { /* try next */ }
-        }
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=certified`,
+        { headers: await apiAuthHeaders() },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'No se pudo descargar el PDF firmado.');
       }
-
-      // 2. Try workspace-scoped sealed.pdf path in documents-signed bucket
-      if (!blob) {
-        const workspaceId = document?.workspace_id;
-        const paths = workspaceId
-          ? [`${workspaceId}/${docId}/sealed.pdf`, `${docId}/sealed.pdf`]
-          : [`${docId}/sealed.pdf`];
-
-        for (const bucket of ['documents-signed', 'documents']) {
-          for (const path of paths) {
-            try {
-              const { data, error } = await supabase.storage
-                .from(bucket)
-                .download(path);
-              if (!error && data) { blob = data; break; }
-              const { data: signedData } = await supabase.storage
-                .from(bucket)
-                .createSignedUrl(path, 120);
-              if (signedData?.signedUrl) {
-                const res = await fetch(signedData.signedUrl);
-                if (res.ok) { blob = await res.blob(); break; }
-              }
-            } catch { /* try next */ }
-          }
-          if (blob) break;
-        }
-      }
-
-      // 3. Call seal-pdf edge function to generate the stamped PDF on-demand
-      if (!blob) {
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const accessToken = session?.access_token;
-          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-          if (!supabaseUrl) throw new Error('NEXT_PUBLIC_SUPABASE_URL no configurado');
-
-          // Build all participants info for the seal page
-          const allParticipants = participantes.map((p) => ({
-            nombre: p.nombre,
-            email: p.email,
-            metodo_firma: p.metodo_firma,
-            estado: p.estado,
-            fecha_firma: p.fecha_firma || p.fecha_participacion,
-            rolDocumento: p.rolDocumento || p.acto,
-          }));
-
-          const firstSigner = participantes.find(
-            (p) => p.sub_estado === 'firmo' || p.sub_estado === 'firmado' || p.estado === 'firmado'
-          ) || participantes[0];
-          const signerName = firstSigner?.nombre || document?.owner_nombre || 'Firmante';
-          const signerEmail = firstSigner?.email || user?.email || '';
-
-          const sealRes = await fetch(`${supabaseUrl}/functions/v1/seal-pdf`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${accessToken}`,
-              'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-            },
-            body: JSON.stringify({
-              document_id: docId,
-              signer_name: signerName,
-              signer_email: signerEmail,
-              reason: 'Firma electrónica completada',
-              location: 'México',
-              workspace_id: document?.workspace_id || undefined,
-              file_url: document?.file_url || undefined,
-              participants: allParticipants,
-              campos_solicitados: camposSolicitados,
-            }),
-          });
-
-          if (!sealRes.ok) {
-            // Try to get error details
-            const errText = await sealRes.text().catch(() => `HTTP ${sealRes.status}`);
-            errorMsg = `Error del servidor: ${sealRes.status} — ${errText.slice(0, 200)}`;
-            console.error('[seal-pdf] Edge function error:', sealRes.status, errText);
-          } else {
-            // Validate the response is actually a PDF (not a JSON error with status 200)
-            const contentType = sealRes.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-              // Edge function returned JSON — likely an error
-              const errJson = await sealRes.json().catch(() => ({}));
-              errorMsg = `Error generando PDF: ${(errJson as any).error || 'Respuesta inesperada del servidor'}`;
-              console.error('[seal-pdf] Edge function returned JSON instead of PDF:', errJson);
-            } else {
-              const arrayBuffer = await sealRes.arrayBuffer();
-              // Validate it starts with %PDF
-              const header = new Uint8Array(arrayBuffer.slice(0, 4));
-              const isPdf = header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46; // %PDF
-              if (!isPdf) {
-                errorMsg = 'El archivo recibido no es un PDF válido. Intenta de nuevo.';
-                console.error('[seal-pdf] Response is not a valid PDF, first bytes:', Array.from(header));
-              } else {
-                // Valid PDF — force download as octet-stream to prevent browser from opening it
-                blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
-              }
-            }
-          }
-        } catch (sealErr) {
-          errorMsg = `Error de conexión: ${(sealErr as Error).message}`;
-          console.error('[seal-pdf] Error calling edge function:', sealErr);
-        }
-      }
-
-      // 4. Fallback: download original PDF via signed URL
-      if (!blob && document?.file_url) {
-        console.warn('[seal-pdf] Falling back to original PDF download');
-        try {
-          const res = await fetch(document.file_url);
-          if (res.ok) blob = await res.blob();
-        } catch { /* ignore */ }
-
-        if (!blob) {
-          const urlParts = document.file_url.split('/storage/v1/object/');
-          if (urlParts.length > 1) {
-            const pathPart = urlParts[1].replace(/^public\//, '').replace(/^sign\//, '');
-            const bucketAndPath = pathPart.split('/');
-            const bucket = bucketAndPath[0];
-            const filePath = bucketAndPath.slice(1).join('/');
-            const { data: signedData } = await supabase.storage
-              .from(bucket)
-              .createSignedUrl(filePath, 120);
-            if (signedData?.signedUrl) {
-              const res = await fetch(signedData.signedUrl);
-              if (res.ok) blob = await res.blob();
-            }
-          }
-        }
-      }
-
-      if (!blob) {
-        const msg = errorMsg || 'No se pudo generar el documento PAdES. Verifica que el documento esté completado y vuelve a intentarlo.';
-        alert(msg);
-        return;
-      }
+      const blob = await response.blob();
 
       // Ensure we force download (not open in browser) by using octet-stream
       const downloadBlob = blob.type === 'application/pdf'
@@ -1156,7 +1132,7 @@ export default function VisorDocumentoPage() {
       const url = URL.createObjectURL(downloadBlob);
       const a = window.document.createElement('a');
       a.href = url;
-      a.download = `${safeName}_firmado_PAdES.pdf`;
+      a.download = `${safeName}_firmado.pdf`;
       a.style.display = 'none';
       window.document.body.appendChild(a);
       a.click();
@@ -1164,16 +1140,17 @@ export default function VisorDocumentoPage() {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
       console.error('Error descargando PDF firmado:', err);
-      alert(`Error al descargar el documento PAdES: ${(err as Error).message}`);
+      alert(`Error al descargar el PDF firmado: ${(err as Error).message}`);
     } finally {
       setDownloadingSignedPdf(false);
     }
-  }, [docId, document?.workspace_id, document?.file_url, document?.nombre, document?.sealed_pdf_path, document?.owner_nombre, participantes, user?.email, camposSolicitados]);
+  }, [apiAuthHeaders, docId, document?.nombre, document?.sealed_pdf_path, padesVerified]);
 
   // ── Generate XML Evidence ─────────────────────────────────────────────────
-  const generateXmlEvidence = useCallback(async () => {
+  const generateXmlEvidence = useCallback(async (options?: { silent?: boolean }) => {
     if (!docId || xmlGenerating) return;
     setXmlGenerating(true);
+    setXmlGenerationError('');
     try {
       const res = await fetch('/api/nom151/generate-xml', {
         method: 'POST',
@@ -1203,21 +1180,26 @@ export default function VisorDocumentoPage() {
           }
         }
       } else {
-        console.error('[generateXmlEvidence] Error:', json.error);
-        alert(`Error generando XML: ${json.error || 'Error desconocido'}`);
+        const message = json.error || 'No fue posible generar el XML de evidencia.';
+        console.error('[generateXmlEvidence] Error:', message);
+        setXmlGenerationError(message);
+        if (!options?.silent) alert(`Error generando XML: ${message}`);
       }
     } catch (err) {
       console.error('[generateXmlEvidence] Error:', err);
-      alert('Error generando XML de evidencia. Intenta de nuevo.');
+      const message = 'No fue posible generar el XML de evidencia. Intenta de nuevo.';
+      setXmlGenerationError(message);
+      if (!options?.silent) alert(message);
     } finally {
       setXmlGenerating(false);
     }
   }, [docId, xmlGenerating, user?.id]);
 
   // ── Generate NOM-151 constancia via Nubarium ───────────────────────────────
-  const generateNom151 = useCallback(async () => {
+  const generateNom151 = useCallback(async (options?: { silent?: boolean }) => {
     if (!docId || nom151Generating) return;
     setNom151Generating(true);
+    setNom151Error('');
     try {
       const res = await fetch('/api/nom151/generate', {
         method: 'POST',
@@ -1229,24 +1211,127 @@ export default function VisorDocumentoPage() {
         // Refresh NOM-151 data
         const constanciaRes = await fetch(`/api/nom151/constancia?documento_id=${docId}`, {
           headers: await apiAuthHeaders(),
+          cache: 'no-store',
         });
         if (constanciaRes.ok) {
           const constanciaJson = await constanciaRes.json();
-          setNom151Data(constanciaJson.data ?? null);
+          setNom151Data(constanciaJson.verified ? constanciaJson.data ?? null : null);
+          setNom151Ready(Boolean(constanciaJson.ready));
           setNom151Polling(false);
         }
       } else {
-        const errMsg = json.error || 'Error desconocido';
-        console.error('[nom151] Error generando:', errMsg);
-        alert(`Error generando NOM-151: ${errMsg}`);
+        const providerError = String(json.error || 'Error desconocido');
+        const errMsg = /autenticaci[oó]n|autenticacion/i.test(providerError)
+          ? 'El servicio PSC/NOM-151 no está habilitado para las credenciales configuradas o requiere credenciales específicas. Solicita su activación al proveedor.'
+          : providerError;
+        console.error('[nom151] Error generando:', providerError);
+        setNom151Error(errMsg);
+        if (!options?.silent) alert(`Error generando NOM-151: ${errMsg}`);
       }
     } catch (err) {
       console.error('[nom151] Error:', err);
-      alert('Error generando constancia NOM-151. Intenta de nuevo.');
+      const message = 'No fue posible generar la constancia NOM-151. Intenta de nuevo.';
+      setNom151Error(message);
+      if (!options?.silent) alert(message);
     } finally {
       setNom151Generating(false);
     }
   }, [docId, nom151Generating, user?.id]);
+
+  const ensureFinalSignedPdf = useCallback(async () => {
+    if (!docId || signatureStampGenerationRef.current.has(docId)) return;
+    signatureStampGenerationRef.current.add(docId);
+
+    try {
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/seal-signatures`,
+        {
+          method: 'POST',
+          headers: await apiAuthHeaders(),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.storage_path) {
+        throw new Error(
+          payload.error || response.statusText || 'No se pudo generar el PDF final firmado.',
+        );
+      }
+
+      setDocument((current) => current ? {
+        ...current,
+        sealed_pdf_path: payload.storage_path,
+      } : current);
+      setNom151Error('');
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : 'No se pudo generar el PDF final firmado.';
+      console.error('[auto-generate] PDF final firmado:', error);
+      setNom151Error(message);
+      signatureStampGenerationRef.current.delete(docId);
+    }
+  }, [apiAuthHeaders, docId]);
+
+  // Regulariza documentos completados antes de que existiera la generacion
+  // automatica. No depende de abrir Descargas: al cargar el documento el
+  // propietario solicita los artefactos pendientes una sola vez.
+  useEffect(() => {
+    if (
+      document?.estado !== 'completado' ||
+      !docId ||
+      !user?.id ||
+      user.id !== document.owner_id
+    ) return;
+
+    const xmlAttemptKey = `${docId}:xml`;
+    if (!xmlEvidenceData && !xmlGenerating && !artifactGenerationAttemptsRef.current.has(xmlAttemptKey)) {
+      artifactGenerationAttemptsRef.current.add(xmlAttemptKey);
+      void generateXmlEvidence({ silent: true });
+    }
+
+    if (
+      hasConfiguredSignatureFields &&
+      !document.sealed_pdf_path &&
+      !signatureStampGenerationRef.current.has(docId)
+    ) {
+      void ensureFinalSignedPdf();
+      return;
+    }
+
+    const nom151AttemptKey = `${docId}:nom151`;
+    if (
+      padesBtVerified &&
+      nom151Ready &&
+      nom151LookupComplete &&
+      !nom151Data &&
+      !nom151Error &&
+      !nom151Polling &&
+      !nom151Generating &&
+      !artifactGenerationAttemptsRef.current.has(nom151AttemptKey)
+    ) {
+      artifactGenerationAttemptsRef.current.add(nom151AttemptKey);
+      void generateNom151({ silent: true });
+    }
+  }, [
+    docId,
+    document?.estado,
+    document?.owner_id,
+    document?.sealed_pdf_path,
+    ensureFinalSignedPdf,
+    generateNom151,
+    hasConfiguredSignatureFields,
+    generateXmlEvidence,
+    nom151Data,
+    nom151Error,
+    nom151Generating,
+    nom151LookupComplete,
+    nom151Polling,
+    nom151Ready,
+    padesBtVerified,
+    user?.id,
+    xmlEvidenceData,
+    xmlGenerating,
+  ]);
 
   // ── Download NOM-151 info PDF (request/response data) ─────────────────────
   const downloadNom151InfoPdf = useCallback(async () => {
@@ -1267,7 +1352,7 @@ export default function VisorDocumentoPage() {
 <title>Constancia NOM-151 — ${document?.nombre || docId}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Arial', sans-serif; font-size: 10px; color: #1a1a2e; background: #fff; padding: 0; }
+  body { font-family: 'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif; font-size: 10px; color: #1a1a2e; background: #fff; padding: 0; }
   .page { max-width: 800px; margin: 0 auto; padding: 32px 36px; }
   .header { background: linear-gradient(135deg, #0a1628 0%, #1a2d4a 100%); color: white; padding: 20px 24px; border-radius: 8px 8px 0 0; margin-bottom: 0; }
   .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -1370,7 +1455,7 @@ export default function VisorDocumentoPage() {
       <div class="row"><div class="label">Hash Nubarium</div><div class="value mono">${nom151Data.nubarium_hash}</div></div>
       <div class="row"><div class="label">Estatus</div><div class="value"><span class="badge badge-green">${respPayload?.estatus || 'OK'}</span></div></div>
       <div class="row"><div class="label">Clave Mensaje</div><div class="value">${respPayload?.claveMensaje ?? 0} (0 = éxito)</div></div>
-      <div class="row"><div class="label">Hash SHA-256 Constancia .ans</div><div class="value mono">${nom151Data.constancia_sha256}</div></div>
+      <div class="row"><div class="label">Hash SHA-256 Constancia .asn1</div><div class="value mono">${nom151Data.constancia_sha256}</div></div>
       <div class="row"><div class="label">URL de Verificación</div><div class="value mono">https://validatuconstancia.pscworld.com/</div></div>
     </div>
   </div>
@@ -1381,7 +1466,7 @@ export default function VisorDocumentoPage() {
       <div class="row"><div class="label">Norma Aplicable</div><div class="value">NOM-151-SCFI-2016</div></div>
       <div class="row"><div class="label">PSC Acreditado</div><div class="value">Nubarium — Secretaría de Economía</div></div>
       <div class="row"><div class="label">Algoritmo Hash</div><div class="value">SHA-256</div></div>
-      <div class="row"><div class="label">Tipo de Constancia</div><div class="value">Conservación de Mensajes de Datos (.ans)</div></div>
+      <div class="row"><div class="label">Tipo de Constancia</div><div class="value">Conservación de Mensajes de Datos (.asn1)</div></div>
     </div>
   </div>
 
@@ -1395,7 +1480,7 @@ export default function VisorDocumentoPage() {
 
   <div class="legal-box">
     <div class="legal-title">Fundamento Legal</div>
-    <div class="legal-text">Esta constancia acredita la conservación del mensaje de datos conforme a la NOM-151-SCFI-2016 emitida por la Secretaría de Economía. El archivo .ans contiene el sello de tiempo y la firma del PSC acreditado (Nubarium), garantizando la integridad e inalterabilidad del documento electrónico. Válido conforme a los Arts. 89-97 del Código de Comercio de México y la Ley de Firma Electrónica Avanzada (LFEA).</div>
+    <div class="legal-text">Esta constancia acredita la conservación del mensaje de datos conforme a la NOM-151-SCFI-2016 emitida por la Secretaría de Economía. El archivo .asn1 contiene el sello de tiempo y la firma del PSC acreditado (Nubarium), garantizando la integridad e inalterabilidad del documento electrónico. Válido conforme a los Arts. 89-97 del Código de Comercio de México y la Ley de Firma Electrónica Avanzada (LFEA).</div>
   </div>
 
   <div class="footer">
@@ -1429,11 +1514,43 @@ export default function VisorDocumentoPage() {
   }, [nom151Data, document?.nombre, docId]);
 
   // ── Download Constancia General de Firma Electrónica ──────────────────────
+  const downloadNom151Pdf = useCallback(async () => {
+    if (!docId || !nom151Data) return;
+
+    setDownloadingNom151Pdf(true);
+    try {
+      const response = await fetch(
+        `/api/nom151/pdf?documento_id=${encodeURIComponent(docId)}`,
+        { headers: await apiAuthHeaders() },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'No fue posible generar la constancia NOM-151.');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement('a');
+      anchor.href = url;
+      anchor.download = `constancia-nom151-${docId.slice(0, 8)}.pdf`;
+      anchor.style.display = 'none';
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      window.document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error generando constancia NOM-151:', error);
+      alert(error instanceof Error ? error.message : 'No fue posible generar la constancia NOM-151.');
+    } finally {
+      setDownloadingNom151Pdf(false);
+    }
+  }, [docId, nom151Data]);
+
   const downloadConstanciaGeneral = useCallback(async () => {
     if (!document || document.estado !== 'completado') return;
     setDownloadingConstanciaGeneral(true);
     try {
-      const folioId = `DOCUBOX-GEN-${new Date().getFullYear()}-${docId?.slice(0, 8).toUpperCase() || '00000000'}`;
+      const folioId = `DBX-GEN-${new Date().getFullYear()}-${docId?.slice(0, 8).toUpperCase() || '00000000'}`;
       const fechaCompletado = document.fecha_completado
         ? new Date(document.fecha_completado).toISOString()
         : new Date(document.updated_at || '').toISOString();
@@ -1466,7 +1583,7 @@ export default function VisorDocumentoPage() {
 <title>Constancia General de Firma Electrónica — ${document.nombre}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Arial', sans-serif; font-size: 10px; color: #1a1a2e; background: #fff; }
+  body { font-family: 'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif; font-size: 10px; color: #1a1a2e; background: #fff; }
   .page { max-width: 820px; margin: 0 auto; padding: 32px 36px; }
   .header { text-align: center; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 2px solid #1a2d4a; }
   .header-logo { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: #5a6a8a; text-transform: uppercase; margin-bottom: 6px; }
@@ -1536,9 +1653,9 @@ export default function VisorDocumentoPage() {
     <div class="section-title">Datos del Documento</div>
     <table class="kv-table">
       <tr><td>Identificador</td><td>${docId}</td></tr>
-      <tr><td>Título</td><td style="font-family:Arial;font-size:10px;">${document.nombre}</td></tr>
-      <tr><td>Workspace</td><td style="font-family:Arial;font-size:10px;">${document.organizacion || document.workspace_id || '—'}</td></tr>
-      <tr><td>Páginas</td><td style="font-family:Arial;font-size:10px;">${document.metadata?.pdf_page_count ?? '—'}</td></tr>
+      <tr><td>Título</td><td style="font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:10px;">${document.nombre}</td></tr>
+      <tr><td>Workspace</td><td style="font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:10px;">${document.organizacion || document.workspace_id || '—'}</td></tr>
+      <tr><td>Páginas</td><td style="font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:10px;">${document.metadata?.pdf_page_count ?? '—'}</td></tr>
       <tr><td>SHA-256</td><td>${hashFinal}</td></tr>
       <tr><td>Creado</td><td>${fechaCreado}</td></tr>
     </table>
@@ -1576,7 +1693,7 @@ export default function VisorDocumentoPage() {
     <div class="section-title">Integridad del Expediente</div>
     <table class="kv-table">
       <tr><td>Hash Final del Expediente</td><td>${hashFinal}</td></tr>
-      <tr><td>Algoritmo</td><td style="font-family:Arial;font-size:10px;">SHA-256 encadenado</td></tr>
+      <tr><td>Algoritmo</td><td style="font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:10px;">SHA-256 encadenado</td></tr>
       <tr><td>Completado</td><td>${fechaCompletado}</td></tr>
       <tr><td>URL de Verificación</td><td>${verificarUrl}</td></tr>
     </table>
@@ -1625,6 +1742,141 @@ export default function VisorDocumentoPage() {
       setDownloadingConstanciaGeneral(false);
     }
   }, [document, docId, participantes]);
+
+  const downloadConstanciaGeneralPdf = useCallback(async () => {
+    if (!docId || document?.estado !== 'completado') return;
+
+    setDownloadingConstanciaGeneral(true);
+    try {
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/constancia-general`,
+        { headers: await apiAuthHeaders() },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'No fue posible generar la constancia general.');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement('a');
+      anchor.href = url;
+      anchor.download = `constancia-general-${docId.slice(0, 8)}.pdf`;
+      anchor.style.display = 'none';
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      window.document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error generando constancia general:', error);
+      alert(error instanceof Error ? error.message : 'No fue posible generar la constancia general.');
+    } finally {
+      setDownloadingConstanciaGeneral(false);
+    }
+  }, [docId, document?.estado]);
+
+  const downloadAuditCertificate = useCallback(async () => {
+    if (!docId || document?.estado !== 'completado') return;
+    setDownloadingAuditCertificate(true);
+    try {
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/constancia-auditoria`,
+        { headers: await apiAuthHeaders() },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'No fue posible generar la constancia de auditoría.');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement('a');
+      anchor.href = url;
+      anchor.download = `constancia-auditoria-${docId.slice(0, 8)}.pdf`;
+      anchor.style.display = 'none';
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      window.document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error generando constancia de auditoría:', error);
+      alert(error instanceof Error ? error.message : 'No fue posible generar la constancia de auditoría.');
+    } finally {
+      setDownloadingAuditCertificate(false);
+    }
+  }, [docId, document?.estado]);
+
+  const downloadMyParticipationCertificate = useCallback(async () => {
+    if (!docId) return;
+
+    setDownloadingMyParticipationCertificate(true);
+    try {
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/mi-constancia`,
+        { headers: await apiAuthHeaders() },
+      );
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'No fue posible generar tu constancia.');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement('a');
+      anchor.href = url;
+      anchor.download = `constancia-participacion-${docId.slice(0, 8)}.pdf`;
+      anchor.style.display = 'none';
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      window.document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error descargando constancia individual:', error);
+      alert(error instanceof Error ? error.message : 'No fue posible generar tu constancia.');
+    } finally {
+      setDownloadingMyParticipationCertificate(false);
+    }
+  }, [docId]);
+
+  const loadAdditionalMetadata = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/additional-metadata`, {
+        headers: await apiAuthHeaders(),
+      });
+      if (!response.ok) {
+        if (response.status !== 404) {
+          const payload = await response.json().catch(() => ({}));
+          console.warn('[visor-documento] No fue posible cargar metadatos adicionales:', payload.error || response.status);
+        }
+        return;
+      }
+      const payload = await response.json();
+      setAdditionalMetadata(Array.isArray(payload.metadata) ? payload.metadata : []);
+      setCanManageAdditionalMetadata(Boolean(payload.canManage));
+    } catch (error) {
+      console.warn('[visor-documento] Error cargando metadatos adicionales:', error);
+    }
+  }, [docId]);
+
+  const saveManagementMetadata = useCallback(async (metadata: AdditionalMetadataRecord) => {
+    setMetadataError(null);
+    setMetadataSaving(true);
+    try {
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/additional-metadata`, {
+        method: 'PATCH',
+        headers: await apiAuthHeaders(true),
+        body: JSON.stringify({ id: metadata.id, value: editingMetadataValue }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'No fue posible actualizar el metadato.');
+      setAdditionalMetadata((current) => current.map((item) => item.id === metadata.id ? payload.metadata : item));
+      setEditingMetadataId(null);
+    } catch (error) {
+      setMetadataError(error instanceof Error ? error.message : 'No fue posible actualizar el metadato.');
+    } finally {
+      setMetadataSaving(false);
+    }
+  }, [docId, editingMetadataValue]);
 
   // ── Load document + participants + activity ────────────────────────────────
   useEffect(() => {
@@ -1736,10 +1988,21 @@ export default function VisorDocumentoPage() {
           .maybeSingle();
         if (metaData) docMetadata = metaData;
 
+        const requestedArchivo = new URLSearchParams(window.location.search).get('archivo');
+        const configuredSignatureFields = Array.isArray(data.campos_solicitados)
+          ? (data.campos_solicitados as CampoSolicitado[]).some(isConfiguredSignatureField)
+          : false;
+        const canUseDerivedSignaturePdf = Boolean(
+          data.sealed_pdf_path &&
+          (!isGeneratedSignatureStampPath(data.sealed_pdf_path) || configuredSignatureFields),
+        );
         const requestedFileVariant =
-          new URLSearchParams(window.location.search).get('archivo') === 'certificado'
-            ? 'certified'
-            : 'original';
+          requestedArchivo === 'original'
+            ? 'original'
+            : (requestedArchivo === 'certificado' && canUseDerivedSignaturePdf) ||
+                (data.estado === 'completado' && canUseDerivedSignaturePdf)
+              ? 'certified'
+              : 'original';
         const viewerFileUrl = `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=${requestedFileVariant}`;
 
         setDocument({
@@ -1766,6 +2029,8 @@ export default function VisorDocumentoPage() {
           es_publico: data.es_publico ?? false,
           metadata: docMetadata,
         });
+
+        void loadAdditionalMetadata();
 
         const rawParts: any[] = data.participantes || [];
 
@@ -2237,7 +2502,7 @@ export default function VisorDocumentoPage() {
       }
     }, 1500);
     return () => clearTimeout(viewTimer);
-  }, [docId, user, authLoading]);
+  }, [docId, user, authLoading, loadAdditionalMetadata]);
 
   // ── Load chat messages ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -2542,6 +2807,34 @@ export default function VisorDocumentoPage() {
           generatedPadesPath = document.sealed_pdf_path;
         }
 
+        // Preserve the uploaded file and generate a derived PDF that contains the
+        // signature stamp selected by each participant before related evidence is issued.
+        const stampGenPromise = (async () => {
+          if (generatedPadesPath || !hasConfiguredSignatureFields) return generatedPadesPath;
+          signatureStampGenerationRef.current.add(document.id);
+          try {
+            const stampRes = await fetch(`/api/documentos/${encodeURIComponent(document.id)}/seal-signatures`, {
+              method: 'POST',
+              headers: await apiAuthHeaders(),
+            });
+            const stampJson = await stampRes.json().catch(() => ({}));
+            if (!stampRes.ok || !stampJson.storage_path) {
+              throw new Error(stampJson.error || stampRes.statusText || 'No se pudo generar el PDF final firmado');
+            }
+
+            generatedPadesPath = stampJson.storage_path;
+            setDocument((prev) => prev ? {
+              ...prev,
+              sealed_pdf_path: stampJson.storage_path,
+              file_url: `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=certified`,
+            } : prev);
+            return generatedPadesPath;
+          } catch (stampErr) {
+            console.error('[auto-generate] PDF con estampa de firma:', stampErr);
+            throw stampErr;
+          }
+        })();
+
         const xmlGenPromise = (async () => {
           try {
             setXmlGenerating(true);
@@ -2569,6 +2862,9 @@ export default function VisorDocumentoPage() {
         const nom151GenPromise = (async () => {
           try {
             setNom151Generating(true);
+            // NOM-151 must bind to the exact final PDF. When signature fields exist,
+            // wait for the derived stamped version to be persisted before requesting it.
+            await stampGenPromise;
             const nom151Res = await fetch('/api/nom151/generate', {
               method: 'POST',
               headers: await apiAuthHeaders(true),
@@ -2581,8 +2877,10 @@ export default function VisorDocumentoPage() {
               });
               if (constanciaRes.ok) {
                 const constanciaJson = await constanciaRes.json();
-                setNom151Data(constanciaJson.data ?? null);
-                generatedNom151Path = constanciaJson.data?.constancia_path;
+                setNom151Data(constanciaJson.verified ? constanciaJson.data ?? null : null);
+                generatedNom151Path = constanciaJson.verified
+                  ? constanciaJson.data?.constancia_path
+                  : undefined;
               }
             } else {
               console.error('[auto-generate] NOM-151 error:', nom151Json.error);
@@ -2595,7 +2893,7 @@ export default function VisorDocumentoPage() {
         })();
 
         // Wait for both generation tasks, then send enriched completion emails
-        Promise.allSettled([xmlGenPromise, nom151GenPromise]).then(async () => {
+        Promise.allSettled([stampGenPromise, xmlGenPromise, nom151GenPromise]).then(async () => {
           try {
             // Fetch owner profile for email
             let ownerEmail: string | undefined;
@@ -3617,7 +3915,7 @@ export default function VisorDocumentoPage() {
   // Edit: document data (StepSubir config)
   const [editFile, setEditFile] = useState<File | null>(null);
   const [editDocConfig, setEditDocConfig] = useState<DocumentConfig>({
-    nombre: '', descripcion: '', numeroOficio: '', grupotipoId: '', tipoDocumentoId: '', otroTipoDocumento: '', ruta: 'raiz', etiquetasIds: [],
+    nombre: '', descripcion: '', numeroOficio: '', grupotipoId: '', tipoDocumentoId: '', otroTipoDocumento: '', ruta: 'raiz', etiquetasIds: [], additionalMetadata: [],
   });
 
   // Edit: participants (StepParticipantes)
@@ -3644,6 +3942,7 @@ export default function VisorDocumentoPage() {
       otroTipoDocumento: '',
       ruta: 'raiz',
       etiquetasIds: [],
+      additionalMetadata: [],
     });
   }, [document]);
 
@@ -3888,18 +4187,19 @@ export default function VisorDocumentoPage() {
     );
   }
 
-  const allToolbarItems: { key: typeof activeTab; icon: React.ReactNode; title: string }[] = [
-    { key: 'details', icon: <Info size={20} />, title: 'Detalles' },
-    { key: 'participants', icon: <Users size={20} />, title: 'Participantes' },
-    { key: 'comments', icon: <MessageSquare size={20} />, title: 'Comunicación' },
-    { key: 'activity', icon: <Activity size={20} />, title: 'Actividad' },
-    { key: 'vencimientos', icon: <Calendar size={20} />, title: 'Vencimientos' },
-    { key: 'fields', icon: <StickyNote size={20} />, title: 'Notas y Comentarios' },
-    ...(document?.estado === 'en_proceso' && user?.id === document?.owner_id
-      ? [{ key: 'editar' as typeof activeTab, icon: <Edit3 size={20} />, title: 'Editar Documento' }]
-      : []),
+  const allToolbarItems: { key: typeof activeTab; icon: React.ReactNode; title: string; label: string }[] = [
+    { key: 'details', icon: <Info size={20} />, title: 'Detalles del documento', label: 'Detalles' },
+    { key: 'participants', icon: <Users size={20} />, title: 'Participantes', label: 'Participantes' },
+    { key: 'comments', icon: <MessageSquare size={20} />, title: 'Comunicación', label: 'Comunicación' },
+    { key: 'activity', icon: <Activity size={20} />, title: 'Actividad y auditoría', label: 'Actividad' },
+    { key: 'vencimientos', icon: <Calendar size={20} />, title: 'Vencimientos', label: 'Vencimientos' },
+    { key: 'fields', icon: <StickyNote size={20} />, title: 'Notas y comentarios', label: 'Notas' },
     ...(document?.estado === 'completado'
-      ? [{ key: 'descargas' as typeof activeTab, icon: <Download size={20} />, title: 'Descargas' }]
+      ? [{ key: 'descargas' as typeof activeTab, icon: <Download size={20} />, title: 'Descargas', label: 'Descargas' }]
+      : []),
+    { key: 'metadata', icon: <Tag size={20} />, title: 'Metadatos', label: 'Metadatos' },
+    ...(document?.estado === 'en_proceso' && user?.id === document?.owner_id
+      ? [{ key: 'editar' as typeof activeTab, icon: <Edit3 size={20} />, title: 'Editar documento', label: 'Editar' }]
       : []),
   ];
   const toolbarItems = allToolbarItems.filter(
@@ -4083,26 +4383,22 @@ export default function VisorDocumentoPage() {
 
           {/* Right side: icon tab strip + panel content */}
           <div className="hidden flex-shrink-0 md:flex">
-            <div className="z-30 flex w-14 flex-col items-center gap-1 border-x border-slate-200 bg-white px-2 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.04)]">
+            <nav aria-label="Secciones del documento" className="z-30 flex w-16 flex-col items-center gap-1 border-x border-slate-200 bg-white px-1.5 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]">
               {toolbarItems.map((item) => (
                 <button
                   key={item.key}
-                  onClick={() => {
-                    if (activeTab === item.key) {
-                      setIsSidePanelOpen((open) => !open);
-                    } else {
-                      setActiveTab(item.key);
-                      setIsSidePanelOpen(true);
-                    }
-                  }}
+                  onClick={() => setActiveTab(item.key)}
                   title={item.title}
-                  className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${
-                    activeTab === item.key && isSidePanelOpen
-                      ? 'border-blue-200 bg-blue-50 text-blue-700'
-                      : 'border-transparent text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950'
+                  aria-current={activeTab === item.key ? 'page' : undefined}
+                  className={`relative flex h-12 w-[52px] flex-col items-center justify-center gap-1 rounded-md border transition-colors ${
+                    activeTab === item.key
+                      ? 'border-blue-200 bg-blue-50 text-[#1E6BFF]'
+                      : 'border-transparent text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
-                  {React.cloneElement(item.icon as React.ReactElement<{ size?: number }>, { size: 17 })}
+                  {activeTab === item.key && <span className="absolute -left-1.5 h-6 w-0.5 rounded-r bg-[#1E6BFF]" />}
+                  {React.cloneElement(item.icon as React.ReactElement<{ size?: number }>, { size: 16 })}
+                  <span className="max-w-full whitespace-nowrap text-[8px] font-medium leading-none tracking-normal">{item.label}</span>
                 </button>
               ))}
               {collaborationAvailable && (
@@ -4124,21 +4420,13 @@ export default function VisorDocumentoPage() {
                   </button>
                 </>
               )}
-              <button
-                onClick={() => setIsSidePanelOpen((open) => !open)}
-                title={isSidePanelOpen ? 'Ocultar panel' : 'Mostrar panel'}
-                className="mt-auto flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-slate-400 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-800"
-              >
-                {isSidePanelOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
-              </button>
-            </div>
+            </nav>
 
-            {isSidePanelOpen && (
-            <div className="document-viewer-panel absolute inset-y-0 right-14 z-20 flex w-[360px] max-w-[calc(100%-3.5rem)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50/70 shadow-[-12px_0_28px_rgba(15,23,42,0.10)] lg:static lg:z-auto lg:w-[360px] lg:shadow-none 2xl:w-[400px]">
+            <div className="document-viewer-panel absolute inset-y-0 right-16 z-20 flex w-[376px] max-w-[calc(100%-4rem)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50 shadow-[-12px_0_28px_rgba(15,23,42,0.08)] lg:static lg:z-auto lg:w-[376px] lg:shadow-none 2xl:w-[416px]">
               {activeTab === 'details' ? (
                 <>
-                  <div className="px-4 py-3 border-b border-border flex-shrink-0">
-                    <span className="text-sm font-semibold text-foreground">Detalles del Documento</span>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Detalles del documento</span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <div className="flex flex-col gap-4 p-4">
@@ -4503,11 +4791,117 @@ export default function VisorDocumentoPage() {
                     </div>
                   </div>
                 </>
+              ) : activeTab === 'metadata' ? (
+                <>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Metadatos</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4">
+                    <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 text-xs leading-5 text-slate-600">
+                      Los metadatos técnicos se generan automáticamente. Aquí se muestran solo los metadatos adicionales configurados para este documento.
+                    </div>
+
+                    {metadataError && (
+                      <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        {metadataError}
+                      </div>
+                    )}
+
+                    <div className="mb-5">
+                      <div className="mb-2 flex items-center gap-2">
+                        <Lock size={14} className="text-slate-500" />
+                        <h3 className="text-sm font-semibold text-slate-900">Vinculados al documento</h3>
+                      </div>
+                      <p className="mb-3 text-xs leading-5 text-slate-500">Quedan ligados a la versión y no se modifican una vez iniciado el proceso de firma.</p>
+                      <div className="flex flex-col gap-2">
+                        {additionalMetadata.filter((metadata) => metadata.metadata_scope === 'document').map((metadata) => (
+                          <div key={metadata.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-900">{metadata.name}</p>
+                                <p className="mt-1 break-words text-sm text-slate-600">{metadata.value_display}</p>
+                              </div>
+                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                                <Lock size={10} /> Bloqueado
+                              </span>
+                            </div>
+                            <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-400">
+                              <span>{ADDITIONAL_METADATA_TYPE_LABELS[metadata.data_type] || metadata.data_type}</span>
+                              <span>·</span>
+                              <span>Versión {metadata.document_version_number}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {additionalMetadata.every((metadata) => metadata.metadata_scope !== 'document') && (
+                          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">No hay metadatos vinculados al documento.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-2 flex items-center gap-2">
+                        <Folder size={14} className="text-slate-500" />
+                        <h3 className="text-sm font-semibold text-slate-900">De gestión</h3>
+                      </div>
+                      <p className="mb-3 text-xs leading-5 text-slate-500">Se usan para organizar el documento y no alteran su PDF, firma ni hash.</p>
+                      <div className="flex flex-col gap-2">
+                        {additionalMetadata.filter((metadata) => metadata.metadata_scope === 'management').map((metadata) => {
+                          const isEditing = editingMetadataId === metadata.id;
+                          const isBoolean = metadata.data_type === 'boolean';
+                          const inputType = metadata.data_type === 'number' || metadata.data_type === 'currency'
+                            ? 'number'
+                            : metadata.data_type === 'date'
+                              ? 'date'
+                              : 'text';
+                          return (
+                            <div key={metadata.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold text-slate-900">{metadata.name}</p>
+                                  {isEditing ? (
+                                    <div className="mt-2">
+                                      {isBoolean ? (
+                                        <select value={String(editingMetadataValue)} onChange={(event) => setEditingMetadataValue(event.target.value === 'true')} className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15">
+                                          <option value="true">Sí</option>
+                                          <option value="false">No</option>
+                                        </select>
+                                      ) : (
+                                        <input type={inputType} value={String(editingMetadataValue)} onChange={(event) => setEditingMetadataValue(event.target.value)} className="h-9 w-full rounded-md border border-slate-200 px-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" />
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <p className="mt-1 break-words text-sm text-slate-600">{metadata.value_display}</p>
+                                  )}
+                                </div>
+                                {canManageAdditionalMetadata && (
+                                  isEditing ? (
+                                    <div className="flex shrink-0 items-center gap-1">
+                                      <button type="button" onClick={() => void saveManagementMetadata(metadata)} disabled={metadataSaving} className="flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-semibold text-white disabled:opacity-60">
+                                        {metadataSaving ? <RefreshCw size={12} className="animate-spin" /> : <Save size={12} />} Guardar
+                                      </button>
+                                      <button type="button" onClick={() => { setEditingMetadataId(null); setMetadataError(null); }} disabled={metadataSaving} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50" aria-label="Cancelar edición"><X size={14} /></button>
+                                    </div>
+                                  ) : (
+                                    <button type="button" onClick={() => { setEditingMetadataId(metadata.id); setEditingMetadataValue(metadata.value_json); setMetadataError(null); }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar metadato"><Edit3 size={14} /></button>
+                                  )
+                                )}
+                              </div>
+                              <p className="mt-2 text-[10px] text-slate-400">{ADDITIONAL_METADATA_TYPE_LABELS[metadata.data_type] || metadata.data_type}</p>
+                            </div>
+                          );
+                        })}
+                        {additionalMetadata.every((metadata) => metadata.metadata_scope !== 'management') && (
+                          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">No hay metadatos de gestión.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </>
               ) : activeTab === 'participants' ? (
                 /* ── Participants Panel ─────────────────────────────────── */
                 <>
-                  <div className="px-4 py-3 border-b border-border flex-shrink-0">
-                    <span className="text-sm font-semibold text-foreground">Participantes</span>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Participantes</span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     {participantes.length === 0 ? (
@@ -4522,6 +4916,17 @@ export default function VisorDocumentoPage() {
                           const avatarColor = AVATAR_COLORS[idx % AVATAR_COLORS.length];
                           const initials = getInitials(p.nombre || 'U');
                           const isFirmante = (p.acto || '').toLowerCase() === 'firmante';
+                          const isAuthenticatedParticipant = Boolean(
+                            user && (
+                              p.id === user.id ||
+                              p.email.trim().toLowerCase() === user.email?.trim().toLowerCase()
+                            )
+                          );
+                          const ownSignedResponse = participationResponses.find(
+                            (response) =>
+                              response.participante_email.trim().toLowerCase() === p.email.trim().toLowerCase() &&
+                              response.firma_completada,
+                          );
                           return (
                             <div key={p.id} className="bg-white border border-border rounded-xl p-4 shadow-sm">
                               {/* Avatar + Name + Badge */}
@@ -4675,6 +5080,21 @@ export default function VisorDocumentoPage() {
                                 );
                               })()}
                               {/* Send Reminder button — only for pending/non-terminal participants with email */}
+                              {isAuthenticatedParticipant && ownSignedResponse && (
+                                <button
+                                  onClick={downloadMyParticipationCertificate}
+                                  disabled={downloadingMyParticipationCertificate}
+                                  title="Descargar mi constancia de participacion"
+                                  className="mt-3 w-full flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  {downloadingMyParticipationCertificate ? (
+                                    <RefreshCw size={13} className="animate-spin" />
+                                  ) : (
+                                    <Download size={13} />
+                                  )}
+                                  {downloadingMyParticipationCertificate ? 'Generando constancia...' : 'Descargar mi constancia'}
+                                </button>
+                              )}
                               {p.email && !['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'].includes((p.estado || '').toLowerCase()) && document?.owner_id === user?.id && (() => {
                                 const reminderSentToday = !!p.fecha_recordatorio && (() => {
                                   const d = new Date(p.fecha_recordatorio!);
@@ -4733,17 +5153,20 @@ export default function VisorDocumentoPage() {
               ) : activeTab === 'comments' ? (
                 /* ── Chat / Comunicación Panel ──────────────────────────── */
                 <>
-                  {/* Header with "Comunicación" title + participant avatars */}
-                  <div className="px-4 py-3 border-b border-border flex-shrink-0">
-                    <div className="mb-2">
-                      <span className="text-sm font-semibold text-foreground">Comunicación</span>
-                    </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        PARTICIPANTES ({participantes.length})
+                  {/* Header and participant presence */}
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Comunicación</span>
+                  </div>
+                  <div className="flex-shrink-0 border-b border-border bg-card px-4 py-3">
+                    <div className="mb-2.5 flex items-center gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-normal text-muted-foreground">
+                        Participantes
+                      </span>
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold text-slate-600">
+                        {participantes.length}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
                       {participantes.length === 0 ? (
                         <span className="text-xs text-muted-foreground">Sin participantes</span>
                       ) : (
@@ -4752,14 +5175,14 @@ export default function VisorDocumentoPage() {
                           const initials = getInitials(p.nombre || 'U');
                           const isOnline = p.email ? onlineEmails.has(p.email) : false;
                           return (
-                            <div key={p.id} className="flex flex-col items-center gap-1" title={`${p.nombre}${isOnline ? ' · Conectado' : ' · Desconectado'}`}>
+                            <div key={p.id} className="flex min-w-0 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-slate-50 px-2 py-1.5" title={`${p.nombre}${isOnline ? ' · Conectado' : ' · Desconectado'}`}>
                               <div className="relative">
-                                <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${avatarColor.bg}`}>
-                                  <span className={`text-xs font-bold ${avatarColor.text}`}>{initials}</span>
+                                <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${avatarColor.bg}`}>
+                                  <span className={`text-[11px] font-semibold ${avatarColor.text}`}>{initials}</span>
                                 </div>
-                                <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${isOnline ? 'bg-green-400' : 'bg-slate-300'}`} />
+                                <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white ${isOnline ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                               </div>
-                              <span className="text-[9px] text-muted-foreground truncate max-w-[36px] text-center leading-tight">
+                              <span className="max-w-[88px] truncate text-xs font-medium leading-tight text-foreground">
                                 {p.nombre.split(' ')[0]}
                               </span>
                             </div>
@@ -4770,7 +5193,7 @@ export default function VisorDocumentoPage() {
                   </div>
 
                   {/* Messages area */}
-                  <div className="flex-1 overflow-y-auto px-3 py-3">
+                  <div className="flex-1 overflow-y-auto px-4 py-4">
                     {chatLoading ? (
                       <div className="flex items-center justify-center h-24 gap-2">
                         <svg className="animate-spin h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -4780,12 +5203,12 @@ export default function VisorDocumentoPage() {
                         <span className="text-xs text-muted-foreground">Cargando mensajes...</span>
                       </div>
                     ) : chatMessages.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
-                        <div className="w-10 h-10 rounded-full border-2 border-slate-200 flex items-center justify-center">
-                          <MessageSquare size={18} className="text-slate-300" />
+                      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-md border border-blue-100 bg-blue-50">
+                          <MessageSquare size={18} className="text-[#1E6BFF]" />
                         </div>
-                        <p className="text-sm font-medium text-slate-400">No hay mensajes aún.</p>
-                        <p className="text-xs text-slate-300">Inicia la conversación</p>
+                        <p className="text-sm font-semibold text-foreground">No hay mensajes aún</p>
+                        <p className="text-xs text-muted-foreground">Inicia la conversación con los participantes.</p>
                       </div>
                     ) : (
                       <div className="flex flex-col gap-2">
@@ -4816,9 +5239,9 @@ export default function VisorDocumentoPage() {
                                   </span>
                                 )}
                                 {/* Bubble */}
-                                <div className={`px-3 py-2 rounded-2xl text-xs leading-relaxed break-words ${
+                                <div className={`break-words rounded-lg px-3 py-2 text-xs leading-relaxed ${
                                   isMe
-                                    ? 'bg-blue-600 text-white rounded-br-sm' :'bg-slate-100 text-foreground rounded-bl-sm'
+                                    ? 'rounded-br-sm bg-[#1E6BFF] text-white' :'rounded-bl-sm border border-border bg-card text-foreground'
                                 }`}>
                                   {msg.content}
                                 </div>
@@ -4836,14 +5259,14 @@ export default function VisorDocumentoPage() {
                   </div>
 
                   {/* Input */}
-                  <div className="px-3 py-3 border-t border-border flex-shrink-0">
+                  <div className="flex-shrink-0 border-t border-border bg-card px-3 py-3">
                     {participantes.length <= 1 ? (
-                      <div className="flex items-center justify-center gap-2 py-2 px-3 bg-slate-50 border border-border rounded-full text-xs text-muted-foreground">
+                      <div className="flex items-center justify-center gap-2 rounded-md border border-border bg-slate-50 px-3 py-2 text-xs text-muted-foreground">
                         <Users size={13} className="flex-shrink-0" />
                         <span>Se necesitan al menos 2 participantes para chatear</span>
                       </div>
                     ) : (
-                    <div className="flex items-center gap-2 bg-slate-50 border border-border rounded-full px-3 py-1.5">
+                    <div className="flex items-center gap-2 rounded-md border border-border bg-white px-3 py-1.5 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
                       <input
                         type="text"
                         value={chatInput}
@@ -4856,7 +5279,7 @@ export default function VisorDocumentoPage() {
                       <button
                         onClick={handleSendMessage}
                         disabled={!chatInput.trim() || chatSending}
-                        className="w-7 h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0 disabled:opacity-40 hover:bg-primary/90 transition-colors"
+                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[#1E6BFF] transition-colors hover:bg-blue-700 disabled:opacity-40"
                       >
                         {chatSending ? (
                           <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -4874,9 +5297,9 @@ export default function VisorDocumentoPage() {
               ) : activeTab === 'activity' ? (
                 /* Activity History Panel */
                 <>
-                  <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-shrink-0">
+                  <div className="viewer-panel-header justify-between">
                     <div>
-                      <span className="text-sm font-semibold text-foreground">Historial de Actividad</span>
+                      <span className="viewer-panel-title">Actividad y auditoría</span>
                       <p className="text-xs text-muted-foreground mt-0.5">Registro detallado de acciones y eventos.</p>
                     </div>
                     <button
@@ -4982,16 +5405,16 @@ export default function VisorDocumentoPage() {
               ) : activeTab === 'descargas' ? (
                 /* ── Descargas Panel ────────────────────────────────────── */
                 <div className="flex flex-col h-full min-h-0">
-                  <div className="px-4 py-3 border-b border-border flex-shrink-0">
-                    <span className="text-sm font-semibold text-foreground">Descargas</span>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Descargas</span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <div className="p-4 space-y-4">
 
                     {/* ── Constancia de Integridad y Evidencia Digital ── */}
-                    <div className="rounded-xl border border-blue-200 bg-white shadow-sm">
-                      <div className="px-4 py-3 border-b border-blue-100 flex items-center gap-2 bg-blue-50/60 rounded-t-xl">
-                        <Shield size={15} className="text-blue-600" />
+                    <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+                      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                        <Shield size={15} className="text-primary" />
                         <span className="text-xs font-bold uppercase tracking-wide text-foreground">Integridad y Evidencia Digital</span>
                         <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                           cryptographicCertification?.verificationStatus === 'valid'
@@ -5035,8 +5458,9 @@ export default function VisorDocumentoPage() {
                                 ['Cadena de evidencia', cryptographicCertification.sourceDocumentHash ? 'valid' : 'pending'],
                                 ['Firma PDF PAdES', cryptographicCertification.pdfSignatureStatus],
                                 ['Certificado institucional', cryptographicCertification.certificateStatus],
-                                ['Estampa RFC 3161', cryptographicCertification.timestampStatus || 'not_configured'],
+                                [cryptographicCertification.timestampStatus === 'valid' ? 'Sello RFC 3161 externo' : 'Estampa RFC 3161', cryptographicCertification.timestampStatus || 'not_configured'],
                                 ['Verificación independiente', cryptographicCertification.verificationStatus],
+                                ['Constancia NOM-151', cryptographicCertification.nom151Status || 'not_configured'],
                               ].map(([label, status], index) => (
                                 <div key={label} className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}>
                                   <span className="text-xs font-medium text-foreground">{label}</span>
@@ -5079,6 +5503,28 @@ export default function VisorDocumentoPage() {
                                     PDF certificado
                                   </button>
                                 </div>
+                                <div className="border-t border-border/60 pt-3">
+                                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Artefactos tecnicos protegidos</p>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                      ['verification-report', 'Reporte de verificacion'],
+                                      ['signing-certificate', 'Certificado X.509'],
+                                      ['certificate-chain', 'Cadena X.509'],
+                                      ['evidence-manifest', 'Manifiesto de evidencia'],
+                                      ...(cryptographicCertification.timestampStatus === 'valid' ? [['timestamp-token', 'Estampa RFC 3161']] : []),
+                                    ].map(([artifact, label]) => (
+                                      <button
+                                        key={artifact}
+                                        onClick={() => downloadCertificationArtifact(artifact as 'verification-report' | 'timestamp-token' | 'signing-certificate' | 'certificate-chain' | 'evidence-manifest')}
+                                        disabled={certificationDownload !== null}
+                                        className="flex min-w-0 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted/50 disabled:opacity-60"
+                                      >
+                                        {certificationDownload === artifact ? <RefreshCw size={14} className="shrink-0 animate-spin" /> : <Download size={14} className="shrink-0" />}
+                                        <span className="truncate">{label}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
                               </>
                             )}
                           </>
@@ -5089,12 +5535,17 @@ export default function VisorDocumentoPage() {
                           </div>
                         ) : (
                           <div className="space-y-3">
+                            {!certificationE2eEnabled && (
+                              <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-3 text-xs leading-relaxed text-blue-900">
+                                La ejecucion integral esta deshabilitada para este entorno. La tarjeta seguira mostrando evidencia ya existente sin iniciar nuevas certificaciones.
+                              </div>
+                            )}
                             {!certificationProviderReady && (
                               <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 text-amber-900">
                                 <p className="text-xs font-semibold">Capacidades criptográficas aún no configuradas</p>
                                 <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed">
-                                  {certificationProviderMissing.map((provider) => (
-                                    <li key={provider} className="flex items-start gap-2">
+                                  {Array.from(new Set(certificationProviderMissing)).map((provider, index) => (
+                                    <li key={`cryptographic-provider-${provider}-${index}`} className="flex items-start gap-2">
                                       <span className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500" />
                                       <span>{CRYPTOGRAPHIC_PROVIDER_LABELS[provider] || provider}</span>
                                     </li>
@@ -5103,11 +5554,13 @@ export default function VisorDocumentoPage() {
                                 <p className="mt-2 text-[10px] leading-relaxed text-amber-800">Puedes registrar la versión exacta, su hash y la cadena de evidencia sin declarar esas capacidades como válidas.</p>
                               </div>
                             )}
-                            <button onClick={generateCryptographicCertification} disabled={certificationLoading || document?.estado !== 'completado'} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
+                            <button onClick={generateCryptographicCertification} disabled={certificationLoading || document?.estado !== 'completado' || !certificationE2eEnabled} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
                               {certificationLoading ? <RefreshCw size={15} className="animate-spin" /> : <Shield size={15} />}
                               {certificationLoading
                                 ? 'Registrando integridad…'
-                                : cryptographicCertification?.status === 'FAILED'
+                                : !certificationE2eEnabled
+                                  ? 'Ejecucion integral deshabilitada'
+                                  : cryptographicCertification?.status === 'FAILED'
                                   ? 'Reintentar registro'
                                   : certificationProviderReady
                                     ? 'Generar certificación'
@@ -5137,7 +5590,7 @@ export default function VisorDocumentoPage() {
                           <p className="text-xs mt-1 text-muted-foreground leading-relaxed">Documento compartido entre todas las partes del proceso de firma</p>
                         </div>
                         <button
-                          onClick={downloadConstanciaGeneral}
+                          onClick={downloadConstanciaGeneralPdf}
                           disabled={downloadingConstanciaGeneral}
                           className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
                         >
@@ -5148,6 +5601,35 @@ export default function VisorDocumentoPage() {
                           )}
                           {downloadingConstanciaGeneral ? 'Generando…' : 'Descargar PDF'}
                         </button>
+                      </div>
+                    </div>
+
+                    {/* ── Constancia de auditoría hasta el cierre ── */}
+                    <div className="rounded-xl border border-border bg-white shadow-sm">
+                      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Constancia de auditoría</span>
+                        <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">PDF</span>
+                      </div>
+                      <div className="p-4">
+                        <div className="mb-4">
+                          <p className="text-sm font-semibold text-foreground">Auditoría hasta el cierre del documento</p>
+                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">Registro cronológico de eventos, participantes, resultados y datos técnicos disponibles en la bitácora.</p>
+                        </div>
+                        {document?.estado === 'completado' ? (
+                          <button
+                            onClick={downloadAuditCertificate}
+                            disabled={downloadingAuditCertificate}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {downloadingAuditCertificate ? <RefreshCw size={15} className="animate-spin" /> : <History size={15} />}
+                            {downloadingAuditCertificate ? 'Generando…' : 'Descargar constancia de auditoría'}
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
+                            <Clock size={15} />
+                            Disponible al completar el documento
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -5177,20 +5659,107 @@ export default function VisorDocumentoPage() {
                       </div>
                     </div>
 
-                    {/* ── 3. Documento Firmado Certificado (PAdES) ── */}
+                    {/* ── 3. Documento derivado del proceso de firma ── */}
                     <div className="rounded-xl border border-border bg-white shadow-sm">
                       <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Documento Firmado Certificado</span>
-                        <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">PAdES</span>
+                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Documento firmado</span>
+                        <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          padesUiStatus === 'PAdES VERIFICADO'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : padesUiStatus === 'PAdES ERROR'
+                              ? 'bg-red-50 text-red-700 border-red-200'
+                              : padesUiStatus === 'PAdES EN PROCESO'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-muted text-muted-foreground border-border'
+                        }`}>
+                          {padesUiStatus}
+                        </span>
                       </div>
                       <div className="p-4">
                         <div className="mb-4">
                           <p className="text-sm font-semibold text-foreground truncate">{document?.nombre || 'Documento'} — Firmado</p>
-                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">PDF con firma criptográfica PAdES, constancia visual y certificado Docubox CA</p>
+                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
+                            {!document?.sealed_pdf_path
+                              ? 'El PDF final se habilitará al concluir el sellado del documento y validar la huella del archivo original.'
+                              : padesVerified
+                              ? 'PDF con firma PAdES respaldada por la verificación técnica registrada.'
+                              : 'El PDF derivado ya existe, pero la descarga certificada permanece bloqueada hasta que la firma PAdES sea verificable técnicamente.'}
+                          </p>
                         </div>
+                        {padesVerified && cryptographicCertification && (
+                          <div className="mb-4 overflow-hidden rounded-lg border border-border bg-muted/20">
+                            {[
+                              ['Integridad', cryptographicCertification.integrityStatus === 'valid' && cryptographicCertification.verificationStatus === 'valid' ? 'Válida' : 'No verificada'],
+                              ['Perfil', `${cryptographicCertification.padesProfile} · Verificado`],
+                              ['Proveedor de llave', cryptographicCertification.kmsProvider === 'gcp'
+                                ? cryptographicCertification.kmsProtectionLevel === 'hsm' ? 'Google Cloud HSM' : 'Google Cloud KMS'
+                                : cryptographicCertification.kmsProvider],
+                              ['Nivel de protección', cryptographicCertification.kmsProtectionLevel === 'hsm' ? 'HSM' : cryptographicCertification.kmsProtectionLevel],
+                              ['Entorno criptográfico', cryptographicCertification.cryptoEnvironment],
+                              ['Versión de llave', cryptographicCertification.kmsKeyVersion],
+                              ['Algoritmo', cryptographicCertification.kmsKeySizeBits
+                                ? `RSA ${cryptographicCertification.kmsKeySizeBits} / ${cryptographicCertification.padesDigestAlgorithm}`
+                                : [cryptographicCertification.padesSignatureAlgorithm, cryptographicCertification.padesDigestAlgorithm].filter(Boolean).join(' · ')],
+                              ['Certificado X.509', cryptographicCertification.certificateChainStatus === 'valid'
+                                ? `Cadena válida · Serial ${cryptographicCertification.padesCertificateSerial}`
+                                : cryptographicCertification.padesCertificateSerial],
+                              ['Vínculo SPKI', cryptographicCertification.certificateKeyMatches === true ? 'Válido' : null],
+                              ['Firma criptográfica', cryptographicCertification.padesSigningTimeDeclared || cryptographicCertification.padesVerifiedAt],
+                              ...(cryptographicCertification.padesProfile === 'PAdES-B-T'
+                                ? [
+                                    ['Sello RFC 3161', cryptographicCertification.timestampStatus === 'valid'
+                                      ? `Verificado · ${cryptographicCertification.timestampGenTime}`
+                                      : null],
+                                    ['Proveedor TSA', cryptographicCertification.timestampProvider === 'freetsa'
+                                      ? 'FreeTSA'
+                                      : cryptographicCertification.timestampProvider],
+                                    ['Rol del proveedor', cryptographicCertification.timestampProviderRole],
+                                    ['Serial RFC 3161', cryptographicCertification.timestampSerialNumber],
+                                    ['Policy OID', cryptographicCertification.timestampPolicyOid],
+                                    ['Bundle de confianza', cryptographicCertification.timestampTrustBundleId],
+                                    ['Confianza TSA', cryptographicCertification.timestampTrustStatus === 'valid' ? 'Válida' : null],
+                                  ]
+                                : []),
+                            ].filter(([, value]) => Boolean(value)).map(([label, value], index) => (
+                              <div key={label} className={`px-3 py-2 ${index ? 'border-t border-border/60' : ''}`}>
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+                                <p className="mt-0.5 break-all text-[11px] text-foreground">{value}</p>
+                              </div>
+                            ))}
+                            {cryptographicCertification.padesCertificateFingerprintSha256 && (
+                              <div className="border-t border-border/60 px-3 py-2">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Huella SHA-256 del certificado</p>
+                                <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">{cryptographicCertification.padesCertificateFingerprintSha256}</p>
+                              </div>
+                            )}
+                            {cryptographicCertification.certificatePublicKeyFingerprintSha256 && (
+                              <div className="border-t border-border/60 px-3 py-2">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Huella SHA-256 de la llave del certificado</p>
+                                <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">{cryptographicCertification.certificatePublicKeyFingerprintSha256}</p>
+                              </div>
+                            )}
+                            {cryptographicCertification.timestampCertificateFingerprintSha256 && (
+                              <div className="border-t border-border/60 px-3 py-2">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Huella SHA-256 del certificado TSA</p>
+                                <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">{cryptographicCertification.timestampCertificateFingerprintSha256}</p>
+                              </div>
+                            )}
+                            {cryptographicCertification.timestampTrustRootFingerprintSha256 && (
+                              <div className="border-t border-border/60 px-3 py-2">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Ancla de confianza TSA</p>
+                                <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">{cryptographicCertification.timestampTrustRootFingerprintSha256}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <button
                           onClick={downloadSignedPdf}
-                          disabled={downloadingSignedPdf}
+                          disabled={downloadingSignedPdf || !document?.sealed_pdf_path || !padesVerified}
+                          title={!document?.sealed_pdf_path
+                            ? 'La descarga estará disponible al finalizar el sellado del documento.'
+                            : !padesVerified
+                              ? 'La descarga certificada requiere una firma PAdES verificada.'
+                              : undefined}
                           className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           {downloadingSignedPdf ? (
@@ -5198,7 +5767,13 @@ export default function VisorDocumentoPage() {
                           ) : (
                             <Download size={15} />
                           )}
-                          {downloadingSignedPdf ? 'Descargando…' : 'Descargar PAdES'}
+                          {downloadingSignedPdf
+                            ? 'Descargando…'
+                            : !document?.sealed_pdf_path
+                              ? 'PDF firmado en preparación'
+                              : !padesVerified
+                                ? padesUiStatus === 'PAdES ERROR' ? 'Error de verificación PAdES' : 'Pendiente de verificación PAdES'
+                                : 'Descargar PDF firmado'}
                         </button>
                       </div>
                     </div>
@@ -5208,8 +5783,18 @@ export default function VisorDocumentoPage() {
                       <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
                         <span className="text-xs font-bold uppercase tracking-wide text-foreground">Constancia NOM-151</span>
                         {nom151Data ? (
-                          <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">Emitida</span>
-                        ) : nom151Generating ? (
+                          <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            nom151Data.production_trusted
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}>
+                            {nom151Data.production_trusted
+                              ? 'NOM-151 verificada'
+                              : nom151Data.environment === 'sandbox'
+                                ? 'NOM-151 sandbox'
+                                : 'NOM-151 no productiva'}
+                          </span>
+                        ) : nom151Generating || nom151Polling ? (
                           <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">Generando…</span>
                         ) : (
                           <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">Pendiente</span>
@@ -5220,7 +5805,12 @@ export default function VisorDocumentoPage() {
                           <div className="space-y-3">
                             <div>
                               <p className="text-sm font-semibold text-foreground">Constancia de Conservación NOM-151</p>
-                              <p className="text-xs mt-1 text-muted-foreground">PSC: Nubarium · Secretaría de Economía</p>
+                              <p className="text-xs mt-1 text-muted-foreground">PSC: {nom151Data.psc_name || 'Nubarium / PSC World'}</p>
+                              {!nom151Data.production_trusted && (
+                                <p className="text-xs mt-1 text-amber-700">
+                                  La evidencia criptográfica fue verificada, pero el entorno del proveedor no está acreditado como producción.
+                                </p>
+                              )}
                             </div>
                             <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
                               <div className="flex items-center justify-between gap-2">
@@ -5230,12 +5820,12 @@ export default function VisorDocumentoPage() {
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Fecha emisión</span>
                                 <span className="text-xs text-muted-foreground">
-                                  {new Date(nom151Data.created_at).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                  {new Date(nom151Data.issued_at || nom151Data.created_at).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })}
                                 </span>
                               </div>
                             </div>
                             <button
-                              onClick={downloadNom151InfoPdf}
+                              onClick={downloadNom151Pdf}
                               disabled={downloadingNom151Pdf}
                               className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
                             >
@@ -5256,7 +5846,7 @@ export default function VisorDocumentoPage() {
                               ) : (
                                 <Download size={15} />
                               )}
-                              {downloadingAns ? 'Descargando…' : 'Descargar .ans (ASN1)'}
+                              {downloadingAns ? 'Descargando…' : 'Descargar .asn1'}
                             </button>
                             <a
                               href="https://validatuconstancia.pscworld.com/"
@@ -5270,10 +5860,26 @@ export default function VisorDocumentoPage() {
                           </div>
                         ) : (
                           <div className="flex flex-col items-center gap-3 py-4">
-                            <RefreshCw size={24} className="animate-spin text-muted-foreground" />
+                            {nom151Generating || nom151Polling ? (
+                              <RefreshCw size={24} className="animate-spin text-muted-foreground" />
+                            ) : nom151Error ? (
+                              <AlertTriangle size={24} className="text-amber-500" />
+                            ) : (
+                              <Clock size={24} className="text-muted-foreground" />
+                            )}
                             <p className="text-sm text-center text-muted-foreground">
-                              {nom151Generating ? 'Generando constancia NOM-151…' : 'Constancia NOM-151 pendiente de generación automática…'}<br />
-                              <span className="text-xs">Se genera automáticamente al completar el documento</span>
+                              {nom151Generating || nom151Polling
+                                ? 'Generando constancia NOM-151…'
+                                : nom151Error
+                                  ? 'No fue posible emitir la constancia NOM-151.'
+                                  : !padesBtVerified
+                                    ? 'Pendiente del cierre criptográfico PAdES-B-T.'
+                                    : 'Constancia NOM-151 pendiente de generación.'}<br />
+                              <span className="text-xs">
+                                {nom151Error || (!padesBtVerified
+                                  ? 'Docubox la solicitará automáticamente al PSC cuando el PDF final sea verificable.'
+                                  : 'Docubox la generará con el proveedor de conservación.')}
+                              </span>
                             </p>
                           </div>
                         )}
@@ -5323,14 +5929,41 @@ export default function VisorDocumentoPage() {
                               )}
                               {downloadingXml ? 'Descargando…' : 'Descargar XML'}
                             </button>
+                            {xmlDownloadError && (
+                              <p className="text-xs text-red-600" role="alert">
+                                {xmlDownloadError}
+                              </p>
+                            )}
                           </div>
                         ) : (
                           <div className="flex flex-col items-center gap-3 py-4">
-                            <RefreshCw size={24} className="animate-spin text-muted-foreground" />
+                            {xmlGenerating ? (
+                              <RefreshCw size={24} className="animate-spin text-muted-foreground" />
+                            ) : xmlGenerationError ? (
+                              <AlertTriangle size={24} className="text-amber-500" />
+                            ) : (
+                              <Clock size={24} className="text-muted-foreground" />
+                            )}
                             <p className="text-sm text-center text-muted-foreground">
-                              {xmlGenerating ? 'Generando XML de evidencia…' : 'XML de evidencia pendiente de generación automática…'}<br />
-                              <span className="text-xs">Se genera automáticamente al completar el documento</span>
+                              {xmlGenerating
+                                ? 'Generando XML de evidencia…'
+                                : xmlGenerationError
+                                  ? 'No fue posible generar el XML de evidencia.'
+                                  : 'XML de evidencia pendiente de generación.'}<br />
+                              <span className="text-xs">
+                                {xmlGenerationError || 'Docubox lo generará a partir del documento y su bitácora.'}
+                              </span>
                             </p>
+                            {user?.id === document?.owner_id && !xmlGenerating && (
+                              <button
+                                type="button"
+                                onClick={() => void generateXmlEvidence()}
+                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-white px-4 text-xs font-semibold text-foreground transition-colors hover:bg-muted/50"
+                              >
+                                <RefreshCw size={14} />
+                                {xmlGenerationError ? 'Reintentar generación' : 'Generar ahora'}
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -5342,8 +5975,8 @@ export default function VisorDocumentoPage() {
               ) : (
                 /* Other Panels (fields / vencimientos / editar) */
                 <>
-                  <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-shrink-0">
-                    <span className="text-sm font-semibold text-foreground">
+                  <div className="viewer-panel-header justify-between">
+                    <span className="viewer-panel-title">
                       {activeTab === 'fields' && 'Notas y Comentarios'}
                       {activeTab === 'vencimientos' && 'Vencimientos'}
                       {activeTab === 'editar' && 'Editar Documento'}
@@ -5538,7 +6171,6 @@ export default function VisorDocumentoPage() {
                 </>
               )}
             </div>
-            )}
           </div>
         </div>
 

@@ -1,6 +1,6 @@
 import { constants, createPublicKey, verify } from 'node:crypto';
 import { sha256Hex } from './canonical';
-import { CertificationError, KmsPurpose, VerifiedKmsSignature, VerifiedTimestamp } from './types';
+import { CertificationError, KmsPurpose, VerifiedKmsSignature } from './types';
 
 function requireGateway(name: string) {
   const value = process.env[name];
@@ -17,7 +17,7 @@ function requireGateway(name: string) {
 export function getCryptographicProviderStatus() {
   const required = [
     'DOCUBOX_KMS_GATEWAY_URL',
-    'DOCUBOX_TSA_GATEWAY_URL',
+    'DOCUBOX_TSA_URL',
     'DOCUBOX_PADES_GATEWAY_URL',
   ] as const;
   const missing = required.filter((name) => !process.env[name]);
@@ -96,62 +96,28 @@ export async function signDigestWithKms(
   };
 }
 
-export async function requestVerifiedTimestamp(messageImprintSha256: string): Promise<VerifiedTimestamp> {
-  const url = requireGateway('DOCUBOX_TSA_GATEWAY_URL');
-  const payload = await gatewayRequest(url, {
-    operation: 'RFC3161_TIMESTAMP',
-    input_type: 'PRECOMPUTED_DIGEST',
-    hash_algorithm: 'SHA-256',
-    message_imprint_sha256: messageImprintSha256,
-    certificate_requested: true,
-  });
-
-  if (
-    payload.status !== 'VALID'
-    || payload.message_imprint_sha256 !== messageImprintSha256
-    || payload.token_signature_valid !== true
-    || payload.tsa_certificate_valid !== true
-  ) {
-    throw new CertificationError('RFC3161_VALIDATION_FAILED', 'La estampa RFC 3161 no supero la validacion criptografica.', 502);
-  }
-
-  const responseBytes = Buffer.from(String(payload.response_base64 || ''), 'base64');
-  const tokenBytes = Buffer.from(String(payload.token_base64 || ''), 'base64');
-  const requestBytes = payload.request_base64 ? Buffer.from(String(payload.request_base64), 'base64') : null;
-  if (!responseBytes.length || !tokenBytes.length) {
-    throw new CertificationError('RFC3161_ARTIFACTS_MISSING', 'La TSA no devolvio los artefactos binarios requeridos.', 502);
-  }
-
-  return {
-    standard: 'RFC3161',
-    status: 'VALID',
-    messageImprintSha256,
-    requestBytes,
-    responseBytes,
-    tokenBytes,
-    genTime: String(payload.gen_time),
-    tsaName: String(payload.tsa_name),
-    tsaPolicyOid: String(payload.tsa_policy_oid),
-    tsaSerialNumber: String(payload.tsa_serial_number),
-    tsaNonce: payload.tsa_nonce ? String(payload.tsa_nonce) : null,
-    certificateSerialNumber: String(payload.tsa_certificate_serial_number),
-    certificateFingerprintSha256: String(payload.tsa_certificate_fingerprint_sha256).toLowerCase(),
-    issuer: String(payload.tsa_issuer),
-    certificatePem: String(payload.tsa_certificate_pem || ''),
-    chainPem: String(payload.tsa_chain_pem || ''),
-    verifiedAt: String(payload.verified_at || new Date().toISOString()),
-  };
+/**
+ * @deprecated Kept solely for source compatibility. WP-06 replaces this
+ * response-trusting gateway with TimestampAuthorityProvider, which parses and
+ * verifies the ASN.1/CMS TimeStampToken locally before PAdES may become B-T.
+ */
+export async function requestVerifiedTimestamp(_messageImprintSha256: string): Promise<never> {
+  throw new CertificationError(
+    'RFC3161_LEGACY_GATEWAY_DISABLED',
+    'El gateway heredado no aporta una estampa RFC 3161 verificable. Usa TimestampAuthorityProvider.',
+    503,
+  );
 }
 
-export async function signPdfWithPades(pdfBytes: Uint8Array): Promise<Uint8Array> {
-  const url = requireGateway('DOCUBOX_PADES_GATEWAY_URL');
-  const payload = await gatewayRequest(url, {
-    operation: 'SIGN_PADES',
-    profile: 'PAdES-B-T',
-    pdf_base64: Buffer.from(pdfBytes).toString('base64'),
-  });
-  if (payload.status !== 'VALID' || payload.byte_range_valid !== true || !payload.pdf_base64) {
-    throw new CertificationError('PADES_VALIDATION_FAILED', 'La firma PAdES final no pudo verificarse.', 502);
-  }
-  return Buffer.from(String(payload.pdf_base64), 'base64');
+/**
+ * @deprecated WP-05 replaces this response-trusting gateway adapter with
+ * PdfSignatureProvider. It is intentionally disabled so no new flow can call
+ * an unverified remote result PAdES-B-T before RFC 3161 exists (WP-06).
+ */
+export async function signPdfWithPades(_pdfBytes: Uint8Array): Promise<never> {
+  throw new CertificationError(
+    'PADES_LEGACY_GATEWAY_DISABLED',
+    'El gateway heredado no genera evidencia PAdES verificable. Usa PdfSignatureProvider PAdES-B-B.',
+    503,
+  );
 }

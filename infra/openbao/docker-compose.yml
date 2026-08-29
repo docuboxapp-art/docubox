@@ -1,0 +1,15 @@
+services:
+  openbao:
+    image: quay.io/openbao/openbao:2.2.1
+    command: server -config=/openbao/config/config.hcl
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - "127.0.0.1:8200:8200"
+    volumes:
+      - ./config.hcl:/openbao/config/config.hcl:ro
+      - docubox-openbao-data:/openbao/data
+    restart: unless-stopped
+
+volumes:
+  docubox-openbao-data:

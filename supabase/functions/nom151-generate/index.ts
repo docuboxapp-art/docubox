@@ -153,7 +153,7 @@ async function processNom151(
     return json({ error: `PSC falló: ${lastError}` }, 502);
   }
 
-  // 6. Decodificar .ans
+  // 6. Decodificar la evidencia ASN.1 devuelta por el PSC.
   let ansBytes: Uint8Array;
   try { ansBytes = base64ToUint8(nubariumData.nom151); }
   catch (err) {
@@ -163,16 +163,16 @@ async function processNom151(
 
   const constanciaSha256 = await sha256Hex(ansBytes);
 
-  // 7. Subir .ans a Storage
+  // 7. Subir la evidencia ASN.1 a Storage privado.
   const now         = new Date();
-  const storagePath = `${now.getUTCFullYear()}/${String(now.getUTCMonth()+1).padStart(2,"0")}/${document_id}/${record_id}.ans`;
+  const storagePath = `${now.getUTCFullYear()}/${String(now.getUTCMonth()+1).padStart(2,"0")}/${document_id}/${record_id}.asn1`;
 
   const { error: uploadErr } = await sb.storage
     .from(STORAGE_BUCKET)
     .upload(storagePath, ansBytes, { contentType: "application/octet-stream", upsert: false });
 
   if (uploadErr) {
-    await markFailed(sb, record_id, `Error subiendo .ans: ${uploadErr.message}`);
+    await markFailed(sb, record_id, `Error subiendo .asn1: ${uploadErr.message}`);
     return json({ error: "Error guardando constancia" }, 500);
   }
 

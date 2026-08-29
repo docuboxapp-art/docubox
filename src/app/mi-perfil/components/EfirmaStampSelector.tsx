@@ -213,7 +213,7 @@ function StampPreview({ variant, efirmaData }: { variant: StampVariant; efirmaDa
         {fieldRow('IP', ip)}
         {fieldRow('GEOLOC', geoloc)}
         {fieldRow('DISPOSITIVO', dispositivo)}
-        {fieldRow('SELLO RFC 3161', 'DigiCert TSA ✓')}
+        {fieldRow('SELLO RFC 3161', 'No configurado')}
       </div>
       <div className="flex items-end justify-between gap-2">
         <div className="flex-1">{urlLine()}</div>
@@ -254,7 +254,7 @@ function StampPreview({ variant, efirmaData }: { variant: StampVariant; efirmaDa
           {fieldRow('GEOLOC', geoloc)}
           {fieldRow('OCSP', ocsp)}
           {fieldRow('DISPOSITIVO', dispositivo)}
-          {fieldRow('RFC 3161', 'DigiCert ✓')}
+          {fieldRow('RFC 3161', 'No configurado')}
         </div>
       </div>
     </div>
@@ -306,7 +306,7 @@ function StampPreview({ variant, efirmaData }: { variant: StampVariant; efirmaDa
         {fieldRow('GEOLOC', geoloc)}
         {fieldRow('OCSP', ocsp)}
         {fieldRow('DISPOSITIVO', dispositivo)}
-        {fieldRow('RFC 3161', 'DigiCert ✓')}
+        {fieldRow('RFC 3161', 'No configurado')}
         {fieldRow('NIVEL FIRMA', 'Avanzada')}
         {fieldRow('ORDEN', '#1 de 2')}
         {fieldRow('VIGENCIA', vigencia)}
@@ -361,7 +361,7 @@ function StampPreview({ variant, efirmaData }: { variant: StampVariant; efirmaDa
           {fieldRow('GEOLOC', geoloc)}
           {fieldRow('OCSP', ocsp)}
           {fieldRow('DISPOSITIVO', dispositivo)}
-          {fieldRow('RFC 3161', 'DigiCert ✓')}
+          {fieldRow('RFC 3161', 'No configurado')}
           {fieldRow('NIVEL', 'Avanzada')}
           {fieldRow('ORDEN', '#1 de 2')}
           {fieldRow('VIGENCIA', vigencia)}
@@ -390,7 +390,7 @@ function StampPreview({ variant, efirmaData }: { variant: StampVariant; efirmaDa
         {fieldRow('GEOLOC', geoloc)}
         {fieldRow('OCSP', ocsp)}
         {fieldRow('DISPOSITIVO', dispositivo)}
-        {fieldRow('RFC 3161', 'DigiCert ✓')}
+        {fieldRow('RFC 3161', 'No configurado')}
         {fieldRow('NIVEL', 'Avanzada')}
         {fieldRow('CADENA', 'XML Evidence')}
       </div>

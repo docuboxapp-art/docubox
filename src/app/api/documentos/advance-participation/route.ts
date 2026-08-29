@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendParticipantInvitationEmails } from '@/lib/emailNotifications';
+import {
+  isEmailNotificationEnabled,
+  sendParticipantInvitationEmails,
+} from '@/lib/emailNotifications';
 import { createNotificationServer } from '@/lib/notificationsInApp';
+import { getParticipantPortalUrl } from '@/lib/publicAppUrl';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -88,14 +92,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, advanced: false, reason: 'no_next_participants' });
     }
 
-    // Mark them as visible + notificado in the JSONB
+    // Make the next turn visible. Delivery is confirmed after each channel responds.
     const nextIds = nextParticipants.map((p: any) => p.id).filter(Boolean);
     const nextEmails = nextParticipants.map((p: any) => p.email).filter(Boolean);
 
     const updatedParticipantes = participantes.map((p: any) => {
       const isNext = nextIds.includes(p.id) || nextEmails.includes(p.email);
       if (isNext) {
-        return { ...p, visible: true, notificado: true, fecha_notificacion: new Date().toISOString() };
+        return { ...p, visible: true };
       }
       return p;
     });
@@ -110,7 +114,7 @@ export async function POST(req: NextRequest) {
       if (p.isCurrentUser) continue;
       const participantUserId = p.user_id;
       if (participantUserId) {
-        const signingUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/portal-participante/${documentoId}`;
+        const signingUrl = getParticipantPortalUrl(p.portal_token || documentoId);
         createNotificationServer({
           userId: participantUserId,
           type: 'document',
@@ -128,48 +132,74 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Send email notifications to next participants with email method
-    // Also send to participants with no tipoNotificacion set (fallback)
+    // Send email notifications only to participants who selected email.
     const emailParticipants = nextParticipants.filter((p: any) => {
       if (!p.email || p.isCurrentUser) return false;
       if (!p.email.includes('@')) return false;
-      const notifMethods = (p.tipoNotificacion || []).map((n: string) => n.toLowerCase());
-      // Send if explicitly chose email, OR if no notification method was configured (fallback)
-      if (notifMethods.length === 0) return true;
-      return notifMethods.some((n: string) => n === 'correo' || n === 'email');
+      return isEmailNotificationEnabled(p.tipoNotificacion);
     });
 
+    const deliveredEmails = new Map<string, string | undefined>();
+    const failedEmails = new Set<string>();
     if (emailParticipants.length > 0) {
       const participantsWithPortalUrl = emailParticipants.map((p: any) => ({
         ...p,
-        documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/portal-participante/${documentoId}`,
+        documentUrl: getParticipantPortalUrl(p.portal_token || documentoId),
       }));
 
-      await sendParticipantInvitationEmails({
+      const delivery = await sendParticipantInvitationEmails({
         participants: participantsWithPortalUrl,
         documentName: docNombre,
         senderName,
-        documentUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/portal-participante/${documentoId}`,
-      }).catch((err) => {
-        console.error('[advance-participation] Error sending emails:', err?.message || err);
+        documentUrl: getParticipantPortalUrl(documentoId),
       });
+
+      delivery.sent.forEach((item) => {
+        deliveredEmails.set(item.email.trim().toLowerCase(), item.providerMessageId);
+      });
+      delivery.failed.forEach((item) => {
+        failedEmails.add(item.email.trim().toLowerCase());
+      });
+    }
+
+    if (deliveredEmails.size > 0) {
+      const deliveredAt = new Date().toISOString();
+      const participantsWithDelivery = updatedParticipantes.map((participant: any) => {
+        const email = String(participant.email || '').trim().toLowerCase();
+        if (!deliveredEmails.has(email)) return participant;
+        return {
+          ...participant,
+          notificado: true,
+          fecha_notificacion: deliveredAt,
+        };
+      });
+      await supabaseAdmin
+        .from('documentos')
+        .update({ participantes: participantsWithDelivery })
+        .eq('id', documentoId);
     }
 
     // Log audit trail
     try {
       await supabaseAdmin.from('audit_trail').insert(
-        nextParticipants.map((p: any) => ({
-          documento_id: documentoId,
-          actor_id: user.id,
-          action: 'invitacion_enviada',
-          category: 'notificacion',
-          details: {
-            participant_email: p.email,
-            participant_name: p.name,
-            participation_order: participationOrder,
-            channel: 'advance_chain',
-          },
-        }))
+        emailParticipants.map((p: any) => {
+          const normalizedEmail = String(p.email || '').trim().toLowerCase();
+          const accepted = deliveredEmails.has(normalizedEmail);
+          return {
+            documento_id: documentoId,
+            actor_id: user.id,
+            action: accepted ? 'invitacion_enviada' : 'invitacion_fallida',
+            category: 'notificacion',
+            details: {
+              participant_email: p.email,
+              participant_name: p.name,
+              participation_order: participationOrder,
+              channel: 'email',
+              delivery_status: accepted ? 'accepted' : 'failed',
+              provider_message_id: deliveredEmails.get(normalizedEmail) || null,
+            },
+          };
+        })
       );
     } catch { /* non-critical */ }
 
@@ -177,7 +207,8 @@ export async function POST(req: NextRequest) {
       success: true,
       advanced: true,
       notifiedCount: nextParticipants.length,
-      notifiedEmails: nextEmails,
+      notifiedEmails: Array.from(deliveredEmails.keys()),
+      failedEmails: Array.from(failedEmails),
     });
   } catch (err: any) {
     console.error('[advance-participation] Error:', err);

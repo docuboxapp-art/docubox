@@ -350,7 +350,7 @@ function StampPreview({ variant, signatureUrl, userName, userRfc }: {
         {fieldRow('ORDEN', '#1 de 2')}
         {fieldRow('CURP', 'GAML880512...')}
         {fieldRow('RFC', rfc)}
-        {fieldRow('SELLO', 'DigiCert ✓')}
+        {fieldRow('SELLO', 'No configurado')}
         {fieldRow('CADENA', 'XML Evidence')}
       </div>
       <div className="flex items-end justify-between gap-2">
@@ -414,7 +414,7 @@ function StampPreview({ variant, signatureUrl, userName, userRfc }: {
           {fieldRow('ORDEN', '#1 de 2')}
           {fieldRow('CURP', 'GAML880512...')}
           {fieldRow('RFC', rfc)}
-          {fieldRow('SELLO', 'DigiCert ✓')}
+          {fieldRow('SELLO', 'No configurado')}
         </div>
         {urlLine()}
       </div>
@@ -440,7 +440,7 @@ function StampPreview({ variant, signatureUrl, userName, userRfc }: {
         {fieldRow('GEOLOC', `19.43°N 99.13°W · ±80m`)}
         {fieldRow('DISPOSITIVO', `Chrome 123 · macOS 14.3`)}
         {fieldRow('OTP CANAL', otp)}
-        {fieldRow('SELLO RFC 3161', 'DigiCert TSA ✓')}
+        {fieldRow('SELLO RFC 3161', 'No configurado')}
         {fieldRow('BIOMETRÍA TRAZO', 'Presión · Velocidad · Ángulo')}
         {fieldRow('NIVEL FIRMA', 'Firma Electrónica Simple')}
       </div>
@@ -470,8 +470,8 @@ const STAMP_ELEMENTS: Record<string, { label: string; elements: string[] }> = {
   AM5: { label: 'AM5 · Ticket QR Grande', elements: ['Nombre del firmante', 'Trazo de firma autógrafa', 'Hash SHA-256 (corto)', 'Fecha', 'Dirección IP', 'Canal OTP', 'Nivel de firma', 'Código QR'] },
   AL1: { label: 'AL1 · Completa 3 columnas', elements: ['Avatar / inicial', 'Nombre del firmante', 'RFC', 'Trazo de firma autógrafa', 'Hash SHA-256 (completo)', 'Fecha', 'Dirección IP', 'Geolocalización', 'Canal OTP', 'Dispositivo', 'Nivel de firma', 'Biometría del trazo (presión, velocidad)', 'Orden de firma', 'CURP', 'Sello RFC 3161', 'Cadena XML Evidence', 'URL de verificación', 'Código QR'] },
   AL2: { label: 'AL2 · Notarial Larga', elements: ['Esquinas decorativas notariales', 'Avatar centrado', 'Nombre del firmante', 'Trazo de firma autógrafa', 'Hash SHA-256 (completo)', 'Fecha', 'Dirección IP', 'Geolocalización', 'Canal OTP', 'Dispositivo', 'Nivel de firma', 'Biometría del trazo', 'Orden de firma', 'CURP', 'RFC', 'URL de verificación', 'Código QR'] },
-  AL3: { label: 'AL3 · Franja 3 col. Larga', elements: ['Barra lateral verde', 'Nombre del firmante', 'Trazo de firma autógrafa', 'Hash SHA-256 (completo)', 'Fecha', 'Dirección IP', 'Geolocalización', 'Canal OTP', 'Dispositivo', 'Nivel de firma', 'Biometría del trazo', 'Precisión GPS', 'Orden de firma', 'CURP', 'RFC', 'Sello DigiCert', 'URL de verificación'] },
-  AL4: { label: 'AL4 · Constancia Estructurada', elements: ['Nombre del firmante', 'RFC', 'CURP', 'Rol del firmante', 'Nivel de firma', 'Orden de firma', 'Trazo de firma autógrafa', 'Hash SHA-256 (completo)', 'Fecha y hora', 'Dirección IP', 'Geolocalización con coordenadas', 'Dispositivo y navegador', 'Canal OTP', 'Sello RFC 3161 DigiCert', 'Biometría del trazo (presión, velocidad, ángulo)', 'Nivel de firma explícito', 'URL de verificación', 'Código QR'] },
+  AL3: { label: 'AL3 · Franja 3 col. Larga', elements: ['Barra lateral verde', 'Nombre del firmante', 'Trazo de firma autógrafa', 'Hash SHA-256 (completo)', 'Fecha', 'Dirección IP', 'Geolocalización', 'Canal OTP', 'Dispositivo', 'Nivel de firma', 'Biometría del trazo', 'Precisión GPS', 'Orden de firma', 'CURP', 'RFC', 'Sello de tiempo (si está configurado)', 'URL de verificación'] },
+  AL4: { label: 'AL4 · Constancia Estructurada', elements: ['Nombre del firmante', 'RFC', 'CURP', 'Rol del firmante', 'Nivel de firma', 'Orden de firma', 'Trazo de firma autógrafa', 'Hash SHA-256 (completo)', 'Fecha y hora', 'Dirección IP', 'Geolocalización con coordenadas', 'Dispositivo y navegador', 'Canal OTP', 'Sello RFC 3161 (si está configurado)', 'Biometría del trazo (presión, velocidad, ángulo)', 'Nivel de firma explícito', 'URL de verificación', 'Código QR'] },
 };
 
 function StampDetailModal({ variant, onClose }: { variant: StampVariant; onClose: () => void }) {
@@ -536,7 +536,7 @@ export default function AutografaStampSelector({
   currentStampStyle,
   onSave,
 }: AutografaStampSelectorProps) {
-  const [selected, setSelected] = useState(currentStampStyle || 'AC1');
+  const [selected, setSelected] = useState(currentStampStyle || 'AC0');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
@@ -559,12 +559,12 @@ export default function AutografaStampSelector({
   };
 
   const handleCancel = () => {
-    setSelected(currentStampStyle || 'AC1');
+    setSelected(currentStampStyle || 'AC0');
     setSelectorOpen(false);
   };
 
   const categories: Array<'corta' | 'mediana' | 'larga'> = ['corta', 'mediana', 'larga'];
-  const currentVariant = STAMP_VARIANTS.find(v => v.id === (currentStampStyle || 'AC1'));
+  const currentVariant = STAMP_VARIANTS.find(v => v.id === (currentStampStyle || 'AC0'));
   const currentCat = currentVariant ? CATEGORY_LABELS[currentVariant.category] : null;
 
   return (
@@ -596,7 +596,7 @@ export default function AutografaStampSelector({
           {/* Change button */}
           {!selectorOpen && (
             <button
-              onClick={() => { setSelected(currentStampStyle || 'AC1'); setSelectorOpen(true); }}
+              onClick={() => { setSelected(currentStampStyle || 'AC0'); setSelectorOpen(true); }}
               className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-lg text-xs font-600 hover:bg-primary/90 transition-colors flex-shrink-0"
             >
               <Edit2 size={12} />

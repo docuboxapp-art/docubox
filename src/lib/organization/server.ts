@@ -153,8 +153,7 @@ export function createOpaqueSecret(prefix: string) {
 }
 
 export function encryptOrganizationSecret(value: string) {
-  const master =
-    process.env.ORGANIZATION_CREDENTIAL_ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const master = process.env.ORGANIZATION_CREDENTIAL_ENCRYPTION_KEY;
   if (!master)
     throw new OrganizationApiError(
       503,

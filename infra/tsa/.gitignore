@@ -1,0 +1,6 @@
+# Keys, serial state and issued development certificates are generated locally.
+data/
+*.key
+*.key.pem
+*.p12
+*.pfx

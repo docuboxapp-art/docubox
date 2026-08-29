@@ -10,7 +10,7 @@ export interface DocumentSealVisualData {
   status: DocumentSealStatus;
   document_chain_sha256: string;
   seal_sha256: string;
-  signature_algorithm: 'RSA-PSS-SHA256';
+  signature_algorithm: 'RSA-PSS-SHA256' | 'RSA-PKCS1-SHA256';
   key_size_bits: number;
   signing_key_version: string;
   public_key_fingerprint_sha256: string;
@@ -40,7 +40,7 @@ export interface IntegrityCertificatePdfData {
   evidenceSealBase64: string;
   evidenceKeyVersion: string;
   certificationRootSha256: string;
-  timestamp: {
+  timestamp?: {
     genTime: string;
     tsaName: string;
     policyOid: string;
@@ -71,7 +71,7 @@ export interface CryptographicPlacementPdfData {
   documentSealSha256: string;
   documentKeyVersion: string;
   evidenceChainDisplay: string;
-  timestamp: {
+  timestamp?: {
     genTime: string;
     tsaName: string;
     policyOid: string;
@@ -224,7 +224,7 @@ export async function generateIntegrityCertificatePdf(data: IntegrityCertificate
     ['Integridad del documento', 'Detecta cualquier cambio posterior en el PDF.'],
     ['Sello digital Docubox', 'Vincula la huella con una llave KMS autorizada.'],
     ['Cadena de evidencia', 'Protege archivos, eventos y constancias.'],
-    ['Estampa de tiempo', 'Fija una referencia temporal RFC 3161.'],
+    ['Firma PAdES-B-B', 'Firma CMS verificable con certificado X.509.'],
   ];
   scope.forEach(([title, text], index) => {
     const x = index % 2 === 0 ? 66 : 330;
@@ -248,19 +248,26 @@ export async function generateIntegrityCertificatePdf(data: IntegrityCertificate
 
   roundedCard(page1, MARGIN, 192, PAGE_WIDTH - MARGIN * 2, 72, paleBlue, rgb(0.72, 0.78, 1));
   page1.drawText('ESTAMPA DE TIEMPO', { x: 58, y: 245, size: 10.5, font: bold, color: rgb(0.21, 0.2, 0.67) });
-  page1.drawRectangle({ x: 471, y: 237, width: 78, height: 20, color: paleGreen, borderColor: rgb(0.45, 0.88, 0.68), borderWidth: 0.7 });
-  drawCheck(page1, 484, 247);
-  page1.drawText('VALIDA', { x: 495, y: 244.5, size: 7, font: bold, color: green });
-  drawKeyValue(page1, regular, bold, 58, 221, 'Fecha UTC', formatUtc(data.timestamp.genTime), 195);
-  drawKeyValue(page1, regular, bold, 319, 221, 'Estandar', 'RFC 3161', 120);
-  drawKeyValue(page1, regular, bold, 58, 205, 'Autoridad TSA', data.timestamp.tsaName, 195);
-  drawKeyValue(page1, regular, bold, 319, 205, 'Algoritmo', 'SHA-256', 120);
+  if (data.timestamp) {
+    page1.drawRectangle({ x: 471, y: 237, width: 78, height: 20, color: paleGreen, borderColor: rgb(0.45, 0.88, 0.68), borderWidth: 0.7 });
+    drawCheck(page1, 484, 247);
+    page1.drawText('VALIDA', { x: 495, y: 244.5, size: 7, font: bold, color: green });
+    drawKeyValue(page1, regular, bold, 58, 221, 'Fecha UTC', formatUtc(data.timestamp.genTime), 195);
+    drawKeyValue(page1, regular, bold, 319, 221, 'Estandar', 'RFC 3161', 120);
+    drawKeyValue(page1, regular, bold, 58, 205, 'Autoridad TSA', data.timestamp.tsaName, 195);
+    drawKeyValue(page1, regular, bold, 319, 205, 'Algoritmo', 'SHA-256', 120);
+  } else {
+    page1.drawRectangle({ x: 432, y: 237, width: 117, height: 20, color: paleGray, borderColor: line, borderWidth: 0.7 });
+    page1.drawText('NO CONFIGURADA', { x: 446, y: 244.5, size: 7, font: bold, color: secondary });
+    page1.drawText('PAdES-B-B emitido sin estampa RFC 3161.', { x: 58, y: 220, size: 7.2, font: regular, color: secondary });
+    page1.drawText('La estampa de tiempo se incorpora en PAdES-B-T cuando la TSA este configurada.', { x: 58, y: 204, size: 6.4, font: regular, color: secondary });
+  }
 
   roundedCard(page1, MARGIN, 105, PAGE_WIDTH - MARGIN * 2, 69);
   page1.drawText('Huellas criptograficas principales', { x: 58, y: 154, size: 10.5, font: bold, color: ink });
   drawKeyValue(page1, regular, bold, 58, 133, 'Documento', data.documentBodySha256, 390);
   drawKeyValue(page1, regular, bold, 58, 116, 'Evidencia', data.evidenceChainSha256, 390);
-  page1.drawText('La estampa acredita una referencia temporal verificable. No sustituye por si sola una constancia NOM-151.', { x: MARGIN, y: 88, size: 6.5, font: regular, color: secondary });
+  page1.drawText(data.timestamp ? 'La estampa acredita una referencia temporal verificable. No sustituye por si sola una constancia NOM-151.' : 'La estampa RFC 3161 no esta configurada. Esta constancia no sustituye una constancia NOM-151.', { x: MARGIN, y: 88, size: 6.5, font: regular, color: secondary });
   drawFooter(page1, regular, 1);
 
   const page2 = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
@@ -357,7 +364,7 @@ function cryptographicPlacementContent(type: CryptographicPlacementType, data: C
   if (type === 'evidence_chain') {
     return { title: 'CADENA DE EVIDENCIA', content: data.evidenceChainDisplay };
   }
-  if (type === 'timestamp') {
+  if (type === 'timestamp' && data.timestamp) {
     return {
       title: 'ESTAMPA DE TIEMPO RFC 3161',
       content: `FECHA_UTC=${formatUtc(data.timestamp.genTime)}\nTSA=${data.timestamp.tsaName}\nPOLITICA=${data.timestamp.policyOid}\nSERIE=${data.timestamp.serialNumber}\nTOKEN_SHA256=${data.timestamp.tokenSha256.toUpperCase()}`,
@@ -375,7 +382,7 @@ export async function applyCryptographicPlacements(
   placements: CryptographicPlacement[],
   data: CryptographicPlacementPdfData,
 ) {
-  const cryptoPlacements = placements.filter((placement) => placement.placementKind === 'cryptographic' && placement.cryptographicType);
+  const cryptoPlacements = placements.filter((placement) => placement.placementKind === 'cryptographic' && placement.cryptographicType && (placement.cryptographicType !== 'timestamp' || data.timestamp));
   if (cryptoPlacements.length === 0) return documentBytes;
 
   const pdf = await PDFDocument.load(documentBytes, { ignoreEncryption: false });

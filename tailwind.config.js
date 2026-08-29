@@ -9,7 +9,7 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Google Sans', 'Segoe UI', 'Arial', 'sans-serif'],
+        sans: ['Google Sans', 'Google Sans Text', 'Segoe UI', 'Arial', 'sans-serif'],
         mono: ['IBM Plex Mono', 'monospace'],
       },
       colors: {

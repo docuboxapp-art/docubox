@@ -18,10 +18,11 @@ function buildVerificationEmailHtml(recipientName: string, verificationUrl: stri
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>Verifica tu correo electrónico — Docubox</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
-    body { margin:0;padding:0;background-color:#f3f4f6;font-family:'Inter',Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%; }
+    body, p, h1, a, span { font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,Helvetica,sans-serif !important; }
+    body { margin:0;padding:0;background-color:#f3f4f6;-webkit-text-size-adjust:100%; }
     @media only screen and (max-width:600px){
       .email-container{width:100%!important;border-radius:0!important;}
       .email-body{padding:24px 20px!important;}

@@ -1,0 +1,12 @@
+-- Make AC0 the default autograph stamp for new and existing profiles.
+-- Explicit user choices other than the previous default are preserved.
+ALTER TABLE public.user_profiles
+  ADD COLUMN IF NOT EXISTS autografa_stamp_style TEXT DEFAULT 'AC0';
+
+ALTER TABLE public.user_profiles
+  ALTER COLUMN autografa_stamp_style SET DEFAULT 'AC0';
+
+UPDATE public.user_profiles
+SET autografa_stamp_style = 'AC0'
+WHERE autografa_stamp_style IS NULL
+   OR autografa_stamp_style = 'AC1';

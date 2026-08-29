@@ -28,9 +28,9 @@ type SigningStep =
 
 const SIGNING_STEPS = [
   "Preparando documento...",
-  "Aplicando firma criptográfica PAdES...",
-  "Solicitando sello de tiempo RFC 3161...",
-  "Verificando integridad del documento...",
+  "Enviando la solicitud al proveedor heredado...",
+  "Recibiendo el archivo procesado...",
+  "Registrando el resultado para revisión técnica...",
   "Finalizando...",
 ];
 
@@ -163,8 +163,8 @@ export default function VPSSignaturePanel({
         signedHash: response.headers.get("X-Signed-Hash") ?? "",
         fieldName: response.headers.get("X-Field-Name") ?? "",
         signedAt: response.headers.get("X-Signed-At") ?? new Date().toISOString(),
-        signatureLevel: response.headers.get("X-Signature-Level") ?? "PAdES-B-T",
-        certificate: "CN=Docubox CA, O=Docubox, C=MX",
+        signatureLevel: response.headers.get("X-Signature-Level") ?? "Proveedor legado sin verificar",
+        certificate: "No verificado por Docubox",
       };
 
       setSignedPdfBlob(blob);
@@ -255,7 +255,7 @@ export default function VPSSignaturePanel({
                 className="font-semibold text-base"
                 style={{ color: "#F1F5F9" }}
               >
-                Firma criptográfica PAdES
+                Firma PDF no configurada
               </h3>
               <span
                 className="text-xs font-medium px-2 py-0.5 rounded-full"
@@ -264,13 +264,12 @@ export default function VPSSignaturePanel({
                   color: "#F59E0B",
                 }}
               >
-                Disponible próximamente
+                Proveedor legado
               </span>
             </div>
             <p className="text-sm leading-relaxed" style={{ color: "#94A3B8" }}>
-              El documento ya cuenta con constancia de firma electrónica y
-              sellado criptográfico. La validación nativa en Adobe Acrobat
-              estará disponible próximamente.
+              No existe evidencia técnica registrada de una firma PAdES,
+              certificado X.509 o estampa RFC 3161 para este documento.
             </p>
           </div>
         </div>
@@ -295,7 +294,7 @@ export default function VPSSignaturePanel({
               />
             </svg>
             <span className="text-sm" style={{ color: "#94A3B8" }}>
-              Constancia de firma electrónica generada
+              La constancia visual no acredita una firma PAdES
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -314,7 +313,7 @@ export default function VPSSignaturePanel({
               />
             </svg>
             <span className="text-sm" style={{ color: "#94A3B8" }}>
-              Sellado criptográfico SHA-256 aplicado
+              El proveedor heredado no expone evidencia verificable
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -333,7 +332,7 @@ export default function VPSSignaturePanel({
               />
             </svg>
             <span className="text-sm" style={{ color: "#94A3B8" }}>
-              Validación nativa Adobe Acrobat (PAdES B-T) — próximamente
+              PAdES, certificado y RFC 3161: no configurados
             </span>
           </div>
         </div>
@@ -346,12 +345,12 @@ export default function VPSSignaturePanel({
             color: "#F1F5F9",
           }}
         >
-          Aplicar Firma PAdES
+          Firma PAdES no disponible
         </button>
 
         <p className="text-xs text-center" style={{ color: "#64748B" }}>
-          Esta función requiere activación del servidor de firma. El documento
-          actual tiene plena validez jurídica.
+          La validez del documento depende de sus evidencias registradas; esta
+          pantalla no certifica PAdES ni sellado de tiempo.
         </p>
       </div>
     );
@@ -391,7 +390,7 @@ export default function VPSSignaturePanel({
             </svg>
           </div>
           <h3 className="font-semibold text-base" style={{ color: "#F1F5F9" }}>
-            Aplicando firma criptográfica
+            Procesando con proveedor legado
           </h3>
         </div>
 
@@ -480,7 +479,7 @@ export default function VPSSignaturePanel({
                 color: "#10B981",
               }}
             >
-              ✓ Firma PAdES Aplicada
+              Archivo procesado por proveedor legado
             </span>
           </div>
         </div>
@@ -494,8 +493,8 @@ export default function VPSSignaturePanel({
             { label: "Certificado", value: signatureMetadata.certificate },
             {
               label: "TSA",
-              value: "DigiCert RFC 3161 ✓",
-              color: "#10B981",
+              value: "No verificada",
+              color: "#F59E0B",
             },
             {
               label: "Firmado",
@@ -645,10 +644,10 @@ export default function VPSSignaturePanel({
     >
       <div>
         <h3 className="font-semibold text-base mb-1" style={{ color: "#F1F5F9" }}>
-          Firma criptográfica PAdES
+          Proveedor de firma legado
         </h3>
         <p className="text-sm" style={{ color: "#64748B" }}>
-          Vista previa del sello que aparecerá en el documento
+          Vista informativa. No acredita PAdES, certificado ni TSA.
         </p>
       </div>
 
@@ -682,7 +681,7 @@ export default function VPSSignaturePanel({
             { label: "Firmado por:", value: signerName, highlight: true },
             { label: "Fecha:", value: nowStr },
             { label: "Razón:", value: reason },
-            { label: "Certificado:", value: "Docubox CA | RSA-2048" },
+            { label: "Certificado:", value: "No verificado por Docubox" },
           ].map(({ label, value, highlight }) => (
             <div key={label} className="flex items-baseline gap-1">
               <span
@@ -710,7 +709,7 @@ export default function VPSSignaturePanel({
               Sello de tiempo:
             </span>
             <span className="text-xs" style={{ color: "#10B981", fontSize: "8px" }}>
-              DigiCert RFC 3161 ✓
+              No configurada
             </span>
           </div>
         </div>
@@ -724,7 +723,7 @@ export default function VPSSignaturePanel({
             className="text-xs font-mono"
             style={{ color: "#6B7280", fontSize: "6px" }}
           >
-            Al hacer clic en Acrobat verá detalles completos de la firma
+            La verificación independiente se habilitará con el motor PAdES.
           </span>
         </div>
       </div>
@@ -739,10 +738,9 @@ export default function VPSSignaturePanel({
         }}
       >
         <p className="text-xs leading-relaxed" style={{ color: "#1E40AF" }}>
-          Al abrir el documento en Adobe Acrobat, haga clic sobre este sello
-          para ver la verificación criptográfica completa: nombre del firmante,
-          certificado Docubox CA, confirmación del sello de tiempo RFC 3161 y
-          estado de integridad del documento.
+          El proveedor heredado puede procesar un archivo, pero no se presenta
+          como una firma PAdES válida hasta que el motor independiente verifique
+          ByteRange, CMS, certificado y cualquier estampa de tiempo.
         </p>
       </div>
 
@@ -751,7 +749,7 @@ export default function VPSSignaturePanel({
         className="w-full py-2.5 px-4 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
         style={{ backgroundColor: "#1E6BFF", color: "#F1F5F9" }}
       >
-        Aplicar Firma Criptográfica PAdES
+        Procesar con proveedor legado
       </button>
     </div>
   );

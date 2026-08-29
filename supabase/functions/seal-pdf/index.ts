@@ -6,6 +6,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { PDFDocument, rgb, StandardFonts } from 'https://esm.sh/pdf-lib@1.17.1';
 import { userCanAccessDocument } from '../_shared/document-access.ts';
+import { corsHeaders, isAllowedOrigin } from '../_shared/cors.ts';
 
 declare const Deno: {
   env: {
@@ -13,9 +14,35 @@ declare const Deno: {
   };
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+function resolveAuthorizedStoragePath(
+  document: { storage_path?: string | null; file_url?: string | null },
+  supabaseUrl: string,
+) {
+  const directPath = String(document.storage_path || '').trim().replace(/^\/+/, '');
+  if (directPath && !directPath.includes('..')) return directPath;
+
+  const rawUrl = String(document.file_url || '').trim();
+  if (!rawUrl) return null;
+  if (!/^https?:\/\//i.test(rawUrl)) {
+    const path = rawUrl.replace(/^\/+/, '');
+    return path && !path.includes('..') ? path : null;
+  }
+
+  try {
+    const source = new URL(rawUrl);
+    if (source.origin !== new URL(supabaseUrl).origin) return null;
+    const marker = [
+      '/storage/v1/object/sign/documents/',
+      '/storage/v1/object/authenticated/documents/',
+      '/storage/v1/object/public/documents/',
+    ].find((candidate) => source.pathname.includes(candidate));
+    if (!marker) return null;
+    const path = decodeURIComponent(source.pathname.slice(source.pathname.indexOf(marker) + marker.length))
+      .replace(/^\/+/, '');
+    return path && !path.includes('..') ? path : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
@@ -248,8 +275,11 @@ async function addSealPage(params: {
 // ── Handler principal ─────────────────────────────────────────────────────────
 
 serve(async (req) => {
+  const requestCorsHeaders = corsHeaders(req)
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return isAllowedOrigin(req.headers.get('Origin'))
+      ? new Response('ok', { headers: requestCorsHeaders })
+      : new Response('Origin not allowed', { status: 403 })
   }
 
   try {
@@ -263,7 +293,7 @@ serve(async (req) => {
       authHeader?.replace('Bearer ', '') || ''
     )
     if (authError || !user) {
-      return new Response('Unauthorized', { status: 401, headers: corsHeaders })
+      return new Response('Unauthorized', { status: 401, headers: requestCorsHeaders })
     }
 
     const body = await req.json()
@@ -276,13 +306,13 @@ serve(async (req) => {
       ip_address = 'No disponible',
       geolocation = '',
       workspace_id,
-      file_url,
+      file_url: ignoredClientFileUrl,
       participants = [],
       campos_solicitados = [],
     } = body
 
     if (!await userCanAccessDocument(supabase, user, document_id, { ownerOrAdminOnly: true })) {
-      return new Response('Forbidden', { status: 403, headers: corsHeaders })
+      return new Response('Forbidden', { status: 403, headers: requestCorsHeaders })
     }
 
     console.log('[seal-pdf] ▶ Inicio del proceso', {
@@ -296,7 +326,6 @@ serve(async (req) => {
       workspace_id: workspace_id || '(sin workspace)',
       participants_count: participants.length,
       campos_count: campos_solicitados.length,
-      has_file_url: !!file_url,
       timestamp: new Date().toISOString(),
     })
 
@@ -304,19 +333,64 @@ serve(async (req) => {
       console.warn('[seal-pdf] ✗ Campos requeridos faltantes', { document_id, signer_name, signer_email })
       return new Response(
         JSON.stringify({ error: 'Faltan campos requeridos: document_id, signer_name, signer_email' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    const { data: sourceDocument, error: sourceDocumentError } = await supabase
+      .from('documentos')
+      .select('id,workspace_id,storage_path,file_url,sealed_pdf_path')
+      .eq('id', document_id)
+      .maybeSingle()
+    if (sourceDocumentError || !sourceDocument) {
+      return new Response('Documento no encontrado', { status: 404, headers: requestCorsHeaders })
+    }
+    if (workspace_id && sourceDocument.workspace_id && workspace_id !== sourceDocument.workspace_id) {
+      return new Response('Workspace no coincide con el documento', { status: 403, headers: requestCorsHeaders })
+    }
+
+    // Only document-scoped additional metadata travels with the sealed PDF.
+    // Management metadata remains intentionally outside of the signed artifact.
+    const { data: documentScopedMetadata, error: documentScopedMetadataError } = await supabase
+      .from('document_additional_metadata')
+      .select('name,value_display')
+      .eq('document_id', document_id)
+      .eq('metadata_scope', 'document')
+      .order('created_at', { ascending: true })
+    if (documentScopedMetadataError) {
+      console.warn('[seal-pdf] No fue posible leer metadatos documentales adicionales', { error: documentScopedMetadataError.message })
+    }
+    const additionalMetadataKeywords = (documentScopedMetadata || [])
+      .map((metadata: { name?: string; value_display?: string }) => {
+        const name = String(metadata.name || '').trim()
+        const value = String(metadata.value_display || '').trim()
+        return name && value ? `Docubox:${name}=${value}`.slice(0, 160) : null
+      })
+      .filter((value): value is string => Boolean(value))
+      .slice(0, 20)
+
+    // Never use a URL supplied by the caller in this privileged function.
+    void ignoredClientFileUrl
 
     // ── 1. Obtener el PDF original desde Storage ──────────────────────────────
     let originalPdfBytes: Uint8Array | null = null
 
+    const authorizedPath = resolveAuthorizedStoragePath(sourceDocument, supabaseUrl)
+    if (authorizedPath) {
+      const { data: sourcePdf } = await supabase.storage.from('documents').download(authorizedPath)
+      if (sourcePdf) originalPdfBytes = new Uint8Array(await sourcePdf.arrayBuffer())
+    }
+
     // Strategy 1: Use file_url passed from client (most reliable)
+    /*
+     * Disabled legacy fallback. `file_url` is always null because only the
+     * path persisted on the authorized documento row may be downloaded.
     if (file_url) {
       console.log('[seal-pdf] [1/9] Intentando descargar PDF desde file_url', { file_url: file_url.slice(0, 80) })
       try {
         // Try direct fetch first
-        const directRes = await fetch(file_url, { signal: AbortSignal.timeout(30000) })
+        const directRes = new Response(null, { status: 403 })
+        throw new Error('Client supplied file URLs are not allowed')
         if (directRes.ok) {
           originalPdfBytes = new Uint8Array(await directRes.arrayBuffer())
           console.log('[seal-pdf] [1/9] ✓ PDF descargado directamente desde file_url', { sizeBytes: originalPdfBytes.length })
@@ -357,10 +431,11 @@ serve(async (req) => {
       }
     }
 
-    // Strategy 3: Try standard paths in documents bucket
+    */
+    // Compatibility fallback for records created before storage_path existed.
     if (!originalPdfBytes) {
-      const pathsToTry = workspace_id
-        ? [`${workspace_id}/${document_id}/original.pdf`, `${document_id}/original.pdf`]
+      const pathsToTry = sourceDocument.workspace_id
+        ? [`${sourceDocument.workspace_id}/${document_id}/original.pdf`, `${document_id}/original.pdf`]
         : [`${document_id}/original.pdf`]
 
       for (const pdfPath of pathsToTry) {
@@ -378,7 +453,7 @@ serve(async (req) => {
       console.error('[seal-pdf] ✗ No se pudo obtener el PDF original por ningún método')
       return new Response(
         JSON.stringify({ error: 'No se encontró el PDF original en Storage' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 404, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
@@ -404,7 +479,14 @@ serve(async (req) => {
     pdfDoc.setSubject(`Firma electrónica — ${signer_name} — ${reason}`)
     pdfDoc.setCreator('DOCUBOX — Plataforma de firma electrónica')
     pdfDoc.setProducer('DOCUBOX VisualSealRenderer v1.0')
-    pdfDoc.setKeywords(['firma electrónica', 'DOCUBOX', 'constancia visual', 'SHA-256', 'México'])
+    pdfDoc.setKeywords([
+      'firma electrónica',
+      'DOCUBOX',
+      'constancia visual',
+      'SHA-256',
+      'México',
+      ...additionalMetadataKeywords,
+    ])
 
     console.log('[seal-pdf] [3/9] ✓ Metadata del PDF establecida', {
       title: `Documento firmado — DOCUBOX — ${folio}`,
@@ -478,9 +560,19 @@ serve(async (req) => {
     })
 
     // ── 6. Guardar PDF sellado en Storage ─────────────────────────────────────
-    const sealedPath = workspace_id
-      ? `${workspace_id}/${document_id}/sealed.pdf`
+    const sealedPath = sourceDocument.workspace_id
+      ? `${sourceDocument.workspace_id}/${document_id}/sealed.pdf`
       : `${document_id}/sealed.pdf`
+
+    const { data: existingSealedPdf } = await supabase.storage
+      .from('documents-signed')
+      .download(sealedPath)
+    if (existingSealedPdf) {
+      return new Response(
+        JSON.stringify({ error: 'El PDF sellado ya existe y es inmutable.', code: 'SEALED_PDF_EXISTS' }),
+        { status: 409, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
 
     console.log('[seal-pdf] [6/9] Guardando PDF sellado en Storage', {
       bucket: 'documents-signed',
@@ -492,7 +584,7 @@ serve(async (req) => {
       .from('documents-signed')
       .upload(sealedPath, pdfBytes, {
         contentType: 'application/pdf',
-        upsert: true,
+        upsert: false,
       })
 
     if (uploadError) {
@@ -511,6 +603,7 @@ serve(async (req) => {
         .from('documentos')
         .update({ sealed_pdf_path: sealedPath })
         .eq('id', document_id)
+        .is('sealed_pdf_path', null)
       if (docUpdateError) {
         console.warn('[seal-pdf] [6/9] ⚠ No se pudo actualizar sealed_pdf_path en documentos', { error: docUpdateError })
       } else {
@@ -602,7 +695,7 @@ serve(async (req) => {
     return new Response(pdfBytes, {
       status: 200,
       headers: {
-        ...corsHeaders,
+        ...requestCorsHeaders,
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="DOCUBOX_${document_id}_constancia_visual.pdf"`,
         'X-Folio': folio,
@@ -623,7 +716,7 @@ serve(async (req) => {
     // Always return non-200 status for errors so client can detect them via !sealRes.ok
     return new Response(
       JSON.stringify({ error: 'Error interno al procesar el documento', details: (error as Error).message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
     )
   }
 })

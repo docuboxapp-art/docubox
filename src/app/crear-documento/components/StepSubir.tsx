@@ -7,7 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { SearchableSelect, InfoTooltip } from './SharedComponents';
 import { DocuboxSourceSelector } from './DocuboxSourceSelector';
-import type { DocumentConfig, GrupoTipoDocumento, TipoDocumento, Etiqueta, Carpeta, DocuboxSourceSelection } from './types';
+import type { AdditionalDocumentMetadata, AdditionalMetadataDataType, AdditionalMetadataScope, DocumentConfig, GrupoTipoDocumento, TipoDocumento, Etiqueta, Carpeta, DocuboxSourceSelection } from './types';
 
 // --- Brand Icons --------------------------------------------------------------
 
@@ -497,7 +497,10 @@ function EtiquetasSearchFieldWithModal({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setOpen(false)}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 overflow-hidden flex flex-col" style={{ maxHeight: '85vh' }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold text-gray-900">Etiquetas</h3>
+              <div className="flex items-center gap-2">
+                <Tag size={18} className="text-primary" />
+                <h3 className="text-base font-semibold text-gray-900">Etiquetas</h3>
+              </div>
               <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <X size={18} />
               </button>
@@ -531,9 +534,17 @@ function EtiquetasSearchFieldWithModal({
               {selectedIds.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {etiquetas.filter((e) => selectedIds.includes(e.id)).map((e) => (
-                    <span key={e.id} className="flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
+                    <span
+                      key={e.id}
+                      className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border"
+                      style={{
+                        backgroundColor: `${e.color || '#1E6BFF'}18`,
+                        borderColor: `${e.color || '#1E6BFF'}55`,
+                        color: e.color || '#1E6BFF',
+                      }}
+                    >
                       {e.nombre}
-                      <button onClick={() => toggleSelect(e.id)} className="hover:text-primary/70"><X size={10} /></button>
+                      <button onClick={() => toggleSelect(e.id)} className="hover:opacity-70"><X size={10} /></button>
                     </span>
                   ))}
                 </div>
@@ -549,14 +560,16 @@ function EtiquetasSearchFieldWithModal({
                   {filtered.map((etq) => {
                     const isFav = favorites.includes(etq.id);
                     const isSelected = selectedIds.includes(etq.id);
+                    const tagColor = etq.color || '#1E6BFF';
                     return (
                       <div
                         key={etq.id}
                         onClick={() => toggleSelect(etq.id)}
-                        className={`flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-gray-50 text-gray-700'}`}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${isSelected ? '' : 'hover:bg-gray-50 text-gray-700'}`}
+                        style={isSelected ? { backgroundColor: `${tagColor}18`, color: tagColor } : undefined}
                       >
                         <span className="flex-1 text-sm">{etq.nombre}</span>
-                        {isSelected && <CheckCircle2 size={14} className="text-primary shrink-0" />}
+                        {isSelected && <CheckCircle2 size={14} className="shrink-0" style={{ color: tagColor }} />}
                         <button
                           type="button"
                           onClick={(e) => toggleFavorite(e, etq.id)}
@@ -1293,6 +1306,185 @@ function MetadatosModal({
   );
 }
 
+// --- Additional document metadata --------------------------------------------
+
+const ADDITIONAL_METADATA_TYPES: Array<{ value: AdditionalMetadataDataType; label: string }> = [
+  { value: 'text', label: 'Texto' },
+  { value: 'number', label: 'Número' },
+  { value: 'currency', label: 'Moneda' },
+  { value: 'date', label: 'Fecha' },
+  { value: 'datetime', label: 'Fecha y hora' },
+  { value: 'boolean', label: 'Sí / No' },
+  { value: 'list', label: 'Lista' },
+  { value: 'rfc', label: 'RFC' },
+  { value: 'curp', label: 'CURP' },
+  { value: 'email', label: 'Email' },
+  { value: 'identifier', label: 'Identificador' },
+  { value: 'reference', label: 'Referencia' },
+];
+
+const ADDITIONAL_METADATA_SCOPE_COPY: Record<AdditionalMetadataScope, { title: string; description: string }> = {
+  document: {
+    title: 'Metadato del documento',
+    description: 'Se vincula a la versión del documento y queda bloqueado al iniciar la firma.',
+  },
+  management: {
+    title: 'Metadato de gestión',
+    description: 'Sirve para organización interna; puede actualizarse después sin alterar el PDF firmado.',
+  },
+};
+
+function newAdditionalMetadata(): AdditionalDocumentMetadata {
+  return {
+    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `metadata-${Date.now()}-${Math.random()}`,
+    name: '',
+    dataType: 'text',
+    value: '',
+    scope: 'document',
+  };
+}
+
+function isValidAdditionalMetadata(entry: AdditionalDocumentMetadata): string | null {
+  if (!entry.name.trim()) return 'Indica el nombre del metadato.';
+  const value = String(entry.value).trim();
+  if (entry.dataType !== 'boolean' && !value) return 'Indica un valor para el metadato.';
+  if (['number', 'currency'].includes(entry.dataType) && !Number.isFinite(Number(value))) return 'Ingresa un valor numérico válido.';
+  if (entry.dataType === 'date' && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`)))) return 'Ingresa una fecha válida.';
+  if (entry.dataType === 'datetime' && Number.isNaN(Date.parse(value))) return 'Ingresa una fecha y hora válidas.';
+  if (entry.dataType === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Ingresa un correo electrónico válido.';
+  if (entry.dataType === 'rfc' && !/^[A-Z&Ñ]{3,4}\d{6}[A-Z\d]{3}$/i.test(value)) return 'Ingresa un RFC válido.';
+  if (entry.dataType === 'curp' && !/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z\d]\d$/i.test(value)) return 'Ingresa una CURP válida.';
+  return null;
+}
+
+function AdditionalMetadataModal({
+  entries,
+  onClose,
+  onSave,
+}: {
+  entries: AdditionalDocumentMetadata[];
+  onClose: () => void;
+  onSave: (entries: AdditionalDocumentMetadata[]) => void;
+}) {
+  const [savedEntries, setSavedEntries] = useState<AdditionalDocumentMetadata[]>(entries);
+  const [draft, setDraft] = useState<AdditionalDocumentMetadata>(newAdditionalMetadata);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const resetDraft = () => {
+    setDraft(newAdditionalMetadata());
+    setEditingId(null);
+    setError(null);
+  };
+
+  const addOrUpdate = () => {
+    const validationError = isValidAdditionalMetadata(draft);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    const normalizedName = draft.name.trim().toLocaleLowerCase();
+    if (savedEntries.some((entry) => entry.id !== editingId && entry.name.trim().toLocaleLowerCase() === normalizedName)) {
+      setError('Ya existe un metadato con ese nombre.');
+      return;
+    }
+    setSavedEntries((current) => editingId
+      ? current.map((entry) => entry.id === editingId ? { ...draft, name: draft.name.trim(), value: typeof draft.value === 'string' ? draft.value.trim() : draft.value } : entry)
+      : [...current, { ...draft, name: draft.name.trim(), value: typeof draft.value === 'string' ? draft.value.trim() : draft.value }]);
+    resetDraft();
+  };
+
+  const editEntry = (entry: AdditionalDocumentMetadata) => {
+    setDraft(entry);
+    setEditingId(entry.id);
+    setError(null);
+  };
+
+  const typeLabel = ADDITIONAL_METADATA_TYPES.find((type) => type.value === draft.dataType)?.label || 'Texto';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()} aria-modal="true" role="dialog" aria-labelledby="additional-metadata-title">
+        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 text-primary"><Tag size={18} /></span>
+            <div>
+              <h3 id="additional-metadata-title" className="text-base font-semibold text-slate-950">Metadatos adicionales</h3>
+              <p className="mt-0.5 text-xs text-slate-500">Agrega información de negocio sin modificar los metadatos técnicos de Docubox.</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Cerrar"><X size={18} /></button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Alcance del metadato">
+            {(Object.keys(ADDITIONAL_METADATA_SCOPE_COPY) as AdditionalMetadataScope[]).map((scope) => {
+              const copy = ADDITIONAL_METADATA_SCOPE_COPY[scope];
+              const selected = draft.scope === scope;
+              return (
+                <button key={scope} type="button" role="radio" aria-checked={selected} onClick={() => setDraft((current) => ({ ...current, scope }))} className={`rounded-lg border p-2.5 text-left transition-colors ${selected ? 'border-primary bg-blue-50/70 ring-1 ring-primary/15' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>
+                  <span className={`mb-1.5 flex h-6 w-6 items-center justify-center rounded-md ${selected ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'}`}>{scope === 'document' ? <Lock size={13} /> : <Folder size={13} />}</span>
+                  <span className="block text-[13px] font-semibold text-slate-900">{copy.title}</span>
+                  <span className="mt-0.5 block text-xs leading-4 text-slate-500">{copy.description}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-[1.15fr_0.85fr]">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">Nombre</span>
+              <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Ej. Centro de costo" className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15" />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">Tipo de dato</span>
+              <select value={draft.dataType} onChange={(event) => setDraft((current) => ({ ...current, dataType: event.target.value as AdditionalMetadataDataType, value: event.target.value === 'boolean' ? false : '' }))} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15">
+                {ADDITIONAL_METADATA_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="mt-3 block">
+            <span className="mb-1.5 block text-xs font-semibold text-slate-700">Valor</span>
+            {draft.dataType === 'boolean' ? (
+              <div className="flex gap-2" role="radiogroup" aria-label="Valor Sí o No">
+                {[{ value: true, label: 'Sí' }, { value: false, label: 'No' }].map((option) => (
+                  <button key={String(option.value)} type="button" role="radio" aria-checked={draft.value === option.value} onClick={() => setDraft((current) => ({ ...current, value: option.value }))} className={`h-10 flex-1 rounded-md border text-sm font-medium transition-colors ${draft.value === option.value ? 'border-primary bg-primary text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>{option.label}</button>
+                ))}
+              </div>
+            ) : (
+              <input type={draft.dataType === 'number' || draft.dataType === 'currency' ? 'number' : draft.dataType === 'date' ? 'date' : draft.dataType === 'datetime' ? 'datetime-local' : draft.dataType === 'email' ? 'email' : 'text'} step={draft.dataType === 'currency' ? '0.01' : undefined} value={String(draft.value)} onChange={(event) => setDraft((current) => ({ ...current, value: event.target.value }))} placeholder={draft.dataType === 'list' ? 'Ej. Contrato, factura o convenio' : `Valor de tipo ${typeLabel.toLocaleLowerCase()}`} className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15" />
+            )}
+          </label>
+          {draft.dataType === 'list' && <p className="mt-1.5 text-xs text-slate-500">Puedes usar una opción o una lista breve separada por comas.</p>}
+          {error && <p className="mt-3 text-xs font-medium text-red-600">{error}</p>}
+          <div className="mt-4 flex justify-end">
+            <button type="button" onClick={addOrUpdate} className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"><Plus size={16} />{editingId ? 'Actualizar metadato' : 'Agregar metadato'}</button>
+          </div>
+
+          <div className="mt-6 border-t border-slate-200 pt-4">
+            <div className="mb-2 flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Metadatos agregados</p><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{savedEntries.length}</span></div>
+            {savedEntries.length === 0 ? <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">Aún no has agregado metadatos.</p> : (
+              <div className="space-y-2">
+                {savedEntries.map((entry) => (
+                  <div key={entry.id} className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                    <div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><span className="truncate text-sm font-semibold text-slate-800">{entry.name}</span><span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{ADDITIONAL_METADATA_TYPES.find((type) => type.value === entry.dataType)?.label}</span></div><p className="mt-0.5 truncate text-xs text-slate-500">{entry.scope === 'document' ? 'Documento' : 'Gestión'} · {String(entry.value === true ? 'Sí' : entry.value === false ? 'No' : entry.value)}</p></div>
+                    <button type="button" onClick={() => editEntry(entry)} className="rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-blue-50">Editar</button>
+                    <button type="button" onClick={() => setSavedEntries((current) => current.filter((item) => item.id !== entry.id))} className="rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Eliminar</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-3">
+          <button type="button" onClick={onClose} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+          <button type="button" onClick={() => onSave(savedEntries)} className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90">Guardar metadatos</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 // --- Access Code Modal --------------------------------------------------------
 function CodigoAccesoModal({
   documentoId,
@@ -1553,7 +1745,11 @@ function FileUploadedLayout({
   const [metadatosAdicionales, setMetadatosAdicionales] = useState(false);
   const [leyendasDocumento, setLeyendasDocumento] = useState(false);
   const [showMetadatosModal, setShowMetadatosModal] = useState(false);
-  const [savedMetadatosCount, setSavedMetadatosCount] = useState(0);
+  const savedMetadatosCount = config.additionalMetadata?.length ?? 0;
+
+  useEffect(() => {
+    if (savedMetadatosCount > 0) setMetadatosAdicionales(true);
+  }, [savedMetadatosCount]);
 
   const [impedirImpresion, setImpedirImpresion] = useState(false);
   const [evitarCopiaTexto, setEvitarCopiaTexto] = useState(false);
@@ -1826,16 +2022,10 @@ function FileUploadedLayout({
                 </label>
                 <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
                   <input type="checkbox" checked={publico} onChange={(e) => setPublico(e.target.checked)} className="w-4 h-4 rounded border-gray-300 accent-primary" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-normal text-gray-700">
-                      Permitir consulta pública del documento firmado
-                    </span>
-                    <span className="mt-0.5 block text-xs leading-5 text-gray-400">
-                      Al completarse podrá visualizarse desde el portal de verificación. Si no
-                      activas esta opción, su consulta y descarga permanecerán privadas.
-                    </span>
+                  <span className="min-w-0 flex-1 text-sm font-normal text-gray-700">
+                    Permitir consulta pública del documento firmado
                   </span>
-                  <InfoTooltip text="La publicación sólo se habilita cuando el documento está completado. El portal mostrará el documento firmado mediante su enlace o código QR de verificación." />
+                  <InfoTooltip text="La publicación sólo se habilita cuando el documento está completado. Podrá visualizarse desde el portal de verificación mediante su enlace o código QR. Si no activas esta opción, la consulta y descarga permanecerán privadas." />
                 </label>
                 <div>
                   <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
@@ -1888,7 +2078,7 @@ function FileUploadedLayout({
 <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg" onClick={(e) => { e.preventDefault(); setShowMetadatosModal(true); }}>
                   <input type="checkbox" checked={metadatosAdicionales} onChange={() => {}} className="w-4 h-4 rounded border-gray-300 accent-primary pointer-events-none" />
                   <span className="text-sm text-gray-700 flex-1 font-normal">Crear metadatos adicionales al documento</span>
-                  <InfoTooltip text="Agrega metaetiquetas personalizadas (clave-valor) al documento para facilitar su búsqueda, clasificación y gestión documental." />
+                  <InfoTooltip text="Agrega metadatos de negocio tipados. Los metadatos del documento se bloquean al iniciar la firma; los de gestión permanecen editables y auditados." />
                 </label>
                 {metadatosAdicionales && savedMetadatosCount > 0 && (
                   <div className="ml-10 mr-3 mb-1">
@@ -2148,7 +2338,7 @@ function FileUploadedLayout({
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 <span className="flex items-center gap-1.5">
                   <Layers size={14} className="text-gray-400" />
-                  Tipo de documento <span className="text-red-500">*</span>
+                  Tipo de documento
                 </span>
               </label>
               {loadingData ? (
@@ -2204,17 +2394,18 @@ function FileUploadedLayout({
 
       {/* Metadatos Modal */}
       {showMetadatosModal && (
-        <MetadatosModal
-          documentoId={documentoId}
+        <AdditionalMetadataModal
+          entries={config.additionalMetadata || []}
           onClose={() => {
             setShowMetadatosModal(false);
             if (savedMetadatosCount === 0) {
               setMetadatosAdicionales(false);
             }
           }}
-          onSaved={(metaetiquetas) => {
+          onSave={(entries) => {
+            onConfigChange({ ...config, additionalMetadata: entries });
             setMetadatosAdicionales(true);
-            setSavedMetadatosCount(metaetiquetas.length);
+            setShowMetadatosModal(false);
           }}
         />
       )}

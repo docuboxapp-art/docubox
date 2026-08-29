@@ -353,8 +353,8 @@ function buildDocumentCompletedHtml(payload: EmailPayload): string {
                             <span style="font-size:16px;">🔏</span>
                           </td>
                           <td style="vertical-align:middle;">
-                            <p style="font-family:'Inter',Arial,sans-serif;font-size:13px;font-weight:600;color:#111827;margin:0 0 2px;">Documento PAdES Firmado</p>
-                            <p style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#6b7280;margin:0;">PDF con firmas electrónicas incrustadas en formato PAdES</p>
+                            <p style="font-family:'Inter',Arial,sans-serif;font-size:13px;font-weight:600;color:#111827;margin:0 0 2px;">Documento firmado</p>
+                            <p style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#6b7280;margin:0;">PDF derivado del proceso de firma. Consulta el visor para conocer el estado técnico de su certificación.</p>
                           </td>
                         </tr>
                       </table>
@@ -395,7 +395,7 @@ function buildDocumentCompletedHtml(payload: EmailPayload): string {
         </p>
         ${buildNoteBanner(
           hasEvidence
-            ? "Accede a la pestaña <strong>Descargas</strong> en el visor del documento para obtener el XML de evidencia, la constancia NOM-151 y el documento PAdES firmado."
+            ? "Accede a la pestaña <strong>Descargas</strong> en el visor del documento para obtener el XML de evidencia, la constancia NOM-151 y el PDF firmado."
             : "Descarga el documento firmado desde tu cuenta o comparte el enlace de verificación con terceros.",
           "#f0fdf4",
           "#065f46"
@@ -530,10 +530,10 @@ function buildParticipantInvitationHtml(payload: EmailPayload): string {
         <table cellpadding="0" cellspacing="0" width="100%">
           <tr>
             <td style="vertical-align:middle;padding-right:16px;width:56px;">
-              <!-- Icono distintivo de documento pendiente -->
-              <div style="width:52px;height:52px;background-color:#1E6BFF;border-radius:8px;display:inline-block;text-align:center;line-height:52px;">
-                <img src="https://img.icons8.com/ios-filled/50/ff/contract.png" alt="Documento" width="28" height="28" style="display:inline-block;vertical-align:middle;margin-top:12px;" />
-              </div>
+              <!-- Icono inline para evitar recursos externos bloqueados en clientes de correo -->
+              <table role="presentation" cellpadding="0" cellspacing="0" width="52" height="52" style="width:52px;height:52px;background-color:#1E6BFF;border-radius:8px;">
+                <tr><td align="center" valign="middle" style="color:#ffffff;font-family:Arial,sans-serif;font-size:24px;line-height:52px;text-align:center;">&#9993;</td></tr>
+              </table>
             </td>
             <td style="vertical-align:middle;">
               <h2 style="font-family:'Inter',Arial,sans-serif;color:#111827;font-size:20px;margin:0 0 4px;font-weight:700;line-height:1.3;">
@@ -650,6 +650,79 @@ function buildParticipantInvitationHtml(payload: EmailPayload): string {
     ${buildFooter(year)}`;
 
   return wrapEmail("Tienes un documento pendiente de firma — Docubox", bodyRows);
+}
+
+function buildParticipantInvitationV2Html(payload: EmailPayload): string {
+  const {
+    recipientName,
+    documentName,
+    senderName,
+    documentUrl,
+    participantRole,
+    signatureMethod,
+    personalMessage,
+    documentDescription,
+  } = payload;
+  const year = new Date().getFullYear();
+  const ctaUrl = documentUrl || `${APP_URL}/mis-participaciones`;
+  const infoRows =
+    buildInfoRow("Documento", documentName || "Sin nombre") +
+    buildInfoRow("Invitado por", senderName || "Un usuario") +
+    buildInfoRow("Tu participaci\u00f3n", participantRole || "Participante") +
+    buildInfoRow("M\u00e9todo", signatureMethod || "Firma electr\u00f3nica");
+
+  const bodyRows = `
+    ${buildHeader()}
+    <tr>
+      <td style="background-color:#eff6ff;padding:24px 40px 20px;border-bottom:1px solid #dbeafe;">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+          <tr>
+            <td style="vertical-align:middle;padding-right:16px;width:52px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="48" height="48" style="width:48px;height:48px;background-color:#1E6BFF;border-radius:8px;">
+                <tr>
+                  <td align="center" valign="middle" style="color:#ffffff;font-family:Arial,sans-serif;font-size:22px;font-weight:700;text-align:center;vertical-align:middle;">&#9993;</td>
+                </tr>
+              </table>
+            </td>
+            <td style="vertical-align:middle;">
+              <h2 style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;color:#1e3a8a;font-size:20px;margin:0 0 2px;font-weight:700;line-height:1.3;">
+                Invitaci\u00f3n a participar
+              </h2>
+              <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;color:#3b82f6;font-size:13px;margin:0;line-height:1.5;">
+                Tienes un documento pendiente en Docubox
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td class="email-body" style="padding:32px 40px 36px;background-color:#ffffff;">
+        <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;color:#374151;font-size:15px;line-height:1.7;margin:0 0 8px;">
+          Hola <strong>${recipientName || "Usuario"}</strong>,
+        </p>
+        <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;color:#6b7280;font-size:15px;line-height:1.7;margin:0 0 20px;">
+          <strong>${senderName || "Un usuario"}</strong> te invita a revisar y completar tu participaci\u00f3n en el siguiente documento.
+        </p>
+        ${buildInfoTable(infoRows)}
+        ${documentDescription ? `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;margin:0 0 20px;">
+            <tr><td style="padding:14px 16px;font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:14px;color:#4b5563;line-height:1.6;">${documentDescription}</td></tr>
+          </table>` : ""}
+        ${personalMessage ? `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:8px;margin:0 0 20px;">
+            <tr><td style="padding:14px 16px;font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:14px;color:#78350f;line-height:1.6;">${personalMessage}</td></tr>
+          </table>` : ""}
+        ${buildCTA("Revisar documento", ctaUrl, "#1E6BFF")}
+        <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:12px;color:#6b7280;margin:14px 0 0;line-height:1.6;word-break:break-all;">
+          Si el bot\u00f3n no funciona, abre este enlace:<br><a href="${ctaUrl}" style="color:#1E6BFF;">${ctaUrl}</a>
+        </p>
+        ${buildNoteBanner("Si no esperabas esta invitaci\u00f3n, puedes ignorar este correo. No compartas el enlace con otras personas.", "#eff6ff", "#1e40af")}
+      </td>
+    </tr>
+    ${buildFooter(year)}`;
+
+  return wrapEmail("Invitaci\u00f3n a participar - Docubox", bodyRows);
 }
 
 function buildParticipationReminderHtml(payload: EmailPayload): string {
@@ -1090,7 +1163,7 @@ function buildHtml(payload: EmailPayload): string {
     case "action_required":
       return buildActionRequiredHtml(payload);
     case "participant_invitation":
-      return buildParticipantInvitationHtml(payload);
+      return buildParticipantInvitationV2Html(payload);
     case "participation_reminder":
       return buildParticipationReminderHtml(payload);
     case "participation_completed":
@@ -1168,12 +1241,15 @@ serve(async (req) => {
       });
     }
 
-    const subject = getSubject(
-      rawPayload.type,
-      rawPayload.documentName?.replace(/[\r\n]+/g, " "),
-      rawPayload.participationStatus,
-      rawPayload.participantName?.replace(/[\r\n]+/g, " "),
-    );
+    const sanitizedDocumentName = rawPayload.documentName?.replace(/[\r\n]+/g, " ");
+    const subject = rawPayload.type === "participant_invitation"
+      ? `Invitaci\u00f3n a participar: ${sanitizedDocumentName || "Sin nombre"}`
+      : getSubject(
+          rawPayload.type,
+          sanitizedDocumentName,
+          rawPayload.participationStatus,
+          rawPayload.participantName?.replace(/[\r\n]+/g, " "),
+        );
     const html = buildHtml(payload);
 
     console.log(`[send-email-notifications] Sending type=${payload.type} to=${payload.to} from=${FROM_EMAIL}`);

@@ -1,5 +1,7 @@
 // DOCUBOX — Fase de activación: esta Edge Function
-// requiere VPS activo en VPS_SIGNING_URL.
+// Legacy route. New integrations must use KeyManagementProvider.
+import { LegacyLocalPemSigningProvider } from '../_shared/legacy-local-pem-signing-provider.ts';
+import { corsHeaders, isAllowedOrigin } from '../_shared/cors.ts';
 // Mientras el VPS no esté disponible retorna 503.
 // seal-pdf sigue funcionando independientemente.
 
@@ -12,18 +14,31 @@ declare const Deno: {
   };
 };
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+function normalizeEmail(value: unknown) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function participantForUser(participants: unknown, user: { id: string; email?: string | null }) {
+  if (!Array.isArray(participants)) return null;
+  const email = normalizeEmail(user.email);
+  return participants.find((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return false;
+    const participant = candidate as Record<string, unknown>;
+    return participant.id === user.id || (email && normalizeEmail(participant.email) === email);
+  }) as Record<string, unknown> | null;
+}
 
 Deno.serve(async (req: Request) => {
+  const requestCorsHeaders = corsHeaders(req);
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return isAllowedOrigin(req.headers.get('Origin'))
+      ? new Response("ok", { headers: requestCorsHeaders })
+      : new Response("Origin not allowed", { status: 403 });
   }
 
   const VPS_SIGNING_URL = Deno.env.get("VPS_SIGNING_URL") ?? "";
   const VPS_SECRET_TOKEN = Deno.env.get("VPS_SECRET_TOKEN") ?? "";
+  const legacyPemProvider = new LegacyLocalPemSigningProvider(VPS_SIGNING_URL, VPS_SECRET_TOKEN);
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
   const SUPABASE_SERVICE_ROLE_KEY =
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -35,7 +50,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({ error: "No autorizado", code: "UNAUTHORIZED" }),
       {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
     );
   }
@@ -57,7 +72,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({ error: "Token inválido", code: "INVALID_TOKEN" }),
       {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
     );
   }
@@ -65,8 +80,8 @@ Deno.serve(async (req: Request) => {
   // Parsear body
   let body: {
     document_id: string;
-    signer_name: string;
-    signer_email: string;
+    signer_name?: string;
+    signer_email?: string;
     reason: string;
     location?: string;
     signing_session_id?: string;
@@ -82,15 +97,15 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({ error: "Body JSON inválido" }),
       {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
     );
   }
 
   const {
     document_id,
-    signer_name,
-    signer_email,
+    signer_name: requestedSignerName,
+    signer_email: requestedSignerEmail,
     reason,
     location = "México",
     signing_session_id,
@@ -99,22 +114,23 @@ Deno.serve(async (req: Request) => {
     page_number = -2,
   } = body;
 
-  if (!document_id || !signer_name || !signer_email || !reason) {
+  if (!document_id || !reason) {
     return new Response(
       JSON.stringify({
-        error: "Campos requeridos: document_id, signer_name, signer_email, reason",
+        error: "Campos requeridos: document_id, reason",
       }),
       {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
     );
   }
 
-  // Verificar que el documento existe y el usuario tiene acceso
+  // The signer identity is derived from the authenticated participant, never
+  // from signer_name or signer_email supplied by the browser.
   const { data: docData, error: docError } = await supabase
-    .from("documents")
-    .select("id, workspace_id, nombre_archivo")
+    .from("documentos")
+    .select("id, workspace_id, participantes")
     .eq("id", document_id)
     .single();
 
@@ -123,31 +139,48 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({ error: "Documento no encontrado", code: "NOT_FOUND" }),
       {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
     );
   }
 
-  const workspace_id = docData.workspace_id;
-
-  // Verificar que el usuario pertenece al workspace
-  const { data: memberData } = await supabase
-    .from("workspace_members")
-    .select("id")
-    .eq("workspace_id", workspace_id)
-    .eq("user_id", user.id)
-    .single();
-
-  if (!memberData) {
+  const authorizedParticipant = participantForUser(docData.participantes, user);
+  const signerEmail = normalizeEmail(authorizedParticipant?.email || user.email);
+  const signerName = String(
+    authorizedParticipant?.nombre
+    || authorizedParticipant?.nombre_completo
+    || authorizedParticipant?.name
+    || user.user_metadata?.full_name
+    || user.email
+    || '',
+  ).trim();
+  if (!authorizedParticipant || !signerEmail || !signerName) {
     return new Response(
       JSON.stringify({
-        error: "Sin permiso para firmar este documento",
-        code: "FORBIDDEN",
+        error: "Tu cuenta no es un participante autorizado para firmar este documento",
+        code: "SIGNER_NOT_AUTHORIZED",
       }),
       {
         status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
+    );
+  }
+  if (
+    (requestedSignerEmail && normalizeEmail(requestedSignerEmail) !== signerEmail)
+    || (requestedSignerName && requestedSignerName.trim() !== signerName)
+  ) {
+    return new Response(
+      JSON.stringify({ error: "La identidad solicitada no coincide con el participante autorizado", code: "SIGNER_IDENTITY_MISMATCH" }),
+      { status: 403, headers: { ...requestCorsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  const workspace_id = docData.workspace_id;
+  if (!workspace_id) {
+    return new Response(
+      JSON.stringify({ error: "El documento no tiene un espacio de trabajo autorizado.", code: "WORKSPACE_REQUIRED" }),
+      { status: 409, headers: { ...requestCorsHeaders, "Content-Type": "application/json" } },
     );
   }
 
@@ -165,7 +198,7 @@ Deno.serve(async (req: Request) => {
       }),
       {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
     );
   }
@@ -180,7 +213,7 @@ Deno.serve(async (req: Request) => {
     "desconocida";
 
   // Verificar que el VPS está configurado
-  if (!VPS_SIGNING_URL) {
+  if (!legacyPemProvider.isConfigured) {
     return new Response(
       JSON.stringify({
         error:
@@ -190,7 +223,7 @@ Deno.serve(async (req: Request) => {
       }),
       {
         status: 503,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
     );
   }
@@ -203,8 +236,8 @@ Deno.serve(async (req: Request) => {
     "sealed.pdf"
   );
   formData.append("document_id", document_id);
-  formData.append("signer_name", signer_name);
-  formData.append("signer_email", signer_email);
+  formData.append("signer_name", signerName);
+  formData.append("signer_email", signerEmail);
   formData.append("reason", reason);
   formData.append("location", location);
   formData.append("ip_address", ip_address);
@@ -217,14 +250,7 @@ Deno.serve(async (req: Request) => {
   // Enviar al VPS
   let vpsResponse: Response;
   try {
-    vpsResponse = await fetch(`${VPS_SIGNING_URL}/sign`, {
-      method: "POST",
-      headers: {
-        "X-VPS-Token": VPS_SECRET_TOKEN,
-      },
-      body: formData,
-      signal: AbortSignal.timeout(60000), // 60 segundos timeout
-    });
+    vpsResponse = await legacyPemProvider.sign(formData);
   } catch (fetchError) {
     console.error("[DOCUBOX] VPS no disponible:", fetchError);
     return new Response(
@@ -236,7 +262,7 @@ Deno.serve(async (req: Request) => {
       }),
       {
         status: 503,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
     );
   }
@@ -252,7 +278,7 @@ Deno.serve(async (req: Request) => {
       }),
       {
         status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...requestCorsHeaders, "Content-Type": "application/json" },
       }
     );
   }
@@ -265,19 +291,32 @@ Deno.serve(async (req: Request) => {
   const originalHash = vpsResponse.headers.get("X-Original-Hash") ?? "";
   const fieldName = vpsResponse.headers.get("X-Field-Name") ?? "";
   const signedAt = vpsResponse.headers.get("X-Signed-At") ?? new Date().toISOString();
-  const signatureLevel = vpsResponse.headers.get("X-Signature-Level") ?? "PAdES-B-T";
+  const signatureLevel = vpsResponse.headers.get("X-Signature-Level") ?? "legacy-provider-unverified";
 
   // Guardar PDF firmado en Supabase Storage
   const signedPdfPath = `${workspace_id}/${document_id}/signed.pdf`;
+  const { data: existingSignedPdf } = await supabase.storage
+    .from("documents-signed")
+    .download(signedPdfPath);
+  if (existingSignedPdf) {
+    return new Response(
+      JSON.stringify({ error: "El PDF firmado ya existe y es inmutable.", code: "SIGNED_PDF_EXISTS" }),
+      { status: 409, headers: { ...requestCorsHeaders, "Content-Type": "application/json" } },
+    );
+  }
   const { error: uploadError } = await supabase.storage
     .from("documents-signed")
     .upload(signedPdfPath, new Uint8Array(signedPdfBuffer), {
       contentType: "application/pdf",
-      upsert: true,
+      upsert: false,
     });
 
   if (uploadError) {
     console.error("[DOCUBOX] Error al guardar PDF firmado:", uploadError);
+    return new Response(
+      JSON.stringify({ error: "No se pudo guardar el PDF firmado.", code: "SIGNED_PDF_STORE_FAILED" }),
+      { status: 500, headers: { ...requestCorsHeaders, "Content-Type": "application/json" } },
+    );
   }
 
   // Actualizar tabla documents (solo si las columnas existen)
@@ -285,7 +324,7 @@ Deno.serve(async (req: Request) => {
     await supabase
       .from("documents")
       .update({
-        pades_signed: true,
+        pades_signed: false,
         pades_signed_at: signedAt,
         pades_field_name: fieldName,
         pades_signed_hash: signedHash,
@@ -300,15 +339,16 @@ Deno.serve(async (req: Request) => {
   try {
     await supabase.from("document_audit_trail").insert({
       document_id,
-      action: "PADES_SIGNATURE_APPLIED",
+      action: "LEGACY_PEM_SIGNATURE_PROCESSED",
       user_id: user.id,
       metadata: {
-        signer_email,
+        signer_email: signerEmail,
         field_name: fieldName,
         signed_hash: signedHash,
-        signature_level: "PAdES-B-T",
-        certificate: "CN=Docubox CA,O=Docubox,C=MX",
-        tsa: "DigiCert RFC 3161",
+        provider: legacyPemProvider.providerId,
+        provider_status: legacyPemProvider.status,
+        signature_level: signatureLevel,
+        verification_status: "manual_review",
       },
     });
   } catch (auditError) {
@@ -319,7 +359,7 @@ Deno.serve(async (req: Request) => {
   return new Response(signedPdfBuffer, {
     status: 200,
     headers: {
-      ...corsHeaders,
+      ...requestCorsHeaders,
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="DOCUBOX_${document_id}.pdf"`,
       "X-Signed-Hash": signedHash,

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendParticipantInvitationEmails } from '@/lib/emailNotifications';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  isEmailNotificationEnabled,
+  sendParticipantInvitationEmails,
+} from '@/lib/emailNotifications';
 import { createNotificationServer } from '@/lib/notificationsInApp';
 import { findUnsupportedOrganizationSignatureMethods } from '@/lib/organization/governance';
 import { initializeCollaborationDocumentVersion } from '@/lib/collaboration/documents';
@@ -9,12 +13,92 @@ import {
   resolveInternalDocumentSource,
   type ResolvedInternalSource,
 } from '@/lib/documents/internal-source';
+import { getParticipantPortalUrl } from '@/lib/publicAppUrl';
 
 type OrganizationGovernance = {
   workflow: Record<string, any> | null;
   signaturePolicy: Record<string, any> | null;
   snapshot: Record<string, any>;
 };
+
+const ADDITIONAL_METADATA_TYPES = new Set([
+  'text', 'number', 'currency', 'date', 'datetime', 'boolean', 'list', 'rfc', 'curp', 'email', 'identifier', 'reference',
+]);
+
+type NormalizedAdditionalMetadata = {
+  id: string;
+  name: string;
+  dataType: string;
+  value: string | boolean;
+  scope: 'document' | 'management';
+};
+
+function isAdditionalMetadataSchemaMissing(error: { code?: string | null; message?: string | null } | null) {
+  if (!error) return false;
+  const message = error.message || '';
+  return (
+    error.code === 'PGRST204' ||
+    /additional_metadata|document_additional_metadata/i.test(message) &&
+      /schema cache|does not exist|relation/i.test(message)
+  );
+}
+
+async function isAdditionalMetadataSchemaReady() {
+  const documentColumn = await supabaseAdmin
+    .from('documentos')
+    .select('additional_metadata')
+    .limit(1);
+
+  if (documentColumn.error) {
+    if (isAdditionalMetadataSchemaMissing(documentColumn.error)) return false;
+    throw documentColumn.error;
+  }
+
+  const metadataTable = await supabaseAdmin
+    .from('document_additional_metadata')
+    .select('id')
+    .limit(1);
+
+  if (metadataTable.error) {
+    if (isAdditionalMetadataSchemaMissing(metadataTable.error)) return false;
+    throw metadataTable.error;
+  }
+
+  return true;
+}
+
+function normalizeAdditionalMetadata(value: unknown): NormalizedAdditionalMetadata[] {
+  if (!Array.isArray(value)) return [];
+  if (value.length > 30) throw new Error('Puedes agregar hasta 30 metadatos adicionales.');
+
+  const names = new Set<string>();
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') throw new Error(`El metadato ${index + 1} no es válido.`);
+    const raw = entry as Record<string, unknown>;
+    const name = String(raw.name || '').trim();
+    const dataType = String(raw.dataType || '').trim().toLowerCase();
+    const scope = raw.scope === 'management' ? 'management' : raw.scope === 'document' ? 'document' : null;
+    const metadataValue = typeof raw.value === 'boolean' ? raw.value : String(raw.value ?? '').trim();
+    const id = String(raw.id || randomUUID()).trim();
+
+    if (!name || name.length > 120) throw new Error(`El nombre del metadato ${index + 1} no es válido.`);
+    if (!ADDITIONAL_METADATA_TYPES.has(dataType)) throw new Error(`El tipo de dato de "${name}" no es válido.`);
+    if (!scope) throw new Error(`El alcance de "${name}" no es válido.`);
+    if (dataType !== 'boolean' && !metadataValue) throw new Error(`Indica un valor para "${name}".`);
+    if (typeof metadataValue === 'string' && metadataValue.length > 2000) throw new Error(`El valor de "${name}" es demasiado largo.`);
+    if (['number', 'currency'].includes(dataType) && (typeof metadataValue !== 'string' || !Number.isFinite(Number(metadataValue)))) throw new Error(`El valor de "${name}" debe ser numérico.`);
+    if (dataType === 'date' && (typeof metadataValue !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(metadataValue) || Number.isNaN(Date.parse(`${metadataValue}T00:00:00Z`)))) throw new Error(`La fecha de "${name}" no es válida.`);
+    if (dataType === 'datetime' && (typeof metadataValue !== 'string' || Number.isNaN(Date.parse(metadataValue)))) throw new Error(`La fecha y hora de "${name}" no es válida.`);
+    if (dataType === 'email' && (typeof metadataValue !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(metadataValue))) throw new Error(`El correo de "${name}" no es válido.`);
+    if (dataType === 'rfc' && (typeof metadataValue !== 'string' || !/^[A-Z&Ñ]{3,4}\d{6}[A-Z\d]{3}$/i.test(metadataValue))) throw new Error(`El RFC de "${name}" no es válido.`);
+    if (dataType === 'curp' && (typeof metadataValue !== 'string' || !/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z\d]\d$/i.test(metadataValue))) throw new Error(`La CURP de "${name}" no es válida.`);
+
+    const normalizedName = name.toLocaleLowerCase();
+    if (names.has(normalizedName)) throw new Error(`El metadato "${name}" está duplicado.`);
+    names.add(normalizedName);
+    return { id, name, dataType, value: metadataValue, scope };
+  });
+}
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -199,11 +283,33 @@ export async function POST(req: NextRequest) {
       selloDigital,
       estampaAutenticacion,
       metadatosAdicionales,
+      additionalMetadata,
       docuboxSource,
     } = JSON.parse(metaRaw);
 
     if (!documentoId || !fileName || !fileHashSha256) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
+    }
+
+    let normalizedAdditionalMetadata: NormalizedAdditionalMetadata[];
+    try {
+      normalizedAdditionalMetadata = normalizeAdditionalMetadata(additionalMetadata);
+    } catch (metadataError) {
+      return NextResponse.json(
+        { error: metadataError instanceof Error ? metadataError.message : 'Los metadatos adicionales no son válidos.' },
+        { status: 400 }
+      );
+    }
+
+    const hasAdditionalMetadata = normalizedAdditionalMetadata.length > 0;
+    if (hasAdditionalMetadata && !(await isAdditionalMetadataSchemaReady())) {
+      return NextResponse.json(
+        {
+          error: 'Los metadatos adicionales requieren actualizar la base de datos antes de crear el documento.',
+          code: 'ADDITIONAL_METADATA_MIGRATION_REQUIRED',
+        },
+        { status: 503 }
+      );
     }
 
     // Resolve workspace_id using reliable two-step lookup
@@ -262,9 +368,24 @@ export async function POST(req: NextRequest) {
     }
 
     const effectiveFileName = resolvedInternalSource?.fileName || fileName;
-    const effectiveFileSize = resolvedInternalSource?.fileSize ?? fileSize;
+    let effectiveFileSize = resolvedInternalSource?.fileSize ?? fileSize;
     const effectiveFileType = resolvedInternalSource?.fileType || fileType || 'application/octet-stream';
-    const effectiveFileHash = resolvedInternalSource?.sha256 || String(fileHashSha256).toLowerCase();
+    let effectiveFileHash = resolvedInternalSource?.sha256 || String(fileHashSha256).toLowerCase();
+    let uploadedFileBuffer: ArrayBuffer | null = null;
+
+    if (!resolvedInternalSource) {
+      if (!file) {
+        return NextResponse.json({ error: 'El archivo a enviar no está disponible.' }, { status: 400 });
+      }
+
+      // The server is the source of truth: the hash must describe the exact
+      // bytes persisted in Storage, including any client-side PDF sanitization.
+      uploadedFileBuffer = await file.arrayBuffer();
+      effectiveFileSize = uploadedFileBuffer.byteLength;
+      effectiveFileHash = createHash('sha256')
+        .update(Buffer.from(uploadedFileBuffer))
+        .digest('hex');
+    }
 
     const governance = resolvedWorkspaceId
       ? await resolveOrganizationGovernance(resolvedWorkspaceId)
@@ -316,20 +437,32 @@ export async function POST(req: NextRequest) {
       return nonOwner;
     }
 
+    const participantesConPortal = (participantes || []).map((participant: any) => {
+      if (participant.isCurrentUser) return participant;
+      return {
+        ...participant,
+        portal_token: participant.portal_token || randomUUID(),
+      };
+    });
+
     const effectiveOrder: string = participationOrder || 'paralelo';
     const effectiveGrupos: any[] = gruposFirma || [];
     const initialVisibleIds = new Set(
-      getInitialVisibleParticipants(participantes || [], effectiveOrder, effectiveGrupos).map(
+      getInitialVisibleParticipants(participantesConPortal, effectiveOrder, effectiveGrupos).map(
         (p: any) => p.id
       )
     );
 
-    // Mark visible/notificado flags on participants
-    const participantesConVisibilidad = (participantes || []).map((p: any) => ({
+    // Visibility controls workflow access. Notification delivery is confirmed later.
+    const participantesConVisibilidad = participantesConPortal.map((p: any) => ({
       ...p,
       visible: p.isCurrentUser ? true : initialVisibleIds.has(p.id),
-      notificado: p.isCurrentUser ? true : initialVisibleIds.has(p.id),
+      notificado: p.isCurrentUser ? true : false,
     }));
+
+    const resolvedOtherDocumentType = tipoDocumentoId === '__otros__'
+      ? otroTipoDocumento || null
+      : (tipoDocumentoId ? null : 'No especificado');
 
     const documentRecord: Record<string, unknown> = {
       documento_id: documentoId,
@@ -344,7 +477,7 @@ export async function POST(req: NextRequest) {
       numero_oficio: numeroOficio || null,
       grupo_tipo_documento_id: grupotipoId || null,
       tipo_documento_id: tipoDocumentoId || null,
-      otro_tipo_documento: tipoDocumentoId === '__otros__' ? otroTipoDocumento || null : null,
+      otro_tipo_documento: resolvedOtherDocumentType,
       ruta_guardado: ruta || 'raiz',
       etiquetas_ids: etiquetasIds || [],
       estado: 'en_proceso',
@@ -357,6 +490,9 @@ export async function POST(req: NextRequest) {
       estampa_autenticacion: estampaAutenticacion ?? false,
       metadatos_adicionales: metadatosAdicionales ?? false,
     };
+    if (hasAdditionalMetadata) {
+      documentRecord.additional_metadata = normalizedAdditionalMetadata;
+    }
     if (governance) {
       documentRecord.organization_workflow_id = governance.workflow?.id || null;
       documentRecord.organization_signature_policy_id = governance.signaturePolicy?.id || null;
@@ -415,7 +551,7 @@ export async function POST(req: NextRequest) {
       const storagePath = `${wsId}/${dbDocumentId}/${safeFileName}`;
       uploadedStoragePath = storagePath;
 
-      const fileBuffer = await file.arrayBuffer();
+      const fileBuffer = uploadedFileBuffer || await file.arrayBuffer();
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from('documents')
@@ -453,6 +589,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const documentMetadataSnapshot = normalizedAdditionalMetadata
+      .filter((metadata) => metadata.scope === 'document')
+      .map(({ name, dataType, value }) => ({ name, dataType, value }));
+    const hasDocumentScopedAdditionalMetadata = documentMetadataSnapshot.length > 0;
+    const documentMetadataSnapshotHash = hasDocumentScopedAdditionalMetadata
+      ? createHash('sha256').update(JSON.stringify(documentMetadataSnapshot)).digest('hex')
+      : null;
     let targetVersionId: string | null = null;
     if (resolvedWorkspaceId) {
       try {
@@ -468,12 +611,68 @@ export async function POST(req: NextRequest) {
           byteSize: effectiveFileSize || null,
           displayName: nombre || effectiveFileName,
           sourceVersionId: resolvedInternalSource?.versionId || null,
+          // Document-scoped metadata must be attached to a concrete immutable
+          // version even when the optional Colabora entitlement is not active.
+          requireCollaborationEntitlement: !hasDocumentScopedAdditionalMetadata,
+          additionalDocumentMetadataSnapshot: documentMetadataSnapshot,
+          additionalDocumentMetadataSnapshotHash: documentMetadataSnapshotHash,
         });
         targetVersionId = versionResult.versionId;
       } catch (collaborationError) {
         // Colabora is additive: a pending migration must not interrupt the signature flow.
         console.error('[DOCUBOX][enviar] No se pudo inicializar Colabora:', collaborationError);
       }
+    }
+
+    if (normalizedAdditionalMetadata.length > 0 && resolvedWorkspaceId) {
+      const signingStartedAt = new Date().toISOString();
+      const metadataRows = normalizedAdditionalMetadata.map((metadata) => {
+        const valueJson = metadata.value;
+        const valueDisplay = metadata.value === true ? 'Sí' : metadata.value === false ? 'No' : metadata.value;
+        const snapshotPayload = metadata.scope === 'document'
+          ? JSON.stringify({ name: metadata.name, data_type: metadata.dataType, value: valueJson, version: targetVersionId || 1 })
+          : null;
+        return {
+          document_id: dbDocumentId,
+          workspace_id: resolvedWorkspaceId,
+          document_version_id: targetVersionId,
+          document_version_number: 1,
+          metadata_scope: metadata.scope,
+          data_type: metadata.dataType,
+          name: metadata.name,
+          value_json: valueJson,
+          value_display: valueDisplay,
+          snapshot_value: metadata.scope === 'document' ? valueJson : null,
+          snapshot_hash: snapshotPayload ? createHash('sha256').update(snapshotPayload).digest('hex') : null,
+          locked_at: metadata.scope === 'document' ? signingStartedAt : null,
+          client_reference: metadata.id,
+          created_by: user.id,
+          updated_by: user.id,
+        };
+      });
+
+      const metadataInsert = await supabaseAdmin
+        .from('document_additional_metadata')
+        .upsert(metadataRows, { onConflict: 'document_id,client_reference', ignoreDuplicates: true });
+      if (metadataInsert.error) {
+        console.error('[DOCUBOX][enviar] Error al registrar metadatos adicionales:', metadataInsert.error.message);
+        return NextResponse.json({ error: 'No se pudieron registrar los metadatos adicionales.' }, { status: 500 });
+      }
+
+      await supabaseAdmin.from('document_activity_log').insert({
+        documento_id: dbDocumentId,
+        actor_id: user.id,
+        actor_nombre: user.user_metadata?.full_name || null,
+        actor_email: user.email || null,
+        action: 'DOCUMENT_ADDITIONAL_METADATA_SNAPSHOTTED',
+        category: 'metadatos',
+        details: {
+          document_metadata_count: metadataRows.filter((item) => item.metadata_scope === 'document').length,
+          management_metadata_count: metadataRows.filter((item) => item.metadata_scope === 'management').length,
+          document_version_id: targetVersionId,
+          locked_at: signingStartedAt,
+        },
+      });
     }
 
     if (resolvedInternalSource && resolvedWorkspaceId) {
@@ -563,6 +762,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Send the initial invitation to every participant who selected email ──
+    let invitationSummary = { attempted: 0, sent: 0, failed: 0 };
+
     try {
       type EmailInvitationParticipant = {
         email?: string;
@@ -576,11 +777,10 @@ export async function POST(req: NextRequest) {
       const emailParticipants: EmailInvitationParticipant[] = (
         participantesConVisibilidad || []
       ).filter((p: EmailInvitationParticipant) => {
-          if (!p.email || p.isCurrentUser) return false;
-          if (!p.email.includes('@')) return false;
-          const notifMethods = (p.tipoNotificacion || []).map((n: string) => n.toLowerCase());
-          return notifMethods.some((n: string) => n === 'correo' || n === 'email');
-        });
+        if (!p.visible || !p.email || p.isCurrentUser) return false;
+        if (!p.email.includes('@')) return false;
+        return isEmailNotificationEnabled(p.tipoNotificacion);
+      });
       const allEmailParticipants = Array.from(
         new Map<string, EmailInvitationParticipant>(
           emailParticipants.map((participant) => [
@@ -620,32 +820,59 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // The invitation is informational and is sent to everyone at creation time.
-      // The participant's `visible` flag still controls when they can act in a
-      // sequential or mixed workflow.
+      // Parallel workflows notify everyone. Sequential and mixed workflows only
+      // notify the participants enabled in the first turn.
       if (allEmailParticipants.length > 0) {
         console.log(
           `[DOCUBOX][enviar] Sending invitation emails to ${allEmailParticipants.length} participants`
         );
 
-        // Build portal URLs per participant — always use the document's DB UUID as token
-        // (the portal page resolves it via the /api/portal-participante/info endpoint)
-        const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || req.nextUrl.origin).replace(/\/$/, '');
+        // Build a stable portal URL per participant. The document UUID remains
+        // a compatibility fallback for records created before portal tokens.
         const participantsWithPortalUrl = allEmailParticipants.map((p: any) => {
           const portalToken = p.portal_token || dbDocumentId;
           return {
             ...p,
-            documentUrl: `${siteUrl}/portal-participante/${portalToken}`,
+            documentUrl: getParticipantPortalUrl(portalToken),
           };
         });
 
-        await sendParticipantInvitationEmails({
+        const delivery = await sendParticipantInvitationEmails({
           participants: participantsWithPortalUrl,
           documentName: nombre || fileName,
           documentDescription: descripcion || undefined,
           senderName,
-          documentUrl: `${siteUrl}/portal-participante/${dbDocumentId}`,
+          documentUrl: getParticipantPortalUrl(dbDocumentId),
         });
+
+        invitationSummary = {
+          attempted: delivery.attempted,
+          sent: delivery.sent.length,
+          failed: delivery.failed.length,
+        };
+
+        const deliveryByEmail = new Map(
+          delivery.sent.map((item) => [item.email.trim().toLowerCase(), item])
+        );
+        allEmailParticipants.splice(
+          0,
+          allEmailParticipants.length,
+          ...allEmailParticipants.filter((participant) =>
+            deliveryByEmail.has(participant.email!.trim().toLowerCase())
+          ).map((participant) => ({
+            ...participant,
+            providerMessageId: deliveryByEmail.get(
+              participant.email!.trim().toLowerCase()
+            )?.providerMessageId,
+          }))
+        );
+
+        if (delivery.failed.length > 0) {
+          console.error(
+            `[DOCUBOX][enviar] ${delivery.failed.length} invitation emails were rejected`,
+            delivery.failed.map((item) => ({ email: item.email, error: item.error }))
+          );
+        }
       } else {
         console.log(
           '[DOCUBOX][enviar] No participants selected email notifications — skipping invitations'
@@ -667,10 +894,11 @@ export async function POST(req: NextRequest) {
             const now = new Date().toISOString();
             const updatedParticipantes = (docRow2.participantes as any[]).map((p: any) => {
               const isNotified = allNotifiedParticipants.some(
-                (ep) => ep.email && ep.email === p.email
+                (ep) => ep.email
+                  && ep.email.trim().toLowerCase() === String(p.email || '').trim().toLowerCase()
               );
               if (isNotified) {
-                return { ...p, fecha_notificacion: now };
+                return { ...p, notificado: true, fecha_notificacion: now };
               }
               return p;
             });
@@ -696,6 +924,8 @@ export async function POST(req: NextRequest) {
                 participant_name: p.name,
                 channel: 'email',
                 email_type: 'participant_invitation',
+                delivery_status: 'accepted',
+                provider_message_id: p.providerMessageId || null,
               },
             })
           );
@@ -709,7 +939,10 @@ export async function POST(req: NextRequest) {
       // Non-blocking: document was already saved successfully
     }
 
-    return NextResponse.json({ success: true, dbDocumentId }, { status: 200 });
+    return NextResponse.json(
+      { success: true, dbDocumentId, invitations: invitationSummary },
+      { status: 200 }
+    );
   } catch (err: unknown) {
     if (err instanceof InternalSourceError) {
       return NextResponse.json(

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { FileText, Users, Edit3, Folder, Clock, Lock, CheckCircle2, AlertTriangle, Mail, Phone, Bell, ShieldCheck, LayoutGrid, GitBranch, Shield, Globe2 } from 'lucide-react';
+import { FileText, Users, Edit3, Folder, Clock, Lock, CheckCircle2, AlertTriangle, Mail, Phone, Bell, ShieldCheck, LayoutGrid, GitBranch, Shield, Globe2, Tag } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { PDFDocument } from 'pdf-lib';
@@ -45,6 +45,25 @@ function getNotifLabel(id: string): string {
 function getFirmaLabel(id: string): string {
   const map: Record<string, string> = { autografa: 'Firma Autógrafa', efirma: 'e-Firma SAT', biometria: 'Biometría' };
   return map[id] || id;
+}
+
+const ADDITIONAL_METADATA_TYPE_LABEL: Record<string, string> = {
+  text: 'Texto',
+  number: 'Número',
+  currency: 'Moneda',
+  date: 'Fecha',
+  datetime: 'Fecha y hora',
+  boolean: 'Sí / No',
+  list: 'Lista',
+  rfc: 'RFC',
+  curp: 'CURP',
+  email: 'Correo',
+  identifier: 'Identificador',
+  reference: 'Referencia',
+};
+
+function formatAdditionalMetadataValue(value: string | boolean) {
+  return value === true ? 'Sí' : value === false ? 'No' : value;
 }
 
 export interface StepEnviarHandle {
@@ -134,8 +153,11 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [invitationResult, setInvitationResult] = useState({ attempted: 0, sent: 0, failed: 0 });
   const [countdown, setCountdown] = useState(5);
   const [carpetaNombre, setCarpetaNombre] = useState<string>('Carpeta Principal');
+  const [documentTypeLabel, setDocumentTypeLabel] = useState('No especificado');
+  const [selectedTags, setSelectedTags] = useState<Array<{ id: string; nombre: string; color?: string | null }>>([]);
   const [localSecurity, setLocalSecurity] = useState<SecuritySettings | undefined>(undefined);
   const [scanState, setScanState] = useState<'idle' | 'uploading' | 'success' | 'error_tipo' | 'error_grande' | 'error_infected' | 'error_invalido' | 'error_red'>('idle');
 
@@ -186,16 +208,61 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docConfig.ruta]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadDocumentClassification = async () => {
+      const fallbackType = docConfig.tipoDocumentoId === '__otros__'
+        ? docConfig.otroTipoDocumento || 'Otro tipo de documento'
+        : docConfig.tipoDocumentoId
+          ? 'Tipo de documento seleccionado'
+          : 'No especificado';
+
+      setDocumentTypeLabel(fallbackType);
+      setSelectedTags([]);
+
+      try {
+        const typeRequest = docConfig.tipoDocumentoId && docConfig.tipoDocumentoId !== '__otros__'
+          ? fetch(`/api/documentos/tipos${docConfig.grupotipoId ? `?grupo_id=${encodeURIComponent(docConfig.grupotipoId)}` : ''}`)
+              .then(async (response) => response.ok ? response.json() : null)
+          : Promise.resolve(null);
+        const tagsRequest = docConfig.etiquetasIds.length > 0
+          ? fetch('/api/documentos/etiquetas').then(async (response) => response.ok ? response.json() : null)
+          : Promise.resolve(null);
+        const [typeResult, tagsResult] = await Promise.all([typeRequest, tagsRequest]);
+
+        if (cancelled) return;
+
+        const selectedType = Array.isArray(typeResult?.data)
+          ? typeResult.data.find((type: { id: string; nombre: string }) => type.id === docConfig.tipoDocumentoId)
+          : null;
+        if (selectedType?.nombre) setDocumentTypeLabel(selectedType.nombre);
+
+        const tagIds = new Set(docConfig.etiquetasIds);
+        const tags = Array.isArray(tagsResult?.data)
+          ? tagsResult.data.filter((tag: { id: string }) => tagIds.has(tag.id))
+          : [];
+        setSelectedTags(tags);
+      } catch {
+        // The summary keeps its explicit fallback labels when lookup data is unavailable.
+      }
+    };
+
+    loadDocumentClassification();
+    return () => { cancelled = true; };
+  }, [docConfig.etiquetasIds, docConfig.grupotipoId, docConfig.otroTipoDocumento, docConfig.tipoDocumentoId]);
+
   // Countdown after send
   useEffect(() => {
     if (!sent) return;
+    if (invitationResult.failed > 0) return;
     if (countdown <= 0) {
       window.location.replace('/mis-documentos');
       return;
     }
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
-  }, [sent, countdown]);
+  }, [sent, countdown, invitationResult.failed]);
 
   const handleEnviar = async () => {
     if (!file) return;
@@ -284,6 +351,8 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
           rolDocumento: p.rolDocumento || null,
           tipoFirma: p.tipoFirma || [],
           tipoNotificacion: p.tipoNotificacion || [],
+          mensajePersonalizado: p.mensajePersonalizado || null,
+          fechaVencimientoParticipacion: p.fechaVencimientoParticipacion || null,
           isCurrentUser: p.id === 'current-user',
         };
       });
@@ -350,7 +419,9 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         numeroOficio: docConfig.numeroOficio || null,
         grupotipoId: docConfig.grupotipoId || null,
         tipoDocumentoId: docConfig.tipoDocumentoId || null,
-        otroTipoDocumento: docConfig.tipoDocumentoId === '__otros__' ? (docConfig.otroTipoDocumento || null) : null,
+        otroTipoDocumento: docConfig.tipoDocumentoId === '__otros__'
+          ? (docConfig.otroTipoDocumento || null)
+          : (docConfig.tipoDocumentoId ? null : 'No especificado'),
         ruta: docConfig.ruta || 'raiz',
         etiquetasIds: docConfig.etiquetasIds || [],
         participantes: participantesData,
@@ -363,6 +434,7 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         selloUbicacion: effectiveSecurity?.selloUbicacion || 'calce',
         estampaAutenticacion: effectiveSecurity?.estampaAutenticacion ?? false,
         metadatosAdicionales: effectiveSecurity?.metadatosAdicionales ?? false,
+        additionalMetadata: docConfig.additionalMetadata || [],
         docuboxSource: docuboxSource ? {
           workspaceId: docuboxSource.workspaceId,
           documentId: docuboxSource.sourceDocumentId,
@@ -381,13 +453,19 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         body: uploadFormData,
       });
 
+      const enviarJson = await enviarRes.json().catch(() => ({}));
+
       if (!enviarRes.ok) {
-        const enviarJson = await enviarRes.json().catch(() => ({}));
         setScanState('error_red');
         throw new Error(enviarJson.error || 'Error al guardar el documento');
       }
 
-      const { dbDocumentId } = await enviarRes.json();
+      const { dbDocumentId, invitations } = enviarJson;
+      setInvitationResult({
+        attempted: Number(invitations?.attempted || 0),
+        sent: Number(invitations?.sent || 0),
+        failed: Number(invitations?.failed || 0),
+      });
 
       setScanState('success');
 
@@ -473,9 +551,30 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
             </svg>
           </div>
           <h1 className="text-2xl font-700 text-slate-950">Documento enviado</h1>
-          <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">El proceso se inició correctamente y los participantes recibirán sus notificaciones.</p>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
+            {invitationResult.failed > 0
+              ? 'El documento se creó correctamente, pero algunas invitaciones por correo no pudieron enviarse.'
+              : 'El proceso se inició correctamente y los participantes recibirán sus notificaciones.'}
+          </p>
+          {invitationResult.failed > 0 && (
+            <div className="mt-5 flex w-full items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-left">
+              <AlertTriangle size={17} className="mt-0.5 shrink-0 text-amber-600" />
+              <div>
+                <p className="text-sm font-700 text-amber-900">
+                  {invitationResult.failed} de {invitationResult.attempted} invitación{invitationResult.attempted !== 1 ? 'es' : ''} no se enviaron
+                </p>
+                <p className="mt-1 text-xs leading-5 text-amber-700">
+                  El documento quedó guardado. Revisa los correos de los participantes y reintenta el envío desde sus participaciones.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="mt-7 flex w-full items-center justify-between border-t border-slate-200 pt-5">
-            <p className="text-xs text-slate-500">Redirección automática en <span className="font-700 text-emerald-600">{countdown}</span> segundo{countdown !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-slate-500">
+              {invitationResult.failed > 0
+                ? `${invitationResult.sent} invitación${invitationResult.sent !== 1 ? 'es' : ''} aceptada${invitationResult.sent !== 1 ? 's' : ''} por el proveedor`
+                : <>Redirección automática en <span className="font-700 text-emerald-600">{countdown}</span> segundo{countdown !== 1 ? 's' : ''}</>}
+            </p>
             <button onClick={() => window.location.replace('/mis-documentos')} className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-700 text-white transition-colors hover:bg-emerald-700">
               Cerrar
             </button>
@@ -506,6 +605,10 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
     if (participantMode === 'solo_otros') return 'Solo otros';
     return '—';
   })();
+
+  const documentAdditionalMetadata = (docConfig.additionalMetadata || []).filter(
+    (metadata) => metadata.scope === 'document'
+  );
 
   // Group placed fields by participant
   const fieldsByParticipant: Record<string, { name: string; fields: string[] }> = {};
@@ -588,7 +691,7 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
           <p className="text-sm text-red-600">El PDF está dañado o no es válido.</p>
         </div>
       )}
-      {scanState === 'error_red' && (
+      {scanState === 'error_red' && !sendError && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <AlertTriangle size={16} className="text-red-500 shrink-0" />
           <p className="text-sm text-red-600">Error de conexión. Intenta de nuevo.</p>
@@ -624,6 +727,31 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
             <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-600 text-emerald-700">
               <CheckCircle2 size={12} />Listo
             </span>
+          </div>
+          <div className="mt-4 grid gap-3 border-b border-slate-100 pb-4 sm:grid-cols-2">
+            <div className="flex min-w-0 items-start gap-2.5">
+              <LayoutGrid size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Tipo de documento</p>
+                <p className="mt-1 truncate text-sm font-600 text-slate-800">{documentTypeLabel}</p>
+              </div>
+            </div>
+            <div className="flex min-w-0 items-start gap-2.5">
+              <Tag size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Etiquetas</p>
+                {selectedTags.length > 0 ? (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {selectedTags.map((tag) => (
+                      <span key={tag.id} className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 text-slate-700">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: tag.color || '#94a3b8' }} />
+                        <span className="truncate">{tag.nombre}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : <p className="mt-1 text-sm font-600 text-slate-800">Sin etiquetas</p>}
+              </div>
+            </div>
           </div>
           <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
             <div className="flex items-start gap-2.5">
@@ -862,6 +990,34 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         )}
         </div>
       </section>
+      )}
+
+      {documentAdditionalMetadata.length > 0 && (
+        <section className="mt-4 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-700 text-slate-950">Metadatos incluidos en el documento</h2>
+                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 tabular-nums text-slate-500">{documentAdditionalMetadata.length}</span>
+              </div>
+              <p className="mt-0.5 text-xs text-slate-500">Información adicional registrada que se integrará a la versión final.</p>
+            </div>
+            <button onClick={() => onGoToStep(1)} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar metadatos adicionales">
+              <Edit3 size={14} />
+            </button>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {documentAdditionalMetadata.map((metadata) => (
+              <div key={metadata.id} className="flex flex-col gap-1 px-5 py-3 sm:flex-row sm:items-center sm:gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-600 text-slate-800">{metadata.name}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{ADDITIONAL_METADATA_TYPE_LABEL[metadata.dataType] || metadata.dataType}</p>
+                </div>
+                <p className="break-words text-sm text-slate-700 sm:max-w-[55%] sm:text-right">{formatAdditionalMetadataValue(metadata.value)}</p>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

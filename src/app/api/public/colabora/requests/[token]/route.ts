@@ -179,7 +179,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
         from: process.env.RESEND_FROM_EMAIL || 'Docubox <noreply@docubox.mx>',
         to: documentRequest.recipient_email,
         subject: `Codigo para ${documentRequest.folio}`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#18181b"><h2>Solicitud documental Docubox</h2><p>Hola, ${escapeHtml(documentRequest.recipient_name)}. Usa este codigo para consultar y completar <strong>${escapeHtml(documentRequest.title)}</strong>.</p><div style="margin:24px 0;padding:20px;text-align:center;background:#f5f7ff;border:1px solid #dbe3ff;border-radius:8px;font-size:34px;font-weight:700;letter-spacing:9px;color:#1E6BFF">${code}</div><p style="font-size:12px;color:#71717a">El codigo vence en 10 minutos. No lo compartas.</p></div>`,
+        html: `<div style="font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;max-width:560px;margin:auto;color:#18181b"><h2>Solicitud documental Docubox</h2><p>Hola, ${escapeHtml(documentRequest.recipient_name)}. Usa este codigo para consultar y completar <strong>${escapeHtml(documentRequest.title)}</strong>.</p><div style="margin:24px 0;padding:20px;text-align:center;background:#f5f7ff;border:1px solid #dbe3ff;border-radius:8px;font-size:34px;font-weight:700;letter-spacing:9px;color:#1E6BFF">${code}</div><p style="font-size:12px;color:#71717a">El codigo vence en 10 minutos. No lo compartas.</p></div>`,
       });
       if (sent.error) {
         await service

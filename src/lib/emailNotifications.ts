@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getPublicAppUrl } from '@/lib/publicAppUrl';
 
 // Lazy-initialize so this module is safe to import in client components.
 // The actual Supabase client is only created when sendEmailNotification() is
@@ -60,7 +61,46 @@ interface SendEmailParams {
   padesPath?: string;
 }
 
-export async function sendEmailNotification(params: SendEmailParams): Promise<void> {
+export interface EmailSendResult {
+  id?: string;
+}
+
+export interface ParticipantInvitationDelivery {
+  email: string;
+  name?: string;
+  providerMessageId?: string;
+  error?: string;
+}
+
+export interface ParticipantInvitationSummary {
+  attempted: number;
+  sent: ParticipantInvitationDelivery[];
+  failed: ParticipantInvitationDelivery[];
+}
+
+export function isEmailNotificationEnabled(value: unknown): boolean {
+  const methods = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? [value]
+      : [];
+
+  return methods.some((method) => {
+    const normalized = String(method)
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[_-]+/g, ' ');
+
+    return normalized === 'email'
+      || normalized === 'e mail'
+      || normalized === 'correo'
+      || normalized.startsWith('correo electron');
+  });
+}
+
+export async function sendEmailNotification(params: SendEmailParams): Promise<EmailSendResult> {
   try {
     console.log(`[emailNotifications] Sending ${params.type} email to ${params.to}`);
     const { data, error } = await getSupabase().functions.invoke('send-email-notifications', {
@@ -75,6 +115,7 @@ export async function sendEmailNotification(params: SendEmailParams): Promise<vo
       throw new Error(`Resend error: ${data.error || JSON.stringify(data)}`);
     }
     console.log(`[emailNotifications] Successfully sent ${params.type} to ${params.to}`, data?.id ? `(id: ${data.id})` : '');
+    return { id: typeof data?.id === 'string' ? data.id : undefined };
   } catch (err) {
     console.error(`[emailNotifications] FAILED sending ${params.type} to ${params.to}:`, err instanceof Error ? err.message : err);
     // Re-throw so callers can handle/log the failure
@@ -136,7 +177,7 @@ export async function sendDocumentCompletedEmail(params: {
 
 /**
  * Sends document_completed emails to ALL signers (owner + participants)
- * including references to the auto-generated XML evidence, NOM-151 constancia, and PAdES document.
+ * including references to the generated XML evidence, NOM-151 constancia and signed PDF when available.
  */
 export async function sendDocumentCompletedToAllSigners(params: {
   ownerEmail?: string;
@@ -161,7 +202,7 @@ export async function sendDocumentCompletedToAllSigners(params: {
     padesPath,
   } = params;
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmamax4272.builtwithrocket.new';
+  const siteUrl = getPublicAppUrl();
   const documentUrl = `${siteUrl}/visor-documento/${documentId}`;
   const completedAtTs = completedAt || new Date().toISOString();
 
@@ -310,26 +351,20 @@ export async function sendParticipantInvitationEmails(params: {
   documentDescription?: string;
   senderName: string;
   documentUrl?: string;
-}): Promise<void> {
+}): Promise<ParticipantInvitationSummary> {
   const { participants, documentName, documentDescription, senderName, documentUrl } = params;
 
-  // Send only to participants who selected 'correo' or 'email' as notification method
+  // Send only to participants who explicitly selected email as notification method.
   const emailParticipants = participants.filter((p) => {
     if (!p.email || !p.email.includes('@')) return false;
-    // If tipoNotificacion is provided, require 'correo' or 'email' to be included
-    if (p.tipoNotificacion && p.tipoNotificacion.length > 0) {
-      const methods = p.tipoNotificacion.map((n) => n.toLowerCase());
-      return methods.some((n) => n === 'correo' || n === 'email');
-    }
-    // If tipoNotificacion is not set, fall back to sending (backward compatibility)
-    return true;
+    return isEmailNotificationEnabled(p.tipoNotificacion);
   });
 
   console.log(`[emailNotifications] sendParticipantInvitationEmails: ${emailParticipants.length} recipients (of ${participants.length} total participants)`);
 
   if (emailParticipants.length === 0) {
     console.warn('[emailNotifications] No participants with valid email found.');
-    return;
+    return { attempted: 0, sent: [], failed: [] };
   }
 
   const results = await Promise.allSettled(
@@ -358,16 +393,32 @@ export async function sendParticipantInvitationEmails(params: {
       });
     })
   );
-  results.forEach((r, i) => {
-    if (r.status === 'rejected') {
-      console.error(`[emailNotifications] participant_invitation failed for ${emailParticipants[i]?.email}:`, r.reason);
+  const summary: ParticipantInvitationSummary = {
+    attempted: emailParticipants.length,
+    sent: [],
+    failed: [],
+  };
+
+  results.forEach((result, index) => {
+    const participant = emailParticipants[index];
+    const email = participant?.email || '';
+    if (result.status === 'rejected') {
+      const error = result.reason instanceof Error
+        ? result.reason.message
+        : String(result.reason);
+      summary.failed.push({ email, name: participant?.name, error });
+      console.error(`[emailNotifications] participant_invitation failed for ${email}:`, result.reason);
+      return;
     }
+
+    summary.sent.push({
+      email,
+      name: participant?.name,
+      providerMessageId: result.value.id,
+    });
   });
 
-  const failed = results.filter((result) => result.status === 'rejected');
-  if (failed.length === results.length) {
-    throw new Error('No se pudo entregar ninguna invitaci\u00f3n por correo.');
-  }
+  return summary;
 }
 
 export async function sendParticipationReminderEmail(params: {

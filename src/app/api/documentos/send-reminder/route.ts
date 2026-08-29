@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { sendParticipationReminderEmail } from '@/lib/emailNotifications';
+import { getParticipantPortalUrl, getPublicAppUrl } from '@/lib/publicAppUrl';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -114,8 +115,10 @@ export async function POST(req: NextRequest) {
     }
 
     const documentUrl = portalToken
-      ? `${process.env.NEXT_PUBLIC_SITE_URL}/portal-participante/${portalToken}`
-      : `${process.env.NEXT_PUBLIC_SITE_URL}/mis-participaciones`;
+      ? getParticipantPortalUrl(portalToken)
+      : documentId
+        ? getParticipantPortalUrl(documentId)
+        : `${getPublicAppUrl()}/mis-participaciones`;
 
     // Send reminder email via Resend
     await sendParticipationReminderEmail({

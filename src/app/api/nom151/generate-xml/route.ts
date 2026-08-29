@@ -102,6 +102,15 @@ export async function POST(req: NextRequest) {
       .eq('documento_id', documento_id)
       .order('created_at', { ascending: true });
 
+    // Only the immutable document-scoped metadata belongs to the evidence XML.
+    // Management metadata is intentionally omitted because it can evolve later.
+    const { data: documentMetadata } = await supabaseAdmin
+      .from('document_additional_metadata')
+      .select('name,data_type,snapshot_value,snapshot_hash,document_version_number')
+      .eq('document_id', documento_id)
+      .eq('metadata_scope', 'document')
+      .order('created_at', { ascending: true });
+
     // 6. Get NOM-151 constancia if available
     const { data: nom151 } = await supabaseAdmin
       .from('nom151_constancias_doc')
@@ -154,6 +163,17 @@ export async function POST(req: NextRequest) {
       return `    <Evento timestamp="${esc(ev.created_at ? new Date(ev.created_at).toISOString() : '')}" tipo="${esc(ev.action || '')}" actor="${esc(ev.actor_email || ev.actor_nombre || 'system')}"/>`;
     }).join('\n');
 
+    const metadataXml = (documentMetadata || []).map((metadata: any) => {
+      const value = typeof metadata.snapshot_value === 'string'
+        ? metadata.snapshot_value
+        : JSON.stringify(metadata.snapshot_value ?? '');
+      return `    <Metadato tipo="${esc(metadata.data_type || 'text')}" version="${esc(String(metadata.document_version_number || 1))}">
+      <Nombre>${esc(metadata.name || '')}</Nombre>
+      <Valor>${esc(value)}</Valor>
+      <HashSnapshot algoritmo="SHA-256">${esc(metadata.snapshot_hash || '')}</HashSnapshot>
+    </Metadato>`;
+    }).join('\n');
+
     // 10. Build conservacion XML
     const conservacionXml = nom151
       ? `  <Conservacion>
@@ -186,6 +206,11 @@ export async function POST(req: NextRequest) {
     <Estado>completado</Estado>
     <VersionEsquema>1.0</VersionEsquema>
   </Documento>
+
+  <!-- BLOQUE 1.1: Metadatos adicionales vinculados -->
+  <MetadatosDocumento>
+${metadataXml}
+  </MetadatosDocumento>
 
   <!-- BLOQUE 2: Firmantes -->
   <Firmantes>

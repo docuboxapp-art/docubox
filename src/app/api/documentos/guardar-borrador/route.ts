@@ -6,6 +6,26 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+function isAdditionalMetadataColumnMissing(error: { code?: string | null; message?: string | null } | null) {
+  if (!error) return false;
+  const message = error.message || '';
+  return error.code === 'PGRST204' || (/additional_metadata/i.test(message) && /schema cache|does not exist/i.test(message));
+}
+
+async function isAdditionalMetadataColumnReady() {
+  const result = await supabaseAdmin
+    .from('documentos')
+    .select('additional_metadata')
+    .limit(1);
+
+  if (result.error) {
+    if (isAdditionalMetadataColumnMissing(result.error)) return false;
+    throw result.error;
+  }
+
+  return true;
+}
+
 // Reliable two-step workspace lookup: first get all workspace_ids for user,
 // then find which one is personal type.
 async function resolvePersonalWorkspace(userId: string): Promise<string | null> {
@@ -87,6 +107,7 @@ export async function POST(req: NextRequest) {
       selloDigital,
       estampaAutenticacion,
       metadatosAdicionales,
+      additionalMetadata,
       otroTipoDocumento,
       camposSolicitados,
     } = body;
@@ -110,6 +131,21 @@ export async function POST(req: NextRequest) {
       resolvedWorkspaceId = await resolvePersonalWorkspace(user.id);
     }
 
+    const resolvedOtherDocumentType = tipoDocumentoId === '__otros__'
+      ? otroTipoDocumento || null
+      : (tipoDocumentoId ? null : 'No especificado');
+    const normalizedAdditionalMetadata = Array.isArray(additionalMetadata) ? additionalMetadata : [];
+
+    if (normalizedAdditionalMetadata.length > 0 && !(await isAdditionalMetadataColumnReady())) {
+      return NextResponse.json(
+        {
+          error: 'Los metadatos adicionales requieren actualizar la base de datos antes de guardar el borrador.',
+          code: 'ADDITIONAL_METADATA_MIGRATION_REQUIRED',
+        },
+        { status: 503 }
+      );
+    }
+
     const payload: Record<string, unknown> = {
       owner_id: user.id,
       workspace_id: resolvedWorkspaceId,
@@ -121,7 +157,7 @@ export async function POST(req: NextRequest) {
       numero_oficio: numeroOficio || null,
       grupo_tipo_documento_id: grupotipoId || null,
       tipo_documento_id: tipoDocumentoId || null,
-      otro_tipo_documento: (tipoDocumentoId === '__otros__' ? (body.otroTipoDocumento || null) : null),
+      otro_tipo_documento: resolvedOtherDocumentType,
       ruta_guardado: ruta || 'raiz',
       etiquetas_ids: etiquetasIds || [],
       estado: 'borrador',
@@ -147,6 +183,9 @@ export async function POST(req: NextRequest) {
       metadatos_adicionales: metadatosAdicionales ?? false,
       campos_solicitados: camposSolicitados || [],
     };
+    if (normalizedAdditionalMetadata.length > 0) {
+      payload.additional_metadata = normalizedAdditionalMetadata;
+    }
 
     let result: { data: unknown; error: any } = { data: null, error: null };
 

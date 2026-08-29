@@ -719,7 +719,7 @@ function HeaderFooterZone({
           outline: 'none',
           fontSize: '10pt',
           color: '#374151',
-          fontFamily: 'Arial, sans-serif',
+          fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
           boxSizing: 'border-box',
           width: '100%',
         }}
@@ -886,7 +886,7 @@ function HeaderFooterZoneReadOnly({
         paddingBottom: '4px',
         fontSize: '10pt',
         color: '#374151',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
         pointerEvents: 'none',
         userSelect: 'none',
         boxSizing: 'border-box',
@@ -961,7 +961,7 @@ export function DocumentPaginator({
           width: `${contentWidth}px`,
           visibility: 'hidden',
           pointerEvents: 'none',
-          fontFamily: 'Arial, sans-serif',
+          fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
           fontSize: '12pt',
           lineHeight: '1.6',
           wordBreak: 'break-word',
@@ -976,7 +976,7 @@ export function DocumentPaginator({
             <div className="page-content" style={pageContentStyle()}>
               <div
                 style={{
-                  fontFamily: 'Arial, sans-serif',
+                  fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
                   fontSize: '12pt',
                   lineHeight: '1.6',
                   wordBreak: 'break-word',
@@ -1124,7 +1124,7 @@ export const MultiPageEditor = forwardRef<
       targetRef.current.querySelectorAll('[data-page-number]').forEach((n) => n.remove());
       // The mirrored zones resolve the displayed value from the page index.
       const hideAttr = opts.showOnFirst ? '' : ' data-hide-first-page="true"';
-      const numHtml = `<span data-page-number="true" data-page-number-start="${opts.startFrom}"${hideAttr} style="display:inline-block;color:#6B7280;font-size:0.85em;font-family:Arial,sans-serif;">— ${opts.startFrom} —</span>`;
+      const numHtml = `<span data-page-number="true" data-page-number-start="${opts.startFrom}"${hideAttr} style="display:inline-block;color:#6B7280;font-size:0.85em;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;">— ${opts.startFrom} —</span>`;
       const wrapper = `<div style="text-align:center;">${numHtml}</div>`;
       targetRef.current.insertAdjacentHTML('beforeend', wrapper);
       return true;
@@ -1419,7 +1419,7 @@ export const MultiPageEditor = forwardRef<
       width: ${dims.width - ml - mr}px;
       visibility: hidden;
       pointer-events: none;
-      font-family: Arial, sans-serif;
+      font-family: 'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif;
       font-size: 12pt;
       line-height: 1.6;
       word-break: break-word;
@@ -2038,7 +2038,7 @@ export const MultiPageEditor = forwardRef<
                       outline: 'none',
                       flex: 1,
                       overflow: 'hidden',
-                      fontFamily: 'Arial, sans-serif',
+                      fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
                       fontSize: '11pt',
                       lineHeight: '1.6',
                       wordBreak: 'break-word',
@@ -2301,7 +2301,7 @@ export function EditableDocumentPaginator({
           width: `${contentWidth}px`,
           visibility: 'hidden',
           pointerEvents: 'none',
-          fontFamily: 'Arial, sans-serif',
+          fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
           fontSize: '12pt',
           lineHeight: '1.6',
           wordBreak: 'break-word',
@@ -2324,7 +2324,7 @@ export function EditableDocumentPaginator({
             <div className="page-content" style={pageContentStyle()}>
               <div
                 style={{
-                  fontFamily: 'Arial, sans-serif',
+                  fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
                   fontSize: '12pt',
                   lineHeight: '1.6',
                   wordBreak: 'break-word',

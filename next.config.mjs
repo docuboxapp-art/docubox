@@ -4,6 +4,10 @@ import { imageHosts } from './image-hosts.config.mjs';
 const nextConfig = {
   productionBrowserSourceMaps: true,
   distDir: process.env.DIST_DIR || '.next',
+  outputFileTracingIncludes: {
+    '/api/nom151/**': ['./infra/nom151/trust/**/*'],
+    '/api/internal/crypto/nom151-health': ['./infra/nom151/trust/**/*'],
+  },
   images: {
     remotePatterns: imageHosts,
     minimumCacheTTL: 60,

@@ -141,7 +141,7 @@ function CrearDocumentoPageInner() {
     title: '', message: '', deadline: '', reminderDays: '3', requireAllSignatures: true, allowDecline: false,
   });
   const [docConfig, setDocConfig] = useState<DocumentConfig>({
-    nombre: '', descripcion: '', numeroOficio: '', grupotipoId: '', tipoDocumentoId: '', otroTipoDocumento: '', ruta: 'raiz', etiquetasIds: [],
+    nombre: '', descripcion: '', numeroOficio: '', grupotipoId: '', tipoDocumentoId: '', otroTipoDocumento: '', ruta: 'raiz', etiquetasIds: [], additionalMetadata: [],
   });
   const [placedFields, setPlacedFields] = useState<import('./components/types').PlacedField[]>([]);
   const [ajustesFixarCampos, setAjustesFixarCampos] = useState(false);
@@ -205,6 +205,7 @@ function CrearDocumentoPageInner() {
           otroTipoDocumento: '',
           ruta: data.ruta_guardado || 'raiz',
           etiquetasIds: data.etiquetas_ids || [],
+          additionalMetadata: Array.isArray(data.additional_metadata) ? data.additional_metadata : [],
         });
         if (data.participantes && Array.isArray(data.participantes)) {
           setParticipants(data.participantes);
@@ -229,7 +230,7 @@ function CrearDocumentoPageInner() {
 
   const canGoNext = (() => {
     if (currentStep === 1) {
-      if (!file || !docConfig.nombre.trim() || !docConfig.grupotipoId || !docConfig.tipoDocumentoId) return false;
+      if (!file || !docConfig.nombre.trim()) return false;
       if (docConfig.tipoDocumentoId === '__otros__' && !docConfig.otroTipoDocumento.trim()) return false;
       return true;
     }
@@ -338,7 +339,9 @@ function CrearDocumentoPageInner() {
           numeroOficio: docConfig.numeroOficio || null,
           grupotipoId: docConfig.grupotipoId || null,
           tipoDocumentoId: docConfig.tipoDocumentoId || null,
-          otroTipoDocumento: docConfig.tipoDocumentoId === '__otros__' ? (docConfig.otroTipoDocumento || null) : null,
+          otroTipoDocumento: docConfig.tipoDocumentoId === '__otros__'
+            ? (docConfig.otroTipoDocumento || null)
+            : (docConfig.tipoDocumentoId ? null : 'No especificado'),
           ruta: docConfig.ruta || 'raiz',
           etiquetasIds: docConfig.etiquetasIds || [],
           currentStep,
@@ -363,6 +366,7 @@ function CrearDocumentoPageInner() {
           selloUbicacion: securitySummary?.selloUbicacion || 'calce',
           estampaAutenticacion: securitySummary?.estampaAutenticacion ?? false,
           metadatosAdicionales: securitySummary?.metadatosAdicionales ?? false,
+          additionalMetadata: docConfig.additionalMetadata,
           camposSolicitados: placedFields.map((f) => ({
             id: f.id,
             label: f.label,

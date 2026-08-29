@@ -26,6 +26,23 @@ pnpm-debug.log*
 tmp/
 NUL
 
+# Development cryptographic private material. Public trust anchors may be
+# distributed separately; private keys, bundles and TSA state never belong in Git.
+*.key
+*.key.pem
+*.p12
+*.pfx
+infra/tsa/data/
+
+# Google Application Default Credentials and service-account exports are local
+# machine state. Docubox authenticates with ADC/impersonation, never JSON keys.
+application_default_credentials.json
+*service-account*.json
+*service_account*.json
+gcp-credentials*.json
+google-credentials*.json
+.docubox/crypto/
+
 # OS-specific files
 .DS_Store
 Thumbs.db

@@ -1,0 +1,19 @@
+{
+  "id": "psc-world-acr2-se-v1",
+  "version": "1",
+  "status": "active",
+  "provider": "nubarium-nom151",
+  "psc": "PSC World S.A. de C.V.",
+  "endpointHost": "firma.nubarium.com",
+  "sourceUrl": "https://psc.economia.gob.mx/certificados/ACR2_SE.cer",
+  "root": {
+    "path": "roots/ACR2_SE.pem",
+    "fingerprintSha256": "b2f258c42c3066c54c3d9bbcb9a4c16bed4e7b74f302643a11af26961e09c720"
+  },
+  "intermediates": [],
+  "expectedSignerPolicyOids": ["2.16.484.101.10.316.10.1"],
+  "expectedTstPolicyOids": ["2.16.484.101.10.316.100.2.1.2.1.1"],
+  "requiredKeyUsages": ["digitalSignature", "contentCommitment"],
+  "requiredExtendedKeyUsageOids": ["1.3.6.1.5.5.7.3.2", "1.3.6.1.5.5.7.3.4"],
+  "signerMustBeCa": false
+}

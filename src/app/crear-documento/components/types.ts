@@ -57,6 +57,30 @@ export type CryptographicElementType =
   | 'timestamp'
   | 'evidence_chain';
 
+export type AdditionalMetadataScope = 'document' | 'management';
+
+export type AdditionalMetadataDataType =
+  | 'text'
+  | 'number'
+  | 'currency'
+  | 'date'
+  | 'datetime'
+  | 'boolean'
+  | 'list'
+  | 'rfc'
+  | 'curp'
+  | 'email'
+  | 'identifier'
+  | 'reference';
+
+export interface AdditionalDocumentMetadata {
+  id: string;
+  name: string;
+  dataType: AdditionalMetadataDataType;
+  value: string | boolean;
+  scope: AdditionalMetadataScope;
+}
+
 export interface DocumentConfig {
   nombre: string;
   descripcion: string;
@@ -66,6 +90,7 @@ export interface DocumentConfig {
   otroTipoDocumento: string;
   ruta: string;
   etiquetasIds: string[];
+  additionalMetadata: AdditionalDocumentMetadata[];
 }
 
 export interface DocuboxSourceSelection {

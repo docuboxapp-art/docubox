@@ -58,11 +58,12 @@ export function PreviewModal({ content, templateName, onClose }: PreviewModalPro
       <html>
         <head>
           <title>${templateName}</title>
+          <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=swap" />
           <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body {
               background: white;
-              font-family: Arial, sans-serif;
+              font-family: 'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif;
               font-size: 12px;
               color: #111;
             }
@@ -113,7 +114,7 @@ export function PreviewModal({ content, templateName, onClose }: PreviewModalPro
           box-shadow: 0 4px 24px rgba(0,0,0,0.13), 0 1px 4px rgba(0,0,0,0.07);
           border-radius: 2px;
           position: relative;
-          font-family: Arial, sans-serif;
+          font-family: 'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif;
           font-size: 12px;
           color: #111;
           line-height: 1.5;

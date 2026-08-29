@@ -102,6 +102,94 @@ interface FrameCapture {
   height: number;
 }
 
+interface SignatureOtpInputProps {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  error?: boolean;
+  autoFocus?: boolean;
+}
+
+function SignatureOtpInput({
+  value,
+  onChange,
+  disabled = false,
+  error = false,
+  autoFocus = false,
+}: SignatureOtpInputProps) {
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const digits = value.padEnd(6, ' ').slice(0, 6).split('');
+
+  useEffect(() => {
+    if (autoFocus && !disabled) {
+      inputRefs.current[0]?.focus();
+    }
+  }, [autoFocus, disabled]);
+
+  const updateDigits = (nextDigits: string[]) => onChange(nextDigits.join('').trimEnd());
+
+  const handleChange = (index: number, nextValue: string) => {
+    const digit = nextValue.replace(/\D/g, '').slice(-1);
+    const nextDigits = [...digits];
+    nextDigits[index] = digit || ' ';
+    updateDigits(nextDigits);
+
+    if (digit && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Backspace') {
+      if (digits[index]?.trim()) {
+        const nextDigits = [...digits];
+        nextDigits[index] = ' ';
+        updateDigits(nextDigits);
+      } else if (index > 0) {
+        inputRefs.current[index - 1]?.focus();
+      }
+    }
+
+    if (event.key === 'ArrowLeft' && index > 0) inputRefs.current[index - 1]?.focus();
+    if (event.key === 'ArrowRight' && index < 5) inputRefs.current[index + 1]?.focus();
+  };
+
+  const handlePaste = (event: React.ClipboardEvent) => {
+    event.preventDefault();
+    const pastedDigits = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pastedDigits) return;
+
+    const nextDigits = Array.from({ length: 6 }, (_, index) => pastedDigits[index] || ' ');
+    updateDigits(nextDigits);
+    inputRefs.current[Math.min(pastedDigits.length, 5)]?.focus();
+  };
+
+  const inputClass = error
+    ? 'border-red-300 bg-red-50 text-red-700 focus:border-red-500 focus:ring-red-100'
+    : 'border-slate-200 bg-white text-slate-950 focus:border-primary focus:ring-primary/20';
+
+  return (
+    <div className="flex items-center justify-center gap-2" onPaste={handlePaste}>
+      {digits.map((digit, index) => (
+        <input
+          key={index}
+          ref={(element) => { inputRefs.current[index] = element; }}
+          type="text"
+          inputMode="numeric"
+          autoComplete={index === 0 ? 'one-time-code' : 'off'}
+          maxLength={1}
+          value={digit.trim()}
+          onChange={(event) => handleChange(index, event.target.value)}
+          onKeyDown={(event) => handleKeyDown(index, event)}
+          disabled={disabled}
+          aria-label={`Dígito ${index + 1} del código de confirmación`}
+          className={`h-12 w-11 rounded-md border text-center text-lg font-700 tabular-nums transition-all focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${inputClass}`}
+        />
+      ))}
+    </div>
+  );
+}
+
 interface HumanBehavior {
   human_score: number;
   anomaly_flags: string[];
@@ -246,7 +334,7 @@ function ConstanciaParticipacion({
   };
 
   const shortId = evidenceId ? evidenceId.substring(0, 8).toUpperCase() : '—';
-  const folioId = `DOCUBOX-IND-AUT-${new Date().getFullYear()}-${shortId}`;
+  const folioId = `DBX-IND-AUT-${new Date().getFullYear()}-${shortId}`;
 
   const handleDownload = async () => {
     setPdfGenerating(true);
@@ -2124,9 +2212,7 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
   const [enrollmentHasIne, setEnrollmentHasIne] = useState(false);
 
   // OTP
-  const otpInputRef = useRef<HTMLInputElement>(null);
   const [otpCode, setOtpCode] = useState('');
-  const [otpInputFocused, setOtpInputFocused] = useState(false);
   const [otpSending, setOtpSending] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otpExpiresAt, setOtpExpiresAt] = useState<Date | null>(null);
@@ -2898,48 +2984,13 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
               No se encontró correo electrónico. El código OTP no puede enviarse.
             </p>
           )}
-          <div
-            className="relative"
-            onClick={() => otpInputRef.current?.focus()}
-          >
-            <input
-              ref={otpInputRef}
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              aria-label="Código OTP de 6 dígitos"
-              value={otpCode}
-              onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').substring(0, 6))}
-              onFocus={() => setOtpInputFocused(true)}
-              onBlur={() => setOtpInputFocused(false)}
-              maxLength={6}
-              className="absolute inset-0 z-10 h-full w-full cursor-text opacity-0"
-            />
-            <div className="grid grid-cols-6 gap-2" aria-hidden="true">
-              {Array.from({ length: 6 }, (_, index) => {
-                const isActive = otpInputFocused && index === Math.min(otpCode.length, 5);
-                const hasValue = Boolean(otpCode[index]);
-                return (
-                  <div
-                    key={index}
-                    className={`flex h-12 min-w-0 items-center justify-center rounded-lg border text-lg font-semibold tabular-nums transition-colors ${
-                      isActive
-                        ? 'border-primary ring-2 ring-primary/20'
-                        : hasValue
-                          ? isDark
-                            ? 'border-blue-500 bg-blue-950/30 text-gray-100'
-                            : 'border-blue-400 bg-blue-50/60 text-slate-950'
-                          : isDark
-                            ? 'border-gray-600 bg-gray-700 text-gray-100'
-                            : 'border-slate-200 bg-white text-slate-950'
-                    }`}
-                  >
-                    {otpCode[index] ?? ''}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <SignatureOtpInput
+            value={otpCode}
+            onChange={setOtpCode}
+            disabled={otpSending}
+            error={Boolean(otpError || sendError)}
+            autoFocus={otpSent && !otpSending}
+          />
           {otpError && (
             <div className="flex items-center gap-2 text-xs text-red-500">
               <AlertTriangle size={12} />
