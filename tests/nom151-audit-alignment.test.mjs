@@ -47,9 +47,12 @@ test('schema preserves historical records and enforces idempotency and tenant RL
   assert.match(migration, /workspace_members/);
 });
 
-test('UI waits for verified PAdES-B-T and does not call unknown environment production', () => {
+test('UI separates verified NOM-151 evidence from provider environment', () => {
   assert.match(ui, /const padesBtVerified = padesVerified/);
   assert.match(ui, /padesBtVerified &&/);
-  assert.match(ui, /NOM-151 no productiva/);
+  assert.match(ui, /Constancia NOM-151 verificada/);
+  assert.match(ui, /Estado de integridad/);
+  assert.match(ui, /Entorno del proveedor/);
+  assert.doesNotMatch(ui, /NOM-151 no productiva/);
   assert.match(ui, /production_trusted/);
 });

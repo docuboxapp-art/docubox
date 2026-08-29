@@ -93,5 +93,7 @@ test('production crypto labels come only from persisted viewer evidence', async 
   assert.match(viewer, /Certificado X\.509/);
   assert.match(viewer, /Vínculo SPKI/);
   assert.match(viewer, /Sello RFC 3161/);
-  assert.match(viewer, /NOM-151 no productiva/);
+  assert.match(viewer, /Constancia NOM-151 verificada/);
+  assert.match(viewer, /getNom151Presentation/);
+  assert.doesNotMatch(viewer, /NOM-151 no productiva/);
 });

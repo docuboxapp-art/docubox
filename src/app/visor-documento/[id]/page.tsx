@@ -11,6 +11,7 @@ import { useSidebar } from '@/contexts/SidebarContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { sendDocumentCompletedToAllSigners } from '@/lib/emailNotifications';
 import { createNotification } from '@/lib/notificationsInApp';
+import { getNom151Presentation } from '@/lib/nom151/presentation';
 import { StepSubir } from '@/app/crear-documento/components/StepSubir';
 import { StepParticipantes } from '@/app/crear-documento/components/StepParticipantes';
 import { StepAjustes } from '@/app/crear-documento/components/StepAjustes';
@@ -640,6 +641,14 @@ export default function VisorDocumentoPage() {
   const [nom151Error, setNom151Error] = useState('');
   const [nom151LookupComplete, setNom151LookupComplete] = useState(false);
   const [nom151Ready, setNom151Ready] = useState(false);
+  const nom151Presentation = getNom151Presentation({
+    verificationStatus: nom151Data?.verification_status,
+    environment: nom151Data?.environment,
+    productionTrusted: nom151Data?.production_trusted,
+    processing: nom151Generating || nom151Polling,
+    failed: Boolean(nom151Error),
+    requested: Boolean(nom151Data),
+  });
   const [downloadingAns, setDownloadingAns] = useState(false);
   const [downloadingNom151Pdf, setDownloadingNom151Pdf] = useState(false);
 
@@ -5782,45 +5791,50 @@ export default function VisorDocumentoPage() {
                     <div className="rounded-xl border border-border bg-white shadow-sm">
                       <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
                         <span className="text-xs font-bold uppercase tracking-wide text-foreground">Constancia NOM-151</span>
-                        {nom151Data ? (
-                          <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                            nom151Data.production_trusted
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-amber-50 text-amber-700 border-amber-200'
-                          }`}>
-                            {nom151Data.production_trusted
-                              ? 'NOM-151 verificada'
-                              : nom151Data.environment === 'sandbox'
-                                ? 'NOM-151 sandbox'
-                                : 'NOM-151 no productiva'}
-                          </span>
-                        ) : nom151Generating || nom151Polling ? (
-                          <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">Generando…</span>
-                        ) : (
-                          <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">Pendiente</span>
-                        )}
+                        <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          nom151Presentation.verificationStatus === 'verified'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : nom151Presentation.verificationStatus === 'failed'
+                              ? 'bg-red-50 text-red-700 border-red-200'
+                              : 'bg-muted text-muted-foreground border-border'
+                        }`}>
+                          {nom151Presentation.statusLabel}
+                        </span>
                       </div>
                       <div className="p-4">
                         {nom151Data ? (
                           <div className="space-y-3">
-                            <div>
-                              <p className="text-sm font-semibold text-foreground">Constancia de Conservación NOM-151</p>
-                              <p className="text-xs mt-1 text-muted-foreground">PSC: {nom151Data.psc_name || 'Nubarium / PSC World'}</p>
-                              {!nom151Data.production_trusted && (
-                                <p className="text-xs mt-1 text-amber-700">
-                                  La evidencia criptográfica fue verificada, pero el entorno del proveedor no está acreditado como producción.
-                                </p>
-                              )}
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+                              <p className="text-sm font-semibold text-foreground">Constancia NOM-151 verificada</p>
                             </div>
                             <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Código validación</span>
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">PSC</span>
+                                <span className="max-w-[190px] text-right text-xs text-foreground">{nom151Data.psc_name || 'Nubarium / PSC World'}</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Folio / identificador</span>
                                 <span className="text-xs font-mono text-foreground truncate max-w-[140px]">{nom151Data.nubarium_codigo_validacion}</span>
                               </div>
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Fecha emisión</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {new Date(nom151Data.issued_at || nom151Data.created_at).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                <span className="text-right text-xs text-foreground">
+                                  {new Date(nom151Data.issued_at || nom151Data.created_at).toLocaleString('es-MX', {
+                                    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Estado de integridad</span>
+                                <span className="text-right text-xs font-medium text-emerald-700">
+                                  {nom151Presentation.integrityLabel}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Entorno del proveedor</span>
+                                <span className="max-w-[190px] text-right text-xs text-muted-foreground">
+                                  {nom151Presentation.providerEnvironmentLabel}
                                 </span>
                               </div>
                             </div>
