@@ -26,6 +26,13 @@ const internalAdminMigration = await readFile(
   ),
   'utf8'
 );
+const auditChainDigestFix = await readFile(
+  new URL(
+    '../supabase/migrations/20260830210000_fix_organization_audit_chain_digest_schema.sql',
+    import.meta.url
+  ),
+  'utf8'
+);
 
 test('lifecycle runner is disabled by default and POST-only', () => {
   assert.match(route, /lifecycleRunnerEnabled\(\)/);
@@ -107,4 +114,9 @@ test('manual administrative trigger is audited separately from the lifecycle res
   assert.match(route, /CRYPTO_LIFECYCLE_E2E_MANUAL_TRIGGERED/);
   assert.match(route, /source: 'admin-ui'/);
   assert.match(route, /result: 'started'/);
+});
+
+test('audit-chain repair resolves pgcrypto from the extensions schema', () => {
+  assert.match(auditChainDigestFix, /extensions\.digest\(material, 'sha256'\)/);
+  assert.match(auditChainDigestFix, /SET search_path = public/);
 });
