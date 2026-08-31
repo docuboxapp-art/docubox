@@ -130,12 +130,12 @@ async function audit(
     resource_type: 'crypto_lifecycle_e2e',
     resource_id: input.resourceId || input.runId,
     summary: input.summary,
-    payload: input.payload,
-    outcome: input.outcome,
+    payload: { audit_source: 'internal-security-runner', ...input.payload },
+    outcome: input.outcome === 'failed' ? 'failed' : 'success',
     severity: input.outcome === 'failed' ? 'high' : 'info',
     module: 'crypto',
     correlation_id: input.runId,
-    origin: 'internal-security-runner',
+    origin: 'system',
   });
   if (result.error) throw new LifecycleE2eError('CRYPTO_LIFECYCLE_E2E_AUDIT_FAILED');
 }

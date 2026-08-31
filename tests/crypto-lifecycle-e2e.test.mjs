@@ -65,6 +65,9 @@ test('lifecycle response and audit are sanitized', () => {
   assert.match(route, /CRYPTO_LIFECYCLE_E2E_COMPLETED/);
   assert.match(route, /CRYPTO_LIFECYCLE_E2E_FAILED/);
   assert.match(route, /provider_parameters: false/);
+  assert.match(route, /audit_source: 'internal-security-runner'/);
+  assert.match(route, /outcome: input\.outcome === 'failed' \? 'failed' : 'success'/);
+  assert.match(route, /origin: 'system'/);
   assert.doesNotMatch(route, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.doesNotMatch(route, /private.?key|wrapped.?dek|authorization:/i);
 });
