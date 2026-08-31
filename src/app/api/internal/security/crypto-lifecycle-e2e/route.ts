@@ -7,6 +7,7 @@ import { buildAuditClosureCertificate } from '@/lib/documents/audit-closure-cert
 import { buildGeneralSignatureCertificate } from '@/lib/documents/general-signature-certificate';
 import { createNom151Certificate } from '@/lib/documents/nom151-certificate';
 import { integratePadesFinalDocument } from '@/lib/certification/product-integration';
+import { CertificationError } from '@/lib/certification/types';
 import { issueNom151ForVerifiedPadesBt, type IssueNom151Result } from '@/lib/nom151/service';
 import { createNom151Provider } from '@/lib/nom151/provider';
 import { requireApiUser } from '@/lib/certification/auth';
@@ -597,7 +598,10 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(result, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    const code = error instanceof LifecycleE2eError ? error.code : 'CRYPTO_LIFECYCLE_E2E_FAILED';
+    const code =
+      error instanceof LifecycleE2eError || error instanceof CertificationError
+        ? error.code
+        : 'CRYPTO_LIFECYCLE_E2E_FAILED';
     await audit(service, {
       workspaceId,
       actorId: user.id,
