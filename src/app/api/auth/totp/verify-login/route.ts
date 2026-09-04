@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authenticator } from '@otplib/preset-v11';
+import { resolvePlatformAccess } from '@/lib/platform-admin/access';
+import {
+  createPlatformMfaProof,
+  PLATFORM_MFA_COOKIE,
+  platformMfaCookieOptions,
+} from '@/lib/security/platform-mfa-proof';
+import {
+  PLATFORM_PASSKEY_COOKIE,
+  verifyPlatformPasskeyProof,
+} from '@/lib/security/platform-passkey-proof';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -45,10 +55,35 @@ async function logSecurityEvent(
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { userId, code } = body;
+    const authorization = req.headers.get('authorization');
+    if (!authorization?.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+    const token = authorization.slice(7).trim();
+    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !authData.user) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
 
-    if (!userId || !code) {
+    const body = await req.json();
+    const { code } = body;
+    const userId = authData.user.id;
+    const access = await resolvePlatformAccess(authData.user, supabaseAdmin);
+    const passkeyVerified = access?.passkeyRequired
+      ? verifyPlatformPasskeyProof(req.cookies.get(PLATFORM_PASSKEY_COOKIE)?.value, userId)
+      : false;
+
+    if (access?.passkeyRequired && !passkeyVerified) {
+      return NextResponse.json(
+        {
+          error: 'Confirma tu passkey antes de ingresar el código del autenticador.',
+          errorCode: 'PLATFORM_PASSKEY_REQUIRED',
+        },
+        { status: 403 }
+      );
+    }
+
+    if (!code) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
     }
 
@@ -134,7 +169,16 @@ export async function POST(req: NextRequest) {
 
     await logSecurityEvent(userId, 'LOGIN_TOTP_SUCCESS', 'Inicio de sesión con TOTP exitoso', req);
 
-    return NextResponse.json({ success: true });
+    const response = NextResponse.json({ success: true });
+    if (access) {
+      response.cookies.set(
+        PLATFORM_MFA_COOKIE,
+        createPlatformMfaProof(authData.user, { passkeyVerified }),
+        platformMfaCookieOptions()
+      );
+      response.cookies.delete(PLATFORM_PASSKEY_COOKIE);
+    }
+    return response;
   } catch (err) {
     console.error('[TOTP Verify Login]', err);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

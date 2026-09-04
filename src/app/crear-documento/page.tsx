@@ -3,7 +3,19 @@
 import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { Upload, Users, Settings, Send, X, ArrowRight, ArrowLeft, CheckCircle2, Save, LayoutGrid, Maximize2 } from 'lucide-react';
+import {
+  Upload,
+  Users,
+  Settings,
+  Send,
+  X,
+  ArrowRight,
+  ArrowLeft,
+  CheckCircle2,
+  Save,
+  LayoutGrid,
+  Maximize2,
+} from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -16,27 +28,35 @@ import { StepAjustes } from './components/StepAjustes';
 import { StepEnviar } from './components/StepEnviar';
 import type { StepEnviarHandle } from './components/StepEnviar';
 import { StepFlujoTrabajo } from './components/StepFlujoTrabajo';
-import type { Participant, DocumentSettings, DocumentConfig, ParticipantMode, GrupoFirma, SecuritySettings, DocuboxSourceSelection } from './components/types';
+import type {
+  Participant,
+  DocumentSettings,
+  DocumentConfig,
+  ParticipantMode,
+  GrupoFirma,
+  SecuritySettings,
+  DocuboxSourceSelection,
+} from './components/types';
 
 // ─── Helper: derive tipo from field label ─────────────────────────────────────
 function getLabelTipo(label: string): string {
   const map: Record<string, string> = {
-    'Firma': 'firma',
+    Firma: 'firma',
     'Nombre Completo': 'nombre_completo',
-    'RFC': 'rfc',
-    'CURP': 'curp',
+    RFC: 'rfc',
+    CURP: 'curp',
     'Correo Electrónico': 'correo',
     'Número Telefónico': 'telefono',
-    'Dirección': 'direccion',
-    'Texto': 'texto',
-    'Fecha': 'fecha',
-    'Hora': 'hora',
-    'Número': 'numero',
-    'Moneda': 'moneda',
-    'Casilla': 'checkbox',
-    'Imagen': 'imagen',
+    Dirección: 'direccion',
+    Texto: 'texto',
+    Fecha: 'fecha',
+    Hora: 'hora',
+    Número: 'numero',
+    Moneda: 'moneda',
+    Casilla: 'checkbox',
+    Imagen: 'imagen',
     'Botones de opción': 'radio',
-    'Desplegable': 'dropdown',
+    Desplegable: 'dropdown',
     'Cadena original': 'document_chain',
     'Sello digital': 'document_seal',
     'Estampa de tiempo': 'timestamp',
@@ -46,7 +66,12 @@ function getLabelTipo(label: string): string {
 }
 
 // ─── Pipeline de seguridad (Capa 1 + Capa 2) — ejecutado en background ───────
-const ALLOWED_MIME_TYPES_PAGE = ['application/pdf', 'application/vnd.openxmlformats', 'image/png', 'image/jpeg'];
+const ALLOWED_MIME_TYPES_PAGE = [
+  'application/pdf',
+  'application/vnd.openxmlformats',
+  'image/png',
+  'image/jpeg',
+];
 const MAX_FILE_SIZE_BYTES_PAGE = 50 * 1024 * 1024;
 
 async function validateMimeByMagicBytesPage(file: File): Promise<string | null> {
@@ -54,9 +79,10 @@ async function validateMimeByMagicBytesPage(file: File): Promise<string | null> 
   const buffer = await slice.arrayBuffer();
   const b = new Uint8Array(buffer);
   if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return 'application/pdf';
-  if (b[0] === 0x50 && b[1] === 0x4B && b[2] === 0x03 && b[3] === 0x04) return 'application/vnd.openxmlformats';
-  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
-  if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+  if (b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04)
+    return 'application/vnd.openxmlformats';
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
   return null;
 }
 
@@ -65,12 +91,28 @@ async function sanitizePDFPage(file: File): Promise<Uint8Array> {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = new Uint8Array(arrayBuffer);
   const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
-  const catalog = (pdfDoc.context.lookup(pdfDoc.context.trailerInfo.Root) as any);
+  const catalog = pdfDoc.context.lookup(pdfDoc.context.trailerInfo.Root) as any;
   if (catalog) {
-    try { catalog.delete('JavaScript'); } catch { /* ignorar */ }
-    try { catalog.delete('JS'); } catch { /* ignorar */ }
-    try { catalog.delete('OpenAction'); } catch { /* ignorar */ }
-    try { catalog.delete('AA'); } catch { /* ignorar */ }
+    try {
+      catalog.delete('JavaScript');
+    } catch {
+      /* ignorar */
+    }
+    try {
+      catalog.delete('JS');
+    } catch {
+      /* ignorar */
+    }
+    try {
+      catalog.delete('OpenAction');
+    } catch {
+      /* ignorar */
+    }
+    try {
+      catalog.delete('AA');
+    } catch {
+      /* ignorar */
+    }
   }
   pdfDoc.setTitle('');
   pdfDoc.setAuthor('');
@@ -109,12 +151,27 @@ const CONDICIONAL_STEPS = [
   { id: 1, label: 'Subir', icon: Upload },
   { id: 2, label: 'Participantes', icon: Users },
   { id: 3, label: 'Ajustes', icon: Settings },
-  { id: 4, label: 'Flujo de Trabajo', icon: () => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
-      <circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="6" r="2"/>
-      <path d="M6 8v8M8 6h8"/>
-    </svg>
-  )},
+  {
+    id: 4,
+    label: 'Flujo de Trabajo',
+    icon: () => (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        width="14"
+        height="14"
+      >
+        <circle cx="6" cy="18" r="2" />
+        <circle cx="18" cy="6" r="2" />
+        <circle cx="6" cy="6" r="2" />
+        <path d="M6 8v8M8 6h8" />
+      </svg>
+    ),
+  },
   { id: 5, label: 'Enviar', icon: Send },
 ];
 
@@ -138,10 +195,23 @@ function CrearDocumentoPageInner() {
   const [participationOrder, setParticipationOrder] = useState<string>('');
   const [grupos, setGrupos] = useState<GrupoFirma[]>([]);
   const [settings, setSettings] = useState<DocumentSettings>({
-    title: '', message: '', deadline: '', reminderDays: '3', requireAllSignatures: true, allowDecline: false,
+    title: '',
+    message: '',
+    deadline: '',
+    reminderDays: '3',
+    requireAllSignatures: true,
+    allowDecline: false,
   });
   const [docConfig, setDocConfig] = useState<DocumentConfig>({
-    nombre: '', descripcion: '', numeroOficio: '', grupotipoId: '', tipoDocumentoId: '', otroTipoDocumento: '', ruta: 'raiz', etiquetasIds: [], additionalMetadata: [],
+    nombre: '',
+    descripcion: '',
+    numeroOficio: '',
+    grupotipoId: '',
+    tipoDocumentoId: '',
+    otroTipoDocumento: '',
+    ruta: 'raiz',
+    etiquetasIds: [],
+    additionalMetadata: [],
   });
   const [placedFields, setPlacedFields] = useState<import('./components/types').PlacedField[]>([]);
   const [ajustesFixarCampos, setAjustesFixarCampos] = useState(false);
@@ -163,7 +233,12 @@ function CrearDocumentoPageInner() {
   // Estado del pipeline de seguridad pre-ejecutado
   const [preProcessedFile, setPreProcessedFile] = useState<PreProcessedFile | null>(null);
   const [isPreProcessing, setIsPreProcessing] = useState(false);
-  const [pdfMetadata, setPdfMetadata] = useState<{ pageCount: number; title?: string; author?: string; creationDate?: string } | null>(null);
+  const [pdfMetadata, setPdfMetadata] = useState<{
+    pageCount: number;
+    title?: string;
+    author?: string;
+    creationDate?: string;
+  } | null>(null);
 
   const isMixto = participationOrder === 'mixto';
   const isCondicional = participationOrder === 'condicional';
@@ -171,14 +246,17 @@ function CrearDocumentoPageInner() {
 
   const currentStepLabel = STEPS.find((s) => s.id === currentStep)?.label ?? '';
   const CurrentStepIcon = STEPS.find((s) => s.id === currentStep)?.icon ?? Upload;
-  const currentStepDescription = ({
-    Subir: 'Carga el archivo y define sus propiedades iniciales.',
-    Participantes: 'Elige quienes participan y configura su intervencion.',
-    Agrupamiento: 'Organiza los grupos y el orden de participacion.',
-    Ajustes: 'Define los campos que deberá completar cada participante.',
-    'Flujo de Trabajo': 'Define condiciones y acciones para el proceso.',
-    Enviar: 'Revisa la información final antes de iniciar el proceso.',
-  } as Record<string, string>)[currentStepLabel] ?? 'Configura el documento antes de enviarlo.';
+  const currentStepDescription =
+    (
+      {
+        Subir: 'Carga el archivo y define sus propiedades iniciales.',
+        Participantes: 'Elige quienes participan y configura su intervencion.',
+        Agrupamiento: 'Organiza los grupos y el orden de participacion.',
+        Ajustes: 'Define los campos que deberá completar cada participante.',
+        'Flujo de Trabajo': 'Define condiciones y acciones para el proceso.',
+        Enviar: 'Revisa la información final antes de iniciar el proceso.',
+      } as Record<string, string>
+    )[currentStepLabel] ?? 'Configura el documento antes de enviarlo.';
   const completionPercent = Math.round(((currentStep - 1) / Math.max(STEPS.length - 1, 1)) * 100);
 
   // Load draft from Supabase if draftId is in URL
@@ -205,7 +283,9 @@ function CrearDocumentoPageInner() {
           otroTipoDocumento: '',
           ruta: data.ruta_guardado || 'raiz',
           etiquetasIds: data.etiquetas_ids || [],
-          additionalMetadata: Array.isArray(data.additional_metadata) ? data.additional_metadata : [],
+          additionalMetadata: Array.isArray(data.additional_metadata)
+            ? data.additional_metadata
+            : [],
         });
         if (data.participantes && Array.isArray(data.participantes)) {
           setParticipants(data.participantes);
@@ -219,23 +299,30 @@ function CrearDocumentoPageInner() {
       }
     };
     loadDraft();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   // Refresh email verification status on mount to get latest DB value
   useEffect(() => {
     refreshEmailVerified();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const canGoNext = (() => {
     if (currentStep === 1) {
       if (!file || !docConfig.nombre.trim()) return false;
-      if (docConfig.tipoDocumentoId === '__otros__' && !docConfig.otroTipoDocumento.trim()) return false;
+      if (docConfig.tipoDocumentoId === '__otros__' && !docConfig.otroTipoDocumento.trim())
+        return false;
+      if (securitySummary?.legalHoldEnabled && !securitySummary.legalHoldReason) return false;
       return true;
     }
     if (currentStepLabel === 'Participantes') {
-      return participantMode !== null && participants.length > 0 && participants.every((p) => p.configured === true) && (participantMode === 'solo_yo' || participationOrder !== '');
+      return (
+        participantMode !== null &&
+        participants.length > 0 &&
+        participants.every((p) => p.configured === true) &&
+        (participantMode === 'solo_yo' || participationOrder !== '')
+      );
     }
     if (currentStepLabel === 'Agrupamiento') {
       const assignedIds = new Set(grupos.flatMap((g) => g.participantIds));
@@ -248,7 +335,10 @@ function CrearDocumentoPageInner() {
     return true;
   })();
 
-  const nextButtonLabel = currentStepLabel === 'Ajustes' && !ajustesFixarCampos ? 'Continuar sin asignar campos' : 'Siguiente';
+  const nextButtonLabel =
+    currentStepLabel === 'Ajustes' && !ajustesFixarCampos
+      ? 'Continuar sin asignar campos'
+      : 'Siguiente';
 
   const isLastStep = currentStep === STEPS.length;
 
@@ -273,14 +363,23 @@ function CrearDocumentoPageInner() {
               try {
                 bytes = await sanitizePDFPage(file);
               } catch {
-                setPreProcessedFile({ bytes: new Uint8Array(), mime: detectedMime, status: 'error_invalido' });
+                setPreProcessedFile({
+                  bytes: new Uint8Array(),
+                  mime: detectedMime,
+                  status: 'error_invalido',
+                });
                 return;
               }
             } else {
               bytes = new Uint8Array(await file.arrayBuffer());
             }
             setPreProcessedFile({ bytes, mime: detectedMime, status: 'ready' });
-            console.log('[DOCUBOX][security] Pipeline pre-ejecutado: MIME =', detectedMime, '| bytes =', bytes.byteLength);
+            console.log(
+              '[DOCUBOX][security] Pipeline pre-ejecutado: MIME =',
+              detectedMime,
+              '| bytes =',
+              bytes.byteLength
+            );
           } catch (err) {
             console.warn('[DOCUBOX][security] Error en pre-procesamiento (no bloqueante):', err);
             // No bloquear la navegación; StepEnviar ejecutará el pipeline normalmente
@@ -312,7 +411,9 @@ function CrearDocumentoPageInner() {
     setSavingDraft(true);
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) {
         router.push('/login');
@@ -325,7 +426,7 @@ function CrearDocumentoPageInner() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           documentoId: docId,
@@ -339,9 +440,12 @@ function CrearDocumentoPageInner() {
           numeroOficio: docConfig.numeroOficio || null,
           grupotipoId: docConfig.grupotipoId || null,
           tipoDocumentoId: docConfig.tipoDocumentoId || null,
-          otroTipoDocumento: docConfig.tipoDocumentoId === '__otros__'
-            ? (docConfig.otroTipoDocumento || null)
-            : (docConfig.tipoDocumentoId ? null : 'No especificado'),
+          otroTipoDocumento:
+            docConfig.tipoDocumentoId === '__otros__'
+              ? docConfig.otroTipoDocumento || null
+              : docConfig.tipoDocumentoId
+                ? null
+                : 'No especificado',
           ruta: docConfig.ruta || 'raiz',
           etiquetasIds: docConfig.etiquetasIds || [],
           currentStep,
@@ -353,12 +457,13 @@ function CrearDocumentoPageInner() {
           fechaVencimiento: securitySummary?.fechaVencimiento || null,
           codigoAccesoEnabled: securitySummary?.codigoAccesoEnabled ?? false,
           proteccionAdicionalEnabled: securitySummary?.proteccionAdicionalEnabled ?? false,
-          legalHoldEnabled: securitySummary?.legalHoldEnabled ?? false,
           impedirImpresion: securitySummary?.impedirImpresion ?? false,
           evitarCopiaTexto: securitySummary?.evitarCopiaTexto ?? false,
           impedirModificacion: securitySummary?.impedirModificacion ?? false,
           impedirExtraccion: securitySummary?.impedirExtraccion ?? false,
           evitarMontaje: securitySummary?.evitarMontaje ?? false,
+          legalHoldEnabled: securitySummary?.legalHoldEnabled ?? false,
+          legalHoldReason: securitySummary?.legalHoldReason || null,
           recordatorioFrecuencia: securitySummary?.recordatorioFrecuencia || null,
           urgente: securitySummary?.urgente ?? false,
           publico: securitySummary?.publico ?? false,
@@ -449,13 +554,25 @@ function CrearDocumentoPageInner() {
       <div className="h-screen bg-white flex flex-col items-center justify-center p-8">
         <div className="max-w-md w-full text-center">
           <div className="w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-5">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="w-8 h-8 text-amber-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+              />
             </svg>
           </div>
           <h2 className="text-xl font-bold text-gray-900 mb-3">Verifica tu correo electrónico</h2>
           <p className="text-gray-500 text-sm leading-relaxed mb-6">
-            Para crear documentos necesitas verificar tu correo electrónico. Revisa tu bandeja de entrada y haz clic en el enlace de verificación que te enviamos al registrarte.
+            Para crear documentos necesitas verificar tu correo electrónico. Revisa tu bandeja de
+            entrada y haz clic en el enlace de verificación que te enviamos al registrarte.
           </p>
           <button
             onClick={() => router.push('/inicio')}
@@ -486,7 +603,9 @@ function CrearDocumentoPageInner() {
           <div className="hidden h-8 w-px bg-slate-200 lg:block" />
           <div className="hidden min-w-0 lg:block">
             <p className="truncate text-sm font-700 text-slate-950">Nuevo documento</p>
-            <p className="truncate text-xs text-slate-500">{activeWorkspace?.name || 'Espacio personal'}</p>
+            <p className="truncate text-xs text-slate-500">
+              {activeWorkspace?.name || 'Espacio personal'}
+            </p>
           </div>
         </div>
         <nav className="hidden items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 xl:flex">
@@ -500,22 +619,37 @@ function CrearDocumentoPageInner() {
                   onClick={() => step.id < currentStep && setCurrentStep(step.id)}
                   className={`flex h-8 items-center gap-2 rounded-md px-3 text-xs font-600 transition-colors ${isActive ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]' : isCompleted ? 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary' : 'cursor-default text-slate-400'}`}
                 >
-                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'}`}>
+                  <span
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'}`}
+                  >
                     {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                   </span>
                   <span>{step.label}</span>
                 </button>
-                {idx < STEPS.length - 1 && <div className={`h-px w-3 ${step.id < currentStep ? 'bg-primary/50' : 'bg-slate-200'}`} />}
+                {idx < STEPS.length - 1 && (
+                  <div
+                    className={`h-px w-3 ${step.id < currentStep ? 'bg-primary/50' : 'bg-slate-200'}`}
+                  />
+                )}
               </React.Fragment>
             );
           })}
         </nav>
         <div className="flex flex-1 items-center justify-end gap-1.5">
-          <button onClick={handleToggleFullscreen} title={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'} className="flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-slate-500 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950">
+          <button
+            onClick={handleToggleFullscreen}
+            title={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-slate-500 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950"
+          >
             <Maximize2 size={17} />
           </button>
-          <button onClick={() => setShowExitModal(true)} title="Salir" className="ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600">
-            <X size={16} /><span className="hidden sm:inline">Salir</span>
+          <button
+            onClick={() => setShowExitModal(true)}
+            title="Salir"
+            className="ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+          >
+            <X size={16} />
+            <span className="hidden sm:inline">Salir</span>
           </button>
         </div>
       </header>
@@ -550,7 +684,9 @@ function CrearDocumentoPageInner() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-xl font-700 text-slate-950">{currentStepLabel}</h1>
-                  <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">Paso {currentStep} de {STEPS.length}</span>
+                  <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">
+                    Paso {currentStep} de {STEPS.length}
+                  </span>
                 </div>
                 <p className="mt-1 text-sm text-slate-500">{currentStepDescription}</p>
               </div>
@@ -561,7 +697,10 @@ function CrearDocumentoPageInner() {
                 <span>{completionPercent}%</span>
               </div>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${completionPercent}%` }} />
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-300"
+                  style={{ width: `${completionPercent}%` }}
+                />
               </div>
             </div>
           </div>
@@ -585,7 +724,15 @@ function CrearDocumentoPageInner() {
             />
           )}
           {currentStepLabel === 'Participantes' && (
-            <StepParticipantes participants={participants} onChange={setParticipants} mode={participantMode} onModeChange={setParticipantMode} onOrderChange={handleOrderChange} participationOrder={participationOrder} vencimientoSolicitudEnabled={(securitySummary as any)?.vencimientoSolicitud ?? false} />
+            <StepParticipantes
+              participants={participants}
+              onChange={setParticipants}
+              mode={participantMode}
+              onModeChange={setParticipantMode}
+              onOrderChange={handleOrderChange}
+              participationOrder={participationOrder}
+              vencimientoSolicitudEnabled={(securitySummary as any)?.vencimientoSolicitud ?? false}
+            />
           )}
           {currentStepLabel === 'Agrupamiento' && (
             <StepAgrupamiento participants={participants} grupos={grupos} onChange={setGrupos} />
@@ -594,10 +741,41 @@ function CrearDocumentoPageInner() {
             <StepFlujoTrabajo participants={participants} />
           )}
           {currentStepLabel === 'Ajustes' && (
-            <StepAjustes settings={settings} onChange={setSettings} participants={participants} file={file} isCondicional={isCondicional} documentoId={documentoId} securitySettings={securitySummary} onPlacedFieldsChange={setPlacedFields} onFixarCamposChange={(fixar, hasFirma) => { setAjustesFixarCampos(fixar); setAjustesHasFirma(hasFirma); }} initialFixarCampos={ajustesFixarCampos} initialPlacedFields={placedFields} />
+            <StepAjustes
+              settings={settings}
+              onChange={setSettings}
+              participants={participants}
+              file={file}
+              isCondicional={isCondicional}
+              documentoId={documentoId}
+              securitySettings={securitySummary}
+              onPlacedFieldsChange={setPlacedFields}
+              onFixarCamposChange={(fixar, hasFirma) => {
+                setAjustesFixarCampos(fixar);
+                setAjustesHasFirma(hasFirma);
+              }}
+              initialFixarCampos={ajustesFixarCampos}
+              initialPlacedFields={placedFields}
+            />
           )}
           {currentStepLabel === 'Enviar' && (
-            <StepEnviar ref={stepEnviarRef} file={file} participants={participants} settings={settings} docConfig={docConfig} onGoToStep={setCurrentStep} placedFields={placedFields} documentoId={documentoId} securitySettings={securitySummary} grupos={grupos} participationOrder={participationOrder} participantMode={participantMode} preProcessedFile={preProcessedFile} pdfMetadata={pdfMetadata} docuboxSource={docuboxSource} />
+            <StepEnviar
+              ref={stepEnviarRef}
+              file={file}
+              participants={participants}
+              settings={settings}
+              docConfig={docConfig}
+              onGoToStep={setCurrentStep}
+              placedFields={placedFields}
+              documentoId={documentoId}
+              securitySettings={securitySummary}
+              grupos={grupos}
+              participationOrder={participationOrder}
+              participantMode={participantMode}
+              preProcessedFile={preProcessedFile}
+              pdfMetadata={pdfMetadata}
+              docuboxSource={docuboxSource}
+            />
           )}
         </div>
       </main>
@@ -607,50 +785,106 @@ function CrearDocumentoPageInner() {
           {currentStep === 1 ? (
             <div />
           ) : (
-            <button onClick={handleBack} className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950">
-              <ArrowLeft size={16} />Atrás
+            <button
+              onClick={handleBack}
+              className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+            >
+              <ArrowLeft size={16} />
+              Atrás
             </button>
           )}
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          {draftSaved && (
-            <span className="hidden items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 sm:flex">
-              <CheckCircle2 size={12} />Borrador guardado
-            </span>
-          )}
-          {currentStep !== 1 && (
-          <button
-            onClick={handleGuardarAvanceClick}
-            disabled={savingDraft}
-            className="hidden h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60 sm:flex"
-          >
-            {savingDraft ? (
-              <><svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Guardando...</>
-            ) : (
-              <><Save size={15} />Guardar avance</>
+            {draftSaved && (
+              <span className="hidden items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 sm:flex">
+                <CheckCircle2 size={12} />
+                Borrador guardado
+              </span>
             )}
-          </button>
-          )}
-          {isLastStep ? (
-            <button
-              onClick={handleEnviarDocumento}
-              disabled={enviarSending}
-              className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(5,150,105,0.85)] transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {enviarSending ? (
-                <><svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Enviando...</>
-              ) : (
-                <><Send size={15} />Enviar documento</>
-              )}
-            </button>
-          ) : (
-            <button
-              onClick={handleNext}
-              disabled={!canGoNext}
-              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {nextButtonLabel}<ArrowRight size={16} />
-            </button>
-          )}
+            {currentStep !== 1 && (
+              <button
+                onClick={handleGuardarAvanceClick}
+                disabled={savingDraft}
+                className="hidden h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60 sm:flex"
+              >
+                {savingDraft ? (
+                  <>
+                    <svg
+                      className="animate-spin h-4 w-4"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    Guardando...
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} />
+                    Guardar avance
+                  </>
+                )}
+              </button>
+            )}
+            {isLastStep ? (
+              <button
+                onClick={handleEnviarDocumento}
+                disabled={enviarSending}
+                className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(5,150,105,0.85)] transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {enviarSending ? (
+                  <>
+                    <svg
+                      className="animate-spin h-4 w-4"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Send size={15} />
+                    Enviar documento
+                  </>
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={handleNext}
+                disabled={!canGoNext}
+                className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {nextButtonLabel}
+                <ArrowRight size={16} />
+              </button>
+            )}
           </div>
         </div>
       </footer>
@@ -660,7 +894,32 @@ function CrearDocumentoPageInner() {
 
 export default function CrearDocumentoPage() {
   return (
-    <Suspense fallback={<div className="h-screen flex items-center justify-center"><svg className="animate-spin h-8 w-8 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg></div>}>
+    <Suspense
+      fallback={
+        <div className="h-screen flex items-center justify-center">
+          <svg
+            className="animate-spin h-8 w-8 text-primary"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
+          </svg>
+        </div>
+      }
+    >
       <CrearDocumentoPageInner />
     </Suspense>
   );

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { documentEncryptionPolicy } from '@/lib/crypto/document-encryption';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -66,6 +67,9 @@ function extractStorageReference(rawUrl: string) {
 }
 
 async function createTemporaryDocumentUrl(supabase: ReturnType<typeof createServiceClient>, document: PublicDocumentRow) {
+  if (documentEncryptionPolicy().enabled) {
+    return `/api/verificacion/documentos/${document.id}/archivo`;
+  }
   const candidates: Array<{ bucket: string; path: string }> = [];
 
   if (document.sealed_pdf_path) {

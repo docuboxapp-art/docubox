@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authenticator } from '@otplib/preset-v11';
+import { resolvePlatformAccess } from '@/lib/platform-admin/access';
+import {
+  createPlatformMfaProof,
+  PLATFORM_MFA_COOKIE,
+  platformMfaCookieOptions,
+} from '@/lib/security/platform-mfa-proof';
+import {
+  PLATFORM_PASSKEY_COOKIE,
+  verifyPlatformPasskeyProof,
+} from '@/lib/security/platform-passkey-proof';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -61,6 +71,20 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { code } = body;
+    const access = await resolvePlatformAccess(user, supabaseAdmin);
+    const passkeyVerified = access?.passkeyRequired
+      ? verifyPlatformPasskeyProof(req.cookies.get(PLATFORM_PASSKEY_COOKIE)?.value, user.id)
+      : false;
+
+    if (access?.passkeyRequired && !passkeyVerified) {
+      return NextResponse.json(
+        {
+          error: 'Confirma tu passkey antes de activar el autenticador.',
+          errorCode: 'PLATFORM_PASSKEY_REQUIRED',
+        },
+        { status: 403 }
+      );
+    }
 
     if (!code || !/^\d{6}$/.test(code)) {
       return NextResponse.json(
@@ -171,10 +195,19 @@ export async function POST(req: NextRequest) {
       req
     );
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: 'App autenticadora activada correctamente.',
     });
+    if (access) {
+      response.cookies.set(
+        PLATFORM_MFA_COOKIE,
+        createPlatformMfaProof(user, { passkeyVerified }),
+        platformMfaCookieOptions()
+      );
+      response.cookies.delete(PLATFORM_PASSKEY_COOKIE);
+    }
+    return response;
   } catch (err) {
     console.error('[TOTP Verify Setup]', err);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

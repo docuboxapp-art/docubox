@@ -5,7 +5,7 @@ import {
   organizationApiFailure,
 } from '@/lib/organization/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { createNotificationServer } from '@/lib/notificationsInApp';
+import { createNotificationServer } from '@/lib/notificationsInApp.server';
 
 export const runtime = 'nodejs';
 
@@ -89,9 +89,18 @@ export async function POST(request: Request) {
       await createNotificationServer({
         userId: invitation.data.invited_by,
         type: 'info',
+        eventType: 'organization.invitation.accepted',
+        category: 'ORGANIZATION',
+        severity: 'success',
         title: 'Invitación aceptada',
         description: `Un nuevo miembro se incorporó a ${(invitation.data.workspaces as any)?.name || 'la organización'}.`,
         priority: 'media',
+        workspaceId: invitation.data.workspace_id,
+        entityType: 'organization_invitation',
+        entityId: invitation.data.id,
+        actionUrl: '/organizacion/miembros',
+        actionLabel: 'Ver miembros',
+        deduplicationKey: `organization.invitation.accepted:${invitation.data.id}`,
         metadata: {
           workspace_id: invitation.data.workspace_id,
           invitation_id: invitation.data.id,

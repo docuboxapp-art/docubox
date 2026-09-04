@@ -9,7 +9,6 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import AppLogo from '@/components/ui/AppLogo';
 import { createNotification } from '@/lib/notificationsInApp';
-import { sendParticipationCompletionEmail, sendOwnerParticipantActionEmail } from '@/lib/emailNotifications';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
 import AutographSignatureFlow from './AutographSignatureFlow';
 import { useEfirmaEvidence, fileToBase64 } from '@/hooks/useEfirmaEvidence';
@@ -5191,8 +5190,8 @@ export default function FirmarDocumentoPage() {
         }
       }
 
-      // Generate final artifacts only after the last participant has completed.
-      // NOM-151 is requested after the derived PDF has finished, never in parallel.
+      // The browser requests one backend operation. PAdES-B-T, NOM-151 and
+      // completion email ordering is enforced by seal-signatures.
       if (documentoEstado === 'completado') {
         try {
           const { data: { session } } = await supabase.auth.getSession();
@@ -5206,27 +5205,11 @@ export default function FirmarDocumentoPage() {
           });
           if (!sealResponse.ok) {
             const payload = await sealResponse.json().catch(() => ({}));
-            const noSignatureFields = sealResponse.status === 409
-              && /no tiene campos de firma configurados/i.test(String(payload?.error || ''));
-            if (!noSignatureFields) {
-              console.error('[firmar-documento] No se pudo estampar el PDF final:', payload?.error || sealResponse.status);
-            }
-          }
-
-          const nom151Response = await fetch('/api/nom151/generate', {
-            method: 'POST',
-            headers: {
-              ...authorizationHeaders,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ documento_id: document.id, requested_by: user.id }),
-          });
-          if (!nom151Response.ok) {
-            const payload = await nom151Response.json().catch(() => ({}));
-            console.error('[firmar-documento] No se pudo emitir automáticamente la NOM-151:', payload?.error || nom151Response.status);
+            throw new Error(payload?.error || `FINAL_CERTIFICATION_FAILED_${sealResponse.status}`);
           }
         } catch (artifactError) {
           console.error('[firmar-documento] Error al generar los artefactos finales:', artifactError);
+          throw artifactError;
         }
       }
 
@@ -5269,40 +5252,6 @@ export default function FirmarDocumentoPage() {
           priority: 'media',
           metadata: { documentoId: document.id, documentName: document.nombre, signerEmail: user.email },
         });
-      }
-
-      // ── Send participation completion email to the participant ────────────
-      if (user.email) {
-        sendParticipationCompletionEmail({
-          participantEmail: user.email,
-          participantName: user.user_metadata?.full_name || user.email,
-          documentName: document.nombre || 'Documento',
-          participationStatus: 'firmado',
-          completedAt: now,
-        }).catch((err: unknown) => {
-          console.error('[firmar-documento] Failed to send firmado completion email:', err instanceof Error ? err.message : err);
-        });
-      }
-
-      // ── Send owner notification email when participant approves ───────────
-      if (myRole === 'aprobador' && document.owner_id && user.id !== document.owner_id) {
-        // Fetch owner profile for email
-        const { data: ownerProf } = await supabase
-          .from('profiles')
-          .select('full_name, email')
-          .eq('id', document.owner_id)
-          .maybeSingle();
-        if (ownerProf?.email) {
-          sendOwnerParticipantActionEmail({
-            ownerEmail: ownerProf.email,
-            ownerName: ownerProf.full_name || undefined,
-            documentName: document.nombre || 'Documento',
-            participantName: actorNombre,
-            participantEmail: user.email,
-            action: 'aprobado',
-            completedAt: now,
-          }).catch(() => {});
-        }
       }
 
       setStep('completado');

@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sha256Hex } from './canonical';
 import { CertificationError } from './types';
+import {
+  documentEncryptionPolicy,
+  readDocumentStorageObject,
+} from '@/lib/crypto/document-encryption';
 
 const IMMUTABLE_SOURCE_BUCKET = 'certification-artifacts';
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -158,6 +162,19 @@ function versionReferences(version: DocumentVersionRow) {
 }
 
 async function loadVersionBytes(supabase: SupabaseClient, version: DocumentVersionRow) {
+  if (documentEncryptionPolicy().enabled && version.storage_path) {
+    const bucket = typeof version.metadata?.storage_bucket === 'string'
+      ? version.metadata.storage_bucket
+      : 'documents';
+    const decrypted = await readDocumentStorageObject({
+      service: supabase,
+      storageBucket: bucket,
+      storagePath: version.storage_path,
+      expectedPlaintextSha256: version.sha256,
+    });
+    assertSourceHash(decrypted.plaintext, version.sha256);
+    return new Uint8Array(decrypted.plaintext);
+  }
   const downloaded = await downloadFirstAvailable(supabase, versionReferences(version), version.file_url);
   if (!downloaded) {
     throw new CertificationError(
@@ -278,8 +295,16 @@ export async function resolveAndFreezeCertificationSource({
   }
 
   const hash = assertSourceHash(bytes, version.sha256);
-  const immutablePath = `${document.workspace_id}/${document.id}/versions/${version.id}/source-${hash}.pdf`;
-  await uploadImmutableSource(supabase, immutablePath, bytes, version.mime_type);
+  const encryptedSource = documentEncryptionPolicy().enabled && Boolean(version.storage_path);
+  const immutablePath = encryptedSource
+    ? version.storage_path!
+    : `${document.workspace_id}/${document.id}/versions/${version.id}/source-${hash}.pdf`;
+  const immutableBucket = encryptedSource
+    ? (typeof version.metadata?.storage_bucket === 'string' ? version.metadata.storage_bucket : 'documents')
+    : IMMUTABLE_SOURCE_BUCKET;
+  if (!encryptedSource) {
+    await uploadImmutableSource(supabase, immutablePath, bytes, version.mime_type);
+  }
 
   if (!version.frozen_at && !['sent', 'signed'].includes(version.status)) {
     const frozenAt = new Date().toISOString();
@@ -294,7 +319,7 @@ export async function resolveAndFreezeCertificationSource({
         frozen_at: frozenAt,
         metadata: {
           ...(version.metadata || {}),
-          storage_bucket: IMMUTABLE_SOURCE_BUCKET,
+          storage_bucket: immutableBucket,
           immutable_source: true,
           immutable_source_sha256: hash,
           frozen_by: 'certification_foundation',
@@ -313,7 +338,7 @@ export async function resolveAndFreezeCertificationSource({
     bytes,
     sha256: hash,
     sizeBytes: bytes.byteLength,
-    storageBucket: IMMUTABLE_SOURCE_BUCKET,
+    storageBucket: immutableBucket,
     storagePath: immutablePath,
   };
 }
@@ -322,6 +347,16 @@ export async function verifyFrozenCertificationSource(
   supabase: SupabaseClient,
   source: Pick<FrozenCertificationSource, 'storageBucket' | 'storagePath' | 'sha256'>,
 ) {
+  if (documentEncryptionPolicy().enabled) {
+    const decrypted = await readDocumentStorageObject({
+      service: supabase,
+      storageBucket: source.storageBucket,
+      storagePath: source.storagePath,
+      expectedPlaintextSha256: source.sha256,
+    });
+    assertSourceHash(decrypted.plaintext, source.sha256);
+    return new Uint8Array(decrypted.plaintext);
+  }
   const downloaded = await supabase.storage.from(source.storageBucket).download(source.storagePath);
   if (downloaded.error || !downloaded.data) {
     throw new CertificationError(

@@ -6,6 +6,11 @@ import { PadesBbPdfSignatureProvider } from './pades';
 import { createCertificationProviderSet, type CertificationProviderSet } from './providers';
 import { UnavailableTimestampAuthorityProvider, type TimestampResult } from './timestamp';
 import { CertificationError } from './types';
+import {
+  documentEncryptionPolicy,
+  encryptAndUploadDocumentObject,
+  readDocumentStorageObject,
+} from '@/lib/crypto/document-encryption';
 
 const DOCUMENT_BUCKET = 'documents';
 const CERTIFICATION_BUCKET = 'certification-artifacts';
@@ -201,10 +206,42 @@ async function uploadImmutableArtifact(
   throw new CertificationError('PADES_BT_IMMUTABLE_WRITE_FAILED', upload.error.message, 500);
 }
 
+async function storeCertificationArtifact(
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string;
+    documentId: string;
+    documentVersionId: string;
+    actorId: string;
+    path: string;
+    bytes: Uint8Array;
+    contentType: string;
+  }
+) {
+  if (!documentEncryptionPolicy().enabled) {
+    return uploadImmutableArtifact(supabase, input.path, input.bytes, input.contentType);
+  }
+  await encryptAndUploadDocumentObject({
+    service: supabase,
+    plaintext: input.bytes,
+    tenantId: input.tenantId,
+    documentId: input.documentId,
+    documentVersionId: input.documentVersionId,
+    artifactKind: 'evidence',
+    storageBucket: CERTIFICATION_BUCKET,
+    storagePath: input.path,
+    originalFileName: input.path.split('/').at(-1) || null,
+    originalMimeType: input.contentType,
+    userId: input.actorId,
+  });
+  return input.path;
+}
+
 async function ensureVisualVersion(
   supabase: SupabaseClient,
   input: FinalDocumentInput,
-  visualStoragePath: string
+  visualStoragePath: string,
+  requestedVersionId?: string | null
 ) {
   const versions = await supabase
     .from('document_versions')
@@ -229,6 +266,7 @@ async function ensureVisualVersion(
   const inserted = await supabase
     .from('document_versions')
     .insert({
+      ...(requestedVersionId ? { id: requestedVersionId } : {}),
       workspace_id: input.workspaceId,
       document_id: input.documentId,
       version_number: nextVersion,
@@ -273,6 +311,82 @@ async function ensureVisualVersion(
     );
   }
   return { id: inserted.data.id, versionNumber: inserted.data.version_number };
+}
+
+async function storeVersionPdf(
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string;
+    documentId: string;
+    documentVersionId: string;
+    artifactKind: 'visual_pdf' | 'signed_pdf' | 'certified_pdf';
+    storageBucket: string;
+    storagePath: string;
+    bytes: Uint8Array;
+    sha256: string;
+    actorId: string;
+  }
+) {
+  if (!documentEncryptionPolicy().enabled) {
+    await uploadImmutablePdf(
+      supabase,
+      input.storageBucket,
+      input.storagePath,
+      input.bytes,
+      input.sha256
+    );
+    return;
+  }
+  const encrypted = await encryptAndUploadDocumentObject({
+    service: supabase,
+    plaintext: input.bytes,
+    tenantId: input.tenantId,
+    documentId: input.documentId,
+    documentVersionId: input.documentVersionId,
+    artifactKind: input.artifactKind,
+    storageBucket: input.storageBucket,
+    storagePath: input.storagePath,
+    originalFileName: 'documento.pdf',
+    originalMimeType: 'application/pdf',
+    userId: input.actorId,
+  });
+  if (encrypted.metadata.plaintext_sha256 !== input.sha256) {
+    throw new CertificationError(
+      'DOCUMENT_ENCRYPTION_HASH_MISMATCH',
+      'La capa de cifrado no preservo la huella logica del PDF.',
+      500
+    );
+  }
+}
+
+async function readVersionPdf(
+  supabase: SupabaseClient,
+  input: {
+    storageBucket: string;
+    storagePath: string;
+    sha256: string | null;
+    actorId: string;
+  }
+) {
+  if (!documentEncryptionPolicy().enabled) {
+    const downloaded = await supabase.storage.from(input.storageBucket).download(input.storagePath);
+    if (downloaded.error || !downloaded.data) {
+      throw new CertificationError(
+        'PADES_PDF_READ_FAILED',
+        downloaded.error?.message || 'No se pudo recuperar el PDF.',
+        500
+      );
+    }
+    return new Uint8Array(await downloaded.data.arrayBuffer());
+  }
+  const decrypted = await readDocumentStorageObject({
+    service: supabase,
+    storageBucket: input.storageBucket,
+    storagePath: input.storagePath,
+    expectedPlaintextSha256: input.sha256,
+    userId: input.actorId,
+  });
+  return new Uint8Array(decrypted.plaintext);
 }
 
 async function appendFinalizationEvidence(
@@ -603,16 +717,12 @@ export async function upgradePadesBbCertificationToBt(
           certification.provider_metadata?.product_integration?.pades_bt?.timestamp || null,
       };
     }
-    const bbPdf = await supabase.storage
-      .from(CERTIFICATION_BUCKET)
-      .download(certification.certified_pdf_path!);
-    if (bbPdf.error || !bbPdf.data)
-      throw new CertificationError(
-        'PADES_BB_PDF_READ_FAILED',
-        bbPdf.error?.message || 'No se pudo recuperar el PDF B-B.',
-        500
-      );
-    const bbBytes = new Uint8Array(await bbPdf.data.arrayBuffer());
+    const bbBytes = await readVersionPdf(supabase, {
+      storageBucket: CERTIFICATION_BUCKET,
+      storagePath: certification.certified_pdf_path!,
+      sha256: certification.certified_pdf_sha256,
+      actorId: input.triggeredBy,
+    });
     if (sha256(bbBytes) !== certification.certified_pdf_sha256) {
       throw new CertificationError(
         'PADES_BB_PDF_HASH_MISMATCH',
@@ -652,40 +762,44 @@ export async function upgradePadesBbCertificationToBt(
         'La certificación no tiene raíz de artefactos.',
         500
       );
+    const storeBtArtifact = (path: string, bytes: Uint8Array, contentType: string) =>
+      storeCertificationArtifact(supabase, {
+        tenantId: certification.workspace_id || certification.tenant_id,
+        documentId: input.documentId,
+        documentVersionId: certification.document_version_id,
+        actorId: input.triggeredBy,
+        path,
+        bytes,
+        contentType,
+      });
     const timestamp = upgraded.timestamp;
     const timestampRoot = `${artifactRoot}/pades-bt/timestamp/${timestamp.tokenSha256}`;
-    const bbPreservedPath = await uploadImmutableArtifact(
-      supabase,
+    const bbPreservedPath = await storeBtArtifact(
       `${artifactRoot}/pades-bb/documento-certificado-${certification.certified_pdf_sha256}.pdf`,
       bbBytes,
       'application/pdf'
     );
-    const btArtifactPath = await uploadImmutableArtifact(
-      supabase,
+    const btArtifactPath = await storeBtArtifact(
       `${artifactRoot}/pades-bt/documento-certificado-${upgraded.pdfHashAfterSignature}.pdf`,
       upgraded.pdfBytes,
       'application/pdf'
     );
-    const requestPath = await uploadImmutableArtifact(
-      supabase,
+    const requestPath = await storeBtArtifact(
       `${timestampRoot}/request.tsq`,
       timestamp.request,
       'application/octet-stream'
     );
-    const responsePath = await uploadImmutableArtifact(
-      supabase,
+    const responsePath = await storeBtArtifact(
       `${timestampRoot}/response.tsr`,
       timestamp.response,
       'application/octet-stream'
     );
-    const tokenPath = await uploadImmutableArtifact(
-      supabase,
+    const tokenPath = await storeBtArtifact(
       `${timestampRoot}/token.tst`,
       timestamp.token,
       'application/octet-stream'
     );
-    await uploadImmutableArtifact(
-      supabase,
+    await storeBtArtifact(
       `${timestampRoot}/verification.json`,
       Buffer.from(JSON.stringify(timestamp.verification, null, 2)),
       'application/json'
@@ -778,8 +892,7 @@ export async function upgradePadesBbCertificationToBt(
       },
       verification: verificationResult,
     };
-    const verificationReportPath = await uploadImmutableArtifact(
-      supabase,
+    const verificationReportPath = await storeBtArtifact(
       `${timestampRoot}/verification-report.json`,
       Buffer.from(JSON.stringify(verificationReport, null, 2)),
       'application/json'
@@ -812,14 +925,20 @@ export async function upgradePadesBbCertificationToBt(
         500
       );
 
-    const finalPath = `documents-signed/${certification.workspace_id || certification.tenant_id}/${input.documentId}/pades-bt/${certification.certification_uuid}-${upgraded.pdfHashAfterSignature}.pdf`;
-    await uploadImmutablePdf(
-      supabase,
-      DOCUMENT_BUCKET,
-      finalPath,
-      upgraded.pdfBytes,
-      upgraded.pdfHashAfterSignature
-    );
+    const finalPath = documentEncryptionPolicy().enabled
+      ? `tenants/${certification.workspace_id || certification.tenant_id}/documents/${input.documentId}/versions/${certification.document_version_id}/pades-bt.enc`
+      : `documents-signed/${certification.workspace_id || certification.tenant_id}/${input.documentId}/pades-bt/${certification.certification_uuid}-${upgraded.pdfHashAfterSignature}.pdf`;
+    await storeVersionPdf(supabase, {
+      tenantId: certification.workspace_id || certification.tenant_id,
+      documentId: input.documentId,
+      documentVersionId: certification.document_version_id,
+      artifactKind: 'signed_pdf',
+      storageBucket: DOCUMENT_BUCKET,
+      storagePath: finalPath,
+      bytes: upgraded.pdfBytes,
+      sha256: upgraded.pdfHashAfterSignature,
+      actorId: input.triggeredBy,
+    });
     const timestampPublic = {
       provider: timestamp.provider,
       policyOid: timestamp.policyOid,
@@ -980,15 +1099,40 @@ export async function integratePadesBbFinalDocument(
     );
   }
 
-  const visualStoragePath = `documents-signed/${input.workspaceId}/${input.documentId}/visual/${input.visualPdfSha256}.pdf`;
-  await uploadImmutablePdf(
+  const requestedVersionId = documentEncryptionPolicy().enabled ? randomUUID() : null;
+  const visualStoragePath = requestedVersionId
+    ? `tenants/${input.workspaceId}/documents/${input.documentId}/versions/${requestedVersionId}/visual.enc`
+    : `documents-signed/${input.workspaceId}/${input.documentId}/visual/${input.visualPdfSha256}.pdf`;
+  const version = await ensureVisualVersion(
     supabase,
-    DOCUMENT_BUCKET,
+    input,
     visualStoragePath,
-    input.visualPdfBytes,
-    input.visualPdfSha256
+    requestedVersionId
   );
-  const version = await ensureVisualVersion(supabase, input, visualStoragePath);
+  try {
+    await storeVersionPdf(supabase, {
+      tenantId: input.workspaceId,
+      documentId: input.documentId,
+      documentVersionId: version.id,
+      artifactKind: 'visual_pdf',
+      storageBucket: DOCUMENT_BUCKET,
+      storagePath: visualStoragePath,
+      bytes: input.visualPdfBytes,
+      sha256: input.visualPdfSha256,
+      actorId: input.triggeredBy,
+    });
+  } catch (error) {
+    if (requestedVersionId && version.id === requestedVersionId) {
+      await supabase.storage.from(DOCUMENT_BUCKET).remove([visualStoragePath]);
+      await supabase
+        .from('document_encryption_metadata')
+        .delete()
+        .eq('document_version_id', version.id)
+        .eq('storage_path', visualStoragePath);
+      await supabase.from('document_versions').delete().eq('id', version.id);
+    }
+    throw error;
+  }
   await appendFinalizationEvidence(supabase, input, visualStoragePath);
 
   const idempotencyKey = `pades-bb-${sha256(Buffer.from(`${input.documentId}:${version.id}:${input.visualPdfSha256}`))}`;
@@ -1003,17 +1147,12 @@ export async function integratePadesBbFinalDocument(
   const certification = await certificationRow(supabase, input.documentId, version.id);
   requireVerifiedPades(certification);
 
-  const certifiedDownload = await supabase.storage
-    .from(CERTIFICATION_BUCKET)
-    .download(certification.certified_pdf_path!);
-  if (certifiedDownload.error || !certifiedDownload.data) {
-    throw new CertificationError(
-      'PADES_CERTIFIED_PDF_READ_FAILED',
-      certifiedDownload.error?.message || 'No se pudo recuperar el PDF PAdES verificado.',
-      500
-    );
-  }
-  const certifiedBytes = new Uint8Array(await certifiedDownload.data.arrayBuffer());
+  const certifiedBytes = await readVersionPdf(supabase, {
+    storageBucket: CERTIFICATION_BUCKET,
+    storagePath: certification.certified_pdf_path!,
+    sha256: certification.certified_pdf_sha256,
+    actorId: input.triggeredBy,
+  });
   const certifiedSha256 = sha256(certifiedBytes);
   if (certifiedSha256 !== certification.certified_pdf_sha256) {
     throw new CertificationError(
@@ -1023,8 +1162,20 @@ export async function integratePadesBbFinalDocument(
     );
   }
 
-  const finalPath = `documents-signed/${input.workspaceId}/${input.documentId}/pades/${certification.certification_uuid}-${certifiedSha256}.pdf`;
-  await uploadImmutablePdf(supabase, DOCUMENT_BUCKET, finalPath, certifiedBytes, certifiedSha256);
+  const finalPath = documentEncryptionPolicy().enabled
+    ? `tenants/${input.workspaceId}/documents/${input.documentId}/versions/${version.id}/pades-bb.enc`
+    : `documents-signed/${input.workspaceId}/${input.documentId}/pades/${certification.certification_uuid}-${certifiedSha256}.pdf`;
+  await storeVersionPdf(supabase, {
+    tenantId: input.workspaceId,
+    documentId: input.documentId,
+    documentVersionId: version.id,
+    artifactKind: 'signed_pdf',
+    storageBucket: DOCUMENT_BUCKET,
+    storagePath: finalPath,
+    bytes: certifiedBytes,
+    sha256: certifiedSha256,
+    actorId: input.triggeredBy,
+  });
 
   const keyHealth = await providers.keyManagement.healthCheck();
   const kmsResource =

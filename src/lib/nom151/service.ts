@@ -7,12 +7,18 @@ import {
   type Nom151ArtifactVerification,
   type Nom151Provider,
 } from './provider';
+import {
+  documentEncryptionPolicy,
+  encryptAndUploadDocumentObject,
+  readDocumentStorageObject,
+} from '@/lib/crypto/document-encryption';
 
 const CERTIFICATION_BUCKET = 'certification-artifacts';
 const NOM151_BUCKET = 'nom151-constancias';
 
 type VerifiedPadesBt = {
   id: string;
+  tenant_id: string;
   certification_uuid: string;
   document_id: string;
   document_version_id: string;
@@ -65,6 +71,22 @@ async function downloadObject(
   path: string,
   code: string
 ) {
+  if (documentEncryptionPolicy().enabled) {
+    try {
+      const decrypted = await readDocumentStorageObject({
+        service: supabase,
+        storageBucket: bucket,
+        storagePath: path,
+      });
+      return new Uint8Array(decrypted.plaintext);
+    } catch (error) {
+      throw new Nom151ServiceError(
+        code,
+        error instanceof Error ? error.message : 'No se encontró el artefacto.',
+        500
+      );
+    }
+  }
   const result = await supabase.storage.from(bucket).download(path);
   if (result.error || !result.data) {
     throw new Nom151ServiceError(
@@ -80,7 +102,7 @@ async function verifiedPadesBt(supabase: SupabaseClient, documentId: string) {
   const result = await supabase
     .from('document_certifications')
     .select(
-      'id,certification_uuid,document_id,document_version_id,certified_pdf_path,certified_pdf_sha256,pades_pdf_hash_after_signature,pades_profile,pades_verified_at,provider_metadata'
+      'id,tenant_id,certification_uuid,document_id,document_version_id,certified_pdf_path,certified_pdf_sha256,pades_pdf_hash_after_signature,pades_profile,pades_verified_at,provider_metadata'
     )
     .eq('document_id', documentId)
     .eq('status', 'COMPLETED')
@@ -297,14 +319,30 @@ export async function issueNom151ForVerifiedPadesBt(
     const issuedAt = certified.verification.issuedAt || new Date().toISOString();
     const date = new Date(issuedAt);
     const artifactPath = `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${input.documentId}/${pades.document_version_id}/${recordId}-${artifactSha256}.asn1`;
-    const uploaded = await supabase.storage
-      .from(NOM151_BUCKET)
-      .upload(artifactPath, certified.artifact, {
-        contentType: 'application/octet-stream',
-        upsert: false,
+    if (documentEncryptionPolicy().enabled) {
+      await encryptAndUploadDocumentObject({
+        service: supabase,
+        plaintext: certified.artifact,
+        tenantId: pades.tenant_id,
+        documentId: input.documentId,
+        documentVersionId: pades.document_version_id,
+        artifactKind: 'constancia',
+        storageBucket: NOM151_BUCKET,
+        storagePath: artifactPath,
+        originalFileName: `constancia-nom151-${certified.folio}.asn1`,
+        originalMimeType: 'application/octet-stream',
+        userId: input.requestedBy,
       });
-    if (uploaded.error) {
-      throw new Nom151ServiceError('NOM151_ARTIFACT_STORAGE_FAILED', uploaded.error.message);
+    } else {
+      const uploaded = await supabase.storage
+        .from(NOM151_BUCKET)
+        .upload(artifactPath, certified.artifact, {
+          contentType: 'application/octet-stream',
+          upsert: false,
+        });
+      if (uploaded.error) {
+        throw new Nom151ServiceError('NOM151_ARTIFACT_STORAGE_FAILED', uploaded.error.message);
+      }
     }
     const updated = await supabase
       .from('nom151_constancias_doc')

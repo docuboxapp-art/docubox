@@ -113,7 +113,7 @@ export function getScopeFromRoute(route: string): LuciaScope {
   if (r.startsWith('/enrolamiento/')) return 'mobile_enrollment';
   if (r.startsWith('/subir-movil/')) return 'mobile_upload';
   if (r.startsWith('/captura-id-movil/')) return 'mobile_id_capture';
-  if (r === '/notifications') return 'notifications';
+  if (r === '/notificaciones' || r === '/notificationes' || r === '/notifications') return 'notifications';
   if (r === '/mis-tareas' || r === '/pending-tasks') return 'pending_tasks';
   if (r === '/app-market') return 'integrations';
   if (r === '/ayuda-firmado') return 'signing_help_page';

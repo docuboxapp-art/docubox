@@ -21,7 +21,10 @@ export async function GET(request: NextRequest) {
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.replace('Bearer ', '');
-      const { data: { user: tokenUser }, error: tokenError } = await supabaseAdmin.auth.getUser(token);
+      const {
+        data: { user: tokenUser },
+        error: tokenError,
+      } = await supabaseAdmin.auth.getUser(token);
       if (!tokenError && tokenUser) {
         user = tokenUser;
       }
@@ -43,7 +46,9 @@ export async function GET(request: NextRequest) {
           const parsed = JSON.parse(decoded);
           const accessToken = parsed?.access_token || parsed?.[0]?.access_token;
           if (accessToken) {
-            const { data: { user: cookieUser } } = await supabaseAdmin.auth.getUser(accessToken);
+            const {
+              data: { user: cookieUser },
+            } = await supabaseAdmin.auth.getUser(accessToken);
             if (cookieUser) user = cookieUser;
           }
         } catch (_) {}
@@ -57,7 +62,9 @@ export async function GET(request: NextRequest) {
     // Fetch document using service role (bypasses RLS)
     const { data: doc, error: docError } = await supabaseAdmin
       .from('documentos')
-      .select('id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at')
+      .select(
+        'id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, legal_hold, legal_hold_status, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at'
+      )
       .eq('id', documentoId)
       .single();
 
@@ -70,9 +77,7 @@ export async function GET(request: NextRequest) {
     const participantes: any[] = doc.participantes || [];
     const userEmail = user.email?.toLowerCase() || '';
     const isParticipant = participantes.some(
-      (p: any) =>
-        (p.email && p.email.toLowerCase() === userEmail) ||
-        p.id === user.id
+      (p: any) => (p.email && p.email.toLowerCase() === userEmail) || p.id === user.id
     );
 
     if (!isOwner && !isParticipant) {

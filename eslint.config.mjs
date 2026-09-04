@@ -4,9 +4,21 @@ import prettierConfig from 'eslint-config-prettier';
 import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
 import prettierPlugin from 'eslint-plugin-prettier';
 
-export default [
+const eslintConfig = [
   {
-    ignores: ['node_modules/**', '.next/**', 'out/**', 'public/**', 'output/**'],
+    ignores: [
+      'node_modules/**',
+      '.next/**',
+      '.next-*/**',
+      '.next.stale-*/**',
+      '.test-compiled/**',
+      '.tmp/**',
+      '.vercel/**',
+      'tmp/**',
+      'out/**',
+      'public/**',
+      'output/**',
+    ],
   },
   js.configs.recommended,
   ...nextCoreWebVitals,
@@ -47,3 +59,5 @@ export default [
     },
   },
 ];
+
+export default eslintConfig;

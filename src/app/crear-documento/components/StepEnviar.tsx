@@ -1,11 +1,38 @@
 'use client';
 
 import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { FileText, Users, Edit3, Folder, Clock, Lock, CheckCircle2, AlertTriangle, Mail, Phone, Bell, ShieldCheck, LayoutGrid, GitBranch, Shield, Globe2, Tag } from 'lucide-react';
+import {
+  FileText,
+  Users,
+  Edit3,
+  Folder,
+  Clock,
+  Lock,
+  CheckCircle2,
+  AlertTriangle,
+  Mail,
+  Phone,
+  Bell,
+  ShieldCheck,
+  LayoutGrid,
+  GitBranch,
+  Shield,
+  Globe2,
+  Flag,
+  Tag,
+} from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { PDFDocument } from 'pdf-lib';
-import type { Participant, DocumentSettings, DocumentConfig, PlacedField, GrupoFirma, SecuritySettings, DocuboxSourceSelection } from './types';
+import type {
+  Participant,
+  DocumentSettings,
+  DocumentConfig,
+  PlacedField,
+  GrupoFirma,
+  SecuritySettings,
+  DocuboxSourceSelection,
+} from './types';
 import type { PreProcessedFile } from '../page';
 import { createNotification } from '@/lib/notificationsInApp';
 
@@ -38,12 +65,22 @@ function sanitizeFileName(name: string): string {
 }
 
 function getNotifLabel(id: string): string {
-  const map: Record<string, string> = { docubox: 'Docubox', correo: 'Email', sms: 'SMS', whatsapp: 'WhatsApp', email: 'Email' };
+  const map: Record<string, string> = {
+    docubox: 'Docubox',
+    correo: 'Email',
+    sms: 'SMS',
+    whatsapp: 'WhatsApp',
+    email: 'Email',
+  };
   return map[id] || id;
 }
 
 function getFirmaLabel(id: string): string {
-  const map: Record<string, string> = { autografa: 'Firma Autógrafa', efirma: 'e-Firma SAT', biometria: 'Biometría' };
+  const map: Record<string, string> = {
+    autografa: 'Firma Autógrafa',
+    efirma: 'e-Firma SAT',
+    biometria: 'Biometría',
+  };
   return map[id] || id;
 }
 
@@ -79,15 +116,21 @@ async function validateMimeByMagicBytes(file: File): Promise<string | null> {
   // PDF: %PDF
   if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return 'application/pdf';
   // DOCX / XLSX (ZIP internamente)
-  if (b[0] === 0x50 && b[1] === 0x4B && b[2] === 0x03 && b[3] === 0x04) return 'application/vnd.openxmlformats';
+  if (b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04)
+    return 'application/vnd.openxmlformats';
   // PNG
-  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
   // JPG
-  if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
   return null;
 }
 
-const ALLOWED_MIME_TYPES = ['application/pdf', 'application/vnd.openxmlformats', 'image/png', 'image/jpeg'];
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats',
+  'image/png',
+  'image/jpeg',
+];
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 // ─── CAPA 2: Sanitización PDF con pdf-lib (cliente) ──────────────────────────
@@ -95,12 +138,28 @@ async function sanitizePDFClient(file: File): Promise<Uint8Array> {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = new Uint8Array(arrayBuffer);
   const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
-  const catalog = (pdfDoc.context.lookup(pdfDoc.context.trailerInfo.Root) as any);
+  const catalog = pdfDoc.context.lookup(pdfDoc.context.trailerInfo.Root) as any;
   if (catalog) {
-    try { catalog.delete('JavaScript'); } catch { /* ignore */ }
-    try { catalog.delete('JS'); } catch { /* ignore */ }
-    try { catalog.delete('OpenAction'); } catch { /* ignore */ }
-    try { catalog.delete('AA'); } catch { /* ignore */ }
+    try {
+      catalog.delete('JavaScript');
+    } catch {
+      /* ignore */
+    }
+    try {
+      catalog.delete('JS');
+    } catch {
+      /* ignore */
+    }
+    try {
+      catalog.delete('OpenAction');
+    } catch {
+      /* ignore */
+    }
+    try {
+      catalog.delete('AA');
+    } catch {
+      /* ignore */
+    }
   }
   pdfDoc.setTitle('');
   pdfDoc.setAuthor('');
@@ -111,25 +170,33 @@ async function sanitizePDFClient(file: File): Promise<Uint8Array> {
   return await pdfDoc.save();
 }
 
-export const StepEnviar = forwardRef<StepEnviarHandle, {
-  file: File | null;
-  participants: Participant[];
-  settings: DocumentSettings;
-  docConfig: DocumentConfig;
-  onGoToStep: (step: number) => void;
-  placedFields?: PlacedField[];
-  documentoId?: string;
-  securitySettings?: SecuritySettings;
-  grupos?: GrupoFirma[];
-  participationOrder?: string;
-  participantMode?: import('./types').ParticipantMode;
-  /** Resultado del pipeline de seguridad pre-ejecutado desde el paso Participantes */
-  preProcessedFile?: PreProcessedFile | null;
-  /** Metadata extraída del PDF en el paso Subir */
-  pdfMetadata?: { pageCount: number; title?: string; author?: string; creationDate?: string } | null;
-  /** Version exacta elegida desde el repositorio interno de Docubox. */
-  docuboxSource?: DocuboxSourceSelection | null;
-}>(function StepEnviar(
+export const StepEnviar = forwardRef<
+  StepEnviarHandle,
+  {
+    file: File | null;
+    participants: Participant[];
+    settings: DocumentSettings;
+    docConfig: DocumentConfig;
+    onGoToStep: (step: number) => void;
+    placedFields?: PlacedField[];
+    documentoId?: string;
+    securitySettings?: SecuritySettings;
+    grupos?: GrupoFirma[];
+    participationOrder?: string;
+    participantMode?: import('./types').ParticipantMode;
+    /** Resultado del pipeline de seguridad pre-ejecutado desde el paso Participantes */
+    preProcessedFile?: PreProcessedFile | null;
+    /** Metadata extraída del PDF en el paso Subir */
+    pdfMetadata?: {
+      pageCount: number;
+      title?: string;
+      author?: string;
+      creationDate?: string;
+    } | null;
+    /** Version exacta elegida desde el repositorio interno de Docubox. */
+    docuboxSource?: DocuboxSourceSelection | null;
+  }
+>(function StepEnviar(
   {
     file,
     participants,
@@ -157,16 +224,31 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   const [countdown, setCountdown] = useState(5);
   const [carpetaNombre, setCarpetaNombre] = useState<string>('Carpeta Principal');
   const [documentTypeLabel, setDocumentTypeLabel] = useState('No especificado');
-  const [selectedTags, setSelectedTags] = useState<Array<{ id: string; nombre: string; color?: string | null }>>([]);
+  const [selectedTags, setSelectedTags] = useState<
+    Array<{ id: string; nombre: string; color?: string | null }>
+  >([]);
   const [localSecurity, setLocalSecurity] = useState<SecuritySettings | undefined>(undefined);
-  const [scanState, setScanState] = useState<'idle' | 'uploading' | 'success' | 'error_tipo' | 'error_grande' | 'error_infected' | 'error_invalido' | 'error_red'>('idle');
+  const [scanState, setScanState] = useState<
+    | 'idle'
+    | 'uploading'
+    | 'success'
+    | 'error_tipo'
+    | 'error_grande'
+    | 'error_infected'
+    | 'error_invalido'
+    | 'error_red'
+  >('idle');
 
   // Load security settings from Supabase
   useEffect(() => {
     if (!documentoId || securitySettings) return;
     const loadSecurity = async () => {
       try {
-        const { data } = await supabase.from('document_security_settings').select('*').eq('documento_id', documentoId).maybeSingle();
+        const { data } = await supabase
+          .from('document_security_settings')
+          .select('*')
+          .eq('documento_id', documentoId)
+          .maybeSingle();
         if (data) {
           setLocalSecurity({
             vencimientoEnabled: data.vencimiento_enabled ?? false,
@@ -183,10 +265,12 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
             codigoAcceso: '',
           });
         }
-      } catch { /* silent */ }
+      } catch {
+        /* silent */
+      }
     };
     loadSecurity();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentoId]);
 
   const effectiveSecurity = securitySettings ?? localSecurity;
@@ -199,42 +283,56 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         return;
       }
       try {
-        const { data } = await supabase.from('carpetas').select('nombre').eq('id', docConfig.ruta).maybeSingle();
+        const { data } = await supabase
+          .from('carpetas')
+          .select('nombre')
+          .eq('id', docConfig.ruta)
+          .maybeSingle();
         if (data?.nombre) setCarpetaNombre(data.nombre);
         else setCarpetaNombre('Carpeta Principal');
-      } catch { setCarpetaNombre('Carpeta Principal'); }
+      } catch {
+        setCarpetaNombre('Carpeta Principal');
+      }
     };
     loadCarpeta();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docConfig.ruta]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadDocumentClassification = async () => {
-      const fallbackType = docConfig.tipoDocumentoId === '__otros__'
-        ? docConfig.otroTipoDocumento || 'Otro tipo de documento'
-        : docConfig.tipoDocumentoId
-          ? 'Tipo de documento seleccionado'
-          : 'No especificado';
+      const fallbackType =
+        docConfig.tipoDocumentoId === '__otros__'
+          ? docConfig.otroTipoDocumento || 'Otro tipo de documento'
+          : docConfig.tipoDocumentoId
+            ? 'Tipo de documento seleccionado'
+            : 'No especificado';
 
       setDocumentTypeLabel(fallbackType);
       setSelectedTags([]);
 
       try {
-        const typeRequest = docConfig.tipoDocumentoId && docConfig.tipoDocumentoId !== '__otros__'
-          ? fetch(`/api/documentos/tipos${docConfig.grupotipoId ? `?grupo_id=${encodeURIComponent(docConfig.grupotipoId)}` : ''}`)
-              .then(async (response) => response.ok ? response.json() : null)
-          : Promise.resolve(null);
-        const tagsRequest = docConfig.etiquetasIds.length > 0
-          ? fetch('/api/documentos/etiquetas').then(async (response) => response.ok ? response.json() : null)
-          : Promise.resolve(null);
+        const typeRequest =
+          docConfig.tipoDocumentoId && docConfig.tipoDocumentoId !== '__otros__'
+            ? fetch(
+                `/api/documentos/tipos${docConfig.grupotipoId ? `?grupo_id=${encodeURIComponent(docConfig.grupotipoId)}` : ''}`
+              ).then(async (response) => (response.ok ? response.json() : null))
+            : Promise.resolve(null);
+        const tagsRequest =
+          docConfig.etiquetasIds.length > 0
+            ? fetch('/api/documentos/etiquetas').then(async (response) =>
+                response.ok ? response.json() : null
+              )
+            : Promise.resolve(null);
         const [typeResult, tagsResult] = await Promise.all([typeRequest, tagsRequest]);
 
         if (cancelled) return;
 
         const selectedType = Array.isArray(typeResult?.data)
-          ? typeResult.data.find((type: { id: string; nombre: string }) => type.id === docConfig.tipoDocumentoId)
+          ? typeResult.data.find(
+              (type: { id: string; nombre: string }) => type.id === docConfig.tipoDocumentoId
+            )
           : null;
         if (selectedType?.nombre) setDocumentTypeLabel(selectedType.nombre);
 
@@ -249,8 +347,15 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
     };
 
     loadDocumentClassification();
-    return () => { cancelled = true; };
-  }, [docConfig.etiquetasIds, docConfig.grupotipoId, docConfig.otroTipoDocumento, docConfig.tipoDocumentoId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    docConfig.etiquetasIds,
+    docConfig.grupotipoId,
+    docConfig.otroTipoDocumento,
+    docConfig.tipoDocumentoId,
+  ]);
 
   // Countdown after send
   useEffect(() => {
@@ -270,9 +375,13 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
     setSendError(null);
     setScanState('uploading');
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error('No autenticado');
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) throw new Error('No autenticado');
 
       // ─── Validación y preparación del archivo ────────────────────────────
@@ -281,9 +390,20 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       let detectedMime: string | null;
 
       if (!docuboxSource && preProcessedFile && preProcessedFile.status !== 'ready') {
-        if (preProcessedFile.status === 'error_grande') { setScanState('error_grande'); throw new Error('El archivo supera el límite de 50MB.'); }
-        if (preProcessedFile.status === 'error_tipo') { setScanState('error_tipo'); throw new Error('Tipo de archivo no permitido. Solo se aceptan PDF, Word, Excel, PNG y JPG.'); }
-        if (preProcessedFile.status === 'error_invalido') { setScanState('error_invalido'); throw new Error('El PDF está dañado o no es válido.'); }
+        if (preProcessedFile.status === 'error_grande') {
+          setScanState('error_grande');
+          throw new Error('El archivo supera el límite de 50MB.');
+        }
+        if (preProcessedFile.status === 'error_tipo') {
+          setScanState('error_tipo');
+          throw new Error(
+            'Tipo de archivo no permitido. Solo se aceptan PDF, Word, Excel, PNG y JPG.'
+          );
+        }
+        if (preProcessedFile.status === 'error_invalido') {
+          setScanState('error_invalido');
+          throw new Error('El PDF está dañado o no es válido.');
+        }
       }
 
       if (docuboxSource) {
@@ -301,15 +421,28 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       } else if (preProcessedFile && preProcessedFile.status === 'ready') {
         console.log('[DOCUBOX][security] Usando pipeline pre-ejecutado (sin reprocesar)');
         detectedMime = preProcessedFile.mime;
-        uploadContentType = preProcessedFile.mime === 'application/pdf' ? 'application/pdf' : (file.type || 'application/octet-stream');
+        uploadContentType =
+          preProcessedFile.mime === 'application/pdf'
+            ? 'application/pdf'
+            : file.type || 'application/octet-stream';
         const uploadBytes = new Uint8Array(preProcessedFile.bytes.byteLength);
         uploadBytes.set(preProcessedFile.bytes);
         uploadBlob = new Blob([uploadBytes.buffer], { type: uploadContentType });
       } else {
-        console.log('[DOCUBOX][security] Pre-procesamiento no disponible, ejecutando pipeline ahora');
-        if (file.size > MAX_FILE_SIZE_BYTES) { setScanState('error_grande'); throw new Error('El archivo supera el límite de 50MB.'); }
+        console.log(
+          '[DOCUBOX][security] Pre-procesamiento no disponible, ejecutando pipeline ahora'
+        );
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+          setScanState('error_grande');
+          throw new Error('El archivo supera el límite de 50MB.');
+        }
         detectedMime = await validateMimeByMagicBytes(file);
-        if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) { setScanState('error_tipo'); throw new Error('Tipo de archivo no permitido. Solo se aceptan PDF, Word, Excel, PNG y JPG.'); }
+        if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
+          setScanState('error_tipo');
+          throw new Error(
+            'Tipo de archivo no permitido. Solo se aceptan PDF, Word, Excel, PNG y JPG.'
+          );
+        }
         uploadContentType = file.type || 'application/octet-stream';
         if (detectedMime === 'application/pdf') {
           try {
@@ -331,7 +464,9 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       const hash = await computeSHA256(file);
       if (docuboxSource && hash.toLowerCase() !== docuboxSource.sourceSha256.toLowerCase()) {
         setScanState('error_invalido');
-        throw new Error('La huella de la versión seleccionada cambió. Vuelve a elegir el documento desde Docubox.');
+        throw new Error(
+          'La huella de la versión seleccionada cambió. Vuelve a elegir el documento desde Docubox.'
+        );
       }
       const docId = documentoId || generateDocumentoId();
       const workspaceId = activeWorkspace?.id || null;
@@ -339,7 +474,11 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       const participantesData = participants.map((p) => {
         // Determine if this participant is a registered platform user
         // Platform users have their Supabase user ID as p.id (UUID format, not 'current-user' or 'contact-*')
-        const isRegisteredUser = p.id && p.id !== 'current-user' && !p.id.startsWith('contact-') && !p.id.startsWith('invited-');
+        const isRegisteredUser =
+          p.id &&
+          p.id !== 'current-user' &&
+          !p.id.startsWith('contact-') &&
+          !p.id.startsWith('invited-');
         return {
           id: p.id,
           // Store user_id for registered platform users so they can find their documents
@@ -357,93 +496,109 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
         };
       });
 
-      const camposSolicitados = placedFields ? placedFields.map((f) => {
-        const tipoMap: Record<string, string> = {
-          'Firma': 'firma',
-          'Nombre Completo': 'nombre_completo',
-          'RFC': 'rfc',
-          'CURP': 'curp',
-          'Correo Electrónico': 'correo',
-          'Número Telefónico': 'telefono',
-          'Dirección': 'direccion',
-          'Texto': 'texto',
-          'Fecha': 'fecha',
-          'Hora': 'hora',
-          'Número': 'numero',
-          'Moneda': 'moneda',
-          'Casilla': 'checkbox',
-          'Imagen': 'imagen',
-          'Botones de opción': 'radio',
-          'Desplegable': 'dropdown',
-          'Cadena original': 'document_chain',
-          'Sello digital': 'document_seal',
-          'Estampa de tiempo': 'timestamp',
-          'Cadena de evidencia': 'evidence_chain',
-        };
-        return {
-          id: f.id,
-          tipo: (f as any).tipo || tipoMap[f.label] || 'texto',
-          label: f.label,
-          participantId: f.participantId || null,
-          participantName: f.participantName || null,
-          page: f.page || 1,
-          x: f.x,
-          y: f.y,
-          width: f.width,
-          height: f.height,
-          colorHex: f.colorHex || null,
-          placementKind: f.placementKind || null,
-          cryptographicType: f.cryptographicType || null,
-          generatedOnCompletion: f.generatedOnCompletion ?? false,
-          dropdownOptions: f.dropdownOptions || null,
-          radioOptions: f.radioOptions || null,
-          casillaLabel: f.casillaLabel || null,
-          fieldConfig: f.fieldConfig || null,
-          fieldTypeConfig: f.fieldTypeConfig || null,
-        };
-      }) : [];
+      const camposSolicitados = placedFields
+        ? placedFields.map((f) => {
+            const tipoMap: Record<string, string> = {
+              Firma: 'firma',
+              'Nombre Completo': 'nombre_completo',
+              RFC: 'rfc',
+              CURP: 'curp',
+              'Correo Electrónico': 'correo',
+              'Número Telefónico': 'telefono',
+              Dirección: 'direccion',
+              Texto: 'texto',
+              Fecha: 'fecha',
+              Hora: 'hora',
+              Número: 'numero',
+              Moneda: 'moneda',
+              Casilla: 'checkbox',
+              Imagen: 'imagen',
+              'Botones de opción': 'radio',
+              Desplegable: 'dropdown',
+              'Cadena original': 'document_chain',
+              'Sello digital': 'document_seal',
+              'Estampa de tiempo': 'timestamp',
+              'Cadena de evidencia': 'evidence_chain',
+            };
+            return {
+              id: f.id,
+              tipo: (f as any).tipo || tipoMap[f.label] || 'texto',
+              label: f.label,
+              participantId: f.participantId || null,
+              participantName: f.participantName || null,
+              page: f.page || 1,
+              x: f.x,
+              y: f.y,
+              width: f.width,
+              height: f.height,
+              colorHex: f.colorHex || null,
+              placementKind: f.placementKind || null,
+              cryptographicType: f.cryptographicType || null,
+              generatedOnCompletion: f.generatedOnCompletion ?? false,
+              dropdownOptions: f.dropdownOptions || null,
+              radioOptions: f.radioOptions || null,
+              casillaLabel: f.casillaLabel || null,
+              fieldConfig: f.fieldConfig || null,
+              fieldTypeConfig: f.fieldTypeConfig || null,
+            };
+          })
+        : [];
 
       // Enviar archivo + metadata al servidor (usa service role — bypasa RLS y storage policies)
       const uploadFormData = new FormData();
       if (!docuboxSource) {
-        uploadFormData.append('file', new File([uploadBlob], sanitizeFileName(file.name), { type: uploadContentType }));
+        uploadFormData.append(
+          'file',
+          new File([uploadBlob], sanitizeFileName(file.name), { type: uploadContentType })
+        );
       }
-      uploadFormData.append('meta', JSON.stringify({
-        documentoId: docId,
-        fileName: sanitizeFileName(file.name),
-        fileSize: file.size,
-        fileType: uploadContentType,
-        fileHashSha256: hash,
-        nombre: docConfig.nombre || file.name.replace(/\.[^/.]+$/, ''),
-        descripcion: docConfig.descripcion || null,
-        numeroOficio: docConfig.numeroOficio || null,
-        grupotipoId: docConfig.grupotipoId || null,
-        tipoDocumentoId: docConfig.tipoDocumentoId || null,
-        otroTipoDocumento: docConfig.tipoDocumentoId === '__otros__'
-          ? (docConfig.otroTipoDocumento || null)
-          : (docConfig.tipoDocumentoId ? null : 'No especificado'),
-        ruta: docConfig.ruta || 'raiz',
-        etiquetasIds: docConfig.etiquetasIds || [],
-        participantes: participantesData,
-        camposSolicitados,
-        workspaceId,
-        participationOrder: participationOrder || 'paralelo',
-        gruposFirma: grupos || [],
-        publico: effectiveSecurity?.publico ?? false,
-        selloDigital: effectiveSecurity?.selloDigital ?? false,
-        selloUbicacion: effectiveSecurity?.selloUbicacion || 'calce',
-        estampaAutenticacion: effectiveSecurity?.estampaAutenticacion ?? false,
-        metadatosAdicionales: effectiveSecurity?.metadatosAdicionales ?? false,
-        additionalMetadata: docConfig.additionalMetadata || [],
-        docuboxSource: docuboxSource ? {
-          workspaceId: docuboxSource.workspaceId,
-          documentId: docuboxSource.sourceDocumentId,
-          versionId: docuboxSource.sourceVersionId,
-          variant: docuboxSource.sourceVariant,
-          expectedSha256: docuboxSource.sourceSha256,
-          relationType: docuboxSource.relationType,
-        } : null,
-      }));
+      uploadFormData.append(
+        'meta',
+        JSON.stringify({
+          documentoId: docId,
+          fileName: sanitizeFileName(file.name),
+          fileSize: file.size,
+          fileType: uploadContentType,
+          fileHashSha256: hash,
+          nombre: docConfig.nombre || file.name.replace(/\.[^/.]+$/, ''),
+          descripcion: docConfig.descripcion || null,
+          numeroOficio: docConfig.numeroOficio || null,
+          grupotipoId: docConfig.grupotipoId || null,
+          tipoDocumentoId: docConfig.tipoDocumentoId || null,
+          otroTipoDocumento:
+            docConfig.tipoDocumentoId === '__otros__'
+              ? docConfig.otroTipoDocumento || null
+              : docConfig.tipoDocumentoId
+                ? null
+                : 'No especificado',
+          ruta: docConfig.ruta || 'raiz',
+          etiquetasIds: docConfig.etiquetasIds || [],
+          participantes: participantesData,
+          camposSolicitados,
+          workspaceId,
+          participationOrder: participationOrder || 'paralelo',
+          gruposFirma: grupos || [],
+          publico: effectiveSecurity?.publico ?? false,
+          selloDigital: effectiveSecurity?.selloDigital ?? false,
+          selloUbicacion: effectiveSecurity?.selloUbicacion || 'calce',
+          estampaAutenticacion: effectiveSecurity?.estampaAutenticacion ?? false,
+          legalHoldEnabled: effectiveSecurity?.legalHoldEnabled ?? false,
+          legalHoldReason: effectiveSecurity?.legalHoldReason || null,
+          urgente: effectiveSecurity?.urgente ?? false,
+          metadatosAdicionales: effectiveSecurity?.metadatosAdicionales ?? false,
+          additionalMetadata: docConfig.additionalMetadata || [],
+          docuboxSource: docuboxSource
+            ? {
+                workspaceId: docuboxSource.workspaceId,
+                documentId: docuboxSource.sourceDocumentId,
+                versionId: docuboxSource.sourceVersionId,
+                variant: docuboxSource.sourceVariant,
+                expectedSha256: docuboxSource.sourceSha256,
+                relationType: docuboxSource.relationType,
+              }
+            : null,
+        })
+      );
 
       const enviarRes = await fetch('/api/documentos/enviar', {
         method: 'POST',
@@ -508,7 +663,9 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       }
 
       // Guardar participantes como contactos si aplica
-      const contactsToSave = participants.filter((p) => p.savedAsContact && p.id !== 'current-user');
+      const contactsToSave = participants.filter(
+        (p) => p.savedAsContact && p.id !== 'current-user'
+      );
       if (contactsToSave.length > 0) {
         const contactRows = contactsToSave.map((p) => {
           const nameParts = (p.name || '').trim().split(' ');
@@ -546,7 +703,16 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-100 p-4">
         <div className="flex w-full max-w-lg flex-col items-center rounded-lg border border-slate-200 bg-white px-8 py-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
           <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#059669"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
@@ -561,21 +727,32 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
               <AlertTriangle size={17} className="mt-0.5 shrink-0 text-amber-600" />
               <div>
                 <p className="text-sm font-700 text-amber-900">
-                  {invitationResult.failed} de {invitationResult.attempted} invitación{invitationResult.attempted !== 1 ? 'es' : ''} no se enviaron
+                  {invitationResult.failed} de {invitationResult.attempted} invitación
+                  {invitationResult.attempted !== 1 ? 'es' : ''} no se enviaron
                 </p>
                 <p className="mt-1 text-xs leading-5 text-amber-700">
-                  El documento quedó guardado. Revisa los correos de los participantes y reintenta el envío desde sus participaciones.
+                  El documento quedó guardado. Revisa los correos de los participantes y reintenta
+                  el envío desde sus participaciones.
                 </p>
               </div>
             </div>
           )}
           <div className="mt-7 flex w-full items-center justify-between border-t border-slate-200 pt-5">
             <p className="text-xs text-slate-500">
-              {invitationResult.failed > 0
-                ? `${invitationResult.sent} invitación${invitationResult.sent !== 1 ? 'es' : ''} aceptada${invitationResult.sent !== 1 ? 's' : ''} por el proveedor`
-                : <>Redirección automática en <span className="font-700 text-emerald-600">{countdown}</span> segundo{countdown !== 1 ? 's' : ''}</>}
+              {invitationResult.failed > 0 ? (
+                `${invitationResult.sent} invitación${invitationResult.sent !== 1 ? 'es' : ''} aceptada${invitationResult.sent !== 1 ? 's' : ''} por el proveedor`
+              ) : (
+                <>
+                  Redirección automática en{' '}
+                  <span className="font-700 text-emerald-600">{countdown}</span> segundo
+                  {countdown !== 1 ? 's' : ''}
+                </>
+              )}
             </p>
-            <button onClick={() => window.location.replace('/mis-documentos')} className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-700 text-white transition-colors hover:bg-emerald-700">
+            <button
+              onClick={() => window.location.replace('/mis-documentos')}
+              className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-700 text-white transition-colors hover:bg-emerald-700"
+            >
               Cerrar
             </button>
           </div>
@@ -585,9 +762,14 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
   }
 
   // ── Summary screen ──────────────────────────────────────────────────────────
-  const vencimientoLabel = effectiveSecurity?.vencimientoEnabled && effectiveSecurity.fechaVencimiento
-    ? new Date(effectiveSecurity.fechaVencimiento).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })
-    : 'Sin fecha límite';
+  const vencimientoLabel =
+    effectiveSecurity?.vencimientoEnabled && effectiveSecurity.fechaVencimiento
+      ? new Date(effectiveSecurity.fechaVencimiento).toLocaleDateString('es-MX', {
+          day: '2-digit',
+          month: 'long',
+          year: 'numeric',
+        })
+      : 'Sin fecha límite';
 
   const securityLabel = (() => {
     if (!effectiveSecurity) return 'Configuración estándar';
@@ -634,21 +816,33 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
           </div>
           <div className="min-w-0">
             <h1 className="text-lg font-700 text-slate-950">Documento listo para enviar</h1>
-            <p className="mt-0.5 text-sm text-slate-600">Comprueba la información antes de iniciar el proceso.</p>
+            <p className="mt-0.5 text-sm text-slate-600">
+              Comprueba la información antes de iniciar el proceso.
+            </p>
           </div>
         </div>
         <div className="flex items-center divide-x divide-emerald-200 text-center">
           <div className="px-4 first:pl-0">
             <p className="text-base font-700 tabular-nums text-slate-950">{participants.length}</p>
-            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">Participantes</p>
+            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">
+              Participantes
+            </p>
           </div>
           <div className="px-4">
-            <p className="text-base font-700 tabular-nums text-slate-950">{placedFields?.length ?? 0}</p>
-            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">Campos</p>
+            <p className="text-base font-700 tabular-nums text-slate-950">
+              {placedFields?.length ?? 0}
+            </p>
+            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">
+              Campos
+            </p>
           </div>
           <div className="px-4 pr-0">
-            <p className="text-base font-700 tabular-nums text-slate-950">{pdfMetadata?.pageCount ?? '—'}</p>
-            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">Páginas</p>
+            <p className="text-base font-700 tabular-nums text-slate-950">
+              {pdfMetadata?.pageCount ?? '—'}
+            </p>
+            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">
+              Páginas
+            </p>
           </div>
         </div>
       </div>
@@ -663,14 +857,37 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       {/* Scan state messages */}
       {scanState === 'uploading' && (
         <div className="mb-4 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
-          <svg className="animate-spin h-4 w-4 text-blue-500 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-          <p className="text-sm text-blue-700 font-medium">Verificando seguridad del documento... (puede tardar entre 5 y 30 segundos)</p>
+          <svg
+            className="animate-spin h-4 w-4 text-blue-500 shrink-0"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
+          </svg>
+          <p className="text-sm text-blue-700 font-medium">
+            Verificando seguridad del documento... (puede tardar entre 5 y 30 segundos)
+          </p>
         </div>
       )}
       {scanState === 'error_tipo' && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <Shield size={16} className="text-red-500 shrink-0" />
-          <p className="text-sm text-red-600">Tipo de archivo no permitido. Solo se aceptan PDF, Word, Excel, PNG y JPG.</p>
+          <p className="text-sm text-red-600">
+            Tipo de archivo no permitido. Solo se aceptan PDF, Word, Excel, PNG y JPG.
+          </p>
         </div>
       )}
       {scanState === 'error_grande' && (
@@ -682,7 +899,10 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       {scanState === 'error_infected' && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <Shield size={16} className="text-red-500 shrink-0" />
-          <p className="text-sm text-red-600">Documento bloqueado por seguridad. Se detectó una amenaza. Si crees que es un error contacta a soporte.</p>
+          <p className="text-sm text-red-600">
+            Documento bloqueado por seguridad. Se detectó una amenaza. Si crees que es un error
+            contacta a soporte.
+          </p>
         </div>
       )}
       {scanState === 'error_invalido' && (
@@ -700,7 +920,9 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       {scanState === 'success' && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
           <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-          <p className="text-sm text-emerald-700 font-medium">Documento subido correctamente y verificado.</p>
+          <p className="text-sm text-emerald-700 font-medium">
+            Documento subido correctamente y verificado.
+          </p>
         </div>
       )}
 
@@ -711,7 +933,11 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
             <h2 className="text-base font-700 text-slate-950">Documento</h2>
             <p className="mt-0.5 text-xs text-slate-500">Archivo y configuración general</p>
           </div>
-          <button onClick={() => onGoToStep(1)} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar documento">
+          <button
+            onClick={() => onGoToStep(1)}
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+            title="Editar documento"
+          >
             <Edit3 size={14} />
           </button>
         </div>
@@ -721,35 +947,52 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
               <FileText size={20} />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-700 text-slate-950">{docConfig.nombre || (file?.name.replace(/\.[^/.]+$/, '') ?? 'Sin nombre')}</p>
-              <p className="mt-1 truncate text-xs text-slate-500">{file ? `${file.name} · ${formatFileSize(file.size)}` : 'Archivo no disponible'}</p>
+              <p className="truncate text-sm font-700 text-slate-950">
+                {docConfig.nombre || (file?.name.replace(/\.[^/.]+$/, '') ?? 'Sin nombre')}
+              </p>
+              <p className="mt-1 truncate text-xs text-slate-500">
+                {file ? `${file.name} · ${formatFileSize(file.size)}` : 'Archivo no disponible'}
+              </p>
             </div>
             <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-600 text-emerald-700">
-              <CheckCircle2 size={12} />Listo
+              <CheckCircle2 size={12} />
+              Listo
             </span>
           </div>
           <div className="mt-4 grid gap-3 border-b border-slate-100 pb-4 sm:grid-cols-2">
             <div className="flex min-w-0 items-start gap-2.5">
               <LayoutGrid size={15} className="mt-0.5 shrink-0 text-slate-400" />
               <div className="min-w-0">
-                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Tipo de documento</p>
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                  Tipo de documento
+                </p>
                 <p className="mt-1 truncate text-sm font-600 text-slate-800">{documentTypeLabel}</p>
               </div>
             </div>
             <div className="flex min-w-0 items-start gap-2.5">
               <Tag size={15} className="mt-0.5 shrink-0 text-slate-400" />
               <div className="min-w-0">
-                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Etiquetas</p>
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                  Etiquetas
+                </p>
                 {selectedTags.length > 0 ? (
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {selectedTags.map((tag) => (
-                      <span key={tag.id} className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 text-slate-700">
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: tag.color || '#94a3b8' }} />
+                      <span
+                        key={tag.id}
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 text-slate-700"
+                      >
+                        <span
+                          className="h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: tag.color || '#94a3b8' }}
+                        />
                         <span className="truncate">{tag.nombre}</span>
                       </span>
                     ))}
                   </div>
-                ) : <p className="mt-1 text-sm font-600 text-slate-800">Sin etiquetas</p>}
+                ) : (
+                  <p className="mt-1 text-sm font-600 text-slate-800">Sin etiquetas</p>
+                )}
               </div>
             </div>
           </div>
@@ -757,35 +1000,61 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
             <div className="flex items-start gap-2.5">
               <Clock size={15} className="mt-0.5 shrink-0 text-slate-400" />
               <div className="min-w-0">
-                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Vencimiento</p>
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                  Vencimiento
+                </p>
                 <p className="mt-1 truncate text-sm font-600 text-slate-800">{vencimientoLabel}</p>
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <Folder size={15} className="mt-0.5 shrink-0 text-slate-400" />
               <div className="min-w-0">
-                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Ubicación</p>
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                  Ubicación
+                </p>
                 <p className="mt-1 truncate text-sm font-600 text-slate-800">{carpetaNombre}</p>
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <Lock size={15} className="mt-0.5 shrink-0 text-slate-400" />
               <div className="min-w-0">
-                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Seguridad</p>
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                  Seguridad
+                </p>
                 <p className="mt-1 truncate text-sm font-600 text-slate-800">{securityLabel}</p>
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <Users size={15} className="mt-0.5 shrink-0 text-slate-400" />
               <div className="min-w-0">
-                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Participación</p>
-                <p className="mt-1 truncate text-sm font-600 text-slate-800">{participationTypeLabel}</p>
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                  Participación
+                </p>
+                <p className="mt-1 truncate text-sm font-600 text-slate-800">
+                  {participationTypeLabel}
+                </p>
               </div>
             </div>
+            {effectiveSecurity?.urgente && (
+              <div className="flex items-start gap-2.5">
+                <Flag size={15} className="mt-0.5 shrink-0 text-rose-600" />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                    Prioridad
+                  </p>
+                  <p className="mt-1 text-sm font-600 text-rose-700">Urgente</p>
+                </div>
+              </div>
+            )}
             <div className="flex items-start gap-2.5">
-              <Globe2 size={15} className={`mt-0.5 shrink-0 ${effectiveSecurity?.publico ? 'text-blue-600' : 'text-slate-400'}`} />
+              <Globe2
+                size={15}
+                className={`mt-0.5 shrink-0 ${effectiveSecurity?.publico ? 'text-blue-600' : 'text-slate-400'}`}
+              />
               <div className="min-w-0">
-                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Portal público</p>
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                  Portal público
+                </p>
                 <p className="mt-1 text-sm font-600 text-slate-800">
                   {effectiveSecurity?.publico ? 'Al completarse' : 'No publicado'}
                 </p>
@@ -801,60 +1070,103 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-700 text-slate-950">Participantes</h2>
-              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 tabular-nums text-slate-500">{participants.length}</span>
+              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 tabular-nums text-slate-500">
+                {participants.length}
+              </span>
             </div>
-            <p className="mt-0.5 text-xs text-slate-500">Personas incluidas en el proceso y su configuración</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Personas incluidas en el proceso y su configuración
+            </p>
           </div>
-          <button onClick={() => onGoToStep(2)} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar participantes">
+          <button
+            onClick={() => onGoToStep(2)}
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+            title="Editar participantes"
+          >
             <Edit3 size={14} />
           </button>
         </div>
         <div className="divide-y divide-slate-100">
           {participants.length === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-slate-400">No hay participantes configurados.</p>
+            <p className="px-5 py-8 text-center text-sm text-slate-400">
+              No hay participantes configurados.
+            </p>
           ) : (
             participants.map((p, idx) => {
               const initials = (p.name || '?').charAt(0).toUpperCase();
-              const colors = ['bg-blue-100 text-blue-700', 'bg-violet-100 text-violet-700', 'bg-emerald-100 text-emerald-700', 'bg-orange-100 text-orange-700', 'bg-pink-100 text-pink-700', 'bg-teal-100 text-teal-700'];
+              const colors = [
+                'bg-blue-100 text-blue-700',
+                'bg-violet-100 text-violet-700',
+                'bg-emerald-100 text-emerald-700',
+                'bg-orange-100 text-orange-700',
+                'bg-pink-100 text-pink-700',
+                'bg-teal-100 text-teal-700',
+              ];
               const colorClass = colors[idx % colors.length];
               return (
-                <div key={p.id} className="flex items-start gap-4 px-5 py-4 transition-colors hover:bg-slate-50/60">
-                  <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-700 ${colorClass}`}>
+                <div
+                  key={p.id}
+                  className="flex items-start gap-4 px-5 py-4 transition-colors hover:bg-slate-50/60"
+                >
+                  <div
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-700 ${colorClass}`}
+                  >
                     {initials}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-700 text-slate-950">{p.name}</p>
-                      <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-600 ${p.isNewUser ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-600 ${p.isNewUser ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}
+                      >
                         {p.isNewUser ? 'Sin registro' : 'Registrado'}
                       </span>
                     </div>
                     <p className="mt-0.5 text-xs text-slate-500">{p.email}</p>
-                    <p className="mt-1 text-xs font-600 text-primary">{p.rolDocumento || 'Participante'}</p>
+                    <p className="mt-1 text-xs font-600 text-primary">
+                      {p.rolDocumento || 'Participante'}
+                    </p>
                   </div>
                   <div className="hidden shrink-0 space-y-2 text-right sm:block">
                     {p.acto && (
                       <div>
-                        <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Acto / rol</p>
+                        <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                          Acto / rol
+                        </p>
                         <p className="mt-0.5 text-sm font-600 text-slate-800">{p.acto}</p>
                       </div>
                     )}
                     {p.tipoFirma && p.tipoFirma.length > 0 && (
                       <div>
-                        <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Método</p>
+                        <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                          Método
+                        </p>
                         <div className="flex items-center gap-1 justify-end">
                           <ShieldCheck size={13} className="text-primary" />
-                          <p className="text-xs font-600 text-slate-700">{p.tipoFirma.map(getFirmaLabel).join(', ')}</p>
+                          <p className="text-xs font-600 text-slate-700">
+                            {p.tipoFirma.map(getFirmaLabel).join(', ')}
+                          </p>
                         </div>
                       </div>
                     )}
                     {p.tipoNotificacion && p.tipoNotificacion.length > 0 && (
                       <div>
-                        <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">Notificaciones</p>
+                        <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                          Notificaciones
+                        </p>
                         <div className="flex items-center gap-1 justify-end flex-wrap">
                           {p.tipoNotificacion.map((n) => (
-                            <span key={n} className="flex items-center gap-0.5 text-xs text-primary">
-                              {n === 'correo' || n === 'email' ? <Mail size={11} /> : n === 'sms' ? <Phone size={11} /> : <Bell size={11} />}
+                            <span
+                              key={n}
+                              className="flex items-center gap-0.5 text-xs text-primary"
+                            >
+                              {n === 'correo' || n === 'email' ? (
+                                <Mail size={11} />
+                              ) : n === 'sms' ? (
+                                <Phone size={11} />
+                              ) : (
+                                <Bell size={11} />
+                              )}
                               {getNotifLabel(n)}
                             </span>
                           ))}
@@ -870,126 +1182,169 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
       </section>
 
       {/* Información Solicitada — only visible when there is content */}
-      {(
-        Object.keys(fieldsByParticipant).length > 0 ||
+      {(Object.keys(fieldsByParticipant).length > 0 ||
         (participationOrder === 'mixto' && grupos && grupos.length > 0) ||
-        participationOrder === 'condicional'
-      ) && (
-      <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <div>
-            <h2 className="text-base font-700 text-slate-950">Información solicitada</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Campos y reglas que se aplicarán durante el proceso</p>
+        participationOrder === 'condicional') && (
+        <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <div>
+              <h2 className="text-base font-700 text-slate-950">Información solicitada</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Campos y reglas que se aplicarán durante el proceso
+              </p>
+            </div>
+            <button
+              onClick={() => onGoToStep(3)}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+              title="Editar campos"
+            >
+              <Edit3 size={14} />
+            </button>
           </div>
-          <button onClick={() => onGoToStep(3)} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar campos">
-            <Edit3 size={14} />
-          </button>
-        </div>
-        <div className="p-5">
+          <div className="p-5">
+            {/* Agrupamiento (Mixto) */}
+            {participationOrder === 'mixto' && grupos && grupos.length > 0 && (
+              <div className="mb-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <LayoutGrid size={15} className="text-primary" />
+                  <p className="text-sm font-semibold text-gray-800">
+                    Agrupamiento de participantes
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {grupos.map((grupo, idx) => {
+                    const grupoParticipants = participants.filter((p) =>
+                      grupo.participantIds.includes(p.id)
+                    );
+                    return (
+                      <div
+                        key={grupo.id}
+                        className="rounded-lg border border-slate-200 bg-slate-50/50 p-3.5"
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">
+                            {idx + 1}
+                          </span>
+                          <p className="text-sm font-semibold text-gray-900">{grupo.nombre}</p>
+                          <span
+                            className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${grupo.tipo === 'paralelo' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}
+                          >
+                            {grupo.tipo === 'paralelo' ? 'Paralelo' : 'Secuencial'}
+                          </span>
+                        </div>
+                        {grupoParticipants.length > 0 ? (
+                          <ul className="space-y-1 ml-7">
+                            {grupoParticipants.map((p) => (
+                              <li
+                                key={p.id}
+                                className="flex items-center gap-2 text-xs text-gray-600"
+                              >
+                                <div className="w-3 h-3 rounded-full border border-gray-300 flex items-center justify-center shrink-0">
+                                  <div className="w-1 h-1 rounded-full bg-gray-400" />
+                                </div>
+                                <span className="font-medium">{p.name}</span>
+                                {p.acto && <span className="text-gray-400">· {p.acto}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-gray-400 ml-7">Sin participantes asignados</p>
+                        )}
+                        {grupo.mensaje && (
+                          <p className="text-xs text-gray-500 mt-2 ml-7 italic">
+                            "{grupo.mensaje}"
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="border-t border-gray-100 mt-4 pt-4" />
+              </div>
+            )}
 
-        {/* Agrupamiento (Mixto) */}
-        {participationOrder === 'mixto' && grupos && grupos.length > 0 && (
-          <div className="mb-5">
-            <div className="flex items-center gap-2 mb-3">
-              <LayoutGrid size={15} className="text-primary" />
-              <p className="text-sm font-semibold text-gray-800">Agrupamiento de participantes</p>
-            </div>
-            <div className="space-y-2">
-              {grupos.map((grupo, idx) => {
-                const grupoParticipants = participants.filter((p) => grupo.participantIds.includes(p.id));
-                return (
-                  <div key={grupo.id} className="rounded-lg border border-slate-200 bg-slate-50/50 p-3.5">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">{idx + 1}</span>
-                      <p className="text-sm font-semibold text-gray-900">{grupo.nombre}</p>
-                      <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${grupo.tipo === 'paralelo' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
-                        {grupo.tipo === 'paralelo' ? 'Paralelo' : 'Secuencial'}
-                      </span>
-                    </div>
-                    {grupoParticipants.length > 0 ? (
-                      <ul className="space-y-1 ml-7">
-                        {grupoParticipants.map((p) => (
-                          <li key={p.id} className="flex items-center gap-2 text-xs text-gray-600">
-                            <div className="w-3 h-3 rounded-full border border-gray-300 flex items-center justify-center shrink-0">
-                              <div className="w-1 h-1 rounded-full bg-gray-400" />
-                            </div>
-                            <span className="font-medium">{p.name}</span>
-                            {p.acto && <span className="text-gray-400">· {p.acto}</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-xs text-gray-400 ml-7">Sin participantes asignados</p>
-                    )}
-                    {grupo.mensaje && (
-                      <p className="text-xs text-gray-500 mt-2 ml-7 italic">"{grupo.mensaje}"</p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="border-t border-gray-100 mt-4 pt-4" />
-          </div>
-        )}
-
-        {/* Flujo de Trabajo (Condicional) */}
-        {participationOrder === 'condicional' && (
-          <div className="mb-5">
-            <div className="flex items-center gap-2 mb-3">
-              <GitBranch size={15} className="text-primary" />
-              <p className="text-sm font-semibold text-gray-800">Flujo de trabajo condicional</p>
-            </div>
-            <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-4">
-              <p className="text-xs text-blue-700 mb-2 font-medium">Participantes en el flujo:</p>
-              <ul className="space-y-1.5">
-                {participants.map((p, idx) => (
-                  <li key={p.id} className="flex items-center gap-2 text-xs text-gray-700">
-                    <span className="w-4 h-4 rounded-full bg-blue-200 text-blue-800 text-xs font-bold flex items-center justify-center shrink-0">{idx + 1}</span>
-                    <span className="font-medium">{p.name}</span>
-                    {p.acto && <span className="text-gray-400">· {p.acto}</span>}
-                    {p.rolDocumento && <span className="text-gray-400">· {p.rolDocumento}</span>}
-                  </li>
-                ))}
-              </ul>
-              <p className="text-xs text-blue-600 mt-2">Las condiciones y acciones del flujo se ejecutarán según la configuración definida en el paso anterior.</p>
-            </div>
-            <div className="border-t border-gray-100 mt-4 pt-4" />
-          </div>
-        )}
-
-        {Object.keys(fieldsByParticipant).length === 0 ? (
-          null
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {Object.entries(fieldsByParticipant).map(([pid, data], idx) => {
-              const participantName = data.name;
-              const participantFields = data.fields;
-              const initials = (participantName || '?').charAt(0).toUpperCase();
-              const colors = ['bg-blue-100 text-blue-700', 'bg-violet-100 text-violet-700', 'bg-emerald-100 text-emerald-700', 'bg-orange-100 text-orange-700', 'bg-pink-100 text-pink-700', 'bg-teal-100 text-teal-700'];
-              const colorClass = colors[idx % colors.length];
-              return (
-                <div key={pid} className="py-4 first:pt-0 last:pb-0">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-700 ${colorClass}`}>
-                      {initials}
-                    </div>
-                    <p className="text-sm font-700 text-slate-900">{participantName}</p>
-                    <span className="ml-auto text-xs tabular-nums text-slate-400">{participantFields.length} campo{participantFields.length === 1 ? '' : 's'}</span>
-                  </div>
-                  <ul className="ml-9 flex flex-wrap gap-2">
-                    {participantFields.map((label) => (
-                      <li key={label} className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-600 text-slate-600">
-                        {label}
+            {/* Flujo de Trabajo (Condicional) */}
+            {participationOrder === 'condicional' && (
+              <div className="mb-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <GitBranch size={15} className="text-primary" />
+                  <p className="text-sm font-semibold text-gray-800">
+                    Flujo de trabajo condicional
+                  </p>
+                </div>
+                <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-4">
+                  <p className="text-xs text-blue-700 mb-2 font-medium">
+                    Participantes en el flujo:
+                  </p>
+                  <ul className="space-y-1.5">
+                    {participants.map((p, idx) => (
+                      <li key={p.id} className="flex items-center gap-2 text-xs text-gray-700">
+                        <span className="w-4 h-4 rounded-full bg-blue-200 text-blue-800 text-xs font-bold flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className="font-medium">{p.name}</span>
+                        {p.acto && <span className="text-gray-400">· {p.acto}</span>}
+                        {p.rolDocumento && (
+                          <span className="text-gray-400">· {p.rolDocumento}</span>
+                        )}
                       </li>
                     ))}
                   </ul>
+                  <p className="text-xs text-blue-600 mt-2">
+                    Las condiciones y acciones del flujo se ejecutarán según la configuración
+                    definida en el paso anterior.
+                  </p>
                 </div>
-              );
-            })}
+                <div className="border-t border-gray-100 mt-4 pt-4" />
+              </div>
+            )}
+
+            {Object.keys(fieldsByParticipant).length === 0 ? null : (
+              <div className="divide-y divide-slate-100">
+                {Object.entries(fieldsByParticipant).map(([pid, data], idx) => {
+                  const participantName = data.name;
+                  const participantFields = data.fields;
+                  const initials = (participantName || '?').charAt(0).toUpperCase();
+                  const colors = [
+                    'bg-blue-100 text-blue-700',
+                    'bg-violet-100 text-violet-700',
+                    'bg-emerald-100 text-emerald-700',
+                    'bg-orange-100 text-orange-700',
+                    'bg-pink-100 text-pink-700',
+                    'bg-teal-100 text-teal-700',
+                  ];
+                  const colorClass = colors[idx % colors.length];
+                  return (
+                    <div key={pid} className="py-4 first:pt-0 last:pb-0">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div
+                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-700 ${colorClass}`}
+                        >
+                          {initials}
+                        </div>
+                        <p className="text-sm font-700 text-slate-900">{participantName}</p>
+                        <span className="ml-auto text-xs tabular-nums text-slate-400">
+                          {participantFields.length} campo
+                          {participantFields.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <ul className="ml-9 flex flex-wrap gap-2">
+                        {participantFields.map((label) => (
+                          <li
+                            key={label}
+                            className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-600 text-slate-600"
+                          >
+                            {label}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
-        </div>
-      </section>
+        </section>
       )}
 
       {documentAdditionalMetadata.length > 0 && (
@@ -997,23 +1352,40 @@ export const StepEnviar = forwardRef<StepEnviarHandle, {
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-700 text-slate-950">Metadatos incluidos en el documento</h2>
-                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 tabular-nums text-slate-500">{documentAdditionalMetadata.length}</span>
+                <h2 className="text-base font-700 text-slate-950">
+                  Metadatos incluidos en el documento
+                </h2>
+                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 tabular-nums text-slate-500">
+                  {documentAdditionalMetadata.length}
+                </span>
               </div>
-              <p className="mt-0.5 text-xs text-slate-500">Información adicional registrada que se integrará a la versión final.</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Información adicional registrada que se integrará a la versión final.
+              </p>
             </div>
-            <button onClick={() => onGoToStep(1)} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar metadatos adicionales">
+            <button
+              onClick={() => onGoToStep(1)}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+              title="Editar metadatos adicionales"
+            >
               <Edit3 size={14} />
             </button>
           </div>
           <div className="divide-y divide-slate-100">
             {documentAdditionalMetadata.map((metadata) => (
-              <div key={metadata.id} className="flex flex-col gap-1 px-5 py-3 sm:flex-row sm:items-center sm:gap-4">
+              <div
+                key={metadata.id}
+                className="flex flex-col gap-1 px-5 py-3 sm:flex-row sm:items-center sm:gap-4"
+              >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-600 text-slate-800">{metadata.name}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">{ADDITIONAL_METADATA_TYPE_LABEL[metadata.dataType] || metadata.dataType}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {ADDITIONAL_METADATA_TYPE_LABEL[metadata.dataType] || metadata.dataType}
+                  </p>
                 </div>
-                <p className="break-words text-sm text-slate-700 sm:max-w-[55%] sm:text-right">{formatAdditionalMetadataValue(metadata.value)}</p>
+                <p className="break-words text-sm text-slate-700 sm:max-w-[55%] sm:text-right">
+                  {formatAdditionalMetadataValue(metadata.value)}
+                </p>
               </div>
             ))}
           </div>

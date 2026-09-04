@@ -50,19 +50,10 @@ async function findLifecycleWorkspace(
   return membership.data.workspace_id as string;
 }
 
-/**
- * Shared guard for the temporary lifecycle runner. `is_super_admin` is stored
- * in auth.users and resolved through a service-role-only database function,
- * never from user-editable metadata or tenant/workspace roles.
- */
-export async function requireCryptoLifecycleE2EAccess(
+export async function requireInternalSuperAdminAccess(
   user: User,
   service: ReturnType<typeof createServiceClient>
 ): Promise<CryptoLifecycleE2eAccessResult> {
-  if (!lifecycleRunnerEnabled()) {
-    return { allowed: false, reason: 'CRYPTO_LIFECYCLE_E2E_DISABLED' };
-  }
-
   const superAdmin = await isInternalSuperAdmin(user.id, service);
   if (superAdmin === null) {
     return { allowed: false, reason: 'CRYPTO_LIFECYCLE_E2E_AUTH_LOOKUP_FAILED' };
@@ -77,6 +68,22 @@ export async function requireCryptoLifecycleE2EAccess(
   }
 
   return { allowed: true, workspaceId, internalRole: 'super_admin' };
+}
+
+/**
+ * Shared guard for the temporary lifecycle runner. `is_super_admin` is stored
+ * in auth.users and resolved through a service-role-only database function,
+ * never from user-editable metadata or tenant/workspace roles.
+ */
+export async function requireCryptoLifecycleE2EAccess(
+  user: User,
+  service: ReturnType<typeof createServiceClient>
+): Promise<CryptoLifecycleE2eAccessResult> {
+  if (!lifecycleRunnerEnabled()) {
+    return { allowed: false, reason: 'CRYPTO_LIFECYCLE_E2E_DISABLED' };
+  }
+
+  return requireInternalSuperAdminAccess(user, service);
 }
 
 export async function getRequestCookieUser(request: NextRequest) {

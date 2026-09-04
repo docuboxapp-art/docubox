@@ -15,6 +15,7 @@ type InitializeDocumentVersionInput = {
   requireCollaborationEntitlement?: boolean;
   additionalDocumentMetadataSnapshot?: Array<{ name: string; dataType: string; value: string | boolean }>;
   additionalDocumentMetadataSnapshotHash?: string | null;
+  requestedVersionId?: string | null;
 };
 
 export type CollaborationDocumentVersionResult =
@@ -38,6 +39,7 @@ export async function initializeCollaborationDocumentVersion({
   requireCollaborationEntitlement = true,
   additionalDocumentMetadataSnapshot = [],
   additionalDocumentMetadataSnapshotHash = null,
+  requestedVersionId = null,
 }: InitializeDocumentVersionInput): Promise<CollaborationDocumentVersionResult> {
   if (requireCollaborationEntitlement) {
     const entitlement = await service
@@ -66,6 +68,7 @@ export async function initializeCollaborationDocumentVersion({
   const inserted = await service
     .from('document_versions')
     .insert({
+      ...(requestedVersionId ? { id: requestedVersionId } : {}),
       workspace_id: workspaceId,
       document_id: documentId,
       version_number: 1,

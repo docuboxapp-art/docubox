@@ -1325,9 +1325,9 @@ export default function RegistroPage() {
         newErrors.email = 'Ingresa un correo electrónico válido';
       if (emailCheckStatus === 'taken')
         newErrors.email = 'Este correo ya está registrado';
-      if (!data.phone || data.phone.replace(/\D/g, '').length !== 10)
+      if (data.phone && data.phone.replace(/\D/g, '').length !== 10)
         newErrors.phone = 'Ingresa un número de teléfono de 10 dígitos';
-      if (phoneCheckStatus === 'taken')
+      if (data.phone && phoneCheckStatus === 'taken')
         newErrors.phone = 'Este número de teléfono ya está registrado';
       if (!data.acceptTerms)
         newErrors.terms = 'Debes aceptar los términos y condiciones';
@@ -1965,7 +1965,8 @@ export default function RegistroPage() {
             {/* Phone field */}
             <div>
               <label className="block text-sm font-semibold text-foreground mb-1.5">
-                Número de teléfono
+                Número de teléfono{' '}
+                <span className="font-normal text-muted-foreground">(opcional)</span>
               </label>
               <div className="relative">
                 <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -2863,7 +2864,7 @@ export default function RegistroPage() {
   };
 
   const stepTitles: Record<number, { title: string; subtitle: string }> = {
-    1: { title: 'Datos de contacto', subtitle: 'Ingresa tu correo y teléfono para comenzar' },
+    1: { title: 'Datos de contacto', subtitle: 'Ingresa tu correo; el teléfono es opcional' },
     2: { title: 'Crear contraseña', subtitle: 'Elige una contraseña segura para tu cuenta' },
     3: { title: '¿Cómo usarás DocuBox?', subtitle: 'Selecciona el tipo de cuenta que mejor se adapte a ti' },
     4: { title: 'Define tu Personalidad Jurídica', subtitle: 'Esto determina cómo firmarás y serás identificado legalmente' },

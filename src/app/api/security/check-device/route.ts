@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendNewDeviceLoginEmail } from '@/lib/emailNotifications';
+import { createAnonClient } from '@/lib/supabase/server';
+import { createNotificationServer } from '@/lib/notificationsInApp.server';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,12 +28,21 @@ function parseUserAgent(ua: string): {
     deviceType = 'mobile';
   }
 
-  if (/windows nt 10/i.test(ua)) { os = 'Windows'; osVersion = '10'; }
-  else if (/windows nt 11/i.test(ua)) { os = 'Windows'; osVersion = '11'; }
-  else if (/windows nt 6\.3/i.test(ua)) { os = 'Windows'; osVersion = '8.1'; }
-  else if (/windows nt 6\.1/i.test(ua)) { os = 'Windows'; osVersion = '7'; }
-  else if (/windows/i.test(ua)) { os = 'Windows'; }
-  else if (/mac os x ([\d_]+)/i.test(ua)) {
+  if (/windows nt 10/i.test(ua)) {
+    os = 'Windows';
+    osVersion = '10';
+  } else if (/windows nt 11/i.test(ua)) {
+    os = 'Windows';
+    osVersion = '11';
+  } else if (/windows nt 6\.3/i.test(ua)) {
+    os = 'Windows';
+    osVersion = '8.1';
+  } else if (/windows nt 6\.1/i.test(ua)) {
+    os = 'Windows';
+    osVersion = '7';
+  } else if (/windows/i.test(ua)) {
+    os = 'Windows';
+  } else if (/mac os x ([\d_]+)/i.test(ua)) {
     os = 'macOS';
     const m = ua.match(/mac os x ([\d_]+)/i);
     osVersion = m ? m[1].replace(/_/g, '.') : '';
@@ -43,7 +54,9 @@ function parseUserAgent(ua: string): {
     os = 'iOS';
     const m = ua.match(/iphone os ([\d_]+)/i);
     osVersion = m ? m[1].replace(/_/g, '.') : '';
-  } else if (/linux/i.test(ua)) { os = 'Linux'; }
+  } else if (/linux/i.test(ua)) {
+    os = 'Linux';
+  }
 
   if (/edg\/([\d.]+)/i.test(ua)) {
     browser = 'Edge';
@@ -75,7 +88,13 @@ function buildDeviceFingerprint(parsed: ReturnType<typeof parseUserAgent>): stri
 }
 
 async function getGeoFromIP(ip: string): Promise<{ city: string; country: string }> {
-  if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
+  if (
+    !ip ||
+    ip === '::1' ||
+    ip === '127.0.0.1' ||
+    ip.startsWith('192.168.') ||
+    ip.startsWith('10.')
+  ) {
     return { city: 'Red local', country: 'Local' };
   }
   try {
@@ -94,17 +113,34 @@ async function getGeoFromIP(ip: string): Promise<{ city: string; country: string
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, userEmail, userName } = body;
+    const { userId } = body;
 
     if (!userId) {
       return NextResponse.json({ success: false, error: 'userId required' }, { status: 400 });
     }
 
+    const authorization = request.headers.get('authorization') || '';
+    const token = authorization.replace(/^Bearer\s+/i, '');
+    if (!token) {
+      return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
+    }
+    const { data: authData, error: authError } = await createAnonClient().auth.getUser(token);
+    if (authError || !authData.user || authData.user.id !== userId) {
+      return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 403 });
+    }
+
+    const { data: profile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('email,full_name')
+      .eq('id', authData.user.id)
+      .maybeSingle();
+
     const ua = request.headers.get('user-agent') || '';
     const forwarded = request.headers.get('x-forwarded-for');
     const realIp = request.headers.get('x-real-ip');
     const cfIp = request.headers.get('cf-connecting-ip');
-    const ipAddress = cfIp || realIp || (forwarded ? forwarded.split(',')[0].trim() : null) || '127.0.0.1';
+    const ipAddress =
+      cfIp || realIp || (forwarded ? forwarded.split(',')[0].trim() : null) || '127.0.0.1';
 
     const parsed = parseUserAgent(ua);
     const fingerprint = buildDeviceFingerprint(parsed);
@@ -146,13 +182,18 @@ export async function POST(request: NextRequest) {
       const isFirstDevice = (count || 0) <= 1;
 
       // Send alert email only if this is NOT the first device (first login is normal)
-      if (!isFirstDevice && userEmail) {
-        const deviceTypeLabel = parsed.deviceType === 'mobile' ? 'Móvil' : parsed.deviceType === 'tablet' ? 'Tablet' : 'Escritorio';
+      if (!isFirstDevice && (profile?.email || authData.user.email)) {
+        const deviceTypeLabel =
+          parsed.deviceType === 'mobile'
+            ? 'Móvil'
+            : parsed.deviceType === 'tablet'
+              ? 'Tablet'
+              : 'Escritorio';
         const deviceLabel = `${parsed.browser} en ${parsed.os} (${deviceTypeLabel})`;
         try {
           await sendNewDeviceLoginEmail({
-            userEmail,
-            userName: userName || undefined,
+            userEmail: profile?.email || authData.user.email || '',
+            userName: profile?.full_name || undefined,
             deviceName: deviceLabel,
             ipAddress,
             city: geo.city,
@@ -162,6 +203,38 @@ export async function POST(request: NextRequest) {
         } catch (emailErr) {
           console.error('[check-device] Email alert failed (non-blocking):', emailErr);
         }
+      }
+
+      if (!isFirstDevice) {
+        const deviceTypeLabel =
+          parsed.deviceType === 'mobile'
+            ? 'móvil'
+            : parsed.deviceType === 'tablet'
+              ? 'tablet'
+              : 'escritorio';
+        createNotificationServer({
+          userId: authData.user.id,
+          type: 'alert',
+          category: 'SECURITY',
+          severity: 'critical',
+          eventType: 'security.new_device',
+          title: 'Nuevo acceso desde un dispositivo',
+          description: `Detectamos un acceso desde ${parsed.browser} en ${parsed.os} (${deviceTypeLabel})${geo.city ? `, ${geo.city}` : ''}.`,
+          priority: 'alta',
+          actionUrl: '/configuracion',
+          actionLabel: 'Revisar seguridad',
+          deduplicationKey: `security.new_device:${authData.user.id}:${fingerprint}`,
+          actorUserId: authData.user.id,
+          metadata: {
+            device_type: parsed.deviceType,
+            browser: parsed.browser,
+            os: parsed.os,
+            city: geo.city,
+            country: geo.country,
+          },
+        }).catch((notificationError) => {
+          console.error('[check-device] In-app alert failed (non-blocking):', notificationError);
+        });
       }
 
       return NextResponse.json({

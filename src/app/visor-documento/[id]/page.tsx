@@ -2,20 +2,68 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Users, MessageSquare, Activity, FileText, RefreshCw, Info, CheckCircle2, XCircle, Clock, Mail, Tag, Send, Eye, FilePlus, UserPlus, Download, Shield, AlertTriangle, PenLine, Bell, Calendar, StickyNote, Edit3, Upload, X, Save, Copy, ExternalLink, Globe2, QrCode, ListChecks, History, Lock, Folder } from 'lucide-react';
+import {
+  ArrowLeft,
+  ZoomIn,
+  ZoomOut,
+  ChevronLeft,
+  ChevronRight,
+  Maximize2,
+  Users,
+  MessageSquare,
+  Activity,
+  FileText,
+  RefreshCw,
+  Info,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Mail,
+  Tag,
+  Send,
+  Eye,
+  FilePlus,
+  UserPlus,
+  Download,
+  Shield,
+  AlertTriangle,
+  PenLine,
+  Bell,
+  Calendar,
+  StickyNote,
+  Edit3,
+  Upload,
+  X,
+  Save,
+  Copy,
+  ExternalLink,
+  Globe2,
+  QrCode,
+  ListChecks,
+  History,
+  Lock,
+  Folder,
+} from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
+import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { sendDocumentCompletedToAllSigners } from '@/lib/emailNotifications';
 import { createNotification } from '@/lib/notificationsInApp';
 import { getNom151Presentation } from '@/lib/nom151/presentation';
 import { StepSubir } from '@/app/crear-documento/components/StepSubir';
 import { StepParticipantes } from '@/app/crear-documento/components/StepParticipantes';
 import { StepAjustes } from '@/app/crear-documento/components/StepAjustes';
-import type { Participant, DocumentSettings, DocumentConfig, ParticipantMode, PlacedField, SecuritySettings } from '@/app/crear-documento/components/types';
+import type {
+  Participant,
+  DocumentSettings,
+  DocumentConfig,
+  ParticipantMode,
+  PlacedField,
+  SecuritySettings,
+} from '@/app/crear-documento/components/types';
 
 interface DocumentData {
   id: string;
@@ -47,6 +95,8 @@ interface DocumentData {
   xml_hash_sha256?: string;
   xml_generated_at?: string;
   es_publico?: boolean;
+  legal_hold?: boolean;
+  legal_hold_status?: string | null;
   metadata?: {
     pdf_page_count?: number | null;
     pdf_is_native?: boolean | null;
@@ -67,7 +117,8 @@ interface CryptographicCertification {
   documentId: string;
   documentFolio: string;
   status: string;
-  executionStatus: 'created' | 'queued' | 'processing' | 'retrying' | 'manual_review' | 'completed' | 'failed';
+  executionStatus:
+    'created' | 'queued' | 'processing' | 'retrying' | 'manual_review' | 'completed' | 'failed';
   documentVersionId: string | null;
   documentVersionNumber: number;
   createdAt: string;
@@ -132,10 +183,19 @@ const CRYPTO_STATUS_LABELS: Record<string, string> = {
   not_applicable: 'No aplica',
 };
 
+function cryptoEvidenceStatusLabel(label: string, status: string) {
+  if (label === 'Constancia NOM-151' && status === 'valid') return 'Verificada';
+  if (status !== 'not_configured') return CRYPTO_STATUS_LABELS[status] || status;
+  if (label === 'Certificado institucional') return 'No asociado';
+  if (label === 'Verificación independiente') return 'No ejecutada';
+  return 'No emitida';
+}
+
 function cryptoStatusClasses(status: string) {
   if (status === 'valid') return 'bg-emerald-500';
   if (status === 'invalid' || status === 'unavailable') return 'bg-red-500';
-  if (status === 'pending' || status === 'development' || status === 'manual_review') return 'bg-amber-500';
+  if (status === 'pending' || status === 'development' || status === 'manual_review')
+    return 'bg-amber-500';
   if (status === 'processing') return 'bg-primary animate-pulse';
   return 'bg-slate-300';
 }
@@ -144,35 +204,40 @@ type PadesUiStatus = 'SIN PADES' | 'PAdES EN PROCESO' | 'PAdES VERIFICADO' | 'PA
 
 function derivePadesUiStatus(certification: CryptographicCertification | null): PadesUiStatus {
   if (!certification) return 'SIN PADES';
-  const supportedProfile = certification.padesProfile === 'PAdES-B-B'
-    || certification.padesProfile === 'PAdES-B-T';
-  const timestampValid = certification.padesProfile !== 'PAdES-B-T'
-    || certification.timestampStatus === 'valid';
-  const verified = certification.status === 'COMPLETED'
-    && certification.executionStatus === 'completed'
-    && supportedProfile
-    && timestampValid
-    && certification.pdfSignatureStatus === 'valid'
-    && certification.certificateStatus === 'valid'
-    && certification.verificationStatus === 'valid'
-    && Boolean(certification.certifiedPdfSha256)
-    && Boolean(certification.padesCertificateFingerprintSha256)
-    && Boolean(certification.padesVerifiedAt);
+  const supportedProfile =
+    certification.padesProfile === 'PAdES-B-B' || certification.padesProfile === 'PAdES-B-T';
+  const timestampValid =
+    certification.padesProfile !== 'PAdES-B-T' || certification.timestampStatus === 'valid';
+  const verified =
+    certification.status === 'COMPLETED' &&
+    certification.executionStatus === 'completed' &&
+    supportedProfile &&
+    timestampValid &&
+    certification.pdfSignatureStatus === 'valid' &&
+    certification.certificateStatus === 'valid' &&
+    certification.verificationStatus === 'valid' &&
+    Boolean(certification.certifiedPdfSha256) &&
+    Boolean(certification.padesCertificateFingerprintSha256) &&
+    Boolean(certification.padesVerifiedAt);
   if (verified) return 'PAdES VERIFICADO';
   if (
-    certification.executionStatus === 'failed'
-    || certification.executionStatus === 'manual_review'
-    || certification.status === 'FAILED'
-    || certification.pdfSignatureStatus === 'invalid'
-    || certification.certificateStatus === 'invalid'
-    || certification.verificationStatus === 'invalid'
-  ) return 'PAdES ERROR';
-  if (['created', 'queued', 'processing', 'retrying'].includes(certification.executionStatus)) return 'PAdES EN PROCESO';
+    certification.executionStatus === 'failed' ||
+    certification.executionStatus === 'manual_review' ||
+    certification.status === 'FAILED' ||
+    certification.pdfSignatureStatus === 'invalid' ||
+    certification.certificateStatus === 'invalid' ||
+    certification.verificationStatus === 'invalid'
+  )
+    return 'PAdES ERROR';
+  if (['created', 'queued', 'processing', 'retrying'].includes(certification.executionStatus))
+    return 'PAdES EN PROCESO';
   return 'SIN PADES';
 }
 
 async function apiAuthHeaders(includeJson = false): Promise<Record<string, string>> {
-  const { data: { session } } = await createClient().auth.getSession();
+  const {
+    data: { session },
+  } = await createClient().auth.getSession();
   const headers: Record<string, string> = {};
   if (includeJson) headers['Content-Type'] = 'application/json';
   if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
@@ -291,7 +356,9 @@ const ADDITIONAL_METADATA_TYPE_LABELS: Record<string, string> = {
 };
 
 function isConfiguredSignatureField(field: CampoSolicitado) {
-  const type = String(field.tipo || '').trim().toLowerCase();
+  const type = String(field.tipo || '')
+    .trim()
+    .toLowerCase();
   if (type === 'firma') return true;
 
   const legacyLabel = String(field.label || '')
@@ -301,7 +368,10 @@ function isConfiguredSignatureField(field: CampoSolicitado) {
     .toLowerCase()
     .replace(/\s+/g, ' ');
 
-  return !type && ['firma', 'firma digital', 'firma electronica', 'firma autografa'].includes(legacyLabel);
+  return (
+    !type &&
+    ['firma', 'firma digital', 'firma electronica', 'firma autografa'].includes(legacyLabel)
+  );
 }
 
 function isGeneratedSignatureStampPath(path: string | null | undefined) {
@@ -423,7 +493,9 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
       const pdfPage = await pdfDoc.getPage(pageNum);
 
       if (renderTaskRef.current) {
-        try { renderTaskRef.current.cancel(); } catch (_) {}
+        try {
+          renderTaskRef.current.cancel();
+        } catch (_) {}
         renderTaskRef.current = null;
       }
 
@@ -457,7 +529,9 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
     renderPage();
     return () => {
       if (renderTaskRef.current) {
-        try { renderTaskRef.current.cancel(); } catch (_) {}
+        try {
+          renderTaskRef.current.cancel();
+        } catch (_) {}
       }
     };
   }, [renderPage]);
@@ -466,9 +540,25 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
     <div className={className} style={{ position: 'relative', ...style }}>
       {rendering && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
-          <svg className="animate-spin h-6 w-6 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          <svg
+            className="animate-spin h-6 w-6 text-primary"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
           </svg>
         </div>
       )}
@@ -510,9 +600,25 @@ function EditModal({ title, onClose, onSave, saving, children }: EditModalProps)
             >
               {saving ? (
                 <>
-                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  <svg
+                    className="animate-spin h-4 w-4"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
                   </svg>
                   Guardando...
                 </>
@@ -533,9 +639,7 @@ function EditModal({ title, onClose, onSave, saving, children }: EditModalProps)
           </div>
         </div>
         {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto">
-          {children}
-        </div>
+        <div className="flex-1 overflow-y-auto">{children}</div>
       </div>
     </div>
   );
@@ -562,7 +666,18 @@ export default function VisorDocumentoPage() {
     seguridad: true,
     ubicacion: true,
   });
-  const [activeTab, setActiveTab] = useState<'details' | 'metadata' | 'participants' | 'comments' | 'activity' | 'fields' | 'vencimientos' | 'editar' | 'descargas'>('details');
+  const [activeTab, setActiveTab] = useState<
+    | 'details'
+    | 'metadata'
+    | 'participants'
+    | 'comments'
+    | 'activity'
+    | 'fields'
+    | 'vencimientos'
+    | 'editar'
+    | 'descargas'
+    | 'auditoria'
+  >('details');
   const [participantes, setParticipantes] = useState<Participante[]>([]);
   const [additionalMetadata, setAdditionalMetadata] = useState<AdditionalMetadataRecord[]>([]);
   const [canManageAdditionalMetadata, setCanManageAdditionalMetadata] = useState(false);
@@ -597,7 +712,7 @@ export default function VisorDocumentoPage() {
   const [camposSolicitados, setCamposSolicitados] = useState<CampoSolicitado[]>([]);
   const hasConfiguredSignatureFields = useMemo(
     () => camposSolicitados.some(isConfiguredSignatureField),
-    [camposSolicitados],
+    [camposSolicitados]
   );
   const [showCampos, setShowCampos] = useState(true);
   const [showFullscreenModal, setShowFullscreenModal] = useState(false);
@@ -655,8 +770,10 @@ export default function VisorDocumentoPage() {
   // ── Constancia General state ───────────────────────────────────────────────
   const [downloadingConstanciaGeneral, setDownloadingConstanciaGeneral] = useState(false);
   const [downloadingAuditCertificate, setDownloadingAuditCertificate] = useState(false);
-  const [downloadingMyParticipationCertificate, setDownloadingMyParticipationCertificate] = useState(false);
-  const [cryptographicCertification, setCryptographicCertification] = useState<CryptographicCertification | null>(null);
+  const [downloadingMyParticipationCertificate, setDownloadingMyParticipationCertificate] =
+    useState(false);
+  const [cryptographicCertification, setCryptographicCertification] =
+    useState<CryptographicCertification | null>(null);
   const [certificationProviderReady, setCertificationProviderReady] = useState(false);
   const [certificationProviderChecked, setCertificationProviderChecked] = useState(false);
   const [certificationProviderMissing, setCertificationProviderMissing] = useState<string[]>([]);
@@ -664,16 +781,34 @@ export default function VisorDocumentoPage() {
   const [certificationLoading, setCertificationLoading] = useState(false);
   const [certificationError, setCertificationError] = useState('');
   const [certificationDownload, setCertificationDownload] = useState<
-    'certificate' | 'package' | 'certified-pdf' | 'verification-report' | 'timestamp-token' | 'signing-certificate' | 'certificate-chain' | 'evidence-manifest' | null
+    | 'certificate'
+    | 'package'
+    | 'certified-pdf'
+    | 'verification-report'
+    | 'timestamp-token'
+    | 'signing-certificate'
+    | 'certificate-chain'
+    | 'evidence-manifest'
+    | null
   >(null);
   const padesUiStatus = derivePadesUiStatus(cryptographicCertification);
   const padesVerified = padesUiStatus === 'PAdES VERIFICADO';
-  const padesBtVerified = padesVerified
-    && cryptographicCertification?.padesProfile === 'PAdES-B-T'
-    && cryptographicCertification.timestampStatus === 'valid';
+  const nom151EvidenceStatus =
+    nom151Presentation.verificationStatus === 'verified'
+      ? 'valid'
+      : nom151Presentation.verificationStatus === 'failed'
+        ? 'invalid'
+        : nom151Presentation.verificationStatus === 'pending'
+          ? 'pending'
+          : cryptographicCertification?.nom151Status || 'not_configured';
+  const padesBtVerified =
+    padesVerified &&
+    cryptographicCertification?.padesProfile === 'PAdES-B-T' &&
+    cryptographicCertification.timestampStatus === 'valid';
 
   // ── Signed PDF state ───────────────────────────────────────────────────────
   const [downloadingSignedPdf, setDownloadingSignedPdf] = useState(false);
+  const [signedPdfError, setSignedPdfError] = useState('');
   const [publicVerificationOrigin, setPublicVerificationOrigin] = useState('');
   const [publicVerificationPath, setPublicVerificationPath] = useState('');
   const [publicUrlCopied, setPublicUrlCopied] = useState(false);
@@ -710,11 +845,16 @@ export default function VisorDocumentoPage() {
     let active = true;
     const issueLink = async () => {
       const linkSupabase = createClient();
-      const { data: { session } } = await linkSupabase.auth.getSession();
+      const {
+        data: { session },
+      } = await linkSupabase.auth.getSession();
       if (!session?.access_token) return;
       const response = await fetch('/api/public/v1/verifications/link', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ documentId: document.id }),
       });
       const data = await response.json();
@@ -723,7 +863,9 @@ export default function VisorDocumentoPage() {
       setPublicVerificationPath(data.path);
     };
     issueLink().catch((error) => console.error('No fue posible emitir el enlace publico:', error));
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [document?.es_publico, document?.estado, document?.id]);
 
   const publicVerificationUrl = useMemo(() => {
@@ -744,59 +886,66 @@ export default function VisorDocumentoPage() {
   }, [publicVerificationUrl]);
 
   // ── Activity logger helper ─────────────────────────────────────────────────
-  const logActivity = useCallback(async (
-    action: string,
-    category: string,
-    details?: Record<string, unknown>
-  ) => {
-    if (!docId || !user) return;
-    try {
-      const supabase = createClient();
-      const actorNombre =
-        user.user_metadata?.full_name ||
-        user.user_metadata?.nombre ||
-        user.email ||
-        'Usuario';
-      await supabase.from('document_activity_log').insert({
-        documento_id: docId,
-        actor_id: user.id,
-        actor_nombre: actorNombre,
-        actor_email: user.email || '',
-        action,
-        category,
-        details: details || null,
-      });
-    } catch (err) {
-      // Non-blocking: activity logging should never break the main flow
-      console.warn('[activity-log] Error logging activity:', err);
-    }
-  }, [docId, user]);
+  const logActivity = useCallback(
+    async (action: string, category: string, details?: Record<string, unknown>) => {
+      if (!docId || !user) return;
+      try {
+        const supabase = createClient();
+        const actorNombre =
+          user.user_metadata?.full_name || user.user_metadata?.nombre || user.email || 'Usuario';
+        await supabase.from('document_activity_log').insert({
+          documento_id: docId,
+          actor_id: user.id,
+          actor_nombre: actorNombre,
+          actor_email: user.email || '',
+          action,
+          category,
+          details: details || null,
+        });
+      } catch (err) {
+        // Non-blocking: activity logging should never break the main flow
+        console.warn('[activity-log] Error logging activity:', err);
+      }
+    },
+    [docId, user]
+  );
 
   const loadCryptographicCertification = useCallback(async () => {
     if (!docId || document?.estado !== 'completado') return;
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session?.access_token) return;
       const response = await fetch(`/api/documents/${docId}/certifications`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: 'no-store',
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'No fue posible consultar la certificación.');
+      if (!response.ok)
+        throw new Error(payload.error || 'No fue posible consultar la certificación.');
       setCryptographicCertification(payload.certification || null);
       setCertificationProviderReady(Boolean(payload.providerStatus?.ready));
       setCertificationProviderMissing(
         Array.isArray(payload.providerStatus?.missing)
-          ? Array.from(new Set<string>(payload.providerStatus.missing.filter((entry: unknown) => typeof entry === 'string') as string[]))
-          : [],
+          ? Array.from(
+              new Set<string>(
+                payload.providerStatus.missing.filter(
+                  (entry: unknown) => typeof entry === 'string'
+                ) as string[]
+              )
+            )
+          : []
       );
       setCertificationE2eEnabled(payload.e2eEnabled === true);
       setCertificationProviderChecked(true);
       setCertificationError('');
     } catch (error) {
       setCertificationProviderChecked(true);
-      setCertificationError(error instanceof Error ? error.message : 'No fue posible consultar la certificación.');
+      setCertificationError(
+        error instanceof Error ? error.message : 'No fue posible consultar la certificación.'
+      );
     }
   }, [docId, document?.estado]);
 
@@ -807,14 +956,18 @@ export default function VisorDocumentoPage() {
   const generateCryptographicCertification = useCallback(async () => {
     if (!docId) return;
     if (!certificationE2eEnabled) {
-      setCertificationError('La certificacion criptografica integral esta deshabilitada en este entorno.');
+      setCertificationError(
+        'La certificacion criptografica integral esta deshabilitada en este entorno.'
+      );
       return;
     }
     setCertificationLoading(true);
     setCertificationError('');
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('La sesión no está disponible.');
       const response = await fetch(`/api/documents/${docId}/certifications`, {
         method: 'POST',
@@ -824,70 +977,91 @@ export default function VisorDocumentoPage() {
         },
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'No fue posible generar la certificación.');
+      if (!response.ok)
+        throw new Error(payload.error || 'No fue posible generar la certificación.');
       setCryptographicCertification(payload.certification || null);
       await logActivity('certificacion_criptografica_generada', 'cumplimiento', {
         certification_uuid: payload.certification?.certificationUuid,
         status: payload.certification?.status,
       });
     } catch (error) {
-      setCertificationError(error instanceof Error ? error.message : 'No fue posible generar la certificación.');
+      setCertificationError(
+        error instanceof Error ? error.message : 'No fue posible generar la certificación.'
+      );
       await loadCryptographicCertification();
     } finally {
       setCertificationLoading(false);
     }
   }, [certificationE2eEnabled, docId, loadCryptographicCertification, logActivity]);
 
-  const downloadCertificationArtifact = useCallback(async (
-    kind: 'certificate' | 'package' | 'certified-pdf' | 'verification-report' | 'timestamp-token' | 'signing-certificate' | 'certificate-chain' | 'evidence-manifest',
-  ) => {
-    if (!docId || !cryptographicCertification?.certificationUuid) return;
-    setCertificationDownload(kind);
-    setCertificationError('');
-    try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('La sesión no está disponible.');
-      const directArtifact = kind === 'certificate' || kind === 'package' || kind === 'certified-pdf';
-      const response = await fetch(
-        directArtifact
-          ? `/api/documents/${docId}/certifications/${cryptographicCertification.certificationUuid}/${kind}`
-          : `/api/documents/${docId}/certifications/${cryptographicCertification.certificationUuid}/artifacts/${kind}`,
-        { headers: { Authorization: `Bearer ${session.access_token}` } },
-      );
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || 'No fue posible descargar el archivo.');
+  const downloadCertificationArtifact = useCallback(
+    async (
+      kind:
+        | 'certificate'
+        | 'package'
+        | 'certified-pdf'
+        | 'verification-report'
+        | 'timestamp-token'
+        | 'signing-certificate'
+        | 'certificate-chain'
+        | 'evidence-manifest'
+    ) => {
+      if (!docId || !cryptographicCertification?.certificationUuid) return;
+      setCertificationDownload(kind);
+      setCertificationError('');
+      try {
+        const supabase = createClient();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('La sesión no está disponible.');
+        const directArtifact =
+          kind === 'certificate' || kind === 'package' || kind === 'certified-pdf';
+        const response = await fetch(
+          directArtifact
+            ? `/api/documents/${docId}/certifications/${cryptographicCertification.certificationUuid}/${kind}`
+            : `/api/documents/${docId}/certifications/${cryptographicCertification.certificationUuid}/artifacts/${kind}`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } }
+        );
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || 'No fue posible descargar el archivo.');
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get('content-disposition') || '';
+        const matchedName = disposition.match(/filename="([^"]+)"/i)?.[1];
+        const fallbackNames = {
+          certificate: `constancia_integridad_${document?.documento_id || docId}.pdf`,
+          package: `paquete_certificacion_${document?.documento_id || docId}.zip`,
+          'certified-pdf': `documento_certificado_${document?.documento_id || docId}.pdf`,
+          'verification-report': `reporte_verificacion_${document?.documento_id || docId}.json`,
+          'timestamp-token': `estampa_rfc3161_${document?.documento_id || docId}.tsr`,
+          'signing-certificate': `certificado_firmante_${document?.documento_id || docId}.pem`,
+          'certificate-chain': `cadena_certificados_${document?.documento_id || docId}.pem`,
+          'evidence-manifest': `manifiesto_evidencia_${document?.documento_id || docId}.json`,
+        };
+        const url = URL.createObjectURL(blob);
+        const anchor = window.document.createElement('a');
+        anchor.href = url;
+        anchor.download = matchedName || fallbackNames[kind];
+        anchor.style.display = 'none';
+        window.document.body.appendChild(anchor);
+        anchor.click();
+        window.document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+        await logActivity('certificacion_criptografica_descargada', 'cumplimiento', {
+          artifact: kind,
+        });
+      } catch (error) {
+        setCertificationError(
+          error instanceof Error ? error.message : 'No fue posible descargar el archivo.'
+        );
+      } finally {
+        setCertificationDownload(null);
       }
-      const blob = await response.blob();
-      const disposition = response.headers.get('content-disposition') || '';
-      const matchedName = disposition.match(/filename="([^"]+)"/i)?.[1];
-      const fallbackNames = {
-        certificate: `constancia_integridad_${document?.documento_id || docId}.pdf`,
-        package: `paquete_certificacion_${document?.documento_id || docId}.zip`,
-        'certified-pdf': `documento_certificado_${document?.documento_id || docId}.pdf`,
-        'verification-report': `reporte_verificacion_${document?.documento_id || docId}.json`,
-        'timestamp-token': `estampa_rfc3161_${document?.documento_id || docId}.tsr`,
-        'signing-certificate': `certificado_firmante_${document?.documento_id || docId}.pem`,
-        'certificate-chain': `cadena_certificados_${document?.documento_id || docId}.pem`,
-        'evidence-manifest': `manifiesto_evidencia_${document?.documento_id || docId}.json`,
-      };
-      const url = URL.createObjectURL(blob);
-      const anchor = window.document.createElement('a');
-      anchor.href = url;
-      anchor.download = matchedName || fallbackNames[kind];
-      anchor.style.display = 'none';
-      window.document.body.appendChild(anchor);
-      anchor.click();
-      window.document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
-      await logActivity('certificacion_criptografica_descargada', 'cumplimiento', { artifact: kind });
-    } catch (error) {
-      setCertificationError(error instanceof Error ? error.message : 'No fue posible descargar el archivo.');
-    } finally {
-      setCertificationDownload(null);
-    }
-  }, [cryptographicCertification?.certificationUuid, docId, document?.documento_id, logActivity]);
+    },
+    [cryptographicCertification?.certificationUuid, docId, document?.documento_id, logActivity]
+  );
 
   // ── NOM-151 polling (only when completado) ─────────────────────────────────
   useEffect(() => {
@@ -917,7 +1091,9 @@ export default function VisorDocumentoPage() {
               setNom151Polling(Boolean(json.processing));
               setNom151Error(
                 json.failed || json.data
-                  ? String(json.message || 'La constancia NOM-151 no superó la verificación técnica.')
+                  ? String(
+                      json.message || 'La constancia NOM-151 no superó la verificación técnica.'
+                    )
                   : ''
               );
             }
@@ -961,7 +1137,7 @@ export default function VisorDocumentoPage() {
     try {
       const response = await fetch(
         `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=original`,
-        { headers: await apiAuthHeaders() },
+        { headers: await apiAuthHeaders() }
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -993,7 +1169,7 @@ export default function VisorDocumentoPage() {
     try {
       const response = await fetch(
         `/api/nom151/download?documento_id=${encodeURIComponent(docId)}`,
-        { headers: await apiAuthHeaders() },
+        { headers: await apiAuthHeaders() }
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -1031,7 +1207,13 @@ export default function VisorDocumentoPage() {
         if (res.ok) {
           const json = await res.json();
           if (!cancelled && json.data?.xml_evidencia_path) {
-            setXmlEvidenceData(json.data as { xml_evidencia_path: string; xml_hash_sha256: string; xml_generated_at: string });
+            setXmlEvidenceData(
+              json.data as {
+                xml_evidencia_path: string;
+                xml_hash_sha256: string;
+                xml_generated_at: string;
+              }
+            );
             setXmlPolling(false);
           } else if (!cancelled) {
             // No XML data found — show Pendiente state, not spinner
@@ -1077,7 +1259,7 @@ export default function VisorDocumentoPage() {
     try {
       const response = await fetch(
         `/api/nom151/xml-evidence/download?documento_id=${encodeURIComponent(docId)}`,
-        { headers: await apiAuthHeaders() },
+        { headers: await apiAuthHeaders() }
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -1097,7 +1279,7 @@ export default function VisorDocumentoPage() {
     } catch (err) {
       console.error('Error descargando XML:', err);
       setXmlDownloadError(
-        err instanceof Error ? err.message : 'No fue posible descargar el XML de evidencia.',
+        err instanceof Error ? err.message : 'No fue posible descargar el XML de evidencia.'
       );
     } finally {
       setDownloadingXml(false);
@@ -1108,18 +1290,22 @@ export default function VisorDocumentoPage() {
   const downloadSignedPdf = useCallback(async () => {
     if (!docId) return;
     if (!document?.sealed_pdf_path) {
-      alert('El PDF firmado todavía se está preparando. La descarga se habilitará cuando el cierre del documento termine y su huella se valide.');
+      alert(
+        'El PDF firmado todavía se está preparando. La descarga se habilitará cuando el cierre del documento termine y su huella se valide.'
+      );
       return;
     }
     if (!padesVerified) {
-      alert('La descarga certificada estará disponible cuando la firma PAdES del PDF termine su verificación técnica.');
+      alert(
+        'La descarga certificada estará disponible cuando la firma PAdES del PDF termine su verificación técnica.'
+      );
       return;
     }
     setDownloadingSignedPdf(true);
     try {
       const response = await fetch(
         `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=certified`,
-        { headers: await apiAuthHeaders() },
+        { headers: await apiAuthHeaders() }
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -1128,9 +1314,10 @@ export default function VisorDocumentoPage() {
       const blob = await response.blob();
 
       // Ensure we force download (not open in browser) by using octet-stream
-      const downloadBlob = blob.type === 'application/pdf'
-        ? new Blob([await blob.arrayBuffer()], { type: 'application/octet-stream' })
-        : blob;
+      const downloadBlob =
+        blob.type === 'application/pdf'
+          ? new Blob([await blob.arrayBuffer()], { type: 'application/octet-stream' })
+          : blob;
 
       // Sanitize filename: remove characters that cause issues in some browsers
       const safeName = (document?.nombre || 'documento')
@@ -1141,7 +1328,7 @@ export default function VisorDocumentoPage() {
       const url = URL.createObjectURL(downloadBlob);
       const a = window.document.createElement('a');
       a.href = url;
-      a.download = `${safeName}_firmado.pdf`;
+      a.download = `${safeName}_firmado_PAdES-B-T.pdf`;
       a.style.display = 'none';
       window.document.body.appendChild(a);
       a.click();
@@ -1156,127 +1343,134 @@ export default function VisorDocumentoPage() {
   }, [apiAuthHeaders, docId, document?.nombre, document?.sealed_pdf_path, padesVerified]);
 
   // ── Generate XML Evidence ─────────────────────────────────────────────────
-  const generateXmlEvidence = useCallback(async (options?: { silent?: boolean }) => {
-    if (!docId || xmlGenerating) return;
-    setXmlGenerating(true);
-    setXmlGenerationError('');
-    try {
-      const res = await fetch('/api/nom151/generate-xml', {
-        method: 'POST',
-        headers: await apiAuthHeaders(true),
-        body: JSON.stringify({ documento_id: docId, requested_by: user?.id }),
-      });
-      const json = await res.json();
-      if (res.ok) {
-        // Refresh XML evidence data immediately after generation
-        const xmlPath = json.xml_evidencia_path || (json.already_generated ? json.xml_evidencia_path : null);
-        if (json.xml_evidencia_path || json.already_generated) {
-          setXmlEvidenceData({
-            xml_evidencia_path: json.xml_evidencia_path,
-            xml_hash_sha256: json.xml_hash_sha256 || '',
-            xml_generated_at: json.xml_generated_at || new Date().toISOString(),
-          });
-        } else {
-          // Fallback: re-fetch from API
-          const refreshRes = await fetch(`/api/nom151/xml-evidence?documento_id=${docId}`, {
-            headers: await apiAuthHeaders(),
-          });
-          if (refreshRes.ok) {
-            const refreshJson = await refreshRes.json();
-            if (refreshJson.data?.xml_evidencia_path) {
-              setXmlEvidenceData(refreshJson.data);
+  const generateXmlEvidence = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!docId || xmlGenerating) return;
+      setXmlGenerating(true);
+      setXmlGenerationError('');
+      try {
+        const res = await fetch('/api/nom151/generate-xml', {
+          method: 'POST',
+          headers: await apiAuthHeaders(true),
+          body: JSON.stringify({ documento_id: docId, requested_by: user?.id }),
+        });
+        const json = await res.json();
+        if (res.ok) {
+          // Refresh XML evidence data immediately after generation
+          const xmlPath =
+            json.xml_evidencia_path || (json.already_generated ? json.xml_evidencia_path : null);
+          if (json.xml_evidencia_path || json.already_generated) {
+            setXmlEvidenceData({
+              xml_evidencia_path: json.xml_evidencia_path,
+              xml_hash_sha256: json.xml_hash_sha256 || '',
+              xml_generated_at: json.xml_generated_at || new Date().toISOString(),
+            });
+          } else {
+            // Fallback: re-fetch from API
+            const refreshRes = await fetch(`/api/nom151/xml-evidence?documento_id=${docId}`, {
+              headers: await apiAuthHeaders(),
+            });
+            if (refreshRes.ok) {
+              const refreshJson = await refreshRes.json();
+              if (refreshJson.data?.xml_evidencia_path) {
+                setXmlEvidenceData(refreshJson.data);
+              }
             }
           }
+        } else {
+          const message = json.error || 'No fue posible generar el XML de evidencia.';
+          console.error('[generateXmlEvidence] Error:', message);
+          setXmlGenerationError(message);
+          if (!options?.silent) alert(`Error generando XML: ${message}`);
         }
-      } else {
-        const message = json.error || 'No fue posible generar el XML de evidencia.';
-        console.error('[generateXmlEvidence] Error:', message);
+      } catch (err) {
+        console.error('[generateXmlEvidence] Error:', err);
+        const message = 'No fue posible generar el XML de evidencia. Intenta de nuevo.';
         setXmlGenerationError(message);
-        if (!options?.silent) alert(`Error generando XML: ${message}`);
+        if (!options?.silent) alert(message);
+      } finally {
+        setXmlGenerating(false);
       }
-    } catch (err) {
-      console.error('[generateXmlEvidence] Error:', err);
-      const message = 'No fue posible generar el XML de evidencia. Intenta de nuevo.';
-      setXmlGenerationError(message);
-      if (!options?.silent) alert(message);
-    } finally {
-      setXmlGenerating(false);
-    }
-  }, [docId, xmlGenerating, user?.id]);
+    },
+    [docId, xmlGenerating, user?.id]
+  );
 
   // ── Generate NOM-151 constancia via Nubarium ───────────────────────────────
-  const generateNom151 = useCallback(async (options?: { silent?: boolean }) => {
-    if (!docId || nom151Generating) return;
-    setNom151Generating(true);
-    setNom151Error('');
-    try {
-      const res = await fetch('/api/nom151/generate', {
-        method: 'POST',
-        headers: await apiAuthHeaders(true),
-        body: JSON.stringify({ documento_id: docId, requested_by: user?.id }),
-      });
-      const json = await res.json();
-      if (res.ok && (json.status === 'issued' || json.already_issued)) {
-        // Refresh NOM-151 data
-        const constanciaRes = await fetch(`/api/nom151/constancia?documento_id=${docId}`, {
-          headers: await apiAuthHeaders(),
-          cache: 'no-store',
+  const generateNom151 = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!docId || nom151Generating) return;
+      setNom151Generating(true);
+      setNom151Error('');
+      try {
+        const res = await fetch('/api/nom151/generate', {
+          method: 'POST',
+          headers: await apiAuthHeaders(true),
+          body: JSON.stringify({ documento_id: docId, requested_by: user?.id }),
         });
-        if (constanciaRes.ok) {
-          const constanciaJson = await constanciaRes.json();
-          setNom151Data(constanciaJson.verified ? constanciaJson.data ?? null : null);
-          setNom151Ready(Boolean(constanciaJson.ready));
-          setNom151Polling(false);
+        const json = await res.json();
+        if (res.ok && (json.status === 'issued' || json.already_issued)) {
+          // Refresh NOM-151 data
+          const constanciaRes = await fetch(`/api/nom151/constancia?documento_id=${docId}`, {
+            headers: await apiAuthHeaders(),
+            cache: 'no-store',
+          });
+          if (constanciaRes.ok) {
+            const constanciaJson = await constanciaRes.json();
+            setNom151Data(constanciaJson.verified ? (constanciaJson.data ?? null) : null);
+            setNom151Ready(Boolean(constanciaJson.ready));
+            setNom151Polling(false);
+          }
+        } else {
+          const providerError = String(json.error || 'Error desconocido');
+          const errMsg = /autenticaci[oó]n|autenticacion/i.test(providerError)
+            ? 'El servicio PSC/NOM-151 no está habilitado para las credenciales configuradas o requiere credenciales específicas. Solicita su activación al proveedor.'
+            : providerError;
+          console.error('[nom151] Error generando:', providerError);
+          setNom151Error(errMsg);
+          if (!options?.silent) alert(`Error generando NOM-151: ${errMsg}`);
         }
-      } else {
-        const providerError = String(json.error || 'Error desconocido');
-        const errMsg = /autenticaci[oó]n|autenticacion/i.test(providerError)
-          ? 'El servicio PSC/NOM-151 no está habilitado para las credenciales configuradas o requiere credenciales específicas. Solicita su activación al proveedor.'
-          : providerError;
-        console.error('[nom151] Error generando:', providerError);
-        setNom151Error(errMsg);
-        if (!options?.silent) alert(`Error generando NOM-151: ${errMsg}`);
+      } catch (err) {
+        console.error('[nom151] Error:', err);
+        const message = 'No fue posible generar la constancia NOM-151. Intenta de nuevo.';
+        setNom151Error(message);
+        if (!options?.silent) alert(message);
+      } finally {
+        setNom151Generating(false);
       }
-    } catch (err) {
-      console.error('[nom151] Error:', err);
-      const message = 'No fue posible generar la constancia NOM-151. Intenta de nuevo.';
-      setNom151Error(message);
-      if (!options?.silent) alert(message);
-    } finally {
-      setNom151Generating(false);
-    }
-  }, [docId, nom151Generating, user?.id]);
+    },
+    [docId, nom151Generating, user?.id]
+  );
 
   const ensureFinalSignedPdf = useCallback(async () => {
     if (!docId || signatureStampGenerationRef.current.has(docId)) return;
     signatureStampGenerationRef.current.add(docId);
 
     try {
-      const response = await fetch(
-        `/api/documentos/${encodeURIComponent(docId)}/seal-signatures`,
-        {
-          method: 'POST',
-          headers: await apiAuthHeaders(),
-        },
-      );
+      setSignedPdfError('');
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/seal-signatures`, {
+        method: 'POST',
+        headers: await apiAuthHeaders(),
+      });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.storage_path) {
         throw new Error(
-          payload.error || response.statusText || 'No se pudo generar el PDF final firmado.',
+          payload.error || response.statusText || 'No se pudo generar el PDF final firmado.'
         );
       }
 
-      setDocument((current) => current ? {
-        ...current,
-        sealed_pdf_path: payload.storage_path,
-      } : current);
-      setNom151Error('');
+      setDocument((current) =>
+        current
+          ? {
+              ...current,
+              sealed_pdf_path: payload.storage_path,
+            }
+          : current
+      );
     } catch (error) {
-      const message = error instanceof Error
-        ? error.message
-        : 'No se pudo generar el PDF final firmado.';
+      const message =
+        error instanceof Error ? error.message : 'No se pudo generar el PDF final firmado.';
       console.error('[auto-generate] PDF final firmado:', error);
-      setNom151Error(message);
+      setSignedPdfError(message);
       signatureStampGenerationRef.current.delete(docId);
     }
   }, [apiAuthHeaders, docId]);
@@ -1285,15 +1479,15 @@ export default function VisorDocumentoPage() {
   // automatica. No depende de abrir Descargas: al cargar el documento el
   // propietario solicita los artefactos pendientes una sola vez.
   useEffect(() => {
-    if (
-      document?.estado !== 'completado' ||
-      !docId ||
-      !user?.id ||
-      user.id !== document.owner_id
-    ) return;
+    if (document?.estado !== 'completado' || !docId || !user?.id || user.id !== document.owner_id)
+      return;
 
     const xmlAttemptKey = `${docId}:xml`;
-    if (!xmlEvidenceData && !xmlGenerating && !artifactGenerationAttemptsRef.current.has(xmlAttemptKey)) {
+    if (
+      !xmlEvidenceData &&
+      !xmlGenerating &&
+      !artifactGenerationAttemptsRef.current.has(xmlAttemptKey)
+    ) {
       artifactGenerationAttemptsRef.current.add(xmlAttemptKey);
       void generateXmlEvidence({ silent: true });
     }
@@ -1350,7 +1544,8 @@ export default function VisorDocumentoPage() {
       const reqPayload = nom151Data.nubarium_request_payload as Record<string, unknown> | null;
       const respPayload = nom151Data.nubarium_response_payload as Record<string, unknown> | null;
 
-      const firmantes: Array<Record<string, unknown>> = (reqPayload?.firmantes as Array<Record<string, unknown>>) || [];
+      const firmantes: Array<Record<string, unknown>> =
+        (reqPayload?.firmantes as Array<Record<string, unknown>>) || [];
       const fechaEmisionRaw = new Date(nom151Data.created_at);
       const fechaEmision = fechaEmisionRaw.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 
@@ -1449,11 +1644,15 @@ export default function VisorDocumentoPage() {
     <div class="section-body">
       <div class="row"><div class="label">Endpoint</div><div class="value mono">POST https://firma.nubarium.com/nom151/v1/obtener-nom151</div></div>
       <div class="row"><div class="label">Número de Firmantes</div><div class="value">${firmantes.length}</div></div>
-      ${firmantes.map((f, i) => `
+      ${firmantes
+        .map(
+          (f, i) => `
       <div class="firmante-row">
         <div class="firmante-name">Firmante ${i + 1}: ${f.nombreCompleto || '—'}</div>
         <div class="firmante-detail">Correo: ${f.correoElectronico || '—'} · Firma imagen: ${f.tieneFirmaImagen ? 'Sí (Autógrafa Digital)' : 'No (e.Firma SAT)'}</div>
-      </div>`).join('')}
+      </div>`
+        )
+        .join('')}
     </div>
   </div>
 
@@ -1528,10 +1727,9 @@ export default function VisorDocumentoPage() {
 
     setDownloadingNom151Pdf(true);
     try {
-      const response = await fetch(
-        `/api/nom151/pdf?documento_id=${encodeURIComponent(docId)}`,
-        { headers: await apiAuthHeaders() },
-      );
+      const response = await fetch(`/api/nom151/pdf?documento_id=${encodeURIComponent(docId)}`, {
+        headers: await apiAuthHeaders(),
+      });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload.error || 'No fue posible generar la constancia NOM-151.');
@@ -1549,7 +1747,9 @@ export default function VisorDocumentoPage() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error generando constancia NOM-151:', error);
-      alert(error instanceof Error ? error.message : 'No fue posible generar la constancia NOM-151.');
+      alert(
+        error instanceof Error ? error.message : 'No fue posible generar la constancia NOM-151.'
+      );
     } finally {
       setDownloadingNom151Pdf(false);
     }
@@ -1563,9 +1763,7 @@ export default function VisorDocumentoPage() {
       const fechaCompletado = document.fecha_completado
         ? new Date(document.fecha_completado).toISOString()
         : new Date(document.updated_at || '').toISOString();
-      const fechaCreado = document.created_at
-        ? new Date(document.created_at).toISOString()
-        : '—';
+      const fechaCreado = document.created_at ? new Date(document.created_at).toISOString() : '—';
       const hashFinal = document.hash_sha256 || '—';
       const totalParticipantes = participantes.length;
       const generadoEn = new Date().toISOString();
@@ -1684,15 +1882,19 @@ export default function VisorDocumentoPage() {
         </tr>
       </thead>
       <tbody>
-        ${participantes.map(p => `
+        ${participantes
+          .map(
+            (p) => `
         <tr>
           <td>${p.nombre || '—'}</td>
           <td class="mono">${maskEmail(p.email || '')}</td>
           <td>${p.rolDocumento || p.acto || '—'}</td>
           <td>${p.metodo_firma || '—'}</td>
-          <td class="mono">${p.fecha_firma ? new Date(p.fecha_firma).toISOString() : (p.fecha_participacion ? new Date(p.fecha_participacion).toISOString() : '—')}</td>
-          <td class="${(p.estado === 'firmado' || p.sub_estado === 'firmo' || p.estado === 'aprobado') ? 'status-ok' : 'status-bad'}">${estadoParticipante(p)}</td>
-        </tr>`).join('')}
+          <td class="mono">${p.fecha_firma ? new Date(p.fecha_firma).toISOString() : p.fecha_participacion ? new Date(p.fecha_participacion).toISOString() : '—'}</td>
+          <td class="${p.estado === 'firmado' || p.sub_estado === 'firmo' || p.estado === 'aprobado' ? 'status-ok' : 'status-bad'}">${estadoParticipante(p)}</td>
+        </tr>`
+          )
+          .join('')}
       </tbody>
     </table>
     <div class="disclaimer">El correo electrónico se muestra parcialmente enmascarado para proteger los datos personales de cada participante conforme a la LFPDPPP.</div>
@@ -1759,7 +1961,7 @@ export default function VisorDocumentoPage() {
     try {
       const response = await fetch(
         `/api/documentos/${encodeURIComponent(docId)}/constancia-general`,
-        { headers: await apiAuthHeaders() },
+        { headers: await apiAuthHeaders() }
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -1778,7 +1980,9 @@ export default function VisorDocumentoPage() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error generando constancia general:', error);
-      alert(error instanceof Error ? error.message : 'No fue posible generar la constancia general.');
+      alert(
+        error instanceof Error ? error.message : 'No fue posible generar la constancia general.'
+      );
     } finally {
       setDownloadingConstanciaGeneral(false);
     }
@@ -1790,7 +1994,7 @@ export default function VisorDocumentoPage() {
     try {
       const response = await fetch(
         `/api/documentos/${encodeURIComponent(docId)}/constancia-auditoria`,
-        { headers: await apiAuthHeaders() },
+        { headers: await apiAuthHeaders() }
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -1808,7 +2012,11 @@ export default function VisorDocumentoPage() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error generando constancia de auditoría:', error);
-      alert(error instanceof Error ? error.message : 'No fue posible generar la constancia de auditoría.');
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'No fue posible generar la constancia de auditoría.'
+      );
     } finally {
       setDownloadingAuditCertificate(false);
     }
@@ -1819,10 +2027,9 @@ export default function VisorDocumentoPage() {
 
     setDownloadingMyParticipationCertificate(true);
     try {
-      const response = await fetch(
-        `/api/documentos/${encodeURIComponent(docId)}/mi-constancia`,
-        { headers: await apiAuthHeaders() },
-      );
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/mi-constancia`, {
+        headers: await apiAuthHeaders(),
+      });
 
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -1849,13 +2056,19 @@ export default function VisorDocumentoPage() {
 
   const loadAdditionalMetadata = useCallback(async () => {
     try {
-      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/additional-metadata`, {
-        headers: await apiAuthHeaders(),
-      });
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/additional-metadata`,
+        {
+          headers: await apiAuthHeaders(),
+        }
+      );
       if (!response.ok) {
         if (response.status !== 404) {
           const payload = await response.json().catch(() => ({}));
-          console.warn('[visor-documento] No fue posible cargar metadatos adicionales:', payload.error || response.status);
+          console.warn(
+            '[visor-documento] No fue posible cargar metadatos adicionales:',
+            payload.error || response.status
+          );
         }
         return;
       }
@@ -1867,25 +2080,36 @@ export default function VisorDocumentoPage() {
     }
   }, [docId]);
 
-  const saveManagementMetadata = useCallback(async (metadata: AdditionalMetadataRecord) => {
-    setMetadataError(null);
-    setMetadataSaving(true);
-    try {
-      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/additional-metadata`, {
-        method: 'PATCH',
-        headers: await apiAuthHeaders(true),
-        body: JSON.stringify({ id: metadata.id, value: editingMetadataValue }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'No fue posible actualizar el metadato.');
-      setAdditionalMetadata((current) => current.map((item) => item.id === metadata.id ? payload.metadata : item));
-      setEditingMetadataId(null);
-    } catch (error) {
-      setMetadataError(error instanceof Error ? error.message : 'No fue posible actualizar el metadato.');
-    } finally {
-      setMetadataSaving(false);
-    }
-  }, [docId, editingMetadataValue]);
+  const saveManagementMetadata = useCallback(
+    async (metadata: AdditionalMetadataRecord) => {
+      setMetadataError(null);
+      setMetadataSaving(true);
+      try {
+        const response = await fetch(
+          `/api/documentos/${encodeURIComponent(docId)}/additional-metadata`,
+          {
+            method: 'PATCH',
+            headers: await apiAuthHeaders(true),
+            body: JSON.stringify({ id: metadata.id, value: editingMetadataValue }),
+          }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok)
+          throw new Error(payload.error || 'No fue posible actualizar el metadato.');
+        setAdditionalMetadata((current) =>
+          current.map((item) => (item.id === metadata.id ? payload.metadata : item))
+        );
+        setEditingMetadataId(null);
+      } catch (error) {
+        setMetadataError(
+          error instanceof Error ? error.message : 'No fue posible actualizar el metadato.'
+        );
+      } finally {
+        setMetadataSaving(false);
+      }
+    },
+    [docId, editingMetadataValue]
+  );
 
   // ── Load document + participants + activity ────────────────────────────────
   useEffect(() => {
@@ -1905,19 +2129,27 @@ export default function VisorDocumentoPage() {
         // First try direct Supabase query (works for owners and when RLS policies are applied)
         const { data: directData, error } = await supabase
           .from('documentos')
-          .select('id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at')
+          .select(
+            'id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, legal_hold, legal_hold_status, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at'
+          )
           .eq('id', docId)
           .single();
 
         if (error || !directData) {
           // Fallback: use API route with service role to verify access server-side
-          console.log('[visor-documento] Direct query failed, trying API fallback. Error:', error?.code, error?.message);
+          console.log(
+            '[visor-documento] Direct query failed, trying API fallback. Error:',
+            error?.code,
+            error?.message
+          );
           try {
             // Get the current session token to send as Authorization header
-            const { data: { session } } = await supabase.auth.getSession();
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
             const accessToken = session?.access_token;
             const apiRes = await fetch(`/api/documentos/obtener?id=${docId}`, {
-              headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {},
+              headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
             });
             if (apiRes.ok) {
               const apiJson = await apiRes.json();
@@ -1952,7 +2184,11 @@ export default function VisorDocumentoPage() {
           return;
         }
 
-        if (data.campos_solicitados && Array.isArray(data.campos_solicitados) && data.campos_solicitados.length > 0) {
+        if (
+          data.campos_solicitados &&
+          Array.isArray(data.campos_solicitados) &&
+          data.campos_solicitados.length > 0
+        ) {
           setCamposSolicitados(data.campos_solicitados as CampoSolicitado[]);
         }
 
@@ -1964,8 +2200,11 @@ export default function VisorDocumentoPage() {
             .eq('id', data.owner_id)
             .single();
           if (profile) {
-            ownerNombre = profile.full_name ||
-              [profile.nombre, profile.apellido_paterno, profile.apellido_materno].filter(Boolean).join(' ') ||
+            ownerNombre =
+              profile.full_name ||
+              [profile.nombre, profile.apellido_paterno, profile.apellido_materno]
+                .filter(Boolean)
+                .join(' ') ||
               'Usuario';
           }
         }
@@ -1992,7 +2231,9 @@ export default function VisorDocumentoPage() {
         let docMetadata = null;
         const { data: metaData } = await supabase
           .from('document_metadata')
-          .select('pdf_page_count, pdf_is_native, pdf_has_acroform, pdf_has_prior_sigs, pdf_author, pdf_creator_software, pdf_created_at, pdf_modified_at, pdf_metadata_raw, analyzed_at')
+          .select(
+            'pdf_page_count, pdf_is_native, pdf_has_acroform, pdf_has_prior_sigs, pdf_author, pdf_creator_software, pdf_created_at, pdf_modified_at, pdf_metadata_raw, analyzed_at'
+          )
           .eq('documentos_id', docId)
           .maybeSingle();
         if (metaData) docMetadata = metaData;
@@ -2003,7 +2244,7 @@ export default function VisorDocumentoPage() {
           : false;
         const canUseDerivedSignaturePdf = Boolean(
           data.sealed_pdf_path &&
-          (!isGeneratedSignatureStampPath(data.sealed_pdf_path) || configuredSignatureFields),
+          (!isGeneratedSignatureStampPath(data.sealed_pdf_path) || configuredSignatureFields)
         );
         const requestedFileVariant =
           requestedArchivo === 'original'
@@ -2049,14 +2290,18 @@ export default function VisorDocumentoPage() {
             nombre: p.nombre || p.name || '',
             email: p.email || '',
             estado: p.estado || 'pendiente',
-            metodo_firma: p.metodo_firma || (p.tipoFirma && p.tipoFirma[0] ? (() => {
-              const firmaLabelMap: Record<string, string> = {
-                autografa: 'Firma Autógrafa Digital',
-                efirma: 'e-Firma SAT',
-                biometria: 'Biometría (Premium)',
-              };
-              return firmaLabelMap[p.tipoFirma[0]] || p.tipoFirma[0];
-            })() : 'Firma Autógrafa Digital'),
+            metodo_firma:
+              p.metodo_firma ||
+              (p.tipoFirma && p.tipoFirma[0]
+                ? (() => {
+                    const firmaLabelMap: Record<string, string> = {
+                      autografa: 'Firma Autógrafa Digital',
+                      efirma: 'e-Firma SAT',
+                      biometria: 'Biometría (Premium)',
+                    };
+                    return firmaLabelMap[p.tipoFirma[0]] || p.tipoFirma[0];
+                  })()
+                : 'Firma Autógrafa Digital'),
             orden: p.orden ?? idx + 1,
             sub_estado: p.sub_estado || 'en_revision',
             ip_address: p.ip_address || undefined,
@@ -2078,7 +2323,16 @@ export default function VisorDocumentoPage() {
               setParticipantSubEstado(myPart.sub_estado || 'en_revision');
               // Only update to 'en_revision' if participant has legacy 'sin_revisar' state
               // (new documents already start participants at 'en_revision')
-              const terminalStates = ['firmo', 'firmado', 'rechazo', 'rechazado', 'aprobo', 'aprobado', 'cancelo', 'cancelado'];
+              const terminalStates = [
+                'firmo',
+                'firmado',
+                'rechazo',
+                'rechazado',
+                'aprobo',
+                'aprobado',
+                'cancelo',
+                'cancelado',
+              ];
               const currentSub = myPart.sub_estado || 'en_revision';
               if (currentSub === 'sin_revisar' && !terminalStates.includes(currentSub)) {
                 try {
@@ -2095,14 +2349,16 @@ export default function VisorDocumentoPage() {
             }
           }
         } else if (ownerNombre !== 'Usuario') {
-          setParticipantes([{
-            id: data.owner_id,
-            nombre: ownerNombre,
-            email: '',
-            estado: 'pendiente',
-            metodo_firma: 'Firma Autógrafa Digital',
-            orden: 1,
-          }]);
+          setParticipantes([
+            {
+              id: data.owner_id,
+              nombre: ownerNombre,
+              email: '',
+              estado: 'pendiente',
+              metodo_firma: 'Firma Autógrafa Digital',
+              orden: 1,
+            },
+          ]);
         }
       } catch (err: any) {
         console.error('[visor-documento] Error loading document:', err);
@@ -2120,13 +2376,15 @@ export default function VisorDocumentoPage() {
         // ── 1. security_audit_log (own events + doc events) ──────────────────
         const { data: secData } = await supabase
           .from('security_audit_log')
-          .select(`
+          .select(
+            `
             id,
             action,
             details,
             created_at,
             user_id
-          `)
+          `
+          )
           .eq('documento_id', docId)
           .order('created_at', { ascending: false });
 
@@ -2148,7 +2406,9 @@ export default function VisorDocumentoPage() {
         // ── 2. document_audit_trail (legal audit) ────────────────────────────
         const { data: auditData } = await supabase
           .from('document_audit_trail')
-          .select('id, action_code, action_description_es, action_category, action_result, actor_name, actor_email, actor_role, document_status_at_action, ip_address, action_at, metadata_encrypted')
+          .select(
+            'id, action_code, action_description_es, action_category, action_result, actor_name, actor_email, actor_role, document_status_at_action, ip_address, action_at, metadata_encrypted'
+          )
           .eq('document_id', docId)
           .order('action_at', { ascending: false });
 
@@ -2158,7 +2418,8 @@ export default function VisorDocumentoPage() {
             const isDuplicate = allEvents.some(
               (e) =>
                 e.action === row.action_code &&
-                Math.abs(new Date(e.created_at).getTime() - new Date(row.action_at).getTime()) < 5000
+                Math.abs(new Date(e.created_at).getTime() - new Date(row.action_at).getTime()) <
+                  5000
             );
             if (!isDuplicate) {
               allEvents.push({
@@ -2188,7 +2449,9 @@ export default function VisorDocumentoPage() {
         let docData: any = null;
         const { data: directDocData } = await supabase
           .from('documentos')
-          .select('id, nombre, estado, created_at, updated_at, owner_id, cancelado_at, fecha_completado, participantes, owner_nombre')
+          .select(
+            'id, nombre, estado, created_at, updated_at, owner_id, cancelado_at, fecha_completado, participantes, owner_nombre'
+          )
           .eq('id', docId)
           .maybeSingle();
 
@@ -2197,10 +2460,12 @@ export default function VisorDocumentoPage() {
         } else {
           // Fallback: use API route for participants who can't query documentos directly via RLS
           try {
-            const { data: { session } } = await supabase.auth.getSession();
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
             const accessToken = session?.access_token;
             const apiRes = await fetch(`/api/documentos/obtener?id=${docId}`, {
-              headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {},
+              headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
             });
             if (apiRes.ok) {
               const apiJson = await apiRes.json();
@@ -2226,7 +2491,8 @@ export default function VisorDocumentoPage() {
                 .eq('id', docData.owner_id)
                 .maybeSingle();
               if (ownerProfile) {
-                ownerName = ownerProfile.full_name ||
+                ownerName =
+                  ownerProfile.full_name ||
                   [ownerProfile.nombre, ownerProfile.apellido_paterno].filter(Boolean).join(' ') ||
                   'Propietario';
               }
@@ -2459,10 +2725,12 @@ export default function VisorDocumentoPage() {
     const loadParticipationResponses = async () => {
       try {
         const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         const accessToken = session?.access_token;
         const apiRes = await fetch(`/api/documentos/participation-responses?id=${docId}`, {
-          headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {},
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
         });
         if (apiRes.ok) {
           const apiJson = await apiRes.json();
@@ -2473,7 +2741,9 @@ export default function VisorDocumentoPage() {
           // Fallback: direct Supabase query (works for owner or own response)
           const { data, error } = await supabase
             .from('participation_responses')
-            .select('participante_email, participante_nombre, campos_completados, firma_data, firma_completada')
+            .select(
+              'participante_email, participante_nombre, campos_completados, firma_data, firma_completada'
+            )
             .eq('documento_id', docId);
           if (!error && data && data.length > 0) {
             setParticipationResponses(data as ParticipationResponse[]);
@@ -2492,22 +2762,22 @@ export default function VisorDocumentoPage() {
       if (user && docId) {
         const supabase = createClient();
         const actorNombre =
-          user.user_metadata?.full_name ||
-          user.user_metadata?.nombre ||
-          user.email ||
-          'Usuario';
-        supabase.from('document_activity_log').insert({
-          documento_id: docId,
-          actor_id: user.id,
-          actor_nombre: actorNombre,
-          actor_email: user.email || '',
-          action: 'documento_visto',
-          category: 'acceso',
-          details: { source: 'visor' },
-        }).then(
-          () => {},
-          () => {}
-        );
+          user.user_metadata?.full_name || user.user_metadata?.nombre || user.email || 'Usuario';
+        supabase
+          .from('document_activity_log')
+          .insert({
+            documento_id: docId,
+            actor_id: user.id,
+            actor_nombre: actorNombre,
+            actor_email: user.email || '',
+            action: 'documento_visto',
+            category: 'acceso',
+            details: { source: 'visor' },
+          })
+          .then(
+            () => {},
+            () => {}
+          );
       }
     }, 1500);
     return () => clearTimeout(viewTimer);
@@ -2576,7 +2846,9 @@ export default function VisorDocumentoPage() {
       try {
         const { data, error } = await supabase
           .from('document_notes')
-          .select('id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at')
+          .select(
+            'id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at'
+          )
           .eq('documento_id', docId)
           .order('created_at', { ascending: false });
         if (!error && data) {
@@ -2726,9 +2998,7 @@ export default function VisorDocumentoPage() {
         // Update local participant state with new fecha_recordatorio
         const now = new Date().toISOString();
         setParticipantes((prev) =>
-          prev.map((part) =>
-            part.id === p.id ? { ...part, fecha_recordatorio: now } : part
-          )
+          prev.map((part) => (part.id === p.id ? { ...part, fecha_recordatorio: now } : part))
         );
         // Clear "sent" indicator after 3 seconds
         setTimeout(() => {
@@ -2783,7 +3053,16 @@ export default function VisorDocumentoPage() {
         .eq('id', document.id)
         .single();
 
-      const TERMINAL_SUB_ESTADOS = ['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'];
+      const TERMINAL_SUB_ESTADOS = [
+        'firmo',
+        'firmado',
+        'aprobo',
+        'aprobado',
+        'rechazo',
+        'rechazado',
+        'cancelo',
+        'cancelado',
+      ];
       const updatedParticipantes: any[] = updatedDoc?.participantes ?? [];
       const allCompleted =
         updatedParticipantes.length > 0 &&
@@ -2802,13 +3081,16 @@ export default function VisorDocumentoPage() {
           .from('documentos')
           .update({ estado: 'completado', fecha_completado: completedAt })
           .eq('id', document.id);
-        setDocument((prev) => prev ? { ...prev, estado: 'completado', fecha_completado: completedAt } : prev);
-        logActivity('documento_completado', 'firma', { estado_nuevo: 'completado', total_participantes: updatedParticipantes.length });
+        setDocument((prev) =>
+          prev ? { ...prev, estado: 'completado', fecha_completado: completedAt } : prev
+        );
+        logActivity('documento_completado', 'firma', {
+          estado_nuevo: 'completado',
+          total_participantes: updatedParticipantes.length,
+        });
 
         // ── Auto-generate XML evidence and NOM-151 constancia ──────────────
         // Fire-and-forget: both run in background, UI will reflect via polling
-        let generatedXmlPath: string | undefined;
-        let generatedNom151Path: string | undefined;
         let generatedPadesPath: string | undefined;
 
         // Collect sealed_pdf_path if already exists
@@ -2822,21 +3104,30 @@ export default function VisorDocumentoPage() {
           if (generatedPadesPath || !hasConfiguredSignatureFields) return generatedPadesPath;
           signatureStampGenerationRef.current.add(document.id);
           try {
-            const stampRes = await fetch(`/api/documentos/${encodeURIComponent(document.id)}/seal-signatures`, {
-              method: 'POST',
-              headers: await apiAuthHeaders(),
-            });
+            const stampRes = await fetch(
+              `/api/documentos/${encodeURIComponent(document.id)}/seal-signatures`,
+              {
+                method: 'POST',
+                headers: await apiAuthHeaders(),
+              }
+            );
             const stampJson = await stampRes.json().catch(() => ({}));
             if (!stampRes.ok || !stampJson.storage_path) {
-              throw new Error(stampJson.error || stampRes.statusText || 'No se pudo generar el PDF final firmado');
+              throw new Error(
+                stampJson.error || stampRes.statusText || 'No se pudo generar el PDF final firmado'
+              );
             }
 
             generatedPadesPath = stampJson.storage_path;
-            setDocument((prev) => prev ? {
-              ...prev,
-              sealed_pdf_path: stampJson.storage_path,
-              file_url: `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=certified`,
-            } : prev);
+            setDocument((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    sealed_pdf_path: stampJson.storage_path,
+                    file_url: `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=certified`,
+                  }
+                : prev
+            );
             return generatedPadesPath;
           } catch (stampErr) {
             console.error('[auto-generate] PDF con estampa de firma:', stampErr);
@@ -2854,7 +3145,6 @@ export default function VisorDocumentoPage() {
             });
             const xmlJson = await xmlRes.json();
             if (xmlRes.ok && (xmlJson.xml_evidencia_path || xmlJson.already_generated)) {
-              generatedXmlPath = xmlJson.xml_evidencia_path;
               setXmlEvidenceData({
                 xml_evidencia_path: xmlJson.xml_evidencia_path,
                 xml_hash_sha256: xmlJson.xml_hash_sha256 || '',
@@ -2868,68 +3158,23 @@ export default function VisorDocumentoPage() {
           }
         })();
 
-        const nom151GenPromise = (async () => {
+        // seal-signatures owns PAdES-B-T -> NOM-151 -> completion emails. The
+        // client only refreshes the persisted NOM-151 presentation afterward.
+        Promise.allSettled([stampGenPromise, xmlGenPromise]).then(async ([stampResult]) => {
+          if (stampResult.status !== 'fulfilled') return;
           try {
             setNom151Generating(true);
-            // NOM-151 must bind to the exact final PDF. When signature fields exist,
-            // wait for the derived stamped version to be persisted before requesting it.
-            await stampGenPromise;
-            const nom151Res = await fetch('/api/nom151/generate', {
-              method: 'POST',
-              headers: await apiAuthHeaders(true),
-              body: JSON.stringify({ documento_id: document.id, requested_by: user?.id }),
-            });
-            const nom151Json = await nom151Res.json();
-            if (nom151Res.ok && (nom151Json.status === 'issued' || nom151Json.already_issued)) {
-              const constanciaRes = await fetch(`/api/nom151/constancia?documento_id=${document.id}`, {
-                headers: await apiAuthHeaders(),
-              });
-              if (constanciaRes.ok) {
-                const constanciaJson = await constanciaRes.json();
-                setNom151Data(constanciaJson.verified ? constanciaJson.data ?? null : null);
-                generatedNom151Path = constanciaJson.verified
-                  ? constanciaJson.data?.constancia_path
-                  : undefined;
-              }
-            } else {
-              console.error('[auto-generate] NOM-151 error:', nom151Json.error);
-            }
+            const constanciaRes = await fetch(
+              `/api/nom151/constancia?documento_id=${document.id}`,
+              { headers: await apiAuthHeaders() }
+            );
+            if (!constanciaRes.ok) return;
+            const constanciaJson = await constanciaRes.json();
+            setNom151Data(constanciaJson.verified ? (constanciaJson.data ?? null) : null);
           } catch (nom151Err) {
-            console.error('[auto-generate] NOM-151 error:', nom151Err);
+            console.error('[auto-generate] No se pudo refrescar NOM-151:', nom151Err);
           } finally {
             setNom151Generating(false);
-          }
-        })();
-
-        // Wait for both generation tasks, then send enriched completion emails
-        Promise.allSettled([stampGenPromise, xmlGenPromise, nom151GenPromise]).then(async () => {
-          try {
-            // Fetch owner profile for email
-            let ownerEmail: string | undefined;
-            let ownerName: string | undefined;
-            if (document.owner_id) {
-              const { data: ownerProfile } = await supabase
-                .from('user_profiles')
-                .select('full_name, email')
-                .eq('id', document.owner_id)
-                .maybeSingle();
-              ownerEmail = ownerProfile?.email || undefined;
-              ownerName = ownerProfile?.full_name || undefined;
-            }
-
-            await sendDocumentCompletedToAllSigners({
-              ownerEmail,
-              ownerName,
-              participants: participantes,
-              documentName,
-              documentId: document.id,
-              completedAt,
-              xmlEvidenciaPath: generatedXmlPath,
-              nom151ConstanciaPath: generatedNom151Path,
-              padesPath: generatedPadesPath,
-            });
-          } catch (emailErr) {
-            console.error('[visor-documento] Error sending completion emails:', emailErr);
           }
         });
         // ──────────────────────────────────────────────────────────────────
@@ -2968,7 +3213,6 @@ export default function VisorDocumentoPage() {
         } catch {
           // Non-blocking
         }
-
       } else {
         // Not all completed yet — just notify owner that this participant signed
         try {
@@ -3031,8 +3275,12 @@ export default function VisorDocumentoPage() {
 
       const result = await res.json();
 
-      setDocument((prev) => prev ? { ...prev, estado: 'rechazado' } : prev);
-      logActivity('firma_rechazada', 'firma', { motivo: rejectMotivo, descripcion: rejectDescripcion || undefined, estado_nuevo: 'rechazado' });
+      setDocument((prev) => (prev ? { ...prev, estado: 'rechazado' } : prev));
+      logActivity('firma_rechazada', 'firma', {
+        motivo: rejectMotivo,
+        descripcion: rejectDescripcion || undefined,
+        estado_nuevo: 'rechazado',
+      });
 
       // Update local participant state from API response
       if (result.participantes) {
@@ -3060,18 +3308,21 @@ export default function VisorDocumentoPage() {
       try {
         const supabase = createClient();
         const authorNombre =
-          user?.user_metadata?.full_name ||
-          user?.user_metadata?.nombre ||
-          user?.email ||
-          'Usuario';
-        const { data: insertedNote } = await supabase.from('document_notes').insert({
-          documento_id: document.id,
-          author_id: user?.id,
-          author_nombre: authorNombre,
-          content: noteContent,
-          tipo: 'rechazo',
-          visibilidad: 'publica',
-        }).select('id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at').single();
+          user?.user_metadata?.full_name || user?.user_metadata?.nombre || user?.email || 'Usuario';
+        const { data: insertedNote } = await supabase
+          .from('document_notes')
+          .insert({
+            documento_id: document.id,
+            author_id: user?.id,
+            author_nombre: authorNombre,
+            content: noteContent,
+            tipo: 'rechazo',
+            visibilidad: 'publica',
+          })
+          .select(
+            'id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at'
+          )
+          .single();
         if (insertedNote) {
           setNotes((prev) => [insertedNote as DocumentNote, ...prev]);
         }
@@ -3131,26 +3382,33 @@ export default function VisorDocumentoPage() {
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody.error ?? 'Error al actualizar el estado');
       }
-      setDocument((prev) => prev ? { ...prev, estado: 'en_espera' } : prev);
-      logActivity('documento_editado', 'ciclo_de_vida', { tipo: changesTipo, comentario: changesComment.trim(), estado_nuevo: 'en_espera' });
+      setDocument((prev) => (prev ? { ...prev, estado: 'en_espera' } : prev));
+      logActivity('documento_editado', 'ciclo_de_vida', {
+        tipo: changesTipo,
+        comentario: changesComment.trim(),
+        estado_nuevo: 'en_espera',
+      });
 
       // Save note about the request
       try {
         const supabaseNote = createClient();
         const authorNombre =
-          user?.user_metadata?.full_name ||
-          user?.user_metadata?.nombre ||
-          user?.email ||
-          'Usuario';
+          user?.user_metadata?.full_name || user?.user_metadata?.nombre || user?.email || 'Usuario';
         const noteText = `[${changesTipo}] ${changesComment.trim()}`;
-        const { data: insertedNote } = await supabaseNote.from('document_notes').insert({
-          documento_id: document.id,
-          author_id: user?.id,
-          author_nombre: authorNombre,
-          content: noteText,
-          tipo: 'general',
-          visibilidad: 'publica',
-        }).select('id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at').single();
+        const { data: insertedNote } = await supabaseNote
+          .from('document_notes')
+          .insert({
+            documento_id: document.id,
+            author_id: user?.id,
+            author_nombre: authorNombre,
+            content: noteText,
+            tipo: 'general',
+            visibilidad: 'publica',
+          })
+          .select(
+            'id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at'
+          )
+          .single();
         if (insertedNote) {
           setNotes((prev) => [insertedNote as DocumentNote, ...prev]);
         }
@@ -3207,14 +3465,22 @@ export default function VisorDocumentoPage() {
       const result = await res.json();
       const now = result.cancelado_at ?? new Date().toISOString();
 
-      setDocument((prev) => prev ? {
-        ...prev,
-        estado: 'cancelado',
-        cancelacion_motivo: cancelMotivo,
-        cancelacion_descripcion: cancelDescripcion.trim() || undefined,
-        cancelado_at: now,
-      } : prev);
-      logActivity('documento_cancelado', 'ciclo_de_vida', { motivo: cancelMotivo, descripcion: cancelDescripcion.trim() || undefined, estado_nuevo: 'cancelado' });
+      setDocument((prev) =>
+        prev
+          ? {
+              ...prev,
+              estado: 'cancelado',
+              cancelacion_motivo: cancelMotivo,
+              cancelacion_descripcion: cancelDescripcion.trim() || undefined,
+              cancelado_at: now,
+            }
+          : prev
+      );
+      logActivity('documento_cancelado', 'ciclo_de_vida', {
+        motivo: cancelMotivo,
+        descripcion: cancelDescripcion.trim() || undefined,
+        estado_nuevo: 'cancelado',
+      });
 
       // Update local participant state from API response
       if (result.participantes) {
@@ -3234,22 +3500,25 @@ export default function VisorDocumentoPage() {
       // Save cancellation note as public
       try {
         const authorNombre =
-          user?.user_metadata?.full_name ||
-          user?.user_metadata?.nombre ||
-          user?.email ||
-          'Usuario';
+          user?.user_metadata?.full_name || user?.user_metadata?.nombre || user?.email || 'Usuario';
         const noteContent = cancelDescripcion.trim()
           ? `${cancelMotivo}: ${cancelDescripcion}`
           : cancelMotivo;
         const supabaseNote = createClient();
-        const { data: insertedNote } = await supabaseNote.from('document_notes').insert({
-          documento_id: document.id,
-          author_id: user?.id,
-          author_nombre: authorNombre,
-          content: noteContent,
-          tipo: 'cancelacion',
-          visibilidad: 'publica',
-        }).select('id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at').single();
+        const { data: insertedNote } = await supabaseNote
+          .from('document_notes')
+          .insert({
+            documento_id: document.id,
+            author_id: user?.id,
+            author_nombre: authorNombre,
+            content: noteContent,
+            tipo: 'cancelacion',
+            visibilidad: 'publica',
+          })
+          .select(
+            'id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at'
+          )
+          .single();
         if (insertedNote) {
           setNotes((prev) => [insertedNote as DocumentNote, ...prev]);
         }
@@ -3296,10 +3565,7 @@ export default function VisorDocumentoPage() {
     try {
       const supabase = createClient();
       const senderNombre =
-        user.user_metadata?.full_name ||
-        user.user_metadata?.nombre ||
-        user.email ||
-        'Usuario';
+        user.user_metadata?.full_name || user.user_metadata?.nombre || user.email || 'Usuario';
 
       const { error } = await supabase.from('document_chat_messages').insert({
         documento_id: docId,
@@ -3331,14 +3597,22 @@ export default function VisorDocumentoPage() {
   };
 
   const estadoInfo = document
-    ? (estadoConfig[document.estado] || { label: document.estado?.toUpperCase() || '—', color: 'text-gray-700', bg: 'bg-gray-100' })
+    ? estadoConfig[document.estado] || {
+        label: document.estado?.toUpperCase() || '—',
+        color: 'text-gray-700',
+        bg: 'bg-gray-100',
+      }
     : null;
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return 'Sin vencimiento';
     try {
       return new Date(dateStr).toLocaleDateString('es-MX', {
-        day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
       });
     } catch {
       return dateStr;
@@ -3384,8 +3658,7 @@ export default function VisorDocumentoPage() {
       .toLocaleLowerCase('es-MX')
       .replace(
         /(^|[\s'-])([a-záéíóúüñ])/g,
-        (_, separator: string, letter: string) =>
-          `${separator}${letter.toLocaleUpperCase('es-MX')}`
+        (_, separator: string, letter: string) => `${separator}${letter.toLocaleUpperCase('es-MX')}`
       );
   };
 
@@ -3407,35 +3680,152 @@ export default function VisorDocumentoPage() {
 
   // ── Participant state config (estado principal + sub_estado) ───────────────
   // Main estados (firmó, rechazó, canceló, postergó/en espera)
-  const participanteEstadoConfig: Record<string, { label: string; color: string; bg: string; borderColor: string; icon: React.ReactNode }> = {
-    pendiente:      { label: 'Pendiente',   color: 'text-yellow-700', bg: 'bg-yellow-50',  borderColor: 'border-yellow-300', icon: <Clock size={11} /> },
-    firmado:        { label: 'Firmó',       color: 'text-green-700',  bg: 'bg-green-50',   borderColor: 'border-green-300',  icon: <CheckCircle2 size={11} /> },
-    rechazado:      { label: 'Rechazó',     color: 'text-red-700',    bg: 'bg-red-50',     borderColor: 'border-red-300',    icon: <XCircle size={11} /> },
-    completado:     { label: 'Firmó',       color: 'text-green-700',  bg: 'bg-green-50',   borderColor: 'border-green-300',  icon: <CheckCircle2 size={11} /> },
-    cancelado:      { label: 'Canceló',     color: 'text-slate-700',  bg: 'bg-slate-100',  borderColor: 'border-slate-300',  icon: <XCircle size={11} /> },
-    en_espera:      { label: 'Postergó',    color: 'text-orange-700', bg: 'bg-orange-50',  borderColor: 'border-orange-300', icon: <Clock size={11} /> },
+  const participanteEstadoConfig: Record<
+    string,
+    { label: string; color: string; bg: string; borderColor: string; icon: React.ReactNode }
+  > = {
+    pendiente: {
+      label: 'Pendiente',
+      color: 'text-yellow-700',
+      bg: 'bg-yellow-50',
+      borderColor: 'border-yellow-300',
+      icon: <Clock size={11} />,
+    },
+    firmado: {
+      label: 'Firmó',
+      color: 'text-green-700',
+      bg: 'bg-green-50',
+      borderColor: 'border-green-300',
+      icon: <CheckCircle2 size={11} />,
+    },
+    rechazado: {
+      label: 'Rechazó',
+      color: 'text-red-700',
+      bg: 'bg-red-50',
+      borderColor: 'border-red-300',
+      icon: <XCircle size={11} />,
+    },
+    completado: {
+      label: 'Firmó',
+      color: 'text-green-700',
+      bg: 'bg-green-50',
+      borderColor: 'border-green-300',
+      icon: <CheckCircle2 size={11} />,
+    },
+    cancelado: {
+      label: 'Canceló',
+      color: 'text-slate-700',
+      bg: 'bg-slate-100',
+      borderColor: 'border-slate-300',
+      icon: <XCircle size={11} />,
+    },
+    en_espera: {
+      label: 'Postergó',
+      color: 'text-orange-700',
+      bg: 'bg-orange-50',
+      borderColor: 'border-orange-300',
+      icon: <Clock size={11} />,
+    },
   };
 
   // Sub-estados (only shown when estado is "en_proceso" / pendiente)
-  const subEstadoConfig: Record<string, { label: string; color: string; bg: string; borderColor: string; dot: string }> = {
-    sin_revisar:    { label: 'Sin revisar',  color: 'text-slate-500',  bg: 'bg-slate-50',   borderColor: 'border-slate-200',  dot: 'bg-slate-400' },
-    en_revision:    { label: 'En revisión',  color: 'text-blue-600',   bg: 'bg-blue-50',    borderColor: 'border-blue-200',   dot: 'bg-blue-500' },
-    firmo:          { label: 'Firmado',      color: 'text-green-700',  bg: 'bg-green-50',   borderColor: 'border-green-200',  dot: 'bg-green-500' },
-    firmado:        { label: 'Firmado',      color: 'text-green-700',  bg: 'bg-green-50',   borderColor: 'border-green-200',  dot: 'bg-green-500' },
-    rechazo:        { label: 'Rechazado',    color: 'text-red-700',    bg: 'bg-red-50',     borderColor: 'border-red-200',    dot: 'bg-red-500' },
-    rechazado:      { label: 'Rechazado',    color: 'text-red-700',    bg: 'bg-red-50',     borderColor: 'border-red-200',    dot: 'bg-red-500' },
-    aprobo:         { label: 'Aprobado',     color: 'text-blue-700',   bg: 'bg-blue-50',    borderColor: 'border-blue-200',   dot: 'bg-blue-500' },
-    aprobado:       { label: 'Aprobado',     color: 'text-blue-700',   bg: 'bg-blue-50',    borderColor: 'border-blue-200',   dot: 'bg-blue-500' },
-    cancelo:        { label: 'Cancelado',    color: 'text-slate-600',  bg: 'bg-slate-100',  borderColor: 'border-slate-300',  dot: 'bg-slate-400' },
-    cancelado:      { label: 'Cancelado',    color: 'text-slate-600',  bg: 'bg-slate-100',  borderColor: 'border-slate-300',  dot: 'bg-slate-400' },
+  const subEstadoConfig: Record<
+    string,
+    { label: string; color: string; bg: string; borderColor: string; dot: string }
+  > = {
+    sin_revisar: {
+      label: 'Sin revisar',
+      color: 'text-slate-500',
+      bg: 'bg-slate-50',
+      borderColor: 'border-slate-200',
+      dot: 'bg-slate-400',
+    },
+    en_revision: {
+      label: 'En revisión',
+      color: 'text-blue-600',
+      bg: 'bg-blue-50',
+      borderColor: 'border-blue-200',
+      dot: 'bg-blue-500',
+    },
+    firmo: {
+      label: 'Firmado',
+      color: 'text-green-700',
+      bg: 'bg-green-50',
+      borderColor: 'border-green-200',
+      dot: 'bg-green-500',
+    },
+    firmado: {
+      label: 'Firmado',
+      color: 'text-green-700',
+      bg: 'bg-green-50',
+      borderColor: 'border-green-200',
+      dot: 'bg-green-500',
+    },
+    rechazo: {
+      label: 'Rechazado',
+      color: 'text-red-700',
+      bg: 'bg-red-50',
+      borderColor: 'border-red-200',
+      dot: 'bg-red-500',
+    },
+    rechazado: {
+      label: 'Rechazado',
+      color: 'text-red-700',
+      bg: 'bg-red-50',
+      borderColor: 'border-red-200',
+      dot: 'bg-red-500',
+    },
+    aprobo: {
+      label: 'Aprobado',
+      color: 'text-blue-700',
+      bg: 'bg-blue-50',
+      borderColor: 'border-blue-200',
+      dot: 'bg-blue-500',
+    },
+    aprobado: {
+      label: 'Aprobado',
+      color: 'text-blue-700',
+      bg: 'bg-blue-50',
+      borderColor: 'border-blue-200',
+      dot: 'bg-blue-500',
+    },
+    cancelo: {
+      label: 'Cancelado',
+      color: 'text-slate-600',
+      bg: 'bg-slate-100',
+      borderColor: 'border-slate-300',
+      dot: 'bg-slate-400',
+    },
+    cancelado: {
+      label: 'Cancelado',
+      color: 'text-slate-600',
+      bg: 'bg-slate-100',
+      borderColor: 'border-slate-300',
+      dot: 'bg-slate-400',
+    },
   };
 
   // Determine which badge(s) to show for a participant
   const getParticipantBadges = (p: Participante) => {
     const estadoKey = p.estado?.toLowerCase() || 'pendiente';
     const subKey = p.sub_estado || 'en_revision';
-    const isTerminalEstado = ['firmado', 'completado', 'rechazado', 'cancelado', 'en_espera'].includes(estadoKey);
-    const isTerminalSub = ['firmo', 'firmado', 'rechazo', 'rechazado', 'aprobo', 'aprobado', 'cancelo', 'cancelado'].includes(subKey);
+    const isTerminalEstado = [
+      'firmado',
+      'completado',
+      'rechazado',
+      'cancelado',
+      'en_espera',
+    ].includes(estadoKey);
+    const isTerminalSub = [
+      'firmo',
+      'firmado',
+      'rechazo',
+      'rechazado',
+      'aprobo',
+      'aprobado',
+      'cancelo',
+      'cancelado',
+    ].includes(subKey);
 
     if (isTerminalEstado) {
       // Show only the terminal estado badge
@@ -3458,22 +3848,26 @@ export default function VisorDocumentoPage() {
     const a = action?.toLowerCase() || '';
     const c = category?.toLowerCase() || '';
     if (a === 'documento_creado') return <FilePlus size={14} />;
-    if (a === 'documento_visto' || a === 'documento_abierto' || a.includes('visualiz')) return <Eye size={14} />;
+    if (a === 'documento_visto' || a === 'documento_abierto' || a.includes('visualiz'))
+      return <Eye size={14} />;
     if (a === 'documento_completado') return <CheckCircle2 size={14} />;
     if (a === 'documento_cancelado' || a === 'documento_anulado') return <XCircle size={14} />;
     if (a === 'documento_vencido') return <Clock size={14} />;
     if (a === 'documento_editado') return <PenLine size={14} />;
-    if (a === 'participante_asignado' || a === 'participante_sustituido') return <UserPlus size={14} />;
+    if (a === 'participante_asignado' || a === 'participante_sustituido')
+      return <UserPlus size={14} />;
     if (a === 'participante_removido') return <XCircle size={14} />;
     if (a === 'cambio_estado_participacion') return <RefreshCw size={14} />;
     if (a === 'firma_completada' || a === 'autografa_capturada') return <PenLine size={14} />;
     if (a === 'firma_rechazada' || a === 'aprobacion_rechazada') return <XCircle size={14} />;
     if (a === 'firma_iniciada') return <PenLine size={14} />;
     if (a === 'aprobacion_otorgada') return <CheckCircle2 size={14} />;
-    if (a === 'invitacion_enviada' || a === 'invitacion_reenviada' || a === 'recordatorio_enviado') return <Bell size={14} />;
+    if (a === 'invitacion_enviada' || a === 'invitacion_reenviada' || a === 'recordatorio_enviado')
+      return <Bell size={14} />;
     if (a === 'descarga_solicitada' || a === 'descarga_completada') return <Download size={14} />;
     if (a === 'nom151_generado' || a === 'nom151_solicitado') return <Shield size={14} />;
-    if (a.includes('acceso_denegado') || a.includes('intento_fallido') || a.includes('sospechoso')) return <AlertTriangle size={14} />;
+    if (a.includes('acceso_denegado') || a.includes('intento_fallido') || a.includes('sospechoso'))
+      return <AlertTriangle size={14} />;
     if (c === 'seguridad') return <Shield size={14} />;
     if (c === 'notificacion') return <Bell size={14} />;
     if (c === 'firma') return <PenLine size={14} />;
@@ -3489,28 +3883,38 @@ export default function VisorDocumentoPage() {
     const a = action?.toLowerCase() || '';
     const c = category?.toLowerCase() || '';
     if (a === 'documento_creado') return { bg: 'bg-indigo-100', text: 'text-indigo-600' };
-    if (a === 'documento_visto' || a === 'documento_abierto' || a.includes('visualiz')) return { bg: 'bg-blue-100', text: 'text-blue-600' };
+    if (a === 'documento_visto' || a === 'documento_abierto' || a.includes('visualiz'))
+      return { bg: 'bg-blue-100', text: 'text-blue-600' };
     if (a === 'documento_completado') return { bg: 'bg-emerald-100', text: 'text-emerald-600' };
-    if (a === 'documento_cancelado' || a === 'documento_anulado') return { bg: 'bg-slate-100', text: 'text-slate-500' };
+    if (a === 'documento_cancelado' || a === 'documento_anulado')
+      return { bg: 'bg-slate-100', text: 'text-slate-500' };
     if (a === 'documento_vencido') return { bg: 'bg-rose-100', text: 'text-rose-600' };
     if (a === 'documento_editado') return { bg: 'bg-amber-100', text: 'text-amber-600' };
-    if (a === 'participante_asignado' || a === 'participante_sustituido') return { bg: 'bg-purple-100', text: 'text-purple-600' };
+    if (a === 'participante_asignado' || a === 'participante_sustituido')
+      return { bg: 'bg-purple-100', text: 'text-purple-600' };
     if (a === 'participante_removido') return { bg: 'bg-red-100', text: 'text-red-500' };
     if (a === 'cambio_estado_participacion') return { bg: 'bg-cyan-100', text: 'text-cyan-600' };
-    if (a === 'firma_completada' || a === 'autografa_capturada') return { bg: 'bg-green-100', text: 'text-green-600' };
-    if (a === 'firma_rechazada' || a === 'aprobacion_rechazada') return { bg: 'bg-red-100', text: 'text-red-600' };
+    if (a === 'firma_completada' || a === 'autografa_capturada')
+      return { bg: 'bg-green-100', text: 'text-green-600' };
+    if (a === 'firma_rechazada' || a === 'aprobacion_rechazada')
+      return { bg: 'bg-red-100', text: 'text-red-600' };
     if (a === 'firma_iniciada') return { bg: 'bg-teal-100', text: 'text-teal-600' };
     if (a === 'aprobacion_otorgada') return { bg: 'bg-blue-100', text: 'text-blue-600' };
-    if (a === 'invitacion_enviada' || a === 'invitacion_reenviada' || a === 'recordatorio_enviado') return { bg: 'bg-amber-100', text: 'text-amber-600' };
-    if (a === 'descarga_solicitada' || a === 'descarga_completada') return { bg: 'bg-cyan-100', text: 'text-cyan-600' };
-    if (a === 'nom151_generado' || a === 'nom151_solicitado') return { bg: 'bg-violet-100', text: 'text-violet-600' };
-    if (a.includes('acceso_denegado') || a.includes('intento_fallido') || a.includes('sospechoso')) return { bg: 'bg-red-100', text: 'text-red-500' };
+    if (a === 'invitacion_enviada' || a === 'invitacion_reenviada' || a === 'recordatorio_enviado')
+      return { bg: 'bg-amber-100', text: 'text-amber-600' };
+    if (a === 'descarga_solicitada' || a === 'descarga_completada')
+      return { bg: 'bg-cyan-100', text: 'text-cyan-600' };
+    if (a === 'nom151_generado' || a === 'nom151_solicitado')
+      return { bg: 'bg-violet-100', text: 'text-violet-600' };
+    if (a.includes('acceso_denegado') || a.includes('intento_fallido') || a.includes('sospechoso'))
+      return { bg: 'bg-red-100', text: 'text-red-500' };
     if (c === 'seguridad') return { bg: 'bg-slate-100', text: 'text-slate-600' };
     if (c === 'notificacion') return { bg: 'bg-amber-100', text: 'text-amber-600' };
     if (c === 'firma') return { bg: 'bg-green-100', text: 'text-green-600' };
     if (c === 'acceso') return { bg: 'bg-blue-100', text: 'text-blue-600' };
     if (c === 'participantes') return { bg: 'bg-purple-100', text: 'text-purple-600' };
-    if (a === 'nota_agregada' || c === 'nota') return { bg: 'bg-yellow-100', text: 'text-yellow-600' };
+    if (a === 'nota_agregada' || c === 'nota')
+      return { bg: 'bg-yellow-100', text: 'text-yellow-600' };
     if (a === 'mensaje_enviado' || c === 'chat') return { bg: 'bg-sky-100', text: 'text-sky-600' };
     if (c === 'edicion') return { bg: 'bg-amber-100', text: 'text-amber-600' };
     return { bg: 'bg-gray-100', text: 'text-gray-500' };
@@ -3582,7 +3986,10 @@ export default function VisorDocumentoPage() {
     };
     // Enrich label with participant name if available
     const base = map[action] || action?.replace(/_/g, ' ') || 'Evento';
-    if (event?.participant_name && (action === 'documento_visto' || action === 'documento_abierto')) {
+    if (
+      event?.participant_name &&
+      (action === 'documento_visto' || action === 'documento_abierto')
+    ) {
       return `Documento visualizado`;
     }
     return base;
@@ -3603,7 +4010,8 @@ export default function VisorDocumentoPage() {
     if (details.estado_nuevo) parts.push(`Nuevo estado: ${String(details.estado_nuevo)}`);
     if (details.doc_status) parts.push(`Estado del documento: ${String(details.doc_status)}`);
     if (details.actor_role) parts.push(`Rol: ${String(details.actor_role)}`);
-    if (details.result && details.result !== 'exitoso') parts.push(`Resultado: ${String(details.result)}`);
+    if (details.result && details.result !== 'exitoso')
+      parts.push(`Resultado: ${String(details.result)}`);
     if (details.campo) parts.push(`Campo: ${String(details.campo)}`);
     if (details.nombre_nuevo) parts.push(`Nuevo nombre: ${String(details.nombre_nuevo)}`);
     if (details.nombre_archivo) parts.push(`Archivo: ${String(details.nombre_archivo)}`);
@@ -3612,10 +4020,15 @@ export default function VisorDocumentoPage() {
     }
     if (details.total !== undefined) parts.push(`Total participantes: ${String(details.total)}`);
     if (details.visibilidad) parts.push(`Visibilidad: ${String(details.visibilidad)}`);
-    if (details.preview) parts.push(`"${String(details.preview)}${String(details.preview).length >= 80 ? '…' : ''}"`);
+    if (details.preview)
+      parts.push(`"${String(details.preview)}${String(details.preview).length >= 80 ? '…' : ''}"`);
     if (details.tipo) parts.push(`Tipo: ${String(details.tipo)}`);
     if (details.comentario) parts.push(`Comentario: ${String(details.comentario).slice(0, 80)}`);
-    if (details.description && typeof details.description === 'string' && !details.description.includes('workspace')) {
+    if (
+      details.description &&
+      typeof details.description === 'string' &&
+      !details.description.includes('workspace')
+    ) {
       // Only show description if it doesn't contain workspace info
       parts.unshift(details.description);
     }
@@ -3645,59 +4058,69 @@ export default function VisorDocumentoPage() {
     return map;
   }, [participationResponses]);
 
-    // NEW: Get the firma_data for a given campo (by participantId/email match)
-  const getFirmaDataForCampo = React.useCallback((campo: CampoSolicitado): string | null => {
-    if (!campo.participantId && !campo.participantName) {
-      // No specific participant — use first available firma
-      const resp = participationResponses.find((r) => r.firma_data && r.firma_completada);
-      return resp?.firma_data || null;
-    }
+  // NEW: Get the firma_data for a given campo (by participantId/email match)
+  const getFirmaDataForCampo = React.useCallback(
+    (campo: CampoSolicitado): string | null => {
+      if (!campo.participantId && !campo.participantName) {
+        // No specific participant — use first available firma
+        const resp = participationResponses.find((r) => r.firma_data && r.firma_completada);
+        return resp?.firma_data || null;
+      }
 
-    // Resolve participantId (UUID) to email via participantes array
-    const resolvedEmail = (() => {
-      if (!campo.participantId) return null;
-      // Check if participantId is already an email
-      if (campo.participantId.includes('@')) return campo.participantId;
-      // Look up in participantes array by id
-      const matchedPart = participantes.find(
-        (p) => p.id === campo.participantId
+      // Resolve participantId (UUID) to email via participantes array
+      const resolvedEmail = (() => {
+        if (!campo.participantId) return null;
+        // Check if participantId is already an email
+        if (campo.participantId.includes('@')) return campo.participantId;
+        // Look up in participantes array by id
+        const matchedPart = participantes.find((p) => p.id === campo.participantId);
+        return matchedPart?.email || null;
+      })();
+
+      // Match by resolved email, participantId directly (if email), or participantName
+      const resp = participationResponses.find(
+        (r) =>
+          (resolvedEmail && r.participante_email === resolvedEmail) ||
+          r.participante_email === campo.participantId ||
+          (campo.participantName && r.participante_nombre === campo.participantName)
       );
-      return matchedPart?.email || null;
-    })();
-
-    // Match by resolved email, participantId directly (if email), or participantName
-    const resp = participationResponses.find(
-      (r) =>
-        (resolvedEmail && r.participante_email === resolvedEmail) ||
-        r.participante_email === campo.participantId ||
-        (campo.participantName && r.participante_nombre === campo.participantName)
-    );
-    return resp?.firma_data || null;
-  }, [participationResponses, participantes]);
+      return resp?.firma_data || null;
+    },
+    [participationResponses, participantes]
+  );
 
   // NEW: Get filled value for a campo
-  const getFilledValueForCampo = React.useCallback((campo: CampoSolicitado): string => {
-    // Resolve participantId (UUID) to email
-    const resolvedEmail = (() => {
-      if (!campo.participantId) return null;
-      if (campo.participantId.includes('@')) return campo.participantId;
-      const matchedPart = participantes.find((p) => p.id === campo.participantId);
-      return matchedPart?.email || null;
-    })();
+  const getFilledValueForCampo = React.useCallback(
+    (campo: CampoSolicitado): string => {
+      // Resolve participantId (UUID) to email
+      const resolvedEmail = (() => {
+        if (!campo.participantId) return null;
+        if (campo.participantId.includes('@')) return campo.participantId;
+        const matchedPart = participantes.find((p) => p.id === campo.participantId);
+        return matchedPart?.email || null;
+      })();
 
-    // Try participant-specific lookup first (email:campo_id or email:label)
-    if (resolvedEmail) {
-      if (campo.id && camposFilledMap[`${resolvedEmail}:${campo.id}`]) return camposFilledMap[`${resolvedEmail}:${campo.id}`];
-      if (campo.label && camposFilledMap[`${resolvedEmail}:${campo.label}`]) return camposFilledMap[`${resolvedEmail}:${campo.label}`];
-    }
-    // Fallback to generic lookup
-    if (campo.id && camposFilledMap[campo.id]) return camposFilledMap[campo.id];
-    if (campo.label && camposFilledMap[campo.label]) return camposFilledMap[campo.label];
-    return '';
-  }, [camposFilledMap, participantes]);
+      // Try participant-specific lookup first (email:campo_id or email:label)
+      if (resolvedEmail) {
+        if (campo.id && camposFilledMap[`${resolvedEmail}:${campo.id}`])
+          return camposFilledMap[`${resolvedEmail}:${campo.id}`];
+        if (campo.label && camposFilledMap[`${resolvedEmail}:${campo.label}`])
+          return camposFilledMap[`${resolvedEmail}:${campo.label}`];
+      }
+      // Fallback to generic lookup
+      if (campo.id && camposFilledMap[campo.id]) return camposFilledMap[campo.id];
+      if (campo.label && camposFilledMap[campo.label]) return camposFilledMap[campo.label];
+      return '';
+    },
+    [camposFilledMap, participantes]
+  );
 
   // Helper: render a field value correctly based on its type
-  const renderFieldDisplayValue = (value: string, tipo?: string, casillaLabel?: string | null): React.ReactNode => {
+  const renderFieldDisplayValue = (
+    value: string,
+    tipo?: string,
+    casillaLabel?: string | null
+  ): React.ReactNode => {
     const resolvedTipo = tipo || 'texto';
     const isCasilla = resolvedTipo === 'casilla' || resolvedTipo === 'checkbox';
     const isCheckboxValue = value === 'true' || value === 'false';
@@ -3721,7 +4144,13 @@ export default function VisorDocumentoPage() {
           >
             {checked && (
               <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
-                <path d="M1 3.5L3.5 6L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  d="M1 3.5L3.5 6L8 1"
+                  stroke="white"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             )}
           </span>
@@ -3791,7 +4220,8 @@ export default function VisorDocumentoPage() {
     const textColor = campo.colorHex ?? undefined;
 
     const resolvedTipo = campo.tipo || (campo.label === 'Firma' ? 'firma' : 'texto');
-    const isFirma = resolvedTipo === 'firma' || campo.label === 'Firma' || campo.label?.toLowerCase() === 'firma';
+    const isFirma =
+      resolvedTipo === 'firma' || campo.label === 'Firma' || campo.label?.toLowerCase() === 'firma';
     const filledValue = getFilledValueForCampo(campo);
     const firmaData = isFirma ? getFirmaDataForCampo(campo) : null;
 
@@ -3866,10 +4296,7 @@ export default function VisorDocumentoPage() {
     try {
       const supabase = createClient();
       const authorNombre =
-        user.user_metadata?.full_name ||
-        user.user_metadata?.nombre ||
-        user.email ||
-        'Usuario';
+        user.user_metadata?.full_name || user.user_metadata?.nombre || user.email || 'Usuario';
 
       const newNote = {
         documento_id: docId,
@@ -3883,7 +4310,9 @@ export default function VisorDocumentoPage() {
       const { data: insertedData, error } = await supabase
         .from('document_notes')
         .insert(newNote)
-        .select('id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at')
+        .select(
+          'id, documento_id, author_id, author_nombre, content, tipo, visibilidad, created_at'
+        )
         .single();
 
       if (!error) {
@@ -3917,14 +4346,24 @@ export default function VisorDocumentoPage() {
   };
 
   // ── Edit tab state ─────────────────────────────────────────────────────────
-  const [editModal, setEditModal] = useState<'datos' | 'archivo' | 'participantes' | 'ajustes' | null>(null);
+  const [editModal, setEditModal] = useState<
+    'datos' | 'archivo' | 'participantes' | 'ajustes' | null
+  >(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editSaved, setEditSaved] = useState<string | null>(null);
 
   // Edit: document data (StepSubir config)
   const [editFile, setEditFile] = useState<File | null>(null);
   const [editDocConfig, setEditDocConfig] = useState<DocumentConfig>({
-    nombre: '', descripcion: '', numeroOficio: '', grupotipoId: '', tipoDocumentoId: '', otroTipoDocumento: '', ruta: 'raiz', etiquetasIds: [], additionalMetadata: [],
+    nombre: '',
+    descripcion: '',
+    numeroOficio: '',
+    grupotipoId: '',
+    tipoDocumentoId: '',
+    otroTipoDocumento: '',
+    ruta: 'raiz',
+    etiquetasIds: [],
+    additionalMetadata: [],
   });
 
   // Edit: participants (StepParticipantes)
@@ -3934,10 +4373,17 @@ export default function VisorDocumentoPage() {
 
   // Edit: settings (StepAjustes)
   const [editSettings, setEditSettings] = useState<DocumentSettings>({
-    title: '', message: '', deadline: '', reminderDays: '3', requireAllSignatures: true, allowDecline: false,
+    title: '',
+    message: '',
+    deadline: '',
+    reminderDays: '3',
+    requireAllSignatures: true,
+    allowDecline: false,
   });
   const [editPlacedFields, setEditPlacedFields] = useState<PlacedField[]>([]);
-  const [editSecuritySettings, setEditSecuritySettings] = useState<SecuritySettings | undefined>(undefined);
+  const [editSecuritySettings, setEditSecuritySettings] = useState<SecuritySettings | undefined>(
+    undefined
+  );
 
   // Initialize edit state from loaded document
   useEffect(() => {
@@ -3962,7 +4408,11 @@ export default function VisorDocumentoPage() {
       id: p.id,
       name: p.nombre,
       email: p.email,
-      role: (p.acto?.toLowerCase() === 'firmante' ? 'firmante' : p.acto?.toLowerCase() === 'aprobador' ? 'aprobador' : 'observador') as 'firmante' | 'aprobador' | 'observador',
+      role: (p.acto?.toLowerCase() === 'firmante'
+        ? 'firmante'
+        : p.acto?.toLowerCase() === 'aprobador'
+          ? 'aprobador'
+          : 'observador') as 'firmante' | 'aprobador' | 'observador',
       configured: true,
       acto: p.acto,
       rolDocumento: p.rolDocumento,
@@ -3996,10 +4446,16 @@ export default function VisorDocumentoPage() {
       if (error) {
         console.error('[edit] Supabase error saving document data:', error.message, error.code);
       } else {
-        setDocument((prev) => prev ? { ...prev, nombre: editDocConfig.nombre.trim() } : prev);
-        logActivity('documento_editado', 'edicion', { campo: 'datos_documento', nombre_nuevo: editDocConfig.nombre.trim() });
+        setDocument((prev) => (prev ? { ...prev, nombre: editDocConfig.nombre.trim() } : prev));
+        logActivity('documento_editado', 'edicion', {
+          campo: 'datos_documento',
+          nombre_nuevo: editDocConfig.nombre.trim(),
+        });
         setEditSaved('datos');
-        setTimeout(() => { setEditModal(null); setEditSaved(null); }, 800);
+        setTimeout(() => {
+          setEditModal(null);
+          setEditSaved(null);
+        }, 800);
       }
     } catch (err) {
       console.error('[edit] Error saving document data:', err);
@@ -4013,33 +4469,41 @@ export default function VisorDocumentoPage() {
     setEditSaving(true);
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session?.access_token) return;
 
-      // Upload new file to storage
-      const fileExt = editFile.name.split('.').pop() || 'pdf';
-      const filePath = `documents/${document.workspace_id || 'default'}/${document.id}/document.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from('documents')
-        .upload(filePath, editFile, { upsert: true, contentType: editFile.type });
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
-      const newUrl = urlData?.publicUrl;
-
-      if (newUrl) {
-        await supabase.from('documentos').update({
-          file_url: newUrl,
-          file_size: editFile.size,
-          file_type: editFile.type,
-        }).eq('id', document.id);
-        setDocument((prev) => prev ? { ...prev, file_url: newUrl, file_size: editFile.size, formato: editFile.type } : prev);
-        setEditFile(null);
-        logActivity('documento_editado', 'edicion', { campo: 'archivo', nombre_archivo: editFile.name, tamanio: editFile.size });
-        setEditSaved('archivo');
-        setTimeout(() => { setEditModal(null); setEditSaved(null); }, 800);
-      }
+      const body = new FormData();
+      body.append('file', editFile);
+      const response = await fetch(`/api/documentos/${document.id}/replace-file`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'No fue posible reemplazar el archivo.');
+      setDocument((prev) =>
+        prev
+          ? {
+              ...prev,
+              file_url: result.file_url,
+              file_size: result.file_size,
+              formato: result.file_type,
+            }
+          : prev
+      );
+      setEditFile(null);
+      logActivity('documento_editado', 'edicion', {
+        campo: 'archivo',
+        nombre_archivo: editFile.name,
+        tamanio: editFile.size,
+      });
+      setEditSaved('archivo');
+      setTimeout(() => {
+        setEditModal(null);
+        setEditSaved(null);
+      }, 800);
     } catch (err) {
       console.error('[edit] Error saving file:', err);
     } finally {
@@ -4062,7 +4526,9 @@ export default function VisorDocumentoPage() {
         nombre: p.name,
         email: p.email,
         estado: 'pendiente',
-        metodo_firma: p.tipoFirma?.[0] ? (firmaLabelMap[p.tipoFirma[0]] || p.tipoFirma[0]) : 'Firma Autógrafa Digital',
+        metodo_firma: p.tipoFirma?.[0]
+          ? firmaLabelMap[p.tipoFirma[0]] || p.tipoFirma[0]
+          : 'Firma Autógrafa Digital',
         orden: idx + 1,
         acto: p.acto || p.role,
         rolDocumento: p.rolDocumento,
@@ -4071,9 +4537,12 @@ export default function VisorDocumentoPage() {
         mensajePersonalizado: (p as any).mensajePersonalizado,
       }));
 
-      const { error } = await supabase.from('documentos').update({
-        participantes: newParticipantes,
-      }).eq('id', document.id);
+      const { error } = await supabase
+        .from('documentos')
+        .update({
+          participantes: newParticipantes,
+        })
+        .eq('id', document.id);
 
       if (error) {
         console.error('[edit] Supabase error saving participants:', error.message, error.code);
@@ -4090,9 +4559,15 @@ export default function VisorDocumentoPage() {
           rolDocumento: p.rolDocumento,
         }));
         setParticipantes(mapped);
-        logActivity('documento_editado', 'participantes', { campo: 'participantes', total: editParticipants.length });
+        logActivity('documento_editado', 'participantes', {
+          campo: 'participantes',
+          total: editParticipants.length,
+        });
         setEditSaved('participantes');
-        setTimeout(() => { setEditModal(null); setEditSaved(null); }, 800);
+        setTimeout(() => {
+          setEditModal(null);
+          setEditSaved(null);
+        }, 800);
       }
     } catch (err) {
       console.error('[edit] Error saving participants:', err);
@@ -4127,7 +4602,6 @@ export default function VisorDocumentoPage() {
           updates.fecha_vencimiento = editSecuritySettings.fechaVencimiento;
         }
         updates.tiene_codigo_acceso = editSecuritySettings.codigoAccesoEnabled;
-        updates.legal_hold = editSecuritySettings.legalHoldEnabled;
         updates.es_urgente = editSecuritySettings.urgente;
         updates.es_publico = editSecuritySettings.publico;
       }
@@ -4138,19 +4612,30 @@ export default function VisorDocumentoPage() {
           console.error('[edit] Supabase error saving settings:', error.message, error.code);
         } else {
           if (updates.fecha_vencimiento) {
-            setDocument((prev) => prev ? { ...prev, vencimiento: updates.fecha_vencimiento } : prev);
+            setDocument((prev) =>
+              prev ? { ...prev, vencimiento: updates.fecha_vencimiento } : prev
+            );
           }
           if (updates.campos_solicitados) {
             setCamposSolicitados(updates.campos_solicitados);
           }
-          logActivity('documento_editado', 'edicion', { campo: 'ajustes', campos_actualizados: Object.keys(updates) });
+          logActivity('documento_editado', 'edicion', {
+            campo: 'ajustes',
+            campos_actualizados: Object.keys(updates),
+          });
           setEditSaved('ajustes');
-          setTimeout(() => { setEditModal(null); setEditSaved(null); }, 800);
+          setTimeout(() => {
+            setEditModal(null);
+            setEditSaved(null);
+          }, 800);
         }
       } else {
         // No updates to apply, just close
         setEditSaved('ajustes');
-        setTimeout(() => { setEditModal(null); setEditSaved(null); }, 800);
+        setTimeout(() => {
+          setEditModal(null);
+          setEditSaved(null);
+        }, 800);
       }
     } catch (err) {
       console.error('[edit] Error saving settings:', err);
@@ -4164,9 +4649,25 @@ export default function VisorDocumentoPage() {
       <AppLayout>
         <div className="flex items-center justify-center h-64">
           <div className="flex items-center gap-3">
-            <svg className="animate-spin h-6 w-6 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            <svg
+              className="animate-spin h-6 w-6 text-primary"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
             </svg>
             <span className="text-sm text-muted-foreground">Cargando documento...</span>
           </div>
@@ -4184,31 +4685,92 @@ export default function VisorDocumentoPage() {
           <div className="text-center">
             <FileText size={48} className="text-slate-300 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground font-medium">
-              {isNotFound ? 'Documento no encontrado.' : isAccessDenied ? 'No tienes acceso a este documento.' : 'Error al cargar el documento.'}
+              {isNotFound
+                ? 'Documento no encontrado.'
+                : isAccessDenied
+                  ? 'No tienes acceso a este documento.'
+                  : 'Error al cargar el documento.'}
             </p>
             {isAccessDenied && (
-              <p className="text-xs text-slate-400 mt-1">Verifica que tengas los permisos necesarios.</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Verifica que tengas los permisos necesarios.
+              </p>
             )}
-            <button onClick={() => router.back()} className="mt-4 text-sm text-primary hover:underline">Volver</button>
+            <button
+              onClick={() => router.back()}
+              className="mt-4 text-sm text-primary hover:underline"
+            >
+              Volver
+            </button>
           </div>
         </div>
       </AppLayout>
     );
   }
 
-  const allToolbarItems: { key: typeof activeTab; icon: React.ReactNode; title: string; label: string }[] = [
-    { key: 'details', icon: <Info size={20} />, title: 'Detalles del documento', label: 'Detalles' },
-    { key: 'participants', icon: <Users size={20} />, title: 'Participantes', label: 'Participantes' },
-    { key: 'comments', icon: <MessageSquare size={20} />, title: 'Comunicación', label: 'Comunicación' },
-    { key: 'activity', icon: <Activity size={20} />, title: 'Actividad y auditoría', label: 'Actividad' },
-    { key: 'vencimientos', icon: <Calendar size={20} />, title: 'Vencimientos', label: 'Vencimientos' },
+  const allToolbarItems: {
+    key: typeof activeTab;
+    icon: React.ReactNode;
+    title: string;
+    label: string;
+  }[] = [
+    {
+      key: 'details',
+      icon: <Info size={20} />,
+      title: 'Detalles del documento',
+      label: 'Detalles',
+    },
+    {
+      key: 'participants',
+      icon: <Users size={20} />,
+      title: 'Participantes',
+      label: 'Participantes',
+    },
+    {
+      key: 'comments',
+      icon: <MessageSquare size={20} />,
+      title: 'Comunicación',
+      label: 'Comunicación',
+    },
+    {
+      key: 'activity',
+      icon: <Activity size={20} />,
+      title: 'Actividad y auditoría',
+      label: 'Actividad',
+    },
+    {
+      key: 'vencimientos',
+      icon: <Calendar size={20} />,
+      title: 'Vencimientos',
+      label: 'Vencimientos',
+    },
     { key: 'fields', icon: <StickyNote size={20} />, title: 'Notas y comentarios', label: 'Notas' },
     ...(document?.estado === 'completado'
-      ? [{ key: 'descargas' as typeof activeTab, icon: <Download size={20} />, title: 'Descargas', label: 'Descargas' }]
+      ? [
+          {
+            key: 'descargas' as typeof activeTab,
+            icon: <Download size={20} />,
+            title: 'Descargas',
+            label: 'Descargas',
+          },
+          {
+            key: 'auditoria' as typeof activeTab,
+            icon: <History size={20} />,
+            title: 'Auditoría',
+            label: 'Auditoría',
+          },
+        ]
       : []),
     { key: 'metadata', icon: <Tag size={20} />, title: 'Metadatos', label: 'Metadatos' },
     ...(document?.estado === 'en_proceso' && user?.id === document?.owner_id
-      ? [{ key: 'editar' as typeof activeTab, icon: <Edit3 size={20} />, title: 'Editar documento', label: 'Editar' }]
+      ? [
+          {
+            key: 'editar' as typeof activeTab,
+            icon: <Edit3 size={20} />,
+            title: 'Editar documento',
+            label: 'Editar',
+          },
+        ]
       : []),
   ];
   const toolbarItems = allToolbarItems.filter(
@@ -4216,29 +4778,53 @@ export default function VisorDocumentoPage() {
   );
   const collaborationAvailable = Boolean(
     activeWorkspace?.workspaceType === 'business' &&
-      activeWorkspace.collaborationEnabled &&
-      document.workspace_id === activeWorkspace.id
+    activeWorkspace.collaborationEnabled &&
+    document.workspace_id === activeWorkspace.id
   );
 
   const PaginationBar = ({ modal = false }: { modal?: boolean }) => (
-    <div className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}>
+    <div
+      className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
+    >
       <div className="flex h-10 items-center overflow-hidden rounded-md border border-slate-200 bg-white/95 shadow-[0_8px_24px_rgba(15,23,42,0.12)] backdrop-blur select-none">
-        <button onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40" title="Reducir zoom">
+        <button
+          onClick={handleZoomOut}
+          disabled={zoom <= ZOOM_MIN}
+          className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+          title="Reducir zoom"
+        >
           <ZoomOut size={14} />
         </button>
-        <span className="min-w-[48px] border-x border-slate-100 px-2 text-center text-xs font-500 text-slate-600">{zoom}%</span>
-        <button onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40" title="Aumentar zoom">
+        <span className="min-w-[48px] border-x border-slate-100 px-2 text-center text-xs font-500 text-slate-600">
+          {zoom}%
+        </span>
+        <button
+          onClick={handleZoomIn}
+          disabled={zoom >= ZOOM_MAX}
+          className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+          title="Aumentar zoom"
+        >
           <ZoomIn size={14} />
         </button>
         <div className="h-5 w-px bg-slate-200" />
-        <button onClick={handlePrevPage} disabled={currentPage <= 1} className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40" title="Página anterior">
+        <button
+          onClick={handlePrevPage}
+          disabled={currentPage <= 1}
+          className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+          title="Página anterior"
+        >
           <ChevronLeft size={14} />
         </button>
         <div className="flex min-w-[54px] items-center justify-center gap-1 px-2">
           <span className="text-xs font-600 text-slate-800">{currentPage}</span>
           <span className="whitespace-nowrap text-xs text-slate-400">/ {totalPages}</span>
         </div>
-        <button onClick={handleNextPage} disabled={currentPage >= totalPages} className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40" title="Página siguiente">
+        <button
+          onClick={handleNextPage}
+          disabled={currentPage >= totalPages}
+          className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+          title="Página siguiente"
+        >
           <ChevronRight size={14} />
         </button>
       </div>
@@ -4253,27 +4839,40 @@ export default function VisorDocumentoPage() {
         className="-mx-4 -my-4 flex flex-col overflow-hidden bg-gray-100 sm:-mx-6 md:-my-6 lg:-mx-8 xl:-mx-10"
         style={{ height: sidebarOpen ? 'calc(100dvh - 4rem)' : 'calc(100dvh - 6.5rem)' }}
       >
-
         {/* Document Top Bar */}
         <div className="flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 md:px-5">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             {document.estado !== 'completado' && (
-              <button onClick={() => router.back()} className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950" title="Volver">
+              <button
+                onClick={() => router.back()}
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950"
+                title="Volver"
+              >
                 <ArrowLeft size={17} />
               </button>
             )}
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-                <h1 className="truncate text-[15px] font-700 text-slate-950 md:text-base">{document.nombre}</h1>
+                <h1 className="truncate text-[15px] font-700 text-slate-950 md:text-base">
+                  {document.nombre}
+                </h1>
+                {(document.legal_hold === true || document.legal_hold_status === 'ACTIVE') && (
+                  <LegalHoldBadge />
+                )}
                 {estadoInfo && (
-                  <span className={`hidden flex-shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-700 uppercase md:inline-flex ${estadoInfo.bg} ${estadoInfo.color} border-current`}>
+                  <span
+                    className={`hidden flex-shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-700 uppercase md:inline-flex ${estadoInfo.bg} ${estadoInfo.color} border-current`}
+                  >
                     {estadoInfo.label}
                   </span>
                 )}
               </div>
               <div className="mt-0.5 hidden min-w-0 items-center gap-2 xl:flex">
                 <span className="truncate text-xs text-slate-500">
-                  Creado por <span className="font-500 text-slate-600">{formatDisplayName(document.owner_nombre)}</span>
+                  Creado por{' '}
+                  <span className="font-500 text-slate-600">
+                    {formatDisplayName(document.owner_nombre)}
+                  </span>
                 </span>
                 <span className="text-xs text-slate-300">•</span>
                 <span className="whitespace-nowrap text-xs text-slate-500">
@@ -4290,7 +4889,14 @@ export default function VisorDocumentoPage() {
             const isTerminal = ['rechazado', 'cancelado', 'completado'].includes(document.estado);
             const myParticipation = participantes.find((p) => p.email === user?.email);
             const mySubEstado = myParticipation?.sub_estado || participantSubEstado;
-            const iAlreadyActed = ['firmo', 'firmado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'].includes(mySubEstado || '');
+            const iAlreadyActed = [
+              'firmo',
+              'firmado',
+              'rechazo',
+              'rechazado',
+              'cancelo',
+              'cancelado',
+            ].includes(mySubEstado || '');
             // Participation actions blocked when doc is en_espera or terminal
             const actionsBlocked = isEnEspera || isTerminal || iAlreadyActed;
             return (
@@ -4307,7 +4913,11 @@ export default function VisorDocumentoPage() {
                 )}
                 {/* Cancel button: only for owner when doc is en_proceso */}
                 {isOwner && isEnProgreso && (
-                  <button onClick={() => setShowCancelDocModal(true)} className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white text-sm font-500 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800 xl:w-auto xl:px-3" title="Cancelar documento">
+                  <button
+                    onClick={() => setShowCancelDocModal(true)}
+                    className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white text-sm font-500 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800 xl:w-auto xl:px-3"
+                    title="Cancelar documento"
+                  >
                     <XCircle size={16} />
                     <span className="hidden xl:inline">Cancelar</span>
                   </button>
@@ -4315,15 +4925,27 @@ export default function VisorDocumentoPage() {
                 {/* Participation action buttons: hidden when blocked */}
                 {!actionsBlocked && (
                   <>
-                    <button onClick={() => setShowRejectModal(true)} className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-white text-sm font-500 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 xl:w-auto xl:px-3" title="Rechazar documento">
+                    <button
+                      onClick={() => setShowRejectModal(true)}
+                      className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-white text-sm font-500 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 xl:w-auto xl:px-3"
+                      title="Rechazar documento"
+                    >
                       <XCircle size={16} />
                       <span className="hidden xl:inline">Rechazar</span>
                     </button>
-                    <button onClick={() => setShowChangesModal(true)} className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-amber-200 bg-white text-sm font-500 text-amber-600 transition-colors hover:bg-amber-50 hover:text-amber-700 xl:w-auto xl:px-3" title="Solicitar cambios">
+                    <button
+                      onClick={() => setShowChangesModal(true)}
+                      className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-amber-200 bg-white text-sm font-500 text-amber-600 transition-colors hover:bg-amber-50 hover:text-amber-700 xl:w-auto xl:px-3"
+                      title="Solicitar cambios"
+                    >
                       <RefreshCw size={16} />
                       <span className="hidden xl:inline">Solicitar cambios</span>
                     </button>
-                    <button onClick={() => router.push(`/firmar-documento/${document.id}`)} className="flex h-9 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-600 text-white transition-colors hover:bg-emerald-700" title="Aceptar y participar">
+                    <button
+                      onClick={() => router.push(`/firmar-documento/${document.id}`)}
+                      className="flex h-9 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-600 text-white transition-colors hover:bg-emerald-700"
+                      title="Aceptar y participar"
+                    >
                       <CheckCircle2 size={16} />
                       <span className="hidden xl:inline">Aceptar y participar</span>
                       <span className="xl:hidden">Aceptar</span>
@@ -4332,10 +4954,22 @@ export default function VisorDocumentoPage() {
                 )}
                 {/* Status badge when blocked */}
                 {actionsBlocked && !isOwner && (
-                  <span className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${
-                    isEnEspera ? 'bg-orange-100 text-orange-700' : isTerminal ?'bg-slate-100 text-slate-600': iAlreadyActed ?'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {isEnEspera ? 'Pendiente de información' : isTerminal ? document.estado.charAt(0).toUpperCase() + document.estado.slice(1) : 'Participación registrada'}
+                  <span
+                    className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${
+                      isEnEspera
+                        ? 'bg-orange-100 text-orange-700'
+                        : isTerminal
+                          ? 'bg-slate-100 text-slate-600'
+                          : iAlreadyActed
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {isEnEspera
+                      ? 'Pendiente de información'
+                      : isTerminal
+                        ? document.estado.charAt(0).toUpperCase() + document.estado.slice(1)
+                        : 'Participación registrada'}
                   </span>
                 )}
               </div>
@@ -4345,14 +4979,21 @@ export default function VisorDocumentoPage() {
 
         {/* Body: pdf viewer + right panel */}
         <div className="relative flex flex-1 overflow-hidden bg-gray-100">
-
           {/* PDF Viewer Area */}
           <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-gray-100">
             <div className="pointer-events-none absolute left-4 right-4 top-3 z-10 flex items-center justify-between">
               <div className="pointer-events-auto">
-                <button onClick={() => setShowCampos((v) => !v)} aria-pressed={showCampos} className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur transition-colors hover:bg-white hover:text-slate-950">
-                  <div className={`relative h-4 w-7 rounded-full transition-colors ${showCampos ? 'bg-blue-600' : 'bg-slate-300'}`}>
-                    <div className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${showCampos ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                <button
+                  onClick={() => setShowCampos((v) => !v)}
+                  aria-pressed={showCampos}
+                  className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur transition-colors hover:bg-white hover:text-slate-950"
+                >
+                  <div
+                    className={`relative h-4 w-7 rounded-full transition-colors ${showCampos ? 'bg-blue-600' : 'bg-slate-300'}`}
+                  >
+                    <div
+                      className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${showCampos ? 'translate-x-3.5' : 'translate-x-0.5'}`}
+                    />
                   </div>
                   <Eye size={14} className="text-slate-400" />
                   <span className="text-xs font-600">Campos ({effectiveCampos.length})</span>
@@ -4360,7 +5001,11 @@ export default function VisorDocumentoPage() {
               </div>
               {document.file_url && (
                 <div className="pointer-events-auto">
-                  <button onClick={() => setShowFullscreenModal(true)} className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 text-xs font-600 text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur transition-colors hover:bg-white hover:text-slate-950" title="Ver documento completo">
+                  <button
+                    onClick={() => setShowFullscreenModal(true)}
+                    className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 text-xs font-600 text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur transition-colors hover:bg-white hover:text-slate-950"
+                    title="Ver documento completo"
+                  >
                     <Maximize2 size={14} />
                     <span className="hidden sm:inline">Pantalla completa</span>
                   </button>
@@ -4368,14 +5013,24 @@ export default function VisorDocumentoPage() {
               )}
             </div>
 
-            <div className="flex-1 overflow-auto" style={{ paddingTop: '56px', paddingBottom: '72px' }}>
+            <div
+              className="flex-1 overflow-auto"
+              style={{ paddingTop: '56px', paddingBottom: '72px' }}
+            >
               {document.file_url ? (
                 <div className="flex min-h-full min-w-full items-start justify-center p-4 md:p-6">
                   <div className="relative flex-shrink-0 border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.12)]">
-                    <PdfCanvas fileUrl={document.file_url} page={currentPage} zoom={zoom} onTotalPages={handleTotalPages} />
+                    <PdfCanvas
+                      fileUrl={document.file_url}
+                      page={currentPage}
+                      zoom={zoom}
+                      onTotalPages={handleTotalPages}
+                    />
                     {showCampos && camposEnPaginaActual.length > 0 && (
                       <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
-                        {camposEnPaginaActual.map((campo, idx) => renderCampoOverlay(campo, idx, 'main'))}
+                        {camposEnPaginaActual.map((campo, idx) =>
+                          renderCampoOverlay(campo, idx, 'main')
+                        )}
                       </div>
                     )}
                   </div>
@@ -4392,7 +5047,10 @@ export default function VisorDocumentoPage() {
 
           {/* Right side: icon tab strip + panel content */}
           <div className="hidden flex-shrink-0 md:flex">
-            <nav aria-label="Secciones del documento" className="z-30 flex w-16 flex-col items-center gap-1 border-x border-slate-200 bg-white px-1.5 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]">
+            <nav
+              aria-label="Secciones del documento"
+              className="z-30 flex w-16 flex-col items-center gap-1 border-x border-slate-200 bg-white px-1.5 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]"
+            >
               {toolbarItems.map((item) => (
                 <button
                   key={item.key}
@@ -4405,9 +5063,15 @@ export default function VisorDocumentoPage() {
                       : 'border-transparent text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
-                  {activeTab === item.key && <span className="absolute -left-1.5 h-6 w-0.5 rounded-r bg-[#1E6BFF]" />}
-                  {React.cloneElement(item.icon as React.ReactElement<{ size?: number }>, { size: 16 })}
-                  <span className="max-w-full whitespace-nowrap text-[8px] font-medium leading-none tracking-normal">{item.label}</span>
+                  {activeTab === item.key && (
+                    <span className="absolute -left-1.5 h-6 w-0.5 rounded-r bg-[#1E6BFF]" />
+                  )}
+                  {React.cloneElement(item.icon as React.ReactElement<{ size?: number }>, {
+                    size: 16,
+                  })}
+                  <span className="max-w-full whitespace-nowrap text-[8px] font-medium leading-none tracking-normal">
+                    {item.label}
+                  </span>
                 </button>
               ))}
               {collaborationAvailable && (
@@ -4439,100 +5103,136 @@ export default function VisorDocumentoPage() {
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <div className="flex flex-col gap-4 p-4">
-
                       {/* ── Información General ─────────────────────────────── */}
                       <div className="rounded-xl border border-border bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-border/60">
-                          <span className="text-sm font-semibold text-foreground">Información General</span>
+                          <span className="text-sm font-semibold text-foreground">
+                            Información General
+                          </span>
                         </div>
                         <div className="p-4 flex flex-col gap-3">
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">NOMBRE DEL DOCUMENTO</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              NOMBRE DEL DOCUMENTO
+                            </p>
                             <p className="text-sm text-foreground break-all">{document.nombre}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">ID DEL DOCUMENTO</p>
-                            <p className="text-xs text-foreground font-mono break-all">{document.documento_id || document.id}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              ID DEL DOCUMENTO
+                            </p>
+                            <p className="text-xs text-foreground font-mono break-all">
+                              {document.documento_id || document.id}
+                            </p>
                           </div>
                           <div className="flex gap-4">
                             <div className="flex-1">
-                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FORMATO</p>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                FORMATO
+                              </p>
                               <p className="text-sm text-foreground">{document.formato || 'PDF'}</p>
                             </div>
                             <div className="flex-1">
-                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">TAMAÑO</p>
-                              <p className="text-sm text-foreground">{formatSize(document.file_size)}</p>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                TAMAÑO
+                              </p>
+                              <p className="text-sm text-foreground">
+                                {formatSize(document.file_size)}
+                              </p>
                             </div>
                           </div>
                           <div className="flex gap-4">
                             <div className="flex-1">
-                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">PÁGINAS</p>
-                              <p className="text-sm text-foreground">{document.metadata?.pdf_page_count ?? totalPages ?? '—'}</p>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                PÁGINAS
+                              </p>
+                              <p className="text-sm text-foreground">
+                                {document.metadata?.pdf_page_count ?? totalPages ?? '—'}
+                              </p>
                             </div>
                             <div className="flex-1">
-                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">ESTADO</p>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                ESTADO
+                              </p>
                               {estadoInfo && (
-                                <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded ${estadoInfo.bg} ${estadoInfo.color}`}>
+                                <span
+                                  className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded ${estadoInfo.bg} ${estadoInfo.color}`}
+                                >
                                   {estadoInfo.label}
                                 </span>
                               )}
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">PROVIENE</p>
-                            <p className="text-sm text-foreground">{document.origen || 'Plataforma Web'}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              PROVIENE
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {document.origen || 'Plataforma Web'}
+                            </p>
                           </div>
                         </div>
                       </div>
 
-                      {document.es_publico && document.estado === 'completado' && publicVerificationUrl && (
-                        <div className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
-                          <div className="flex items-center gap-2 border-b border-emerald-100 px-4 py-3">
-                            <Globe2 size={16} className="text-emerald-600" />
-                            <span className="text-sm font-semibold text-foreground">Verificación pública</span>
-                            <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                              Publicado
-                            </span>
-                          </div>
-                          <div className="flex flex-col items-center gap-3 p-4 text-center">
-                            <div className="rounded-lg border border-slate-200 bg-white p-2.5">
-                              <QRCodeSVG
-                                value={publicVerificationUrl}
-                                size={116}
-                                level="M"
-                                marginSize={1}
-                                aria-label="Código QR de verificación pública"
-                              />
+                      {document.es_publico &&
+                        document.estado === 'completado' &&
+                        publicVerificationUrl && (
+                          <div className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
+                            <div className="flex items-center gap-2 border-b border-emerald-100 px-4 py-3">
+                              <Globe2 size={16} className="text-emerald-600" />
+                              <span className="text-sm font-semibold text-foreground">
+                                Verificación pública
+                              </span>
+                              <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                Publicado
+                              </span>
                             </div>
-                            <p className="text-xs leading-5 text-slate-500">
-                              Este QR permite consultar el documento completado y verificar su información pública.
-                            </p>
-                            <div className="grid w-full grid-cols-[1fr_auto] gap-2">
-                              <a
-                                href={publicVerificationUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-blue-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
-                              >
-                                <ExternalLink size={14} />
-                                Ver portal público
-                              </a>
-                              <button
-                                type="button"
-                                onClick={copyPublicVerificationUrl}
-                                title="Copiar enlace público"
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                              >
-                                {publicUrlCopied ? <CheckCircle2 size={15} /> : <Copy size={15} />}
-                              </button>
+                            <div className="flex flex-col items-center gap-3 p-4 text-center">
+                              <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                                <QRCodeSVG
+                                  value={publicVerificationUrl}
+                                  size={116}
+                                  level="M"
+                                  marginSize={1}
+                                  aria-label="Código QR de verificación pública"
+                                />
+                              </div>
+                              <p className="text-xs leading-5 text-slate-500">
+                                Este QR permite consultar el documento completado y verificar su
+                                información pública.
+                              </p>
+                              <div className="grid w-full grid-cols-[1fr_auto] gap-2">
+                                <a
+                                  href={publicVerificationUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-blue-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+                                >
+                                  <ExternalLink size={14} />
+                                  Ver portal público
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={copyPublicVerificationUrl}
+                                  title="Copiar enlace público"
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                                >
+                                  {publicUrlCopied ? (
+                                    <CheckCircle2 size={15} />
+                                  ) : (
+                                    <Copy size={15} />
+                                  )}
+                                </button>
+                              </div>
+                              {publicUrlCopied && (
+                                <span className="text-[11px] font-medium text-emerald-700">
+                                  Enlace copiado
+                                </span>
+                              )}
                             </div>
-                            {publicUrlCopied && (
-                              <span className="text-[11px] font-medium text-emerald-700">Enlace copiado</span>
-                            )}
                           </div>
-                        </div>
-                      )}
+                        )}
 
                       {document.es_publico && document.estado !== 'completado' && (
                         <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4">
@@ -4541,9 +5241,12 @@ export default function VisorDocumentoPage() {
                               <QrCode size={16} />
                             </div>
                             <div>
-                              <p className="text-sm font-semibold text-slate-900">Publicación programada</p>
+                              <p className="text-sm font-semibold text-slate-900">
+                                Publicación programada
+                              </p>
                               <p className="mt-1 text-xs leading-5 text-slate-600">
-                                El enlace público y el código QR estarán disponibles cuando el documento quede completado.
+                                El enlace público y el código QR estarán disponibles cuando el
+                                documento quede completado.
                               </p>
                             </div>
                           </div>
@@ -4557,34 +5260,64 @@ export default function VisorDocumentoPage() {
                         </div>
                         <div className="p-4 flex flex-col gap-3">
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">CREADO POR</p>
-                            <p className="text-sm text-foreground">{formatDisplayName(document.owner_nombre)}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              CREADO POR
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {formatDisplayName(document.owner_nombre)}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA Y HORA DE CREACIÓN</p>
-                            <p className="text-sm text-foreground">{formatDate(document.created_at)}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              FECHA Y HORA DE CREACIÓN
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {formatDate(document.created_at)}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">MODIFICADO POR</p>
-                            <p className="text-sm text-foreground">{formatDisplayName(document.owner_nombre)}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              MODIFICADO POR
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {formatDisplayName(document.owner_nombre)}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA Y HORA DE MODIFICACIÓN</p>
-                            <p className="text-sm text-foreground">{formatDate(document.updated_at)}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              FECHA Y HORA DE MODIFICACIÓN
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {formatDate(document.updated_at)}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA DE VENCIMIENTO</p>
-                            <p className="text-sm text-foreground">{document.vencimiento ? formatDate(document.vencimiento) : 'Sin vencimiento'}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              FECHA DE VENCIMIENTO
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {document.vencimiento
+                                ? formatDate(document.vencimiento)
+                                : 'Sin vencimiento'}
+                            </p>
                           </div>
                           {document.fecha_completado && (
                             <div>
-                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA Y HORA DE FIRMADO POR TODAS LAS PARTES</p>
-                              <p className="text-sm text-foreground">{formatDate(document.fecha_completado)}</p>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                FECHA Y HORA DE FIRMADO POR TODAS LAS PARTES
+                              </p>
+                              <p className="text-sm text-foreground">
+                                {formatDate(document.fecha_completado)}
+                              </p>
                             </div>
                           )}
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">ZONA HORARIA</p>
-                            <p className="text-sm text-foreground">(UTC-06:00) Hora Estándar Central</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              ZONA HORARIA
+                            </p>
+                            <p className="text-sm text-foreground">
+                              (UTC-06:00) Hora Estándar Central
+                            </p>
                           </div>
                         </div>
                       </div>
@@ -4596,12 +5329,20 @@ export default function VisorDocumentoPage() {
                         </div>
                         <div className="p-4 flex flex-col gap-3">
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">CARPETA</p>
-                            <p className="text-sm text-foreground">{document.carpeta_nombre || 'Documentos Generales'}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              CARPETA
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {document.carpeta_nombre || 'Documentos Generales'}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">ORGANIZACIÓN</p>
-                            <p className="text-sm text-foreground">{document.organizacion || 'Mi Organización'}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              ORGANIZACIÓN
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {document.organizacion || 'Mi Organización'}
+                            </p>
                           </div>
                         </div>
                       </div>
@@ -4609,57 +5350,100 @@ export default function VisorDocumentoPage() {
                       {/* ── Firmantes ────────────────────────────────────────── */}
                       <div className="rounded-xl border border-border bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-border/60">
-                          <span className="text-sm font-semibold text-foreground">Firmantes ({participantes.length})</span>
+                          <span className="text-sm font-semibold text-foreground">
+                            Firmantes ({participantes.length})
+                          </span>
                         </div>
                         <div className="p-4">
                           {participantes.length === 0 ? (
-                            <p className="text-xs text-muted-foreground">Sin firmantes registrados.</p>
+                            <p className="text-xs text-muted-foreground">
+                              Sin firmantes registrados.
+                            </p>
                           ) : (
                             <div className="flex flex-col gap-3">
                               {participantes.map((p, idx) => {
-                                const pEstado = participanteEstadoConfig[p.estado?.toLowerCase()] || participanteEstadoConfig['pendiente'];
+                                const pEstado =
+                                  participanteEstadoConfig[p.estado?.toLowerCase()] ||
+                                  participanteEstadoConfig['pendiente'];
                                 const initials = getInitials(p.nombre || 'U');
                                 return (
-                                  <div key={p.id} className="rounded-lg border border-border bg-slate-50 p-3">
+                                  <div
+                                    key={p.id}
+                                    className="rounded-lg border border-border bg-slate-50 p-3"
+                                  >
                                     <div className="flex items-center gap-2 mb-2">
                                       <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-[10px] font-bold text-blue-600">{initials}</span>
+                                        <span className="text-[10px] font-bold text-blue-600">
+                                          {initials}
+                                        </span>
                                       </div>
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-bold text-foreground truncate">{p.nombre}</p>
-                                        {p.email && <p className="text-[10px] text-muted-foreground truncate">{p.email}</p>}
+                                        <p className="text-xs font-bold text-foreground truncate">
+                                          {p.nombre}
+                                        </p>
+                                        {p.email && (
+                                          <p className="text-[10px] text-muted-foreground truncate">
+                                            {p.email}
+                                          </p>
+                                        )}
                                       </div>
-                                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${pEstado.bg} ${pEstado.color} flex-shrink-0`}>
+                                      <span
+                                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${pEstado.bg} ${pEstado.color} flex-shrink-0`}
+                                      >
                                         {pEstado.label}
                                       </span>
                                     </div>
                                     <div className="flex flex-col gap-1.5 mt-1">
                                       <div className="flex gap-2">
-                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">Método firma</span>
-                                        <span className="text-[10px] text-foreground">{p.metodo_firma || '—'}</span>
+                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
+                                          Método firma
+                                        </span>
+                                        <span className="text-[10px] text-foreground">
+                                          {p.metodo_firma || '—'}
+                                        </span>
                                       </div>
                                       <div className="flex gap-2">
-                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">IP firmante</span>
-                                        <span className="text-[10px] text-foreground font-mono">{p.ip_address || '—'}</span>
+                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
+                                          IP firmante
+                                        </span>
+                                        <span className="text-[10px] text-foreground font-mono">
+                                          {p.ip_address || '—'}
+                                        </span>
                                       </div>
                                       <div className="flex gap-2">
-                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">Lugar firma</span>
-                                        <span className="text-[10px] text-foreground">{p.lugar_firma || '—'}</span>
+                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
+                                          Lugar firma
+                                        </span>
+                                        <span className="text-[10px] text-foreground">
+                                          {p.lugar_firma || '—'}
+                                        </span>
                                       </div>
                                       <div className="flex gap-2">
-                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">Fecha firma</span>
-                                        <span className="text-[10px] text-foreground">{p.fecha_firma ? formatDate(p.fecha_firma) : '—'}</span>
+                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
+                                          Fecha firma
+                                        </span>
+                                        <span className="text-[10px] text-foreground">
+                                          {p.fecha_firma ? formatDate(p.fecha_firma) : '—'}
+                                        </span>
                                       </div>
                                       {p.motivo_rechazo && (
                                         <div className="flex gap-2">
-                                          <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">Motivo rechazo</span>
-                                          <span className="text-[10px] text-red-600">{p.motivo_rechazo}</span>
+                                          <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
+                                            Motivo rechazo
+                                          </span>
+                                          <span className="text-[10px] text-red-600">
+                                            {p.motivo_rechazo}
+                                          </span>
                                         </div>
                                       )}
                                       {p.fecha_rechazo && (
                                         <div className="flex gap-2">
-                                          <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">Fecha rechazo</span>
-                                          <span className="text-[10px] text-foreground">{formatDate(p.fecha_rechazo)}</span>
+                                          <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
+                                            Fecha rechazo
+                                          </span>
+                                          <span className="text-[10px] text-foreground">
+                                            {formatDate(p.fecha_rechazo)}
+                                          </span>
                                         </div>
                                       )}
                                     </div>
@@ -4675,25 +5459,39 @@ export default function VisorDocumentoPage() {
                       {(document.cancelacion_motivo || document.cancelado_at) && (
                         <div className="rounded-xl border border-border bg-white overflow-hidden">
                           <div className="px-4 py-3 border-b border-border/60">
-                            <span className="text-sm font-semibold text-foreground">Cancelación</span>
+                            <span className="text-sm font-semibold text-foreground">
+                              Cancelación
+                            </span>
                           </div>
                           <div className="p-4 flex flex-col gap-3">
                             {document.cancelacion_motivo && (
                               <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">MOTIVO DE RECHAZO / CANCELACIÓN</p>
-                                <p className="text-sm text-foreground">{document.cancelacion_motivo}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  MOTIVO DE RECHAZO / CANCELACIÓN
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {document.cancelacion_motivo}
+                                </p>
                               </div>
                             )}
                             {document.cancelacion_descripcion && (
                               <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">DESCRIPCIÓN</p>
-                                <p className="text-sm text-foreground">{document.cancelacion_descripcion}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  DESCRIPCIÓN
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {document.cancelacion_descripcion}
+                                </p>
                               </div>
                             )}
                             {document.cancelado_at && (
                               <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA Y HORA DE RECHAZO / CANCELACIÓN</p>
-                                <p className="text-sm text-foreground">{formatDate(document.cancelado_at)}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  FECHA Y HORA DE RECHAZO / CANCELACIÓN
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {formatDate(document.cancelado_at)}
+                                </p>
                               </div>
                             )}
                           </div>
@@ -4703,32 +5501,55 @@ export default function VisorDocumentoPage() {
                       {/* ── Seguridad y NOM-151 ──────────────────────────────── */}
                       <div className="rounded-xl border border-border bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-border/60">
-                          <span className="text-sm font-semibold text-foreground">Seguridad y NOM-151</span>
+                          <span className="text-sm font-semibold text-foreground">
+                            Seguridad y NOM-151
+                          </span>
                         </div>
                         <div className="p-4 flex flex-col gap-3">
                           <div className="flex gap-4">
                             <div className="flex-1">
-                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">NOM-151</p>
-                              <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded ${document.fecha_constancia && document.fecha_constancia !== 'Pendiente' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                                {document.fecha_constancia && document.fecha_constancia !== 'Pendiente' ? 'Sí' : 'No'}
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                NOM-151
+                              </p>
+                              <span
+                                className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded ${document.fecha_constancia && document.fecha_constancia !== 'Pendiente' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}
+                              >
+                                {document.fecha_constancia &&
+                                document.fecha_constancia !== 'Pendiente'
+                                  ? 'Sí'
+                                  : 'No'}
                               </span>
                             </div>
                             <div className="flex-1">
-                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA CONSTANCIA</p>
-                              <p className="text-sm text-foreground">{document.fecha_constancia || 'Pendiente'}</p>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                FECHA CONSTANCIA
+                              </p>
+                              <p className="text-sm text-foreground">
+                                {document.fecha_constancia || 'Pendiente'}
+                              </p>
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">IDENTIFICADOR HASH NOM-151</p>
-                            <p className="text-xs text-foreground font-mono break-all">{document.hash_sha256 || '—'}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              IDENTIFICADOR HASH NOM-151
+                            </p>
+                            <p className="text-xs text-foreground font-mono break-all">
+                              {document.hash_sha256 || '—'}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">DATOS DE EMISOR DE CONSTANCIA</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              DATOS DE EMISOR DE CONSTANCIA
+                            </p>
                             <p className="text-sm text-foreground">DocuBox TSA Service</p>
                           </div>
                           <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FIRMA COMPLETA</p>
-                            <p className="text-sm text-foreground">{document.firma_completa || 'Pendiente'}</p>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                              FIRMA COMPLETA
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {document.firma_completa || 'Pendiente'}
+                            </p>
                           </div>
                         </div>
                       </div>
@@ -4737,66 +5558,112 @@ export default function VisorDocumentoPage() {
                       {document.metadata && (
                         <div className="rounded-xl border border-border bg-white overflow-hidden">
                           <div className="px-4 py-3 border-b border-border/60">
-                            <span className="text-sm font-semibold text-foreground">Metadata del Archivo</span>
+                            <span className="text-sm font-semibold text-foreground">
+                              Metadata del Archivo
+                            </span>
                           </div>
                           <div className="p-4 flex flex-col gap-3">
                             {document.metadata.pdf_author && (
                               <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">AUTOR</p>
-                                <p className="text-sm text-foreground">{document.metadata.pdf_author}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  AUTOR
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {document.metadata.pdf_author}
+                                </p>
                               </div>
                             )}
                             {document.metadata.pdf_creator_software && (
                               <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">SOFTWARE CREADOR</p>
-                                <p className="text-sm text-foreground">{document.metadata.pdf_creator_software}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  SOFTWARE CREADOR
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {document.metadata.pdf_creator_software}
+                                </p>
                               </div>
                             )}
                             {document.metadata.pdf_created_at && (
                               <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA CREACIÓN PDF</p>
-                                <p className="text-sm text-foreground">{formatDate(document.metadata.pdf_created_at)}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  FECHA CREACIÓN PDF
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {formatDate(document.metadata.pdf_created_at)}
+                                </p>
                               </div>
                             )}
                             {document.metadata.pdf_modified_at && (
                               <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FECHA MODIFICACIÓN PDF</p>
-                                <p className="text-sm text-foreground">{formatDate(document.metadata.pdf_modified_at)}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  FECHA MODIFICACIÓN PDF
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {formatDate(document.metadata.pdf_modified_at)}
+                                </p>
                               </div>
                             )}
                             <div className="flex gap-4">
                               <div className="flex-1">
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">PDF NATIVO</p>
-                                <p className="text-sm text-foreground">{document.metadata.pdf_is_native === true ? 'Sí' : document.metadata.pdf_is_native === false ? 'No (escaneado)' : '—'}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  PDF NATIVO
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {document.metadata.pdf_is_native === true
+                                    ? 'Sí'
+                                    : document.metadata.pdf_is_native === false
+                                      ? 'No (escaneado)'
+                                      : '—'}
+                                </p>
                               </div>
                               <div className="flex-1">
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">FIRMAS PREVIAS</p>
-                                <p className="text-sm text-foreground">{document.metadata.pdf_has_prior_sigs === true ? 'Sí' : document.metadata.pdf_has_prior_sigs === false ? 'No' : '—'}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  FIRMAS PREVIAS
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {document.metadata.pdf_has_prior_sigs === true
+                                    ? 'Sí'
+                                    : document.metadata.pdf_has_prior_sigs === false
+                                      ? 'No'
+                                      : '—'}
+                                </p>
                               </div>
                             </div>
-                            {document.metadata.pdf_metadata_raw && Object.keys(document.metadata.pdf_metadata_raw).length > 0 && (
-                              <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">METADATOS ADICIONALES</p>
-                                <div className="bg-slate-50 rounded-lg p-2 flex flex-col gap-1">
-                                  {Object.entries(document.metadata.pdf_metadata_raw).slice(0, 8).map(([key, val]) => (
-                                    <div key={key} className="flex gap-2">
-                                      <span className="text-[10px] font-semibold text-slate-400 uppercase w-20 flex-shrink-0 truncate">{key}</span>
-                                      <span className="text-[10px] text-foreground break-all">{String(val)}</span>
-                                    </div>
-                                  ))}
+                            {document.metadata.pdf_metadata_raw &&
+                              Object.keys(document.metadata.pdf_metadata_raw).length > 0 && (
+                                <div>
+                                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                                    METADATOS ADICIONALES
+                                  </p>
+                                  <div className="bg-slate-50 rounded-lg p-2 flex flex-col gap-1">
+                                    {Object.entries(document.metadata.pdf_metadata_raw)
+                                      .slice(0, 8)
+                                      .map(([key, val]) => (
+                                        <div key={key} className="flex gap-2">
+                                          <span className="text-[10px] font-semibold text-slate-400 uppercase w-20 flex-shrink-0 truncate">
+                                            {key}
+                                          </span>
+                                          <span className="text-[10px] text-foreground break-all">
+                                            {String(val)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
                             {document.metadata.analyzed_at && (
                               <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">ANALIZADO EL</p>
-                                <p className="text-sm text-foreground">{formatDate(document.metadata.analyzed_at)}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                                  ANALIZADO EL
+                                </p>
+                                <p className="text-sm text-foreground">
+                                  {formatDate(document.metadata.analyzed_at)}
+                                </p>
                               </div>
                             )}
                           </div>
                         </div>
                       )}
-
                     </div>
                   </div>
                 </>
@@ -4807,7 +5674,8 @@ export default function VisorDocumentoPage() {
                   </div>
                   <div className="flex-1 overflow-y-auto p-4">
                     <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 text-xs leading-5 text-slate-600">
-                      Los metadatos técnicos se generan automáticamente. Aquí se muestran solo los metadatos adicionales configurados para este documento.
+                      Los metadatos técnicos se generan automáticamente. Aquí se muestran solo los
+                      metadatos adicionales configurados para este documento.
                     </div>
 
                     {metadataError && (
@@ -4819,30 +5687,51 @@ export default function VisorDocumentoPage() {
                     <div className="mb-5">
                       <div className="mb-2 flex items-center gap-2">
                         <Lock size={14} className="text-slate-500" />
-                        <h3 className="text-sm font-semibold text-slate-900">Vinculados al documento</h3>
+                        <h3 className="text-sm font-semibold text-slate-900">
+                          Vinculados al documento
+                        </h3>
                       </div>
-                      <p className="mb-3 text-xs leading-5 text-slate-500">Quedan ligados a la versión y no se modifican una vez iniciado el proceso de firma.</p>
+                      <p className="mb-3 text-xs leading-5 text-slate-500">
+                        Quedan ligados a la versión y no se modifican una vez iniciado el proceso de
+                        firma.
+                      </p>
                       <div className="flex flex-col gap-2">
-                        {additionalMetadata.filter((metadata) => metadata.metadata_scope === 'document').map((metadata) => (
-                          <div key={metadata.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-slate-900">{metadata.name}</p>
-                                <p className="mt-1 break-words text-sm text-slate-600">{metadata.value_display}</p>
+                        {additionalMetadata
+                          .filter((metadata) => metadata.metadata_scope === 'document')
+                          .map((metadata) => (
+                            <div
+                              key={metadata.id}
+                              className="rounded-lg border border-slate-200 bg-white p-3"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-slate-900">
+                                    {metadata.name}
+                                  </p>
+                                  <p className="mt-1 break-words text-sm text-slate-600">
+                                    {metadata.value_display}
+                                  </p>
+                                </div>
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                                  <Lock size={10} /> Bloqueado
+                                </span>
                               </div>
-                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
-                                <Lock size={10} /> Bloqueado
-                              </span>
+                              <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-400">
+                                <span>
+                                  {ADDITIONAL_METADATA_TYPE_LABELS[metadata.data_type] ||
+                                    metadata.data_type}
+                                </span>
+                                <span>·</span>
+                                <span>Versión {metadata.document_version_number}</span>
+                              </div>
                             </div>
-                            <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-400">
-                              <span>{ADDITIONAL_METADATA_TYPE_LABELS[metadata.data_type] || metadata.data_type}</span>
-                              <span>·</span>
-                              <span>Versión {metadata.document_version_number}</span>
-                            </div>
+                          ))}
+                        {additionalMetadata.every(
+                          (metadata) => metadata.metadata_scope !== 'document'
+                        ) && (
+                          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">
+                            No hay metadatos vinculados al documento.
                           </div>
-                        ))}
-                        {additionalMetadata.every((metadata) => metadata.metadata_scope !== 'document') && (
-                          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">No hay metadatos vinculados al documento.</div>
                         )}
                       </div>
                     </div>
@@ -4852,55 +5741,118 @@ export default function VisorDocumentoPage() {
                         <Folder size={14} className="text-slate-500" />
                         <h3 className="text-sm font-semibold text-slate-900">De gestión</h3>
                       </div>
-                      <p className="mb-3 text-xs leading-5 text-slate-500">Se usan para organizar el documento y no alteran su PDF, firma ni hash.</p>
+                      <p className="mb-3 text-xs leading-5 text-slate-500">
+                        Se usan para organizar el documento y no alteran su PDF, firma ni hash.
+                      </p>
                       <div className="flex flex-col gap-2">
-                        {additionalMetadata.filter((metadata) => metadata.metadata_scope === 'management').map((metadata) => {
-                          const isEditing = editingMetadataId === metadata.id;
-                          const isBoolean = metadata.data_type === 'boolean';
-                          const inputType = metadata.data_type === 'number' || metadata.data_type === 'currency'
-                            ? 'number'
-                            : metadata.data_type === 'date'
-                              ? 'date'
-                              : 'text';
-                          return (
-                            <div key={metadata.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-sm font-semibold text-slate-900">{metadata.name}</p>
-                                  {isEditing ? (
-                                    <div className="mt-2">
-                                      {isBoolean ? (
-                                        <select value={String(editingMetadataValue)} onChange={(event) => setEditingMetadataValue(event.target.value === 'true')} className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15">
-                                          <option value="true">Sí</option>
-                                          <option value="false">No</option>
-                                        </select>
-                                      ) : (
-                                        <input type={inputType} value={String(editingMetadataValue)} onChange={(event) => setEditingMetadataValue(event.target.value)} className="h-9 w-full rounded-md border border-slate-200 px-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" />
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <p className="mt-1 break-words text-sm text-slate-600">{metadata.value_display}</p>
-                                  )}
-                                </div>
-                                {canManageAdditionalMetadata && (
-                                  isEditing ? (
-                                    <div className="flex shrink-0 items-center gap-1">
-                                      <button type="button" onClick={() => void saveManagementMetadata(metadata)} disabled={metadataSaving} className="flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-semibold text-white disabled:opacity-60">
-                                        {metadataSaving ? <RefreshCw size={12} className="animate-spin" /> : <Save size={12} />} Guardar
+                        {additionalMetadata
+                          .filter((metadata) => metadata.metadata_scope === 'management')
+                          .map((metadata) => {
+                            const isEditing = editingMetadataId === metadata.id;
+                            const isBoolean = metadata.data_type === 'boolean';
+                            const inputType =
+                              metadata.data_type === 'number' || metadata.data_type === 'currency'
+                                ? 'number'
+                                : metadata.data_type === 'date'
+                                  ? 'date'
+                                  : 'text';
+                            return (
+                              <div
+                                key={metadata.id}
+                                className="rounded-lg border border-slate-200 bg-white p-3"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-semibold text-slate-900">
+                                      {metadata.name}
+                                    </p>
+                                    {isEditing ? (
+                                      <div className="mt-2">
+                                        {isBoolean ? (
+                                          <select
+                                            value={String(editingMetadataValue)}
+                                            onChange={(event) =>
+                                              setEditingMetadataValue(event.target.value === 'true')
+                                            }
+                                            className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                                          >
+                                            <option value="true">Sí</option>
+                                            <option value="false">No</option>
+                                          </select>
+                                        ) : (
+                                          <input
+                                            type={inputType}
+                                            value={String(editingMetadataValue)}
+                                            onChange={(event) =>
+                                              setEditingMetadataValue(event.target.value)
+                                            }
+                                            className="h-9 w-full rounded-md border border-slate-200 px-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                                          />
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <p className="mt-1 break-words text-sm text-slate-600">
+                                        {metadata.value_display}
+                                      </p>
+                                    )}
+                                  </div>
+                                  {canManageAdditionalMetadata &&
+                                    (isEditing ? (
+                                      <div className="flex shrink-0 items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => void saveManagementMetadata(metadata)}
+                                          disabled={metadataSaving}
+                                          className="flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-semibold text-white disabled:opacity-60"
+                                        >
+                                          {metadataSaving ? (
+                                            <RefreshCw size={12} className="animate-spin" />
+                                          ) : (
+                                            <Save size={12} />
+                                          )}{' '}
+                                          Guardar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingMetadataId(null);
+                                            setMetadataError(null);
+                                          }}
+                                          disabled={metadataSaving}
+                                          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
+                                          aria-label="Cancelar edición"
+                                        >
+                                          <X size={14} />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingMetadataId(metadata.id);
+                                          setEditingMetadataValue(metadata.value_json);
+                                          setMetadataError(null);
+                                        }}
+                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+                                        title="Editar metadato"
+                                      >
+                                        <Edit3 size={14} />
                                       </button>
-                                      <button type="button" onClick={() => { setEditingMetadataId(null); setMetadataError(null); }} disabled={metadataSaving} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50" aria-label="Cancelar edición"><X size={14} /></button>
-                                    </div>
-                                  ) : (
-                                    <button type="button" onClick={() => { setEditingMetadataId(metadata.id); setEditingMetadataValue(metadata.value_json); setMetadataError(null); }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary" title="Editar metadato"><Edit3 size={14} /></button>
-                                  )
-                                )}
+                                    ))}
+                                </div>
+                                <p className="mt-2 text-[10px] text-slate-400">
+                                  {ADDITIONAL_METADATA_TYPE_LABELS[metadata.data_type] ||
+                                    metadata.data_type}
+                                </p>
                               </div>
-                              <p className="mt-2 text-[10px] text-slate-400">{ADDITIONAL_METADATA_TYPE_LABELS[metadata.data_type] || metadata.data_type}</p>
-                            </div>
-                          );
-                        })}
-                        {additionalMetadata.every((metadata) => metadata.metadata_scope !== 'management') && (
-                          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">No hay metadatos de gestión.</div>
+                            );
+                          })}
+                        {additionalMetadata.every(
+                          (metadata) => metadata.metadata_scope !== 'management'
+                        ) && (
+                          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">
+                            No hay metadatos de gestión.
+                          </div>
                         )}
                       </div>
                     </div>
@@ -4916,7 +5868,9 @@ export default function VisorDocumentoPage() {
                     {participantes.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-40 gap-2 px-4">
                         <Users size={32} className="text-slate-200" />
-                        <p className="text-xs text-muted-foreground text-center">Sin participantes registrados</p>
+                        <p className="text-xs text-muted-foreground text-center">
+                          Sin participantes registrados
+                        </p>
                       </div>
                     ) : (
                       <div className="p-3 flex flex-col gap-3">
@@ -4926,22 +5880,28 @@ export default function VisorDocumentoPage() {
                           const initials = getInitials(p.nombre || 'U');
                           const isFirmante = (p.acto || '').toLowerCase() === 'firmante';
                           const isAuthenticatedParticipant = Boolean(
-                            user && (
-                              p.id === user.id ||
-                              p.email.trim().toLowerCase() === user.email?.trim().toLowerCase()
-                            )
+                            user &&
+                            (p.id === user.id ||
+                              p.email.trim().toLowerCase() === user.email?.trim().toLowerCase())
                           );
                           const ownSignedResponse = participationResponses.find(
                             (response) =>
-                              response.participante_email.trim().toLowerCase() === p.email.trim().toLowerCase() &&
-                              response.firma_completada,
+                              response.participante_email.trim().toLowerCase() ===
+                                p.email.trim().toLowerCase() && response.firma_completada
                           );
                           return (
-                            <div key={p.id} className="bg-white border border-border rounded-xl p-4 shadow-sm">
+                            <div
+                              key={p.id}
+                              className="bg-white border border-border rounded-xl p-4 shadow-sm"
+                            >
                               {/* Avatar + Name + Badge */}
                               <div className="flex items-start gap-3">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${avatarColor.bg}`}>
-                                  <span className={`text-sm font-bold ${avatarColor.text}`}>{initials}</span>
+                                <div
+                                  className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${avatarColor.bg}`}
+                                >
+                                  <span className={`text-sm font-bold ${avatarColor.text}`}>
+                                    {initials}
+                                  </span>
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs font-bold text-foreground leading-tight mb-1.5 break-words whitespace-normal">
@@ -4949,15 +5909,21 @@ export default function VisorDocumentoPage() {
                                   </p>
                                   {/* Main estado badge (terminal states) */}
                                   {mainBadge && (
-                                    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${mainBadge.bg} ${mainBadge.color} ${mainBadge.borderColor}`}>
+                                    <span
+                                      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${mainBadge.bg} ${mainBadge.color} ${mainBadge.borderColor}`}
+                                    >
                                       {mainBadge.icon}
                                       {mainBadge.label}
                                     </span>
                                   )}
                                   {/* Sub-estado badge (in-process states) */}
                                   {subBadge && (
-                                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${subBadge.bg} ${subBadge.color} ${subBadge.borderColor}`}>
-                                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${subBadge.dot}`} />
+                                    <span
+                                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${subBadge.bg} ${subBadge.color} ${subBadge.borderColor}`}
+                                    >
+                                      <span
+                                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${subBadge.dot}`}
+                                      />
                                       {subBadge.label}
                                     </span>
                                   )}
@@ -4974,7 +5940,9 @@ export default function VisorDocumentoPage() {
                               {p.rolDocumento && (
                                 <div className="flex items-center gap-1.5 mt-2">
                                   <Tag size={13} className="text-slate-400 flex-shrink-0" />
-                                  <span className="text-xs text-slate-600 font-medium">{p.rolDocumento}</span>
+                                  <span className="text-xs text-slate-600 font-medium">
+                                    {p.rolDocumento}
+                                  </span>
                                 </div>
                               )}
                               {/* Acto a realizar */}
@@ -4988,7 +5956,9 @@ export default function VisorDocumentoPage() {
                               {isFirmante && p.metodo_firma && (
                                 <div className="flex items-center gap-1.5 mt-1.5">
                                   <Shield size={13} className="text-slate-400 flex-shrink-0" />
-                                  <span className="text-xs text-blue-500 font-medium">{p.metodo_firma}</span>
+                                  <span className="text-xs text-blue-500 font-medium">
+                                    {p.metodo_firma}
+                                  </span>
                                 </div>
                               )}
                               {/* Divider + Dates */}
@@ -4998,28 +5968,46 @@ export default function VisorDocumentoPage() {
                                 <div className="flex items-start gap-1.5 mt-1.5">
                                   <Bell size={13} className="text-slate-400 flex-shrink-0 mt-0.5" />
                                   <div>
-                                    <span className="text-[10px] font-semibold text-slate-400 uppercase block">Fecha de notificación</span>
-                                    <span className="text-xs text-slate-600">{formatDate(p.fecha_notificacion)}</span>
+                                    <span className="text-[10px] font-semibold text-slate-400 uppercase block">
+                                      Fecha de notificación
+                                    </span>
+                                    <span className="text-xs text-slate-600">
+                                      {formatDate(p.fecha_notificacion)}
+                                    </span>
                                   </div>
                                 </div>
                               )}
                               {/* Fecha de último recordatorio */}
                               {p.fecha_recordatorio && (
                                 <div className="flex items-start gap-1.5 mt-1.5">
-                                  <Clock size={13} className="text-slate-400 flex-shrink-0 mt-0.5" />
+                                  <Clock
+                                    size={13}
+                                    className="text-slate-400 flex-shrink-0 mt-0.5"
+                                  />
                                   <div>
-                                    <span className="text-[10px] font-semibold text-slate-400 uppercase block">Fecha de último recordatorio</span>
-                                    <span className="text-xs text-slate-600">{formatDate(p.fecha_recordatorio)}</span>
+                                    <span className="text-[10px] font-semibold text-slate-400 uppercase block">
+                                      Fecha de último recordatorio
+                                    </span>
+                                    <span className="text-xs text-slate-600">
+                                      {formatDate(p.fecha_recordatorio)}
+                                    </span>
                                   </div>
                                 </div>
                               )}
                               {/* Fecha de participación */}
                               {p.fecha_participacion && (
                                 <div className="flex items-start gap-1.5 mt-1.5">
-                                  <CheckCircle2 size={13} className="text-slate-400 flex-shrink-0 mt-0.5" />
+                                  <CheckCircle2
+                                    size={13}
+                                    className="text-slate-400 flex-shrink-0 mt-0.5"
+                                  />
                                   <div>
-                                    <span className="text-[10px] font-semibold text-slate-400 uppercase block">Fecha de participación</span>
-                                    <span className="text-xs text-slate-600">{formatDate(p.fecha_participacion)}</span>
+                                    <span className="text-[10px] font-semibold text-slate-400 uppercase block">
+                                      Fecha de participación
+                                    </span>
+                                    <span className="text-xs text-slate-600">
+                                      {formatDate(p.fecha_participacion)}
+                                    </span>
                                   </div>
                                 </div>
                               )}
@@ -5030,14 +6018,19 @@ export default function VisorDocumentoPage() {
                                 );
                                 if (!resp) return null;
                                 const hasSignature = resp.firma_data && resp.firma_completada;
-                                const hasFields = resp.campos_completados && resp.campos_completados.length > 0;
+                                const hasFields =
+                                  resp.campos_completados && resp.campos_completados.length > 0;
                                 if (!hasSignature && !hasFields) return null;
                                 return (
                                   <div className="mt-3 border-t border-slate-100 pt-3">
-                                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Datos de participación</p>
+                                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                                      Datos de participación
+                                    </p>
                                     {hasSignature && (
                                       <div className="mb-2">
-                                        <p className="text-[10px] font-medium text-slate-500 mb-1">Firma registrada</p>
+                                        <p className="text-[10px] font-medium text-slate-500 mb-1">
+                                          Firma registrada
+                                        </p>
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         <img
                                           src={resp.firma_data!}
@@ -5049,40 +6042,63 @@ export default function VisorDocumentoPage() {
                                     )}
                                     {hasFields && (
                                       <div className="flex flex-col gap-1">
-                                        {resp.campos_completados.filter((c) => c.value).map((c, ci) => {
-                                          const isCheckbox = c.value === 'true' || c.value === 'false';
-                                          return (
-                                            <div key={ci} className="flex items-start gap-1.5">
-                                              <span className="text-[10px] font-medium text-slate-500 shrink-0">{c.label}:</span>
-                                              {isCheckbox ? (
-                                                <span className="flex items-center gap-1">
-                                                  <span
-                                                    style={{
-                                                      display: 'inline-flex',
-                                                      alignItems: 'center',
-                                                      justifyContent: 'center',
-                                                      width: '13px',
-                                                      height: '13px',
-                                                      border: `2px solid ${c.value === 'true' ? '#2dd4bf' : '#94a3b8'}`,
-                                                      borderRadius: '3px',
-                                                      background: c.value === 'true' ? '#2dd4bf' : '#fff',
-                                                      flexShrink: 0,
-                                                    }}
-                                                  >
-                                                    {c.value === 'true' && (
-                                                      <svg width="8" height="6" viewBox="0 0 9 7" fill="none">
-                                                        <path d="M1 3.5L3.5 6L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                                      </svg>
-                                                    )}
-                                                  </span>
-                                                  <span className="text-[10px] text-slate-700">{c.value === 'true' ? 'Marcado' : 'No marcado'}</span>
+                                        {resp.campos_completados
+                                          .filter((c) => c.value)
+                                          .map((c, ci) => {
+                                            const isCheckbox =
+                                              c.value === 'true' || c.value === 'false';
+                                            return (
+                                              <div key={ci} className="flex items-start gap-1.5">
+                                                <span className="text-[10px] font-medium text-slate-500 shrink-0">
+                                                  {c.label}:
                                                 </span>
-                                              ) : (
-                                                <span className="text-[10px] text-slate-700 break-words">{c.value}</span>
-                                              )}
-                                            </div>
-                                          );
-                                        })}
+                                                {isCheckbox ? (
+                                                  <span className="flex items-center gap-1">
+                                                    <span
+                                                      style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        width: '13px',
+                                                        height: '13px',
+                                                        border: `2px solid ${c.value === 'true' ? '#2dd4bf' : '#94a3b8'}`,
+                                                        borderRadius: '3px',
+                                                        background:
+                                                          c.value === 'true' ? '#2dd4bf' : '#fff',
+                                                        flexShrink: 0,
+                                                      }}
+                                                    >
+                                                      {c.value === 'true' && (
+                                                        <svg
+                                                          width="8"
+                                                          height="6"
+                                                          viewBox="0 0 9 7"
+                                                          fill="none"
+                                                        >
+                                                          <path
+                                                            d="M1 3.5L3.5 6L8 1"
+                                                            stroke="white"
+                                                            strokeWidth="1.5"
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                          />
+                                                        </svg>
+                                                      )}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-700">
+                                                      {c.value === 'true'
+                                                        ? 'Marcado'
+                                                        : 'No marcado'}
+                                                    </span>
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-[10px] text-slate-700 break-words">
+                                                    {c.value}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
                                       </div>
                                     )}
                                   </div>
@@ -5101,57 +6117,97 @@ export default function VisorDocumentoPage() {
                                   ) : (
                                     <Download size={13} />
                                   )}
-                                  {downloadingMyParticipationCertificate ? 'Generando constancia...' : 'Descargar mi constancia'}
+                                  {downloadingMyParticipationCertificate
+                                    ? 'Generando constancia...'
+                                    : 'Descargar mi constancia'}
                                 </button>
                               )}
-                              {p.email && !['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'].includes((p.estado || '').toLowerCase()) && document?.owner_id === user?.id && (() => {
-                                const reminderSentToday = !!p.fecha_recordatorio && (() => {
-                                  const d = new Date(p.fecha_recordatorio!);
-                                  const now = new Date();
-                                  return d.getUTCFullYear() === now.getUTCFullYear() && d.getUTCMonth() === now.getUTCMonth() && d.getUTCDate() === now.getUTCDate();
-                                })();
-                                const isLoading = sendingReminderFor === p.id;
-                                const justSent = reminderSentFor.has(p.id);
-                                const isDisabled = isLoading || reminderSentToday;
-                                return (
-                                  <button
-                                    onClick={() => handleSendReminder(p)}
-                                    disabled={isDisabled}
-                                    title={reminderSentToday ? 'Ya se envió un recordatorio hoy. Podrás enviar otro mañana.' : 'Enviar recordatorio por correo'}
-                                    className={`mt-3 w-full flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border transition-colors ${
-                                      justSent
-                                        ? 'bg-green-50 border-green-200 text-green-600'
-                                        : reminderSentToday
-                                        ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed' :'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
-                                    } disabled:opacity-60 disabled:cursor-not-allowed`}
-                                  >
-                                    {isLoading ? (
-                                      <>
-                                        <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
-                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                                        </svg>
-                                        Enviando...
-                                      </>
-                                    ) : justSent ? (
-                                      <>
-                                        <CheckCircle2 size={13} />
-                                        Recordatorio enviado
-                                      </>
-                                    ) : reminderSentToday ? (
-                                      <>
-                                        <Clock size={13} />
-                                        Ya enviado hoy
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Bell size={13} />
-                                        Enviar recordatorio
-                                      </>
-                                    )}
-                                  </button>
-                                );
-                              })()}
+                              {p.email &&
+                                ![
+                                  'firmo',
+                                  'firmado',
+                                  'aprobo',
+                                  'aprobado',
+                                  'rechazo',
+                                  'rechazado',
+                                  'cancelo',
+                                  'cancelado',
+                                ].includes((p.estado || '').toLowerCase()) &&
+                                document?.owner_id === user?.id &&
+                                (() => {
+                                  const reminderSentToday =
+                                    !!p.fecha_recordatorio &&
+                                    (() => {
+                                      const d = new Date(p.fecha_recordatorio!);
+                                      const now = new Date();
+                                      return (
+                                        d.getUTCFullYear() === now.getUTCFullYear() &&
+                                        d.getUTCMonth() === now.getUTCMonth() &&
+                                        d.getUTCDate() === now.getUTCDate()
+                                      );
+                                    })();
+                                  const isLoading = sendingReminderFor === p.id;
+                                  const justSent = reminderSentFor.has(p.id);
+                                  const isDisabled = isLoading || reminderSentToday;
+                                  return (
+                                    <button
+                                      onClick={() => handleSendReminder(p)}
+                                      disabled={isDisabled}
+                                      title={
+                                        reminderSentToday
+                                          ? 'Ya se envió un recordatorio hoy. Podrás enviar otro mañana.'
+                                          : 'Enviar recordatorio por correo'
+                                      }
+                                      className={`mt-3 w-full flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border transition-colors ${
+                                        justSent
+                                          ? 'bg-green-50 border-green-200 text-green-600'
+                                          : reminderSentToday
+                                            ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed'
+                                            : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+                                      } disabled:opacity-60 disabled:cursor-not-allowed`}
+                                    >
+                                      {isLoading ? (
+                                        <>
+                                          <svg
+                                            className="animate-spin w-3 h-3"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                          >
+                                            <circle
+                                              className="opacity-25"
+                                              cx="12"
+                                              cy="12"
+                                              r="10"
+                                              stroke="currentColor"
+                                              strokeWidth="4"
+                                            />
+                                            <path
+                                              className="opacity-75"
+                                              fill="currentColor"
+                                              d="M4 12a8 8 0 018-8v8H4z"
+                                            />
+                                          </svg>
+                                          Enviando...
+                                        </>
+                                      ) : justSent ? (
+                                        <>
+                                          <CheckCircle2 size={13} />
+                                          Recordatorio enviado
+                                        </>
+                                      ) : reminderSentToday ? (
+                                        <>
+                                          <Clock size={13} />
+                                          Ya enviado hoy
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Bell size={13} />
+                                          Enviar recordatorio
+                                        </>
+                                      )}
+                                    </button>
+                                  );
+                                })()}
                             </div>
                           );
                         })}
@@ -5184,12 +6240,22 @@ export default function VisorDocumentoPage() {
                           const initials = getInitials(p.nombre || 'U');
                           const isOnline = p.email ? onlineEmails.has(p.email) : false;
                           return (
-                            <div key={p.id} className="flex min-w-0 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-slate-50 px-2 py-1.5" title={`${p.nombre}${isOnline ? ' · Conectado' : ' · Desconectado'}`}>
+                            <div
+                              key={p.id}
+                              className="flex min-w-0 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-slate-50 px-2 py-1.5"
+                              title={`${p.nombre}${isOnline ? ' · Conectado' : ' · Desconectado'}`}
+                            >
                               <div className="relative">
-                                <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${avatarColor.bg}`}>
-                                  <span className={`text-[11px] font-semibold ${avatarColor.text}`}>{initials}</span>
+                                <div
+                                  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${avatarColor.bg}`}
+                                >
+                                  <span className={`text-[11px] font-semibold ${avatarColor.text}`}>
+                                    {initials}
+                                  </span>
                                 </div>
-                                <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white ${isOnline ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                <span
+                                  className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white ${isOnline ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                                />
                               </div>
                               <span className="max-w-[88px] truncate text-xs font-medium leading-tight text-foreground">
                                 {p.nombre.split(' ')[0]}
@@ -5205,9 +6271,25 @@ export default function VisorDocumentoPage() {
                   <div className="flex-1 overflow-y-auto px-4 py-4">
                     {chatLoading ? (
                       <div className="flex items-center justify-center h-24 gap-2">
-                        <svg className="animate-spin h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        <svg
+                          className="animate-spin h-4 w-4 text-primary"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
                         </svg>
                         <span className="text-xs text-muted-foreground">Cargando mensajes...</span>
                       </div>
@@ -5217,7 +6299,9 @@ export default function VisorDocumentoPage() {
                           <MessageSquare size={18} className="text-[#1E6BFF]" />
                         </div>
                         <p className="text-sm font-semibold text-foreground">No hay mensajes aún</p>
-                        <p className="text-xs text-muted-foreground">Inicia la conversación con los participantes.</p>
+                        <p className="text-xs text-muted-foreground">
+                          Inicia la conversación con los participantes.
+                        </p>
                       </div>
                     ) : (
                       <div className="flex flex-col gap-2">
@@ -5229,18 +6313,29 @@ export default function VisorDocumentoPage() {
                           );
                           const avatarColor = isMe
                             ? { bg: 'bg-blue-600', text: 'text-white' }
-                            : AVATAR_COLORS[(partIdx >= 0 ? partIdx : msgIdx) % AVATAR_COLORS.length];
+                            : AVATAR_COLORS[
+                                (partIdx >= 0 ? partIdx : msgIdx) % AVATAR_COLORS.length
+                              ];
                           const initials = getInitials(msg.sender_nombre || 'U');
 
                           return (
-                            <div key={msg.id} className={`flex items-end gap-2 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                            <div
+                              key={msg.id}
+                              className={`flex items-end gap-2 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}
+                            >
                               {/* Avatar (only for others) */}
                               {!isMe && (
-                                <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${avatarColor.bg}`}>
-                                  <span className={`text-[10px] font-bold ${avatarColor.text}`}>{initials}</span>
+                                <div
+                                  className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${avatarColor.bg}`}
+                                >
+                                  <span className={`text-[10px] font-bold ${avatarColor.text}`}>
+                                    {initials}
+                                  </span>
                                 </div>
                               )}
-                              <div className={`flex flex-col gap-0.5 max-w-[75%] ${isMe ? 'items-end' : 'items-start'}`}>
+                              <div
+                                className={`flex flex-col gap-0.5 max-w-[75%] ${isMe ? 'items-end' : 'items-start'}`}
+                              >
                                 {/* Sender name (only for others) */}
                                 {!isMe && (
                                   <span className="text-[10px] font-semibold text-slate-500 px-1">
@@ -5248,10 +6343,13 @@ export default function VisorDocumentoPage() {
                                   </span>
                                 )}
                                 {/* Bubble */}
-                                <div className={`break-words rounded-lg px-3 py-2 text-xs leading-relaxed ${
-                                  isMe
-                                    ? 'rounded-br-sm bg-[#1E6BFF] text-white' :'rounded-bl-sm border border-border bg-card text-foreground'
-                                }`}>
+                                <div
+                                  className={`break-words rounded-lg px-3 py-2 text-xs leading-relaxed ${
+                                    isMe
+                                      ? 'rounded-br-sm bg-[#1E6BFF] text-white'
+                                      : 'rounded-bl-sm border border-border bg-card text-foreground'
+                                  }`}
+                                >
                                   {msg.content}
                                 </div>
                                 {/* Timestamp */}
@@ -5275,31 +6373,47 @@ export default function VisorDocumentoPage() {
                         <span>Se necesitan al menos 2 participantes para chatear</span>
                       </div>
                     ) : (
-                    <div className="flex items-center gap-2 rounded-md border border-border bg-white px-3 py-1.5 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
-                      <input
-                        type="text"
-                        value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        onKeyDown={handleChatKeyDown}
-                        placeholder="Escribe un mensaje..."
-                        className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
-                        disabled={chatSending}
-                      />
-                      <button
-                        onClick={handleSendMessage}
-                        disabled={!chatInput.trim() || chatSending}
-                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[#1E6BFF] transition-colors hover:bg-blue-700 disabled:opacity-40"
-                      >
-                        {chatSending ? (
-                          <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                        ) : (
-                          <Send size={13} className="text-white" />
-                        )}
-                      </button>
-                    </div>
+                      <div className="flex items-center gap-2 rounded-md border border-border bg-white px-3 py-1.5 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
+                        <input
+                          type="text"
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          onKeyDown={handleChatKeyDown}
+                          placeholder="Escribe un mensaje..."
+                          className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                          disabled={chatSending}
+                        />
+                        <button
+                          onClick={handleSendMessage}
+                          disabled={!chatInput.trim() || chatSending}
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[#1E6BFF] transition-colors hover:bg-blue-700 disabled:opacity-40"
+                        >
+                          {chatSending ? (
+                            <svg
+                              className="animate-spin h-3 w-3 text-white"
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                            >
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                              />
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                              />
+                            </svg>
+                          ) : (
+                            <Send size={13} className="text-white" />
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </>
@@ -5309,7 +6423,9 @@ export default function VisorDocumentoPage() {
                   <div className="viewer-panel-header justify-between">
                     <div>
                       <span className="viewer-panel-title">Actividad y auditoría</span>
-                      <p className="text-xs text-muted-foreground mt-0.5">Registro detallado de acciones y eventos.</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Registro detallado de acciones y eventos.
+                      </p>
                     </div>
                     <button
                       onClick={() => {
@@ -5318,18 +6434,96 @@ export default function VisorDocumentoPage() {
                         const supabase = createClient();
                         const allEvents: ActivityEvent[] = [];
                         Promise.all([
-                          supabase.from('security_audit_log').select('id, action, details, created_at, user_id').eq('documento_id', docId).order('created_at', { ascending: false }),
-                          supabase.from('document_audit_trail').select('id, action_code, action_description_es, action_category, action_result, actor_name, actor_email, actor_role, document_status_at_action, ip_address, action_at, metadata_encrypted').eq('document_id', docId).order('action_at', { ascending: false }),
-                          supabase.from('document_activity_log').select('id, action, category, details, created_at, actor_id, actor_nombre, actor_email').eq('documento_id', docId).order('created_at', { ascending: false }),
-                        ]).then(([secRes, auditRes, actRes]) => {
-                          if (secRes.data) secRes.data.forEach((row: any) => allEvents.push({ id: `sec_${row.id}`, action: row.action, details: row.details, created_at: row.created_at, actor_name: 'Sistema', actor_email: '', source: 'security_log', category: row.details?.category as string | undefined }));
-                          if (auditRes.data) auditRes.data.forEach((row: any) => { const isDup = allEvents.some((e) => e.action === row.action_code && Math.abs(new Date(e.created_at).getTime() - new Date(row.action_at).getTime()) < 5000); if (!isDup) allEvents.push({ id: `adt_${row.id}`, action: row.action_code, details: { description: row.action_description_es, result: row.action_result, ip_address: row.ip_address, actor_role: row.actor_role, doc_status: row.document_status_at_action }, created_at: row.action_at, actor_name: row.actor_name || 'Sistema', actor_email: row.actor_email || '', source: 'audit_trail', category: row.action_category, doc_state_after: row.document_status_at_action }); });
-                          if (actRes.data) actRes.data.forEach((row: any) => allEvents.push({ id: `alog_${row.id}`, action: row.action, category: row.category, details: row.details, created_at: row.created_at, actor_name: row.actor_nombre || 'Usuario', actor_email: row.actor_email || '', source: 'security_log' }));
-                          const seen = new Set<string>();
-                          const unique = allEvents.filter((e) => { const key = `${e.action}_${e.actor_email}_${new Date(e.created_at).toISOString().slice(0, 16)}`; if (seen.has(key)) return false; seen.add(key); return true; });
-                          unique.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-                          setActivityEvents(unique);
-                        }).finally(() => setActivityLoading(false));
+                          supabase
+                            .from('security_audit_log')
+                            .select('id, action, details, created_at, user_id')
+                            .eq('documento_id', docId)
+                            .order('created_at', { ascending: false }),
+                          supabase
+                            .from('document_audit_trail')
+                            .select(
+                              'id, action_code, action_description_es, action_category, action_result, actor_name, actor_email, actor_role, document_status_at_action, ip_address, action_at, metadata_encrypted'
+                            )
+                            .eq('document_id', docId)
+                            .order('action_at', { ascending: false }),
+                          supabase
+                            .from('document_activity_log')
+                            .select(
+                              'id, action, category, details, created_at, actor_id, actor_nombre, actor_email'
+                            )
+                            .eq('documento_id', docId)
+                            .order('created_at', { ascending: false }),
+                        ])
+                          .then(([secRes, auditRes, actRes]) => {
+                            if (secRes.data)
+                              secRes.data.forEach((row: any) =>
+                                allEvents.push({
+                                  id: `sec_${row.id}`,
+                                  action: row.action,
+                                  details: row.details,
+                                  created_at: row.created_at,
+                                  actor_name: 'Sistema',
+                                  actor_email: '',
+                                  source: 'security_log',
+                                  category: row.details?.category as string | undefined,
+                                })
+                              );
+                            if (auditRes.data)
+                              auditRes.data.forEach((row: any) => {
+                                const isDup = allEvents.some(
+                                  (e) =>
+                                    e.action === row.action_code &&
+                                    Math.abs(
+                                      new Date(e.created_at).getTime() -
+                                        new Date(row.action_at).getTime()
+                                    ) < 5000
+                                );
+                                if (!isDup)
+                                  allEvents.push({
+                                    id: `adt_${row.id}`,
+                                    action: row.action_code,
+                                    details: {
+                                      description: row.action_description_es,
+                                      result: row.action_result,
+                                      ip_address: row.ip_address,
+                                      actor_role: row.actor_role,
+                                      doc_status: row.document_status_at_action,
+                                    },
+                                    created_at: row.action_at,
+                                    actor_name: row.actor_name || 'Sistema',
+                                    actor_email: row.actor_email || '',
+                                    source: 'audit_trail',
+                                    category: row.action_category,
+                                    doc_state_after: row.document_status_at_action,
+                                  });
+                              });
+                            if (actRes.data)
+                              actRes.data.forEach((row: any) =>
+                                allEvents.push({
+                                  id: `alog_${row.id}`,
+                                  action: row.action,
+                                  category: row.category,
+                                  details: row.details,
+                                  created_at: row.created_at,
+                                  actor_name: row.actor_nombre || 'Usuario',
+                                  actor_email: row.actor_email || '',
+                                  source: 'security_log',
+                                })
+                              );
+                            const seen = new Set<string>();
+                            const unique = allEvents.filter((e) => {
+                              const key = `${e.action}_${e.actor_email}_${new Date(e.created_at).toISOString().slice(0, 16)}`;
+                              if (seen.has(key)) return false;
+                              seen.add(key);
+                              return true;
+                            });
+                            unique.sort(
+                              (a, b) =>
+                                new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                            );
+                            setActivityEvents(unique);
+                          })
+                          .finally(() => setActivityLoading(false));
                       }}
                       className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
                       title="Actualizar historial"
@@ -5340,16 +6534,34 @@ export default function VisorDocumentoPage() {
                   <div className="flex-1 overflow-y-auto">
                     {activityLoading ? (
                       <div className="flex items-center justify-center h-24 gap-2">
-                        <svg className="animate-spin h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        <svg
+                          className="animate-spin h-4 w-4 text-primary"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
                         </svg>
                         <span className="text-xs text-muted-foreground">Cargando actividad...</span>
                       </div>
                     ) : activityEvents.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-40 gap-2 px-4">
                         <Activity size={32} className="text-slate-200" />
-                        <p className="text-xs text-muted-foreground text-center">Sin actividad registrada</p>
+                        <p className="text-xs text-muted-foreground text-center">
+                          Sin actividad registrada
+                        </p>
                       </div>
                     ) : (
                       <div className="px-4 py-3">
@@ -5364,23 +6576,37 @@ export default function VisorDocumentoPage() {
                               const actorEmail = event.participant_email || event.actor_email;
                               return (
                                 <div key={event.id} className="relative flex gap-3 pb-4">
-                                  <div className={`relative z-10 w-[34px] h-[34px] rounded-full flex items-center justify-center flex-shrink-0 border-2 border-white shadow-sm ${colors.bg} ${colors.text}`}>
+                                  <div
+                                    className={`relative z-10 w-[34px] h-[34px] rounded-full flex items-center justify-center flex-shrink-0 border-2 border-white shadow-sm ${colors.bg} ${colors.text}`}
+                                  >
                                     {getActivityIcon(event.action, event.category)}
                                   </div>
                                   <div className="flex-1 min-w-0 pt-1">
-                                    <p className="text-xs font-semibold text-foreground leading-snug">{label}</p>
+                                    <p className="text-xs font-semibold text-foreground leading-snug">
+                                      {label}
+                                    </p>
                                     <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                                      <span className="text-[10px] text-muted-foreground">{formatActivityDate(event.created_at)}</span>
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {formatActivityDate(event.created_at)}
+                                      </span>
                                       {actorDisplay && actorDisplay !== 'Sistema' && (
                                         <>
-                                          <span className="text-[10px] text-muted-foreground">·</span>
-                                          <span className="text-[10px] font-bold text-primary uppercase tracking-wide">{actorDisplay}</span>
+                                          <span className="text-[10px] text-muted-foreground">
+                                            ·
+                                          </span>
+                                          <span className="text-[10px] font-bold text-primary uppercase tracking-wide">
+                                            {actorDisplay}
+                                          </span>
                                         </>
                                       )}
                                       {(!actorDisplay || actorDisplay === 'Sistema') && (
                                         <>
-                                          <span className="text-[10px] text-muted-foreground">·</span>
-                                          <span className="text-[10px] font-medium text-slate-400 uppercase">Sistema</span>
+                                          <span className="text-[10px] text-muted-foreground">
+                                            ·
+                                          </span>
+                                          <span className="text-[10px] font-medium text-slate-400 uppercase">
+                                            Sistema
+                                          </span>
                                         </>
                                       )}
                                     </div>
@@ -5388,17 +6614,24 @@ export default function VisorDocumentoPage() {
                                       <div className="mt-1.5 rounded-md bg-slate-50 border border-slate-100 px-2.5 py-1.5">
                                         {actorEmail && (
                                           <p className="text-[10px] text-slate-500 leading-relaxed">
-                                            <span className="font-medium text-slate-600">Email:</span> {actorEmail}
+                                            <span className="font-medium text-slate-600">
+                                              Email:
+                                            </span>{' '}
+                                            {actorEmail}
                                           </p>
                                         )}
                                         {extraDetails && (
-                                          <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">{extraDetails}</p>
+                                          <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">
+                                            {extraDetails}
+                                          </p>
                                         )}
                                       </div>
                                     )}
                                     {!extraDetails && !actorEmail && (
                                       <div className="mt-1.5 rounded-md bg-slate-50 border border-slate-100 px-2.5 py-1.5">
-                                        <p className="text-[10px] text-slate-400 italic">Sin detalles adicionales</p>
+                                        <p className="text-[10px] text-slate-400 italic">
+                                          Sin detalles adicionales
+                                        </p>
                                       </div>
                                     )}
                                   </div>
@@ -5411,578 +6644,947 @@ export default function VisorDocumentoPage() {
                     )}
                   </div>
                 </>
-              ) : activeTab === 'descargas' ? (
-                /* ── Descargas Panel ────────────────────────────────────── */
+              ) : activeTab === 'descargas' || activeTab === 'auditoria' ? (
+                /* ── Descargas y auditoría ──────────────────────────────── */
                 <div className="flex flex-col h-full min-h-0">
                   <div className="viewer-panel-header">
-                    <span className="viewer-panel-title">Descargas</span>
+                    <span className="viewer-panel-title">
+                      {activeTab === 'auditoria' ? 'Auditoría' : 'Descargas'}
+                    </span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <div className="p-4 space-y-4">
+                      {/* ── Constancia de Integridad y Evidencia Digital ── */}
+                      {activeTab === 'auditoria' && (
+                        <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+                          <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                            <Shield size={15} className="text-primary" />
+                            <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                              Integridad y Evidencia Digital
+                            </span>
+                            <span
+                              className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                cryptographicCertification?.verificationStatus === 'valid'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : cryptographicCertification?.executionStatus === 'failed'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                    : cryptographicCertification?.integrityStatus === 'valid'
+                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                      : 'bg-muted text-muted-foreground border-border'
+                              }`}
+                            >
+                              {cryptographicCertification?.verificationStatus === 'valid'
+                                ? 'Verificación integral'
+                                : cryptographicCertification?.executionStatus === 'failed'
+                                  ? 'Requiere atención'
+                                  : cryptographicCertification?.integrityStatus === 'valid'
+                                    ? 'Integridad registrada'
+                                    : cryptographicCertification
+                                      ? 'Procesando'
+                                      : !certificationProviderChecked
+                                        ? 'Comprobando'
+                                        : 'Disponible'}
+                            </span>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">
+                                Constancia Técnica de Integridad y Evidencia Digital
+                              </p>
+                              <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
+                                Versión documental exacta, hash SHA-256 y cadena de evidencia con
+                                estados verificables por capacidad.
+                              </p>
+                            </div>
 
-                    {/* ── Constancia de Integridad y Evidencia Digital ── */}
-                    <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
-                      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                        <Shield size={15} className="text-primary" />
-                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Integridad y Evidencia Digital</span>
-                        <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          cryptographicCertification?.verificationStatus === 'valid'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : cryptographicCertification?.executionStatus === 'failed'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : cryptographicCertification?.integrityStatus === 'valid'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : 'bg-muted text-muted-foreground border-border'
-                        }`}>
-                          {cryptographicCertification?.verificationStatus === 'valid'
-                            ? 'Verificación integral'
-                            : cryptographicCertification?.executionStatus === 'failed'
-                              ? 'Requiere atención'
-                              : cryptographicCertification?.integrityStatus === 'valid'
-                                ? 'Integridad registrada'
-                                : cryptographicCertification
-                                  ? 'Procesando'
-                                  : !certificationProviderChecked
-                                    ? 'Comprobando'
-                                    : 'Disponible'}
-                        </span>
-                      </div>
-                      <div className="p-4 space-y-3">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">Constancia Técnica de Integridad y Evidencia Digital</p>
-                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">Versión documental exacta, hash SHA-256 y cadena de evidencia con estados verificables por capacidad.</p>
-                        </div>
-
-                        {cryptographicCertification?.status === 'COMPLETED' ? (
-                          <>
-                            {cryptographicCertification.verificationStatus !== 'valid' && (
-                              <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2.5 text-xs text-blue-800">
-                                <span className="font-semibold">Entorno de desarrollo criptográfico.</span> La integridad está registrada; las capacidades no configuradas no se presentan como válidas.
+                            {cryptographicCertification?.status === 'COMPLETED' ? (
+                              <>
+                                {cryptographicCertification.verificationStatus !== 'valid' && (
+                                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2.5 text-xs text-blue-800">
+                                    <span className="font-semibold">
+                                      Evidencia de integridad sin certificación PAdES.
+                                    </span>{' '}
+                                    Esta versión fue registrada con el perfil criptográfico{' '}
+                                    {cryptographicCertification.cryptoEnvironment ||
+                                      'no identificado'}
+                                    ; no contiene todavía firma PAdES, certificado X.509, RFC 3161
+                                    ni NOM-151 verificadas.
+                                  </div>
+                                )}
+                                <div className="overflow-hidden rounded-lg border border-border bg-white">
+                                  {[
+                                    [
+                                      'Integridad SHA-256',
+                                      cryptographicCertification.integrityStatus,
+                                    ],
+                                    [
+                                      'Versionado documental',
+                                      cryptographicCertification.documentVersionId
+                                        ? 'valid'
+                                        : 'pending',
+                                    ],
+                                    [
+                                      'Cadena de evidencia',
+                                      cryptographicCertification.sourceDocumentHash
+                                        ? 'valid'
+                                        : 'pending',
+                                    ],
+                                    [
+                                      'Firma PDF PAdES',
+                                      cryptographicCertification.pdfSignatureStatus,
+                                    ],
+                                    [
+                                      'Certificado institucional',
+                                      cryptographicCertification.certificateStatus,
+                                    ],
+                                    [
+                                      cryptographicCertification.timestampStatus === 'valid'
+                                        ? 'Sello RFC 3161 externo'
+                                        : 'Estampa RFC 3161',
+                                      cryptographicCertification.timestampStatus ||
+                                        'not_configured',
+                                    ],
+                                    [
+                                      'Verificación independiente',
+                                      cryptographicCertification.verificationStatus,
+                                    ],
+                                    ['Constancia NOM-151', nom151EvidenceStatus],
+                                  ].map(([label, status], index) => (
+                                    <div
+                                      key={label}
+                                      className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
+                                    >
+                                      <span className="text-xs font-medium text-foreground">
+                                        {label}
+                                      </span>
+                                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                                        <span
+                                          className={`size-2 rounded-full ${cryptoStatusClasses(status)}`}
+                                        />
+                                        {cryptoEvidenceStatusLabel(label, status)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                      Versión exacta
+                                    </span>
+                                    <span className="text-xs font-semibold text-foreground">
+                                      v{cryptographicCertification.documentVersionNumber}
+                                    </span>
+                                  </div>
+                                  {cryptographicCertification.sourceDocumentHash && (
+                                    <div>
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        SHA-256 de origen
+                                      </span>
+                                      <p
+                                        className="mt-1 truncate font-mono text-[10px] text-foreground"
+                                        title={cryptographicCertification.sourceDocumentHash}
+                                      >
+                                        {cryptographicCertification.sourceDocumentHash}
+                                      </p>
+                                    </div>
+                                  )}
+                                  {nom151Data && (
+                                    <div className="flex items-start justify-between gap-3 border-t border-border/60 pt-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Entorno del proveedor NOM-151
+                                      </span>
+                                      <span className="max-w-[190px] text-right text-[10px] font-medium text-muted-foreground">
+                                        {nom151Presentation.providerEnvironmentLabel}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                                {cryptographicCertification.verificationStatus === 'valid' && (
+                                  <>
+                                    <button
+                                      onClick={() => downloadCertificationArtifact('certificate')}
+                                      disabled={certificationDownload !== null}
+                                      className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60"
+                                    >
+                                      {certificationDownload === 'certificate' ? (
+                                        <RefreshCw size={15} className="animate-spin" />
+                                      ) : (
+                                        <Download size={15} />
+                                      )}
+                                      {certificationDownload === 'certificate'
+                                        ? 'Descargando…'
+                                        : 'Descargar constancia PDF'}
+                                    </button>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <button
+                                        onClick={() => downloadCertificationArtifact('package')}
+                                        disabled={certificationDownload !== null}
+                                        className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
+                                      >
+                                        {certificationDownload === 'package' ? (
+                                          <RefreshCw size={14} className="animate-spin" />
+                                        ) : (
+                                          <Download size={14} />
+                                        )}
+                                        Paquete técnico
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          downloadCertificationArtifact('certified-pdf')
+                                        }
+                                        disabled={certificationDownload !== null}
+                                        className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
+                                      >
+                                        {certificationDownload === 'certified-pdf' ? (
+                                          <RefreshCw size={14} className="animate-spin" />
+                                        ) : (
+                                          <Download size={14} />
+                                        )}
+                                        PDF certificado
+                                      </button>
+                                    </div>
+                                    <div className="border-t border-border/60 pt-3">
+                                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Artefactos tecnicos protegidos
+                                      </p>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {[
+                                          ['verification-report', 'Reporte de verificacion'],
+                                          ['signing-certificate', 'Certificado X.509'],
+                                          ['certificate-chain', 'Cadena X.509'],
+                                          ['evidence-manifest', 'Manifiesto de evidencia'],
+                                          ...(cryptographicCertification.timestampStatus === 'valid'
+                                            ? [['timestamp-token', 'Estampa RFC 3161']]
+                                            : []),
+                                        ].map(([artifact, label]) => (
+                                          <button
+                                            key={artifact}
+                                            onClick={() =>
+                                              downloadCertificationArtifact(
+                                                artifact as
+                                                  | 'verification-report'
+                                                  | 'timestamp-token'
+                                                  | 'signing-certificate'
+                                                  | 'certificate-chain'
+                                                  | 'evidence-manifest'
+                                              )
+                                            }
+                                            disabled={certificationDownload !== null}
+                                            className="flex min-w-0 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted/50 disabled:opacity-60"
+                                          >
+                                            {certificationDownload === artifact ? (
+                                              <RefreshCw
+                                                size={14}
+                                                className="shrink-0 animate-spin"
+                                              />
+                                            ) : (
+                                              <Download size={14} className="shrink-0" />
+                                            )}
+                                            <span className="truncate">{label}</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </>
+                            ) : !certificationProviderChecked ? (
+                              <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs font-semibold text-muted-foreground">
+                                <RefreshCw size={14} className="animate-spin" />
+                                Comprobando infraestructura criptográfica
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {!certificationE2eEnabled && (
+                                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-3 text-xs leading-relaxed text-blue-900">
+                                    La ejecucion integral esta deshabilitada para este entorno. La
+                                    tarjeta seguira mostrando evidencia ya existente sin iniciar
+                                    nuevas certificaciones.
+                                  </div>
+                                )}
+                                {!certificationProviderReady && (
+                                  <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 text-amber-900">
+                                    <p className="text-xs font-semibold">
+                                      Capacidades criptográficas aún no configuradas
+                                    </p>
+                                    <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed">
+                                      {Array.from(new Set(certificationProviderMissing)).map(
+                                        (provider, index) => (
+                                          <li
+                                            key={`cryptographic-provider-${provider}-${index}`}
+                                            className="flex items-start gap-2"
+                                          >
+                                            <span className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500" />
+                                            <span>
+                                              {CRYPTOGRAPHIC_PROVIDER_LABELS[provider] || provider}
+                                            </span>
+                                          </li>
+                                        )
+                                      )}
+                                    </ul>
+                                    <p className="mt-2 text-[10px] leading-relaxed text-amber-800">
+                                      Puedes registrar la versión exacta, su hash y la cadena de
+                                      evidencia sin declarar esas capacidades como válidas.
+                                    </p>
+                                  </div>
+                                )}
+                                <button
+                                  onClick={generateCryptographicCertification}
+                                  disabled={
+                                    certificationLoading ||
+                                    document?.estado !== 'completado' ||
+                                    !certificationE2eEnabled
+                                  }
+                                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  {certificationLoading ? (
+                                    <RefreshCw size={15} className="animate-spin" />
+                                  ) : (
+                                    <Shield size={15} />
+                                  )}
+                                  {certificationLoading
+                                    ? 'Registrando integridad…'
+                                    : !certificationE2eEnabled
+                                      ? 'Ejecucion integral deshabilitada'
+                                      : cryptographicCertification?.status === 'FAILED'
+                                        ? 'Reintentar registro'
+                                        : certificationProviderReady
+                                          ? 'Generar certificación'
+                                          : 'Registrar integridad y evidencia'}
+                                </button>
                               </div>
                             )}
-                            <div className="overflow-hidden rounded-lg border border-border bg-white">
-                              {[
-                                ['Integridad SHA-256', cryptographicCertification.integrityStatus],
-                                ['Versionado documental', cryptographicCertification.documentVersionId ? 'valid' : 'pending'],
-                                ['Cadena de evidencia', cryptographicCertification.sourceDocumentHash ? 'valid' : 'pending'],
-                                ['Firma PDF PAdES', cryptographicCertification.pdfSignatureStatus],
-                                ['Certificado institucional', cryptographicCertification.certificateStatus],
-                                [cryptographicCertification.timestampStatus === 'valid' ? 'Sello RFC 3161 externo' : 'Estampa RFC 3161', cryptographicCertification.timestampStatus || 'not_configured'],
-                                ['Verificación independiente', cryptographicCertification.verificationStatus],
-                                ['Constancia NOM-151', cryptographicCertification.nom151Status || 'not_configured'],
-                              ].map(([label, status], index) => (
-                                <div key={label} className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}>
-                                  <span className="text-xs font-medium text-foreground">{label}</span>
-                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                                    <span className={`size-2 rounded-full ${cryptoStatusClasses(status)}`} />
-                                    {CRYPTO_STATUS_LABELS[status] || status}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Versión exacta</span>
-                                <span className="text-xs font-semibold text-foreground">v{cryptographicCertification.documentVersionNumber}</span>
+
+                            {(certificationError || cryptographicCertification?.errorMessage) && (
+                              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                                {certificationError || cryptographicCertification?.errorMessage}
                               </div>
-                              {cryptographicCertification.sourceDocumentHash && (
-                                <div>
-                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">SHA-256 de origen</span>
-                                  <p className="mt-1 truncate font-mono text-[10px] text-foreground" title={cryptographicCertification.sourceDocumentHash}>{cryptographicCertification.sourceDocumentHash}</p>
+                            )}
+                            <p className="text-[10px] leading-relaxed text-muted-foreground">
+                              Cada capacidad sólo se marca como operativa cuando existe evidencia
+                              técnica verificable de su ejecución.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── Constancia de auditoría hasta el cierre ── */}
+                      {activeTab === 'auditoria' && (
+                        <div className="rounded-xl border border-border bg-white shadow-sm">
+                          <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                            <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                              Constancia de auditoría
+                            </span>
+                            <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                              PDF
+                            </span>
+                          </div>
+                          <div className="p-4">
+                            <div className="mb-4">
+                              <p className="text-sm font-semibold text-foreground">
+                                Auditoría hasta el cierre del documento
+                              </p>
+                              <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
+                                Registro cronológico de eventos, participantes, resultados y datos
+                                técnicos disponibles en la bitácora.
+                              </p>
+                            </div>
+                            {document?.estado === 'completado' ? (
+                              <button
+                                onClick={downloadAuditCertificate}
+                                disabled={downloadingAuditCertificate}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {downloadingAuditCertificate ? (
+                                  <RefreshCw size={15} className="animate-spin" />
+                                ) : (
+                                  <History size={15} />
+                                )}
+                                {downloadingAuditCertificate
+                                  ? 'Generando…'
+                                  : 'Descargar constancia de auditoría'}
+                              </button>
+                            ) : (
+                              <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
+                                <Clock size={15} />
+                                Disponible al completar el documento
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── Descargas del documento ── */}
+                      {activeTab === 'descargas' && (
+                        <>
+                          {/* ── 1. Documento derivado del proceso de firma ── */}
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                                Documento firmado
+                              </span>
+                              <span
+                                className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  padesUiStatus === 'PAdES VERIFICADO'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : padesUiStatus === 'PAdES ERROR'
+                                      ? 'bg-red-50 text-red-700 border-red-200'
+                                      : padesUiStatus === 'PAdES EN PROCESO'
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                        : 'bg-muted text-muted-foreground border-border'
+                                }`}
+                              >
+                                {padesUiStatus}
+                              </span>
+                            </div>
+                            <div className="p-4">
+                              <div className="mb-4">
+                                <p className="text-sm font-semibold text-foreground truncate">
+                                  {document?.nombre || 'Documento'} — Firmado
+                                </p>
+                                <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
+                                  {!document?.sealed_pdf_path
+                                    ? 'El PDF final se habilitará al concluir el sellado del documento y validar la huella del archivo original.'
+                                    : padesVerified
+                                      ? 'PDF con firma PAdES respaldada por la verificación técnica registrada.'
+                                      : 'El PDF derivado ya existe, pero la descarga certificada permanece bloqueada hasta que la firma PAdES sea verificable técnicamente.'}
+                                </p>
+                              </div>
+                              {signedPdfError && (
+                                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                                  No se pudo completar el cierre PAdES de esta versión.{' '}
+                                  {signedPdfError}
+                                </div>
+                              )}
+                              {padesVerified && cryptographicCertification && (
+                                <div className="mb-4 overflow-hidden rounded-lg border border-border bg-muted/20">
+                                  {[
+                                    [
+                                      'Integridad',
+                                      cryptographicCertification.integrityStatus === 'valid' &&
+                                      cryptographicCertification.verificationStatus === 'valid'
+                                        ? 'Válida'
+                                        : 'No verificada',
+                                    ],
+                                    [
+                                      'Perfil',
+                                      `${cryptographicCertification.padesProfile} · Verificado`,
+                                    ],
+                                    [
+                                      'Proveedor de llave',
+                                      cryptographicCertification.kmsProvider === 'gcp'
+                                        ? cryptographicCertification.kmsProtectionLevel === 'hsm'
+                                          ? 'Google Cloud HSM'
+                                          : 'Google Cloud KMS'
+                                        : cryptographicCertification.kmsProvider,
+                                    ],
+                                    [
+                                      'Nivel de protección',
+                                      cryptographicCertification.kmsProtectionLevel === 'hsm'
+                                        ? 'HSM'
+                                        : cryptographicCertification.kmsProtectionLevel,
+                                    ],
+                                    [
+                                      'Entorno criptográfico',
+                                      cryptographicCertification.cryptoEnvironment,
+                                    ],
+                                    ['Versión de llave', cryptographicCertification.kmsKeyVersion],
+                                    [
+                                      'Algoritmo',
+                                      cryptographicCertification.kmsKeySizeBits
+                                        ? `RSA ${cryptographicCertification.kmsKeySizeBits} / ${cryptographicCertification.padesDigestAlgorithm}`
+                                        : [
+                                            cryptographicCertification.padesSignatureAlgorithm,
+                                            cryptographicCertification.padesDigestAlgorithm,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(' · '),
+                                    ],
+                                    [
+                                      'Certificado X.509',
+                                      cryptographicCertification.certificateChainStatus === 'valid'
+                                        ? `Cadena válida · Serial ${cryptographicCertification.padesCertificateSerial}`
+                                        : cryptographicCertification.padesCertificateSerial,
+                                    ],
+                                    [
+                                      'Vínculo SPKI',
+                                      cryptographicCertification.certificateKeyMatches === true
+                                        ? 'Válido'
+                                        : null,
+                                    ],
+                                    [
+                                      'Firma criptográfica',
+                                      cryptographicCertification.padesSigningTimeDeclared ||
+                                        cryptographicCertification.padesVerifiedAt,
+                                    ],
+                                    ...(cryptographicCertification.padesProfile === 'PAdES-B-T'
+                                      ? [
+                                          [
+                                            'Sello RFC 3161',
+                                            cryptographicCertification.timestampStatus === 'valid'
+                                              ? `Verificado · ${cryptographicCertification.timestampGenTime}`
+                                              : null,
+                                          ],
+                                          [
+                                            'Proveedor TSA',
+                                            cryptographicCertification.timestampProvider ===
+                                            'freetsa'
+                                              ? 'FreeTSA'
+                                              : cryptographicCertification.timestampProvider,
+                                          ],
+                                          [
+                                            'Rol del proveedor',
+                                            cryptographicCertification.timestampProviderRole,
+                                          ],
+                                          [
+                                            'Serial RFC 3161',
+                                            cryptographicCertification.timestampSerialNumber,
+                                          ],
+                                          [
+                                            'Policy OID',
+                                            cryptographicCertification.timestampPolicyOid,
+                                          ],
+                                          [
+                                            'Bundle de confianza',
+                                            cryptographicCertification.timestampTrustBundleId,
+                                          ],
+                                          [
+                                            'Confianza TSA',
+                                            cryptographicCertification.timestampTrustStatus ===
+                                            'valid'
+                                              ? 'Válida'
+                                              : null,
+                                          ],
+                                        ]
+                                      : []),
+                                  ]
+                                    .filter(([, value]) => Boolean(value))
+                                    .map(([label, value], index) => (
+                                      <div
+                                        key={label}
+                                        className={`px-3 py-2 ${index ? 'border-t border-border/60' : ''}`}
+                                      >
+                                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                          {label}
+                                        </p>
+                                        <p className="mt-0.5 break-all text-[11px] text-foreground">
+                                          {value}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  {cryptographicCertification.padesCertificateFingerprintSha256 && (
+                                    <div className="border-t border-border/60 px-3 py-2">
+                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Huella SHA-256 del certificado
+                                      </p>
+                                      <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">
+                                        {
+                                          cryptographicCertification.padesCertificateFingerprintSha256
+                                        }
+                                      </p>
+                                    </div>
+                                  )}
+                                  {cryptographicCertification.certificatePublicKeyFingerprintSha256 && (
+                                    <div className="border-t border-border/60 px-3 py-2">
+                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Huella SHA-256 de la llave del certificado
+                                      </p>
+                                      <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">
+                                        {
+                                          cryptographicCertification.certificatePublicKeyFingerprintSha256
+                                        }
+                                      </p>
+                                    </div>
+                                  )}
+                                  {cryptographicCertification.timestampCertificateFingerprintSha256 && (
+                                    <div className="border-t border-border/60 px-3 py-2">
+                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Huella SHA-256 del certificado TSA
+                                      </p>
+                                      <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">
+                                        {
+                                          cryptographicCertification.timestampCertificateFingerprintSha256
+                                        }
+                                      </p>
+                                    </div>
+                                  )}
+                                  {cryptographicCertification.timestampTrustRootFingerprintSha256 && (
+                                    <div className="border-t border-border/60 px-3 py-2">
+                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Ancla de confianza TSA
+                                      </p>
+                                      <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">
+                                        {
+                                          cryptographicCertification.timestampTrustRootFingerprintSha256
+                                        }
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              <button
+                                onClick={downloadSignedPdf}
+                                disabled={
+                                  downloadingSignedPdf ||
+                                  !document?.sealed_pdf_path ||
+                                  !padesVerified
+                                }
+                                title={
+                                  !document?.sealed_pdf_path
+                                    ? 'La descarga estará disponible al finalizar el sellado del documento.'
+                                    : !padesVerified
+                                      ? 'La descarga certificada requiere una firma PAdES verificada.'
+                                      : undefined
+                                }
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {downloadingSignedPdf ? (
+                                  <RefreshCw size={15} className="animate-spin" />
+                                ) : (
+                                  <Download size={15} />
+                                )}
+                                {downloadingSignedPdf
+                                  ? 'Descargando…'
+                                  : !document?.sealed_pdf_path
+                                    ? 'PDF firmado en preparación'
+                                    : !padesVerified
+                                      ? padesUiStatus === 'PAdES ERROR'
+                                        ? 'Error de verificación PAdES'
+                                        : 'Pendiente de verificación PAdES'
+                                      : 'Descargar PDF firmado'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* ── 2. Documento Original ── */}
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                                Documento Original
+                              </span>
+                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                                PDF
+                              </span>
+                            </div>
+                            <div className="p-4">
+                              <div className="mb-4">
+                                <p className="text-sm font-semibold text-foreground truncate">
+                                  {document?.nombre || 'Documento'}
+                                </p>
+                                <p className="text-xs mt-1 text-muted-foreground">
+                                  Archivo PDF original del documento
+                                </p>
+                              </div>
+                              <button
+                                onClick={downloadOriginalDocument}
+                                disabled={downloadingOriginal || !document?.file_url}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {downloadingOriginal ? (
+                                  <RefreshCw size={15} className="animate-spin" />
+                                ) : (
+                                  <Download size={15} />
+                                )}
+                                {downloadingOriginal ? 'Descargando…' : 'Descargar PDF'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* ── 3. Constancia General de Firma ── */}
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                                Constancia General de Firma
+                              </span>
+                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                                PDF
+                              </span>
+                            </div>
+                            <div className="p-4">
+                              <div className="mb-4">
+                                <p className="text-sm font-semibold text-foreground">
+                                  Constancia General de Firma Electrónica
+                                </p>
+                                <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
+                                  Documento compartido entre todas las partes del proceso de firma
+                                </p>
+                              </div>
+                              <button
+                                onClick={downloadConstanciaGeneralPdf}
+                                disabled={downloadingConstanciaGeneral}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {downloadingConstanciaGeneral ? (
+                                  <RefreshCw size={15} className="animate-spin" />
+                                ) : (
+                                  <Download size={15} />
+                                )}
+                                {downloadingConstanciaGeneral ? 'Generando…' : 'Descargar PDF'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* ── 4. Constancia NOM-151 ── */}
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                                Constancia NOM-151
+                              </span>
+                              <span
+                                className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  nom151Presentation.verificationStatus === 'verified'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : nom151Presentation.verificationStatus === 'failed'
+                                      ? 'bg-red-50 text-red-700 border-red-200'
+                                      : 'bg-muted text-muted-foreground border-border'
+                                }`}
+                              >
+                                {nom151Presentation.statusLabel}
+                              </span>
+                            </div>
+                            <div className="p-4">
+                              {nom151Data ? (
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+                                    <p className="text-sm font-semibold text-foreground">
+                                      Constancia NOM-151 verificada
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        PSC
+                                      </span>
+                                      <span className="max-w-[190px] text-right text-xs text-foreground">
+                                        {nom151Data.psc_name || 'Nubarium / PSC World'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Folio / identificador
+                                      </span>
+                                      <span className="text-xs font-mono text-foreground truncate max-w-[140px]">
+                                        {nom151Data.nubarium_codigo_validacion}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Fecha emisión
+                                      </span>
+                                      <span className="text-right text-xs text-foreground">
+                                        {new Date(
+                                          nom151Data.issued_at || nom151Data.created_at
+                                        ).toLocaleString('es-MX', {
+                                          year: 'numeric',
+                                          month: 'short',
+                                          day: 'numeric',
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                        })}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Estado de integridad
+                                      </span>
+                                      <span className="text-right text-xs font-medium text-emerald-700">
+                                        {nom151Presentation.integrityLabel}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Entorno del proveedor
+                                      </span>
+                                      <span className="max-w-[190px] text-right text-xs text-muted-foreground">
+                                        {nom151Presentation.providerEnvironmentLabel}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={downloadNom151Pdf}
+                                    disabled={downloadingNom151Pdf}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    {downloadingNom151Pdf ? (
+                                      <RefreshCw size={15} className="animate-spin" />
+                                    ) : (
+                                      <Download size={15} />
+                                    )}
+                                    {downloadingNom151Pdf
+                                      ? 'Generando…'
+                                      : 'Descargar Constancia PDF'}
+                                  </button>
+                                  <button
+                                    onClick={downloadAnsFile}
+                                    disabled={downloadingAns}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    {downloadingAns ? (
+                                      <RefreshCw size={15} className="animate-spin" />
+                                    ) : (
+                                      <Download size={15} />
+                                    )}
+                                    {downloadingAns ? 'Descargando…' : 'Descargar .asn1'}
+                                  </button>
+                                  <a
+                                    href="https://validatuconstancia.pscworld.com/"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border border-border text-foreground hover:bg-muted/50 transition-colors"
+                                  >
+                                    <Shield size={15} />
+                                    Verificar validez en PSC
+                                  </a>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center gap-3 py-4">
+                                  {nom151Generating || nom151Polling ? (
+                                    <RefreshCw
+                                      size={24}
+                                      className="animate-spin text-muted-foreground"
+                                    />
+                                  ) : nom151Error ? (
+                                    <AlertTriangle size={24} className="text-amber-500" />
+                                  ) : (
+                                    <Clock size={24} className="text-muted-foreground" />
+                                  )}
+                                  <p className="text-sm text-center text-muted-foreground">
+                                    {nom151Generating || nom151Polling
+                                      ? 'Generando constancia NOM-151…'
+                                      : nom151Error
+                                        ? 'No fue posible emitir la constancia NOM-151.'
+                                        : !padesBtVerified
+                                          ? 'Pendiente del cierre criptográfico PAdES-B-T.'
+                                          : 'Constancia NOM-151 pendiente de generación.'}
+                                    <br />
+                                    <span className="text-xs">
+                                      {nom151Error ||
+                                        (!padesBtVerified
+                                          ? 'Docubox la solicitará automáticamente al PSC cuando el PDF final sea verificable.'
+                                          : 'Docubox la generará con el proveedor de conservación.')}
+                                    </span>
+                                  </p>
                                 </div>
                               )}
                             </div>
-                            {cryptographicCertification.verificationStatus === 'valid' && (
-                              <>
-                                <button
-                                  onClick={() => downloadCertificationArtifact('certificate')}
-                                  disabled={certificationDownload !== null}
-                                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60"
-                                >
-                                  {certificationDownload === 'certificate' ? <RefreshCw size={15} className="animate-spin" /> : <Download size={15} />}
-                                  {certificationDownload === 'certificate' ? 'Descargando…' : 'Descargar constancia PDF'}
-                                </button>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <button onClick={() => downloadCertificationArtifact('package')} disabled={certificationDownload !== null} className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60">
-                                    {certificationDownload === 'package' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-                                    Paquete técnico
-                                  </button>
-                                  <button onClick={() => downloadCertificationArtifact('certified-pdf')} disabled={certificationDownload !== null} className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60">
-                                    {certificationDownload === 'certified-pdf' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-                                    PDF certificado
-                                  </button>
+                          </div>
+
+                          {/* ── 5. XML de Evidencia ── */}
+                        </>
+                      )}
+                      {activeTab === 'auditoria' && (
+                        <div className="rounded-xl border border-border bg-white shadow-sm">
+                          <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                            <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                              XML de Evidencia
+                            </span>
+                            {xmlEvidenceData ? (
+                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
+                                Generado
+                              </span>
+                            ) : xmlGenerating ? (
+                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                                Generando…
+                              </span>
+                            ) : (
+                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                                Pendiente
+                              </span>
+                            )}
+                          </div>
+                          <div className="p-4">
+                            {xmlEvidenceData ? (
+                              <div className="space-y-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-foreground">
+                                    Paquete de Evidencia XMLDSig
+                                  </p>
+                                  <p className="text-xs mt-1 text-muted-foreground">
+                                    Evidencia criptográfica completa del documento
+                                  </p>
                                 </div>
-                                <div className="border-t border-border/60 pt-3">
-                                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Artefactos tecnicos protegidos</p>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {[
-                                      ['verification-report', 'Reporte de verificacion'],
-                                      ['signing-certificate', 'Certificado X.509'],
-                                      ['certificate-chain', 'Cadena X.509'],
-                                      ['evidence-manifest', 'Manifiesto de evidencia'],
-                                      ...(cryptographicCertification.timestampStatus === 'valid' ? [['timestamp-token', 'Estampa RFC 3161']] : []),
-                                    ].map(([artifact, label]) => (
-                                      <button
-                                        key={artifact}
-                                        onClick={() => downloadCertificationArtifact(artifact as 'verification-report' | 'timestamp-token' | 'signing-certificate' | 'certificate-chain' | 'evidence-manifest')}
-                                        disabled={certificationDownload !== null}
-                                        className="flex min-w-0 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted/50 disabled:opacity-60"
-                                      >
-                                        {certificationDownload === artifact ? <RefreshCw size={14} className="shrink-0 animate-spin" /> : <Download size={14} className="shrink-0" />}
-                                        <span className="truncate">{label}</span>
-                                      </button>
-                                    ))}
+                                <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                      Hash XML
+                                    </span>
+                                    <span className="text-xs font-mono text-foreground truncate max-w-[140px]">
+                                      {xmlEvidenceData.xml_hash_sha256?.slice(0, 16)}…
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                      Generado
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {new Date(
+                                        xmlEvidenceData.xml_generated_at
+                                      ).toLocaleDateString('es-MX', {
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric',
+                                      })}
+                                    </span>
                                   </div>
                                 </div>
-                              </>
-                            )}
-                          </>
-                        ) : !certificationProviderChecked ? (
-                          <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs font-semibold text-muted-foreground">
-                            <RefreshCw size={14} className="animate-spin" />
-                            Comprobando infraestructura criptográfica
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            {!certificationE2eEnabled && (
-                              <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-3 text-xs leading-relaxed text-blue-900">
-                                La ejecucion integral esta deshabilitada para este entorno. La tarjeta seguira mostrando evidencia ya existente sin iniciar nuevas certificaciones.
+                                <button
+                                  onClick={downloadXmlEvidence}
+                                  disabled={downloadingXml}
+                                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  {downloadingXml ? (
+                                    <RefreshCw size={15} className="animate-spin" />
+                                  ) : (
+                                    <Download size={15} />
+                                  )}
+                                  {downloadingXml ? 'Descargando…' : 'Descargar XML'}
+                                </button>
+                                {xmlDownloadError && (
+                                  <p className="text-xs text-red-600" role="alert">
+                                    {xmlDownloadError}
+                                  </p>
+                                )}
                               </div>
-                            )}
-                            {!certificationProviderReady && (
-                              <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 text-amber-900">
-                                <p className="text-xs font-semibold">Capacidades criptográficas aún no configuradas</p>
-                                <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed">
-                                  {Array.from(new Set(certificationProviderMissing)).map((provider, index) => (
-                                    <li key={`cryptographic-provider-${provider}-${index}`} className="flex items-start gap-2">
-                                      <span className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500" />
-                                      <span>{CRYPTOGRAPHIC_PROVIDER_LABELS[provider] || provider}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                                <p className="mt-2 text-[10px] leading-relaxed text-amber-800">Puedes registrar la versión exacta, su hash y la cadena de evidencia sin declarar esas capacidades como válidas.</p>
-                              </div>
-                            )}
-                            <button onClick={generateCryptographicCertification} disabled={certificationLoading || document?.estado !== 'completado' || !certificationE2eEnabled} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
-                              {certificationLoading ? <RefreshCw size={15} className="animate-spin" /> : <Shield size={15} />}
-                              {certificationLoading
-                                ? 'Registrando integridad…'
-                                : !certificationE2eEnabled
-                                  ? 'Ejecucion integral deshabilitada'
-                                  : cryptographicCertification?.status === 'FAILED'
-                                  ? 'Reintentar registro'
-                                  : certificationProviderReady
-                                    ? 'Generar certificación'
-                                    : 'Registrar integridad y evidencia'}
-                            </button>
-                          </div>
-                        )}
-
-                        {(certificationError || cryptographicCertification?.errorMessage) && (
-                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
-                            {certificationError || cryptographicCertification?.errorMessage}
-                          </div>
-                        )}
-                        <p className="text-[10px] leading-relaxed text-muted-foreground">Cada capacidad sólo se marca como operativa cuando existe evidencia técnica verificable de su ejecución.</p>
-                      </div>
-                    </div>
-
-                    {/* ── 1. Constancia General de Firma ── */}
-                    <div className="rounded-xl border border-border bg-white shadow-sm">
-                      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Constancia General de Firma</span>
-                        <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">PDF</span>
-                      </div>
-                      <div className="p-4">
-                        <div className="mb-4">
-                          <p className="text-sm font-semibold text-foreground">Constancia General de Firma Electrónica</p>
-                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">Documento compartido entre todas las partes del proceso de firma</p>
-                        </div>
-                        <button
-                          onClick={downloadConstanciaGeneralPdf}
-                          disabled={downloadingConstanciaGeneral}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {downloadingConstanciaGeneral ? (
-                            <RefreshCw size={15} className="animate-spin" />
-                          ) : (
-                            <Download size={15} />
-                          )}
-                          {downloadingConstanciaGeneral ? 'Generando…' : 'Descargar PDF'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* ── Constancia de auditoría hasta el cierre ── */}
-                    <div className="rounded-xl border border-border bg-white shadow-sm">
-                      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Constancia de auditoría</span>
-                        <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">PDF</span>
-                      </div>
-                      <div className="p-4">
-                        <div className="mb-4">
-                          <p className="text-sm font-semibold text-foreground">Auditoría hasta el cierre del documento</p>
-                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">Registro cronológico de eventos, participantes, resultados y datos técnicos disponibles en la bitácora.</p>
-                        </div>
-                        {document?.estado === 'completado' ? (
-                          <button
-                            onClick={downloadAuditCertificate}
-                            disabled={downloadingAuditCertificate}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {downloadingAuditCertificate ? <RefreshCw size={15} className="animate-spin" /> : <History size={15} />}
-                            {downloadingAuditCertificate ? 'Generando…' : 'Descargar constancia de auditoría'}
-                          </button>
-                        ) : (
-                          <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
-                            <Clock size={15} />
-                            Disponible al completar el documento
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* ── 2. Documento Original ── */}
-                    <div className="rounded-xl border border-border bg-white shadow-sm">
-                      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Documento Original</span>
-                        <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">PDF</span>
-                      </div>
-                      <div className="p-4">
-                        <div className="mb-4">
-                          <p className="text-sm font-semibold text-foreground truncate">{document?.nombre || 'Documento'}</p>
-                          <p className="text-xs mt-1 text-muted-foreground">Archivo PDF original del documento</p>
-                        </div>
-                        <button
-                          onClick={downloadOriginalDocument}
-                          disabled={downloadingOriginal || !document?.file_url}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {downloadingOriginal ? (
-                            <RefreshCw size={15} className="animate-spin" />
-                          ) : (
-                            <Download size={15} />
-                          )}
-                          {downloadingOriginal ? 'Descargando…' : 'Descargar PDF'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* ── 3. Documento derivado del proceso de firma ── */}
-                    <div className="rounded-xl border border-border bg-white shadow-sm">
-                      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Documento firmado</span>
-                        <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          padesUiStatus === 'PAdES VERIFICADO'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : padesUiStatus === 'PAdES ERROR'
-                              ? 'bg-red-50 text-red-700 border-red-200'
-                              : padesUiStatus === 'PAdES EN PROCESO'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : 'bg-muted text-muted-foreground border-border'
-                        }`}>
-                          {padesUiStatus}
-                        </span>
-                      </div>
-                      <div className="p-4">
-                        <div className="mb-4">
-                          <p className="text-sm font-semibold text-foreground truncate">{document?.nombre || 'Documento'} — Firmado</p>
-                          <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
-                            {!document?.sealed_pdf_path
-                              ? 'El PDF final se habilitará al concluir el sellado del documento y validar la huella del archivo original.'
-                              : padesVerified
-                              ? 'PDF con firma PAdES respaldada por la verificación técnica registrada.'
-                              : 'El PDF derivado ya existe, pero la descarga certificada permanece bloqueada hasta que la firma PAdES sea verificable técnicamente.'}
-                          </p>
-                        </div>
-                        {padesVerified && cryptographicCertification && (
-                          <div className="mb-4 overflow-hidden rounded-lg border border-border bg-muted/20">
-                            {[
-                              ['Integridad', cryptographicCertification.integrityStatus === 'valid' && cryptographicCertification.verificationStatus === 'valid' ? 'Válida' : 'No verificada'],
-                              ['Perfil', `${cryptographicCertification.padesProfile} · Verificado`],
-                              ['Proveedor de llave', cryptographicCertification.kmsProvider === 'gcp'
-                                ? cryptographicCertification.kmsProtectionLevel === 'hsm' ? 'Google Cloud HSM' : 'Google Cloud KMS'
-                                : cryptographicCertification.kmsProvider],
-                              ['Nivel de protección', cryptographicCertification.kmsProtectionLevel === 'hsm' ? 'HSM' : cryptographicCertification.kmsProtectionLevel],
-                              ['Entorno criptográfico', cryptographicCertification.cryptoEnvironment],
-                              ['Versión de llave', cryptographicCertification.kmsKeyVersion],
-                              ['Algoritmo', cryptographicCertification.kmsKeySizeBits
-                                ? `RSA ${cryptographicCertification.kmsKeySizeBits} / ${cryptographicCertification.padesDigestAlgorithm}`
-                                : [cryptographicCertification.padesSignatureAlgorithm, cryptographicCertification.padesDigestAlgorithm].filter(Boolean).join(' · ')],
-                              ['Certificado X.509', cryptographicCertification.certificateChainStatus === 'valid'
-                                ? `Cadena válida · Serial ${cryptographicCertification.padesCertificateSerial}`
-                                : cryptographicCertification.padesCertificateSerial],
-                              ['Vínculo SPKI', cryptographicCertification.certificateKeyMatches === true ? 'Válido' : null],
-                              ['Firma criptográfica', cryptographicCertification.padesSigningTimeDeclared || cryptographicCertification.padesVerifiedAt],
-                              ...(cryptographicCertification.padesProfile === 'PAdES-B-T'
-                                ? [
-                                    ['Sello RFC 3161', cryptographicCertification.timestampStatus === 'valid'
-                                      ? `Verificado · ${cryptographicCertification.timestampGenTime}`
-                                      : null],
-                                    ['Proveedor TSA', cryptographicCertification.timestampProvider === 'freetsa'
-                                      ? 'FreeTSA'
-                                      : cryptographicCertification.timestampProvider],
-                                    ['Rol del proveedor', cryptographicCertification.timestampProviderRole],
-                                    ['Serial RFC 3161', cryptographicCertification.timestampSerialNumber],
-                                    ['Policy OID', cryptographicCertification.timestampPolicyOid],
-                                    ['Bundle de confianza', cryptographicCertification.timestampTrustBundleId],
-                                    ['Confianza TSA', cryptographicCertification.timestampTrustStatus === 'valid' ? 'Válida' : null],
-                                  ]
-                                : []),
-                            ].filter(([, value]) => Boolean(value)).map(([label, value], index) => (
-                              <div key={label} className={`px-3 py-2 ${index ? 'border-t border-border/60' : ''}`}>
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-                                <p className="mt-0.5 break-all text-[11px] text-foreground">{value}</p>
-                              </div>
-                            ))}
-                            {cryptographicCertification.padesCertificateFingerprintSha256 && (
-                              <div className="border-t border-border/60 px-3 py-2">
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Huella SHA-256 del certificado</p>
-                                <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">{cryptographicCertification.padesCertificateFingerprintSha256}</p>
-                              </div>
-                            )}
-                            {cryptographicCertification.certificatePublicKeyFingerprintSha256 && (
-                              <div className="border-t border-border/60 px-3 py-2">
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Huella SHA-256 de la llave del certificado</p>
-                                <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">{cryptographicCertification.certificatePublicKeyFingerprintSha256}</p>
-                              </div>
-                            )}
-                            {cryptographicCertification.timestampCertificateFingerprintSha256 && (
-                              <div className="border-t border-border/60 px-3 py-2">
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Huella SHA-256 del certificado TSA</p>
-                                <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">{cryptographicCertification.timestampCertificateFingerprintSha256}</p>
-                              </div>
-                            )}
-                            {cryptographicCertification.timestampTrustRootFingerprintSha256 && (
-                              <div className="border-t border-border/60 px-3 py-2">
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Ancla de confianza TSA</p>
-                                <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">{cryptographicCertification.timestampTrustRootFingerprintSha256}</p>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <button
-                          onClick={downloadSignedPdf}
-                          disabled={downloadingSignedPdf || !document?.sealed_pdf_path || !padesVerified}
-                          title={!document?.sealed_pdf_path
-                            ? 'La descarga estará disponible al finalizar el sellado del documento.'
-                            : !padesVerified
-                              ? 'La descarga certificada requiere una firma PAdES verificada.'
-                              : undefined}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {downloadingSignedPdf ? (
-                            <RefreshCw size={15} className="animate-spin" />
-                          ) : (
-                            <Download size={15} />
-                          )}
-                          {downloadingSignedPdf
-                            ? 'Descargando…'
-                            : !document?.sealed_pdf_path
-                              ? 'PDF firmado en preparación'
-                              : !padesVerified
-                                ? padesUiStatus === 'PAdES ERROR' ? 'Error de verificación PAdES' : 'Pendiente de verificación PAdES'
-                                : 'Descargar PDF firmado'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* ── 4. Constancia NOM-151 ── */}
-                    <div className="rounded-xl border border-border bg-white shadow-sm">
-                      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">Constancia NOM-151</span>
-                        <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          nom151Presentation.verificationStatus === 'verified'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : nom151Presentation.verificationStatus === 'failed'
-                              ? 'bg-red-50 text-red-700 border-red-200'
-                              : 'bg-muted text-muted-foreground border-border'
-                        }`}>
-                          {nom151Presentation.statusLabel}
-                        </span>
-                      </div>
-                      <div className="p-4">
-                        {nom151Data ? (
-                          <div className="space-y-3">
-                            <div className="flex items-center gap-2">
-                              <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
-                              <p className="text-sm font-semibold text-foreground">Constancia NOM-151 verificada</p>
-                            </div>
-                            <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">PSC</span>
-                                <span className="max-w-[190px] text-right text-xs text-foreground">{nom151Data.psc_name || 'Nubarium / PSC World'}</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Folio / identificador</span>
-                                <span className="text-xs font-mono text-foreground truncate max-w-[140px]">{nom151Data.nubarium_codigo_validacion}</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Fecha emisión</span>
-                                <span className="text-right text-xs text-foreground">
-                                  {new Date(nom151Data.issued_at || nom151Data.created_at).toLocaleString('es-MX', {
-                                    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-                                  })}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Estado de integridad</span>
-                                <span className="text-right text-xs font-medium text-emerald-700">
-                                  {nom151Presentation.integrityLabel}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Entorno del proveedor</span>
-                                <span className="max-w-[190px] text-right text-xs text-muted-foreground">
-                                  {nom151Presentation.providerEnvironmentLabel}
-                                </span>
-                              </div>
-                            </div>
-                            <button
-                              onClick={downloadNom151Pdf}
-                              disabled={downloadingNom151Pdf}
-                              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                              {downloadingNom151Pdf ? (
-                                <RefreshCw size={15} className="animate-spin" />
-                              ) : (
-                                <Download size={15} />
-                              )}
-                              {downloadingNom151Pdf ? 'Generando…' : 'Descargar Constancia PDF'}
-                            </button>
-                            <button
-                              onClick={downloadAnsFile}
-                              disabled={downloadingAns}
-                              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                              {downloadingAns ? (
-                                <RefreshCw size={15} className="animate-spin" />
-                              ) : (
-                                <Download size={15} />
-                              )}
-                              {downloadingAns ? 'Descargando…' : 'Descargar .asn1'}
-                            </button>
-                            <a
-                              href="https://validatuconstancia.pscworld.com/"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border border-border text-foreground hover:bg-muted/50 transition-colors"
-                            >
-                              <Shield size={15} />
-                              Verificar validez en PSC
-                            </a>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center gap-3 py-4">
-                            {nom151Generating || nom151Polling ? (
-                              <RefreshCw size={24} className="animate-spin text-muted-foreground" />
-                            ) : nom151Error ? (
-                              <AlertTriangle size={24} className="text-amber-500" />
                             ) : (
-                              <Clock size={24} className="text-muted-foreground" />
-                            )}
-                            <p className="text-sm text-center text-muted-foreground">
-                              {nom151Generating || nom151Polling
-                                ? 'Generando constancia NOM-151…'
-                                : nom151Error
-                                  ? 'No fue posible emitir la constancia NOM-151.'
-                                  : !padesBtVerified
-                                    ? 'Pendiente del cierre criptográfico PAdES-B-T.'
-                                    : 'Constancia NOM-151 pendiente de generación.'}<br />
-                              <span className="text-xs">
-                                {nom151Error || (!padesBtVerified
-                                  ? 'Docubox la solicitará automáticamente al PSC cuando el PDF final sea verificable.'
-                                  : 'Docubox la generará con el proveedor de conservación.')}
-                              </span>
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* ── 5. XML de Evidencia ── */}
-                    <div className="rounded-xl border border-border bg-white shadow-sm">
-                      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                        <span className="text-xs font-bold uppercase tracking-wide text-foreground">XML de Evidencia</span>
-                        {xmlEvidenceData ? (
-                          <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">Generado</span>
-                        ) : xmlGenerating ? (
-                          <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">Generando…</span>
-                        ) : (
-                          <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">Pendiente</span>
-                        )}
-                      </div>
-                      <div className="p-4">
-                        {xmlEvidenceData ? (
-                          <div className="space-y-3">
-                            <div>
-                              <p className="text-sm font-semibold text-foreground">Paquete de Evidencia XMLDSig</p>
-                              <p className="text-xs mt-1 text-muted-foreground">Evidencia criptográfica completa del documento</p>
-                            </div>
-                            <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Hash XML</span>
-                                <span className="text-xs font-mono text-foreground truncate max-w-[140px]">{xmlEvidenceData.xml_hash_sha256?.slice(0, 16)}…</span>
+                              <div className="flex flex-col items-center gap-3 py-4">
+                                {xmlGenerating ? (
+                                  <RefreshCw
+                                    size={24}
+                                    className="animate-spin text-muted-foreground"
+                                  />
+                                ) : xmlGenerationError ? (
+                                  <AlertTriangle size={24} className="text-amber-500" />
+                                ) : (
+                                  <Clock size={24} className="text-muted-foreground" />
+                                )}
+                                <p className="text-sm text-center text-muted-foreground">
+                                  {xmlGenerating
+                                    ? 'Generando XML de evidencia…'
+                                    : xmlGenerationError
+                                      ? 'No fue posible generar el XML de evidencia.'
+                                      : 'XML de evidencia pendiente de generación.'}
+                                  <br />
+                                  <span className="text-xs">
+                                    {xmlGenerationError ||
+                                      'Docubox lo generará a partir del documento y su bitácora.'}
+                                  </span>
+                                </p>
+                                {user?.id === document?.owner_id && !xmlGenerating && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void generateXmlEvidence()}
+                                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-white px-4 text-xs font-semibold text-foreground transition-colors hover:bg-muted/50"
+                                  >
+                                    <RefreshCw size={14} />
+                                    {xmlGenerationError ? 'Reintentar generación' : 'Generar ahora'}
+                                  </button>
+                                )}
                               </div>
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Generado</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {new Date(xmlEvidenceData.xml_generated_at).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })}
-                                </span>
-                              </div>
-                            </div>
-                            <button
-                              onClick={downloadXmlEvidence}
-                              disabled={downloadingXml}
-                              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                              {downloadingXml ? (
-                                <RefreshCw size={15} className="animate-spin" />
-                              ) : (
-                                <Download size={15} />
-                              )}
-                              {downloadingXml ? 'Descargando…' : 'Descargar XML'}
-                            </button>
-                            {xmlDownloadError && (
-                              <p className="text-xs text-red-600" role="alert">
-                                {xmlDownloadError}
-                              </p>
                             )}
                           </div>
-                        ) : (
-                          <div className="flex flex-col items-center gap-3 py-4">
-                            {xmlGenerating ? (
-                              <RefreshCw size={24} className="animate-spin text-muted-foreground" />
-                            ) : xmlGenerationError ? (
-                              <AlertTriangle size={24} className="text-amber-500" />
-                            ) : (
-                              <Clock size={24} className="text-muted-foreground" />
-                            )}
-                            <p className="text-sm text-center text-muted-foreground">
-                              {xmlGenerating
-                                ? 'Generando XML de evidencia…'
-                                : xmlGenerationError
-                                  ? 'No fue posible generar el XML de evidencia.'
-                                  : 'XML de evidencia pendiente de generación.'}<br />
-                              <span className="text-xs">
-                                {xmlGenerationError || 'Docubox lo generará a partir del documento y su bitácora.'}
-                              </span>
-                            </p>
-                            {user?.id === document?.owner_id && !xmlGenerating && (
-                              <button
-                                type="button"
-                                onClick={() => void generateXmlEvidence()}
-                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-white px-4 text-xs font-semibold text-foreground transition-colors hover:bg-muted/50"
-                              >
-                                <RefreshCw size={14} />
-                                {xmlGenerationError ? 'Reintentar generación' : 'Generar ahora'}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -6002,24 +7604,42 @@ export default function VisorDocumentoPage() {
                         {/* Archivo Cargado preview card */}
                         <div className="rounded-xl border border-border bg-white overflow-hidden">
                           <div className="px-4 py-3 border-b border-border/60">
-                            <span className="text-sm font-semibold text-foreground">Archivo Cargado</span>
+                            <span className="text-sm font-semibold text-foreground">
+                              Archivo Cargado
+                            </span>
                           </div>
                           <div className="p-4">
                             <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30">
                               {/* PDF thumbnail */}
                               <div className="w-16 h-20 flex-shrink-0 rounded border border-border overflow-hidden bg-white">
                                 {document?.file_url ? (
-                                  <PdfCanvas fileUrl={document.file_url} page={1} zoom={100} onTotalPages={() => {}} style={{ width: '100%', height: '100%' }} />
+                                  <PdfCanvas
+                                    fileUrl={document.file_url}
+                                    page={1}
+                                    zoom={100}
+                                    onTotalPages={() => {}}
+                                    style={{ width: '100%', height: '100%' }}
+                                  />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center bg-slate-50">
-                                    <FileText size={24} className="text-slate-300" strokeWidth={1} />
+                                    <FileText
+                                      size={24}
+                                      className="text-slate-300"
+                                      strokeWidth={1}
+                                    />
                                   </div>
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold text-foreground truncate">{document?.nombre || 'Documento'}</p>
-                                <p className="text-[10px] text-muted-foreground mt-0.5">{formatSize(document?.file_size)}</p>
-                                <p className="text-[10px] text-muted-foreground">{document?.formato || 'PDF'}</p>
+                                <p className="text-xs font-semibold text-foreground truncate">
+                                  {document?.nombre || 'Documento'}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                  {formatSize(document?.file_size)}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  {document?.formato || 'PDF'}
+                                </p>
                               </div>
                             </div>
                           </div>
@@ -6061,21 +7681,30 @@ export default function VisorDocumentoPage() {
                       <div className="flex flex-col gap-4 p-4">
                         <div className="rounded-xl border border-border bg-white overflow-hidden">
                           <div className="px-4 py-3 border-b border-border/60">
-                            <span className="text-sm font-semibold text-foreground">Fecha de Vencimiento</span>
+                            <span className="text-sm font-semibold text-foreground">
+                              Fecha de Vencimiento
+                            </span>
                           </div>
                           <div className="p-4 flex flex-col gap-3">
                             <div className="flex items-center gap-2">
                               <Calendar size={16} className="text-muted-foreground flex-shrink-0" />
                               <span className="text-sm text-foreground">
-                                {document?.vencimiento ? formatDate(document.vencimiento) : 'Sin fecha de vencimiento configurada'}
+                                {document?.vencimiento
+                                  ? formatDate(document.vencimiento)
+                                  : 'Sin fecha de vencimiento configurada'}
                               </span>
                             </div>
                             {document?.vencimiento && (
-                              <div className={`rounded-lg px-3 py-2 text-xs font-medium ${
-                                new Date(document.vencimiento) < new Date()
-                                  ? 'bg-red-50 text-red-700 border border-red-200' :'bg-green-50 text-green-700 border border-green-200'
-                              }`}>
-                                {new Date(document.vencimiento) < new Date() ? 'Documento vencido' : 'Documento vigente'}
+                              <div
+                                className={`rounded-lg px-3 py-2 text-xs font-medium ${
+                                  new Date(document.vencimiento) < new Date()
+                                    ? 'bg-red-50 text-red-700 border border-red-200'
+                                    : 'bg-green-50 text-green-700 border border-green-200'
+                                }`}
+                              >
+                                {new Date(document.vencimiento) < new Date()
+                                  ? 'Documento vencido'
+                                  : 'Documento vigente'}
                               </div>
                             )}
                           </div>
@@ -6108,7 +7737,9 @@ export default function VisorDocumentoPage() {
                             <div className="flex items-center justify-between mt-2">
                               <select
                                 value={noteVisibilidad}
-                                onChange={(e) => setNoteVisibilidad(e.target.value as 'privada' | 'publica')}
+                                onChange={(e) =>
+                                  setNoteVisibilidad(e.target.value as 'privada' | 'publica')
+                                }
                                 className="text-xs border border-border rounded-lg px-2 py-1 bg-white"
                               >
                                 <option value="publica">Pública</option>
@@ -6116,7 +7747,10 @@ export default function VisorDocumentoPage() {
                               </select>
                               <div className="flex items-center gap-2">
                                 <button
-                                  onClick={() => { setShowNoteForm(false); setNoteContent(''); }}
+                                  onClick={() => {
+                                    setShowNoteForm(false);
+                                    setNoteContent('');
+                                  }}
                                   className="text-xs text-muted-foreground hover:text-foreground px-2 py-1"
                                 >
                                   Cancelar
@@ -6126,7 +7760,11 @@ export default function VisorDocumentoPage() {
                                   disabled={!noteContent.trim() || noteSaving}
                                   className="flex items-center gap-1 text-xs font-semibold text-white bg-primary px-3 py-1.5 rounded-lg disabled:opacity-60"
                                 >
-                                  {noteSaving ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
+                                  {noteSaving ? (
+                                    <RefreshCw size={11} className="animate-spin" />
+                                  ) : (
+                                    <Save size={11} />
+                                  )}
                                   Guardar
                                 </button>
                               </div>
@@ -6136,29 +7774,58 @@ export default function VisorDocumentoPage() {
                         <div className="flex-1 overflow-y-auto px-4 py-3">
                           {notesLoading ? (
                             <div className="flex items-center justify-center h-24 gap-2">
-                              <svg className="animate-spin h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              <svg
+                                className="animate-spin h-4 w-4 text-primary"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                />
                               </svg>
-                              <span className="text-xs text-muted-foreground">Cargando notas...</span>
+                              <span className="text-xs text-muted-foreground">
+                                Cargando notas...
+                              </span>
                             </div>
                           ) : notes.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-40 gap-2">
                               <StickyNote size={32} className="text-slate-200" />
-                              <p className="text-xs text-muted-foreground text-center">Sin notas registradas</p>
+                              <p className="text-xs text-muted-foreground text-center">
+                                Sin notas registradas
+                              </p>
                             </div>
                           ) : (
                             <div className="flex flex-col gap-3">
                               {notes.map((note) => (
-                                <div key={note.id} className="rounded-xl border border-border bg-white p-3 shadow-sm">
+                                <div
+                                  key={note.id}
+                                  className="rounded-xl border border-border bg-white p-3 shadow-sm"
+                                >
                                   <div className="flex items-start justify-between gap-2 mb-2">
                                     <div className="flex items-center gap-1.5">
-                                      <span className="text-xs font-semibold text-foreground">{note.author_nombre}</span>
-                                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${note.visibilidad === 'privada' ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>
+                                      <span className="text-xs font-semibold text-foreground">
+                                        {note.author_nombre}
+                                      </span>
+                                      <span
+                                        className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${note.visibilidad === 'privada' ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}
+                                      >
                                         {note.visibilidad === 'privada' ? 'Privada' : 'Pública'}
                                       </span>
                                       {note.tipo !== 'general' && (
-                                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${note.tipo === 'rechazo' ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+                                        <span
+                                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${note.tipo === 'rechazo' ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'}`}
+                                        >
                                           {note.tipo === 'rechazo' ? 'Rechazo' : 'Cancelación'}
                                         </span>
                                       )}
@@ -6172,8 +7839,12 @@ export default function VisorDocumentoPage() {
                                       </button>
                                     )}
                                   </div>
-                                  <p className="text-xs text-foreground leading-relaxed">{note.content}</p>
-                                  <p className="text-[10px] text-muted-foreground mt-1.5">{formatNoteDate(note.created_at)}</p>
+                                  <p className="text-xs text-foreground leading-relaxed">
+                                    {note.content}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground mt-1.5">
+                                    {formatNoteDate(note.created_at)}
+                                  </p>
                                 </div>
                               ))}
                             </div>
@@ -6192,7 +7863,9 @@ export default function VisorDocumentoPage() {
         {showFullscreenModal && document?.file_url && (
           <div className="fixed inset-0 z-50 flex flex-col bg-gray-100">
             <div className="flex h-16 flex-shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5">
-              <span className="max-w-md truncate text-sm font-600 text-slate-950">{document.nombre}</span>
+              <span className="max-w-md truncate text-sm font-600 text-slate-950">
+                {document.nombre}
+              </span>
               <button
                 onClick={() => setShowFullscreenModal(false)}
                 className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-sm font-500 text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-950"
@@ -6203,10 +7876,17 @@ export default function VisorDocumentoPage() {
             </div>
             <div className="relative flex flex-1 items-start justify-center overflow-auto p-6">
               <div className="relative flex-shrink-0 border border-slate-700 bg-white shadow-[0_18px_48px_rgba(0,0,0,0.35)]">
-                <PdfCanvas fileUrl={document.file_url} page={currentPage} zoom={zoom} onTotalPages={handleTotalPages} />
+                <PdfCanvas
+                  fileUrl={document.file_url}
+                  page={currentPage}
+                  zoom={zoom}
+                  onTotalPages={handleTotalPages}
+                />
                 {showCampos && camposEnPaginaActual.length > 0 && (
                   <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
-                    {camposEnPaginaActual.map((campo, idx) => renderCampoOverlay(campo, idx, 'modal'))}
+                    {camposEnPaginaActual.map((campo, idx) =>
+                      renderCampoOverlay(campo, idx, 'modal')
+                    )}
                   </div>
                 )}
               </div>
@@ -6225,7 +7905,9 @@ export default function VisorDocumentoPage() {
                 {!rejectConfirmStep ? (
                   <>
                     <div className="mb-3">
-                      <label className="text-xs font-semibold text-foreground mb-1 block">Motivo *</label>
+                      <label className="text-xs font-semibold text-foreground mb-1 block">
+                        Motivo *
+                      </label>
                       <select
                         value={rejectMotivo}
                         onChange={(e) => setRejectMotivo(e.target.value)}
@@ -6239,7 +7921,9 @@ export default function VisorDocumentoPage() {
                       </select>
                     </div>
                     <div className="mb-4">
-                      <label className="text-xs font-semibold text-foreground mb-1 block">Descripción (opcional)</label>
+                      <label className="text-xs font-semibold text-foreground mb-1 block">
+                        Descripción (opcional)
+                      </label>
                       <textarea
                         value={rejectDescripcion}
                         onChange={(e) => setRejectDescripcion(e.target.value)}
@@ -6249,20 +7933,48 @@ export default function VisorDocumentoPage() {
                       />
                     </div>
                     <div className="flex gap-2 justify-end">
-                      <button onClick={() => { setShowRejectModal(false); setRejectMotivo(''); setRejectDescripcion(''); }} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted">Cancelar</button>
-                      <button onClick={() => setRejectConfirmStep(true)} disabled={!rejectMotivo} className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50">Continuar</button>
+                      <button
+                        onClick={() => {
+                          setShowRejectModal(false);
+                          setRejectMotivo('');
+                          setRejectDescripcion('');
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={() => setRejectConfirmStep(true)}
+                        disabled={!rejectMotivo}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50"
+                      >
+                        Continuar
+                      </button>
                     </div>
                   </>
                 ) : (
                   <>
                     <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
-                      <p className="text-sm font-semibold text-red-700 mb-1">¿Confirmas el rechazo?</p>
+                      <p className="text-sm font-semibold text-red-700 mb-1">
+                        ¿Confirmas el rechazo?
+                      </p>
                       <p className="text-xs text-red-600">Motivo: {rejectMotivo}</p>
-                      {rejectDescripcion && <p className="text-xs text-red-600 mt-0.5">{rejectDescripcion}</p>}
+                      {rejectDescripcion && (
+                        <p className="text-xs text-red-600 mt-0.5">{rejectDescripcion}</p>
+                      )}
                     </div>
                     <div className="flex gap-2 justify-end">
-                      <button onClick={() => setRejectConfirmStep(false)} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted">Atrás</button>
-                      <button onClick={handleReject} disabled={actionLoading} className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50">
+                      <button
+                        onClick={() => setRejectConfirmStep(false)}
+                        className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted"
+                      >
+                        Atrás
+                      </button>
+                      <button
+                        onClick={handleReject}
+                        disabled={actionLoading}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50"
+                      >
                         {actionLoading ? 'Procesando...' : 'Confirmar rechazo'}
                       </button>
                     </div>
@@ -6281,19 +7993,27 @@ export default function VisorDocumentoPage() {
                 <h3 className="text-base font-bold text-foreground mb-1">Solicitar cambios</h3>
                 <p className="text-sm text-muted-foreground mb-4">Indica qué cambios necesitas</p>
                 <div className="mb-3">
-                  <label className="text-xs font-semibold text-foreground mb-1 block">Tipo de solicitud</label>
+                  <label className="text-xs font-semibold text-foreground mb-1 block">
+                    Tipo de solicitud
+                  </label>
                   <select
                     value={changesTipo}
                     onChange={(e) => setChangesTipo(e.target.value)}
                     className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white"
                   >
-                    <option value="Solicitud de Cambios en el Documento">Solicitud de Cambios en el Documento</option>
-                    <option value="Información Adicional Requerida">Información Adicional Requerida</option>
+                    <option value="Solicitud de Cambios en el Documento">
+                      Solicitud de Cambios en el Documento
+                    </option>
+                    <option value="Información Adicional Requerida">
+                      Información Adicional Requerida
+                    </option>
                     <option value="Corrección de Errores">Corrección de Errores</option>
                   </select>
                 </div>
                 <div className="mb-4">
-                  <label className="text-xs font-semibold text-foreground mb-1 block">Comentario *</label>
+                  <label className="text-xs font-semibold text-foreground mb-1 block">
+                    Comentario *
+                  </label>
                   <textarea
                     value={changesComment}
                     onChange={(e) => setChangesComment(e.target.value)}
@@ -6303,8 +8023,20 @@ export default function VisorDocumentoPage() {
                   />
                 </div>
                 <div className="flex gap-2 justify-end">
-                  <button onClick={() => { setShowChangesModal(false); setChangesComment(''); }} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted">Cancelar</button>
-                  <button onClick={handleRequestChanges} disabled={!changesComment.trim() || actionLoading} className="px-4 py-2 text-sm font-semibold text-white bg-orange-500 rounded-lg hover:bg-orange-600 disabled:opacity-50">
+                  <button
+                    onClick={() => {
+                      setShowChangesModal(false);
+                      setChangesComment('');
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleRequestChanges}
+                    disabled={!changesComment.trim() || actionLoading}
+                    className="px-4 py-2 text-sm font-semibold text-white bg-orange-500 rounded-lg hover:bg-orange-600 disabled:opacity-50"
+                  >
                     {actionLoading ? 'Enviando...' : 'Enviar solicitud'}
                   </button>
                 </div>
@@ -6319,11 +8051,15 @@ export default function VisorDocumentoPage() {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
               <div className="p-6">
                 <h3 className="text-base font-bold text-foreground mb-1">Cancelar documento</h3>
-                <p className="text-sm text-muted-foreground mb-4">Esta acción cancelará el proceso de firma</p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Esta acción cancelará el proceso de firma
+                </p>
                 {!cancelConfirmStep ? (
                   <>
                     <div className="mb-3">
-                      <label className="text-xs font-semibold text-foreground mb-1 block">Motivo *</label>
+                      <label className="text-xs font-semibold text-foreground mb-1 block">
+                        Motivo *
+                      </label>
                       <select
                         value={cancelMotivo}
                         onChange={(e) => setCancelMotivo(e.target.value)}
@@ -6337,7 +8073,9 @@ export default function VisorDocumentoPage() {
                       </select>
                     </div>
                     <div className="mb-4">
-                      <label className="text-xs font-semibold text-foreground mb-1 block">Descripción (opcional)</label>
+                      <label className="text-xs font-semibold text-foreground mb-1 block">
+                        Descripción (opcional)
+                      </label>
                       <textarea
                         value={cancelDescripcion}
                         onChange={(e) => setCancelDescripcion(e.target.value)}
@@ -6347,20 +8085,48 @@ export default function VisorDocumentoPage() {
                       />
                     </div>
                     <div className="flex gap-2 justify-end">
-                      <button onClick={() => { setShowCancelDocModal(false); setCancelMotivo(''); setCancelDescripcion(''); }} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted">Cancelar</button>
-                      <button onClick={() => setCancelConfirmStep(true)} disabled={!cancelMotivo} className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50">Continuar</button>
+                      <button
+                        onClick={() => {
+                          setShowCancelDocModal(false);
+                          setCancelMotivo('');
+                          setCancelDescripcion('');
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={() => setCancelConfirmStep(true)}
+                        disabled={!cancelMotivo}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50"
+                      >
+                        Continuar
+                      </button>
                     </div>
                   </>
                 ) : (
                   <>
                     <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
-                      <p className="text-sm font-semibold text-red-700 mb-1">¿Confirmas la cancelación?</p>
+                      <p className="text-sm font-semibold text-red-700 mb-1">
+                        ¿Confirmas la cancelación?
+                      </p>
                       <p className="text-xs text-red-600">Motivo: {cancelMotivo}</p>
-                      {cancelDescripcion && <p className="text-xs text-red-600 mt-0.5">{cancelDescripcion}</p>}
+                      {cancelDescripcion && (
+                        <p className="text-xs text-red-600 mt-0.5">{cancelDescripcion}</p>
+                      )}
                     </div>
                     <div className="flex gap-2 justify-end">
-                      <button onClick={() => setCancelConfirmStep(false)} className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted">Atrás</button>
-                      <button onClick={handleCancelDocument} disabled={actionLoading} className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50">
+                      <button
+                        onClick={() => setCancelConfirmStep(false)}
+                        className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted"
+                      >
+                        Atrás
+                      </button>
+                      <button
+                        onClick={handleCancelDocument}
+                        disabled={actionLoading}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50"
+                      >
                         {actionLoading ? 'Procesando...' : 'Confirmar cancelación'}
                       </button>
                     </div>
@@ -6373,7 +8139,12 @@ export default function VisorDocumentoPage() {
 
         {/* Edit Modals */}
         {editModal === 'datos' && (
-          <EditModal title="Editar datos del documento" onClose={() => setEditModal(null)} onSave={handleSaveDocumentData} saving={editSaving}>
+          <EditModal
+            title="Editar datos del documento"
+            onClose={() => setEditModal(null)}
+            onSave={handleSaveDocumentData}
+            saving={editSaving}
+          >
             <div className="p-6">
               <StepSubir
                 file={editFile}
@@ -6388,7 +8159,12 @@ export default function VisorDocumentoPage() {
           </EditModal>
         )}
         {editModal === 'archivo' && (
-          <EditModal title="Reemplazar archivo" onClose={() => setEditModal(null)} onSave={handleSaveFile} saving={editSaving}>
+          <EditModal
+            title="Reemplazar archivo"
+            onClose={() => setEditModal(null)}
+            onSave={handleSaveFile}
+            saving={editSaving}
+          >
             <div className="p-6">
               <StepSubir
                 file={editFile}
@@ -6403,7 +8179,12 @@ export default function VisorDocumentoPage() {
           </EditModal>
         )}
         {editModal === 'participantes' && (
-          <EditModal title="Editar participantes" onClose={() => setEditModal(null)} onSave={handleSaveParticipants} saving={editSaving}>
+          <EditModal
+            title="Editar participantes"
+            onClose={() => setEditModal(null)}
+            onSave={handleSaveParticipants}
+            saving={editSaving}
+          >
             <div className="p-6">
               <StepParticipantes
                 participants={editParticipants}
@@ -6417,7 +8198,12 @@ export default function VisorDocumentoPage() {
           </EditModal>
         )}
         {editModal === 'ajustes' && (
-          <EditModal title="Editar ajustes y campos" onClose={() => setEditModal(null)} onSave={handleSaveSettings} saving={editSaving}>
+          <EditModal
+            title="Editar ajustes y campos"
+            onClose={() => setEditModal(null)}
+            onSave={handleSaveSettings}
+            saving={editSaving}
+          >
             <div className="p-6">
               <StepAjustes
                 settings={editSettings}
@@ -6431,7 +8217,6 @@ export default function VisorDocumentoPage() {
             </div>
           </EditModal>
         )}
-
       </div>
     </AppLayout>
   );

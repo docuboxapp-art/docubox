@@ -4,7 +4,16 @@ import { createServerClient } from '@supabase/ssr';
 import { createServiceClient } from '@/lib/supabase/server';
 
 // Terminal sub_estados stored in documentos.participantes JSONB
-const TERMINAL_SUB_ESTADOS = ['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'];
+const TERMINAL_SUB_ESTADOS = [
+  'firmo',
+  'firmado',
+  'aprobo',
+  'aprobado',
+  'rechazo',
+  'rechazado',
+  'cancelo',
+  'cancelado',
+];
 // Capitalized versions used in some legacy entries
 const TERMINAL_STATUSES_CAPITALIZED = ['Firmado', 'Rechazado', 'Aprobado', 'Cancelado'];
 
@@ -15,13 +24,24 @@ function isTerminalSubEstado(sub: string): boolean {
 
 function mapSubEstadoToDisplay(sub: string): string {
   switch ((sub ?? '').toLowerCase()) {
-    case 'firmo': case 'firmado': return 'Firmado';
-    case 'aprobo': case 'aprobado': return 'Aprobado';
-    case 'rechazo': case 'rechazado': return 'Rechazado';
-    case 'cancelo': case 'cancelado': return 'Cancelado';
-    case 'en_revision': return 'En revisión';
-    case 'sin_revisar': return 'Sin revisión';
-    default: return sub ?? 'En revisión';
+    case 'firmo':
+    case 'firmado':
+      return 'Firmado';
+    case 'aprobo':
+    case 'aprobado':
+      return 'Aprobado';
+    case 'rechazo':
+    case 'rechazado':
+      return 'Rechazado';
+    case 'cancelo':
+    case 'cancelado':
+      return 'Cancelado';
+    case 'en_revision':
+      return 'En revisión';
+    case 'sin_revisar':
+      return 'Sin revisión';
+    default:
+      return sub ?? 'En revisión';
   }
 }
 
@@ -37,7 +57,10 @@ export async function GET(request: NextRequest) {
 
     if (bearerToken) {
       const serviceClient = createServiceClient();
-      const { data: { user: tokenUser }, error: tokenError } = await serviceClient.auth.getUser(bearerToken);
+      const {
+        data: { user: tokenUser },
+        error: tokenError,
+      } = await serviceClient.auth.getUser(bearerToken);
       if (!tokenError && tokenUser) {
         user = tokenUser;
       }
@@ -51,7 +74,9 @@ export async function GET(request: NextRequest) {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
           cookies: {
-            getAll() { return cookieStore.getAll(); },
+            getAll() {
+              return cookieStore.getAll();
+            },
             setAll(cookiesToSet) {
               try {
                 cookiesToSet.forEach(({ name, value, options }) =>
@@ -62,7 +87,10 @@ export async function GET(request: NextRequest) {
           },
         }
       );
-      const { data: { user: cookieUser }, error: authError } = await anonClient.auth.getUser();
+      const {
+        data: { user: cookieUser },
+        error: authError,
+      } = await anonClient.auth.getUser();
       if (authError || !cookieUser) {
         return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
       }
@@ -78,13 +106,15 @@ export async function GET(request: NextRequest) {
     // Fetch all non-deleted documents using service role (bypasses RLS)
     const { data: docs, error } = await supabase
       .from('documentos')
-      .select(`
+      .select(
+        `
         id,
         documento_id,
         owner_id,
         nombre,
         descripcion,
         estado,
+        priority,
         es_urgente,
         fecha_vencimiento,
         tiene_vencimiento,
@@ -98,9 +128,12 @@ export async function GET(request: NextRequest) {
         en_espera_descripcion,
         participantes,
         campos_solicitados,
+        legal_hold,
+        legal_hold_status,
         tipo_documento_id,
         tipo_documento:tipo_documento_id ( nombre )
-      `)
+      `
+      )
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
@@ -129,9 +162,8 @@ export async function GET(request: NextRequest) {
     // ── VISIBILITY FILTER: For sequential/mixed orders, only show if participant is marked visible ──
     const myDocs = (docs ?? []).filter((doc: any) => {
       const parts: any[] = doc.participantes ?? [];
-      const myEntry = parts.find((p: any) =>
-        (p.email ?? '').toLowerCase() === userEmail ||
-        p.user_id === userId
+      const myEntry = parts.find(
+        (p: any) => (p.email ?? '').toLowerCase() === userEmail || p.user_id === userId
       );
       if (!myEntry) return false;
 
@@ -151,27 +183,44 @@ export async function GET(request: NextRequest) {
       const parts: any[] = doc.participantes ?? [];
 
       // Find my participant entry: match by email first, then by user_id
-      const myEntry = parts.find((p: any) =>
-        (p.email ?? '').toLowerCase() === userEmail
-      ) ?? parts.find((p: any) =>
-        p.user_id === userId
-      );
+      const myEntry =
+        parts.find((p: any) => (p.email ?? '').toLowerCase() === userEmail) ??
+        parts.find((p: any) => p.user_id === userId);
 
       const totalSigs = parts.length;
-      const doneSigs = parts.filter((p: any) => isTerminalSubEstado(p.sub_estado ?? p.status ?? '')).length;
+      const doneSigs = parts.filter((p: any) =>
+        isTerminalSubEstado(p.sub_estado ?? p.status ?? '')
+      ).length;
 
       // Map estado to frontend status
       let status: string;
       switch (doc.estado) {
-        case 'en_proceso': status = 'en-progreso'; break;
-        case 'en_espera': status = 'en-espera'; break;
-        case 'completado': status = 'completado'; break;
-        case 'vencido': status = 'vencido'; break;
-        case 'cancelado': status = 'cancelado'; break;
-        case 'rechazado': status = 'rechazado'; break;
-        case 'pendiente': status = 'pendiente'; break;
-        case 'borrador': status = 'pendiente'; break;
-        default: status = 'en-progreso';
+        case 'en_proceso':
+          status = 'en-progreso';
+          break;
+        case 'en_espera':
+          status = 'en-espera';
+          break;
+        case 'completado':
+          status = 'completado';
+          break;
+        case 'vencido':
+          status = 'vencido';
+          break;
+        case 'cancelado':
+          status = 'cancelado';
+          break;
+        case 'rechazado':
+          status = 'rechazado';
+          break;
+        case 'pendiente':
+          status = 'pendiente';
+          break;
+        case 'borrador':
+          status = 'pendiente';
+          break;
+        default:
+          status = 'en-progreso';
       }
 
       // Determine my participation status from sub_estado
@@ -185,10 +234,9 @@ export async function GET(request: NextRequest) {
 
       // Filter campos_solicitados to only those assigned to this participant
       const allCampos: any[] = doc.campos_solicitados ?? [];
-      const myCampos = allCampos.filter((c: any) =>
-        !c.participantId ||
-        c.participantId === myParticipantId ||
-        c.participantId === userId
+      const myCampos = allCampos.filter(
+        (c: any) =>
+          !c.participantId || c.participantId === myParticipantId || c.participantId === userId
       );
 
       const ownerProfile = ownerMap[doc.owner_id] ?? null;
@@ -202,7 +250,7 @@ export async function GET(request: NextRequest) {
         senderName: ownerProfile?.full_name || 'Remitente',
         senderEmail: ownerProfile?.email || '',
         status,
-        priority: doc.es_urgente ? 'Urgente' : 'Normal',
+        priority: doc.priority === 'urgent' || doc.es_urgente ? 'Urgente' : doc.priority === 'high' ? 'Alta' : 'Normal',
         receivedAt: doc.created_at,
         expiresAt: doc.fecha_vencimiento ?? null,
         tieneVencimiento: !!(doc.fecha_vencimiento || doc.tiene_vencimiento),
@@ -235,6 +283,7 @@ export async function GET(request: NextRequest) {
         myTipoFirma,
         myParticipantId,
         camposSolicitados: myCampos,
+        legalHoldActive: doc.legal_hold === true || doc.legal_hold_status === 'ACTIVE',
       };
     });
 

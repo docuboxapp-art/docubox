@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
+
 import { isValidWorkspaceSlug, normalizeWorkspaceSlug } from '@/lib/workspaces/slug';
 
 export const runtime = 'nodejs';
@@ -361,13 +363,25 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmamax4272.builtwithrocket.new';
+      const siteUrl = req.nextUrl.origin;
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const registrationSignature = serviceRoleKey
+        ? crypto
+            .createHmac('sha256', serviceRoleKey)
+            .update(`${userId}\n${normalizedEmail}`)
+            .digest('hex')
+        : null;
       await fetch(`${siteUrl}/api/registro/send-verification-email`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(registrationSignature
+            ? { 'x-docubox-registration-signature': registrationSignature }
+            : {}),
+        },
         body: JSON.stringify({
           userId,
-          email,
+          email: normalizedEmail,
           fullName: fullName || nombre || '',
         }),
       });

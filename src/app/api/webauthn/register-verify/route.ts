@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyRegistrationResponse } from '@simplewebauthn/server';
 import { createClient } from '@supabase/supabase-js';
 import { getWebAuthnChallengeKey, getWebAuthnRequestConfig } from '@/lib/webauthn/request-config';
+import {
+  createPlatformPasskeyProof,
+  PLATFORM_PASSKEY_COOKIE,
+  platformPasskeyCookieOptions,
+} from '@/lib/security/platform-passkey-proof';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -118,7 +123,13 @@ export async function POST(req: NextRequest) {
     // Delete challenge
     await supabase.from('webauthn_challenges').delete().eq('key', challengeKey);
 
-    return NextResponse.json({ success: true, credentialId: regCredential.id });
+    const response = NextResponse.json({ success: true, credentialId: regCredential.id });
+    response.cookies.set(
+      PLATFORM_PASSKEY_COOKIE,
+      createPlatformPasskeyProof(user.id),
+      platformPasskeyCookieOptions()
+    );
+    return response;
   } catch (err) {
     console.error('[webauthn/register-verify]', err);
     return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });

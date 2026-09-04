@@ -6,17 +6,31 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-function isAdditionalMetadataColumnMissing(error: { code?: string | null; message?: string | null } | null) {
+const LEGAL_HOLD_REASONS = new Set([
+  'litigio',
+  'requerimiento_autoridad',
+  'auditoria_investigacion',
+  'prevencion_eliminacion',
+  'otro',
+]);
+
+function getLegalHoldReason(value: unknown) {
+  return typeof value === 'string' && LEGAL_HOLD_REASONS.has(value) ? value : null;
+}
+
+function isAdditionalMetadataColumnMissing(
+  error: { code?: string | null; message?: string | null } | null
+) {
   if (!error) return false;
   const message = error.message || '';
-  return error.code === 'PGRST204' || (/additional_metadata/i.test(message) && /schema cache|does not exist/i.test(message));
+  return (
+    error.code === 'PGRST204' ||
+    (/additional_metadata/i.test(message) && /schema cache|does not exist/i.test(message))
+  );
 }
 
 async function isAdditionalMetadataColumnReady() {
-  const result = await supabaseAdmin
-    .from('documentos')
-    .select('additional_metadata')
-    .limit(1);
+  const result = await supabaseAdmin.from('documentos').select('additional_metadata').limit(1);
 
   if (result.error) {
     if (isAdditionalMetadataColumnMissing(result.error)) return false;
@@ -65,7 +79,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
@@ -95,12 +112,13 @@ export async function POST(req: NextRequest) {
       fechaVencimiento,
       codigoAccesoEnabled,
       proteccionAdicionalEnabled,
-      legalHoldEnabled,
       impedirImpresion,
       evitarCopiaTexto,
       impedirModificacion,
       impedirExtraccion,
       evitarMontaje,
+      legalHoldEnabled,
+      legalHoldReason,
       recordatorioFrecuencia,
       urgente,
       publico,
@@ -131,15 +149,46 @@ export async function POST(req: NextRequest) {
       resolvedWorkspaceId = await resolvePersonalWorkspace(user.id);
     }
 
-    const resolvedOtherDocumentType = tipoDocumentoId === '__otros__'
-      ? otroTipoDocumento || null
-      : (tipoDocumentoId ? null : 'No especificado');
-    const normalizedAdditionalMetadata = Array.isArray(additionalMetadata) ? additionalMetadata : [];
+    const resolvedOtherDocumentType =
+      tipoDocumentoId === '__otros__'
+        ? otroTipoDocumento || null
+        : tipoDocumentoId
+          ? null
+          : 'No especificado';
+    const normalizedAdditionalMetadata = Array.isArray(additionalMetadata)
+      ? additionalMetadata
+      : [];
+    const requestedLegalHold = legalHoldEnabled === true;
+    const validLegalHoldReason = getLegalHoldReason(legalHoldReason);
+
+    if (requestedLegalHold && !validLegalHoldReason) {
+      return NextResponse.json(
+        {
+          error: 'Selecciona un motivo válido para aplicar Legal Hold.',
+          code: 'LEGAL_HOLD_REASON_REQUIRED',
+        },
+        { status: 400 }
+      );
+    }
+
+    let legalHoldAlreadyActive = false;
+    if (requestedLegalHold && draftDbId) {
+      const existing = await supabaseAdmin
+        .from('documentos')
+        .select('legal_hold,legal_hold_status')
+        .eq('id', draftDbId)
+        .eq('owner_id', user.id)
+        .maybeSingle();
+      if (existing.error) throw existing.error;
+      legalHoldAlreadyActive =
+        existing.data?.legal_hold === true || existing.data?.legal_hold_status === 'ACTIVE';
+    }
 
     if (normalizedAdditionalMetadata.length > 0 && !(await isAdditionalMetadataColumnReady())) {
       return NextResponse.json(
         {
-          error: 'Los metadatos adicionales requieren actualizar la base de datos antes de guardar el borrador.',
+          error:
+            'Los metadatos adicionales requieren actualizar la base de datos antes de guardar el borrador.',
           code: 'ADDITIONAL_METADATA_MIGRATION_REQUIRED',
         },
         { status: 503 }
@@ -169,7 +218,6 @@ export async function POST(req: NextRequest) {
       fecha_vencimiento: fechaVencimiento || null,
       tiene_codigo_acceso: codigoAccesoEnabled ?? false,
       proteccion_firmado: proteccionAdicionalEnabled ?? false,
-      legal_hold: legalHoldEnabled ?? false,
       impedir_impresion: impedirImpresion ?? false,
       evitar_copia_texto: evitarCopiaTexto ?? false,
       impedir_modificacion: impedirModificacion ?? false,
@@ -177,6 +225,7 @@ export async function POST(req: NextRequest) {
       evitar_montaje: evitarMontaje ?? false,
       recordatorio_frecuencia: recordatorioFrecuencia || null,
       es_urgente: urgente ?? false,
+      priority: urgente === true ? 'urgent' : 'normal',
       es_publico: publico ?? false,
       sello_digital: selloDigital ?? false,
       estampa_autenticacion: estampaAutenticacion ?? false,
@@ -185,6 +234,17 @@ export async function POST(req: NextRequest) {
     };
     if (normalizedAdditionalMetadata.length > 0) {
       payload.additional_metadata = normalizedAdditionalMetadata;
+    }
+    if (requestedLegalHold && !legalHoldAlreadyActive) {
+      const now = new Date().toISOString();
+      payload.legal_hold = true;
+      payload.legal_hold_status = 'ACTIVE';
+      payload.legal_hold_reason = validLegalHoldReason;
+      payload.legal_hold_created_at = now;
+      payload.legal_hold_created_by = user.id;
+      payload.legal_hold_released_at = null;
+      payload.legal_hold_released_by = null;
+      payload.legal_hold_release_reason = null;
     }
 
     let result: { data: unknown; error: any } = { data: null, error: null };
@@ -216,6 +276,40 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error('[DOCUBOX][borrador] Error saving borrador:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (requestedLegalHold && !legalHoldAlreadyActive && data) {
+      const document = data as { id: string; workspace_id?: string | null };
+      const { error: auditError } = await supabaseAdmin
+        .from('document_lifecycle_audit_events')
+        .insert({
+          workspace_id: document.workspace_id || resolvedWorkspaceId,
+          document_id: document.id,
+          actor_id: user.id,
+          actor_email: user.email || null,
+          action: 'LEGAL_HOLD_ACTIVATED',
+          previous_state: { legal_hold: false, legal_hold_status: 'NONE' },
+          new_state: {
+            legal_hold: true,
+            legal_hold_status: 'ACTIVE',
+            reason: validLegalHoldReason,
+          },
+          reason: validLegalHoldReason,
+          result: 'success',
+          request_id: req.headers.get('x-request-id') || null,
+          ip_address: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+          user_agent: req.headers.get('user-agent') || null,
+        });
+      if (auditError) {
+        console.error('[DOCUBOX][borrador] Legal Hold audit failed:', auditError.message);
+        return NextResponse.json(
+          {
+            error: 'No fue posible registrar la auditoría de Legal Hold.',
+            code: 'LEGAL_HOLD_AUDIT_FAILED',
+          },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({ data, success: true });

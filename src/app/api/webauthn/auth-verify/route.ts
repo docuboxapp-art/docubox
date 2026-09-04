@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { getWebAuthnChallengeKey, getWebAuthnRequestConfig } from '@/lib/webauthn/request-config';
+import {
+  createPlatformPasskeyProof,
+  PLATFORM_PASSKEY_COOKIE,
+  platformPasskeyCookieOptions,
+} from '@/lib/security/platform-passkey-proof';
 
 export async function POST(req: NextRequest) {
   try {
@@ -188,6 +193,11 @@ export async function POST(req: NextRequest) {
       path: '/',
       maxAge: 10 * 60 * 60 + 300,
     });
+    successResponse.cookies.set(
+      PLATFORM_PASSKEY_COOKIE,
+      createPlatformPasskeyProof(userId),
+      platformPasskeyCookieOptions()
+    );
     return successResponse;
   } catch (err) {
     console.error('[webauthn/auth-verify]', err);

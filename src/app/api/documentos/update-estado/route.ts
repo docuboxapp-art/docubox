@@ -7,7 +7,10 @@ import {
   sendParticipationCompletionEmailToAll,
   sendOwnerParticipantActionEmail,
 } from '@/lib/emailNotifications';
-import { createNotificationServer, createNotificationsForUsersServer } from '@/lib/notificationsInApp';
+import {
+  createNotificationServer,
+  createNotificationsForUsersServer,
+} from '@/lib/notificationsInApp.server';
 
 /**
  * POST /api/documentos/update-estado
@@ -31,19 +34,26 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          getAll() { return cookieStore.getAll(); },
+          getAll() {
+            return cookieStore.getAll();
+          },
           setAll(cookiesToSet) {
             try {
               cookiesToSet.forEach(({ name, value, options }) =>
                 cookieStore.set(name, value, options)
               );
-            } catch {}
+            } catch {
+              // Server components can reject cookie writes after response streaming.
+            }
           },
         },
       }
     );
 
-    const { data: { user }, error: authError } = await anonClient.auth.getUser();
+    const {
+      data: { user },
+      error: authError,
+    } = await anonClient.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
@@ -61,7 +71,7 @@ export async function POST(req: NextRequest) {
     // 3. Verify the user is the owner OR a participant of this document
     const { data: doc, error: docError } = await supabase
       .from('documentos')
-      .select('id, owner_id, estado, participantes, nombre')
+      .select('id, owner_id, workspace_id, estado, participantes, nombre')
       .eq('id', documentoId)
       .single();
 
@@ -76,8 +86,23 @@ export async function POST(req: NextRequest) {
       (p: any) => (p.email ?? '').toLowerCase() === userEmail
     );
 
+    let isWorkspaceManager = false;
+    if (!isOwner && doc.workspace_id) {
+      const { data: membership } = await supabase
+        .from('workspace_members')
+        .select('role')
+        .eq('workspace_id', doc.workspace_id)
+        .eq('user_id', user.id)
+        .in('role', ['owner', 'admin'])
+        .maybeSingle();
+      isWorkspaceManager = Boolean(membership);
+    }
+
     if (!isOwner && !isParticipant) {
-      return NextResponse.json({ error: 'Sin permisos para modificar este documento' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'Sin permisos para modificar este documento' },
+        { status: 403 }
+      );
     }
 
     const now = new Date().toISOString();
@@ -114,9 +139,23 @@ export async function POST(req: NextRequest) {
       const updatedParticipantes = participantes.map((p: any) => {
         const pEmail = (p.email ?? '').toLowerCase();
         if (pEmail === userEmail) {
-          return { ...p, sub_estado: 'rechazo', fecha_rechazo: now, motivo_rechazo: motivo ?? undefined };
+          return {
+            ...p,
+            sub_estado: 'rechazo',
+            fecha_rechazo: now,
+            motivo_rechazo: motivo ?? undefined,
+          };
         }
-        const terminalStates = ['firmo', 'firmado', 'rechazo', 'rechazado', 'aprobo', 'aprobado', 'cancelo', 'cancelado'];
+        const terminalStates = [
+          'firmo',
+          'firmado',
+          'rechazo',
+          'rechazado',
+          'aprobo',
+          'aprobado',
+          'cancelo',
+          'cancelado',
+        ];
         const currentSub = (p.sub_estado ?? '').toLowerCase();
         if (!terminalStates.includes(currentSub)) {
           return { ...p, sub_estado: 'cancelo' };
@@ -133,11 +172,26 @@ export async function POST(req: NextRequest) {
       if (doc.owner_id && doc.owner_id !== user.id) {
         createNotificationServer({
           userId: doc.owner_id,
-          type: 'document',
+          type: 'alert',
+          eventType: 'document.rejected',
+          category: 'SIGNATURE',
+          severity: 'warning',
           title: 'Participante rechazó el documento',
           description: `${actorName} ha rechazado "${docNombre}".${motivo ? ` Motivo: ${motivo}` : ''}`,
           priority: 'alta',
-          metadata: { documentoId, documentName: docNombre, participantEmail: user.email, action: 'rechazado' },
+          workspaceId: doc.workspace_id,
+          actorUserId: user.id,
+          entityType: 'document',
+          entityId: documentoId,
+          actionUrl: `/visor-documento/${documentoId}`,
+          actionLabel: 'Ver documento',
+          deduplicationKey: `document.rejected:${documentoId}:${user.id}:${now}`,
+          metadata: {
+            documentoId,
+            documentName: docNombre,
+            participantEmail: user.email,
+            action: 'rechazado',
+          },
         }).catch(() => {});
       }
 
@@ -145,28 +199,61 @@ export async function POST(req: NextRequest) {
       createNotificationServer({
         userId: user.id,
         type: 'document',
+        eventType: 'document.rejected',
+        category: 'SIGNATURE',
+        severity: 'warning',
         title: 'Has rechazado el documento',
         description: `Tu participación en "${docNombre}" ha concluido con rechazo.`,
         priority: 'media',
+        workspaceId: doc.workspace_id,
+        actorUserId: user.id,
+        entityType: 'document',
+        entityId: documentoId,
+        actionUrl: `/visor-documento/${documentoId}`,
+        actionLabel: 'Ver documento',
+        deduplicationKey: `document.rejected.confirmation:${documentoId}:${user.id}:${now}`,
         metadata: { documentoId, documentName: docNombre, action: 'rechazado' },
       }).catch(() => {});
 
       // ── In-app: notify other non-terminal participants ────────────────────
-      const terminalStates = ['firmo', 'firmado', 'rechazo', 'rechazado', 'aprobo', 'aprobado', 'cancelo', 'cancelado'];
+      const terminalStates = [
+        'firmo',
+        'firmado',
+        'rechazo',
+        'rechazado',
+        'aprobo',
+        'aprobado',
+        'cancelo',
+        'cancelado',
+      ];
       const otherParticipantUserIds = participantes
         .filter((p: any) => {
           const pEmail = (p.email ?? '').toLowerCase();
-          return pEmail !== userEmail && !terminalStates.includes((p.sub_estado ?? '').toLowerCase()) && p.user_id;
+          return (
+            pEmail !== userEmail &&
+            !terminalStates.includes((p.sub_estado ?? '').toLowerCase()) &&
+            p.user_id
+          );
         })
         .map((p: any) => p.user_id)
         .filter((id: string) => id !== user.id && id !== doc.owner_id);
 
       if (otherParticipantUserIds.length > 0) {
         createNotificationsForUsersServer(otherParticipantUserIds, {
-          type: 'document',
+          type: 'alert',
+          eventType: 'workflow.cancelled',
+          category: 'WORKFLOW',
+          severity: 'warning',
           title: 'Documento cancelado por rechazo',
           description: `El documento "${docNombre}" fue rechazado por un participante y el proceso ha sido detenido.`,
           priority: 'alta',
+          workspaceId: doc.workspace_id,
+          actorUserId: user.id,
+          entityType: 'document',
+          entityId: documentoId,
+          actionUrl: `/visor-documento/${documentoId}`,
+          actionLabel: 'Ver documento',
+          deduplicationKey: `workflow.cancelled:${documentoId}:${now}`,
           metadata: { documentoId, documentName: docNombre, action: 'cancelado' },
         }).catch(() => {});
       }
@@ -182,7 +269,11 @@ export async function POST(req: NextRequest) {
           completedAt: now,
           participationMotivo: motivo,
         }).catch((err) => {
-          console.error('[update-estado] Failed to send rechazado email to rejector:', rejector.email, err?.message || err);
+          console.error(
+            '[update-estado] Failed to send rechazado email to rejector:',
+            rejector.email,
+            err?.message || err
+          );
         });
       }
 
@@ -198,7 +289,10 @@ export async function POST(req: NextRequest) {
           motivo,
           completedAt: now,
         }).catch((err) => {
-          console.error('[update-estado] Failed to send owner rechazado notification email:', err?.message || err);
+          console.error(
+            '[update-estado] Failed to send owner rechazado notification email:',
+            err?.message || err
+          );
         });
       }
 
@@ -214,14 +308,29 @@ export async function POST(req: NextRequest) {
           participationStatus: 'cancelado',
           completedAt: now,
         }).catch((err) => {
-          console.error('[update-estado] Failed to send cancelado emails to other participants:', err?.message || err);
+          console.error(
+            '[update-estado] Failed to send cancelado emails to other participants:',
+            err?.message || err
+          );
         });
       }
 
-      return NextResponse.json({ success: true, estado: 'rechazado', participantes: updatedParticipantes });
+      return NextResponse.json({
+        success: true,
+        estado: 'rechazado',
+        participantes: updatedParticipantes,
+      });
     }
 
     if (action === 'cancelar') {
+      if (!isOwner && !isWorkspaceManager) {
+        return NextResponse.json(
+          {
+            error: 'Solo el propietario o un administrador autorizado puede cancelar el documento.',
+          },
+          { status: 403 }
+        );
+      }
       const { error: updateError } = await supabase
         .from('documentos')
         .update({
@@ -236,7 +345,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: updateError.message }, { status: 500 });
       }
 
-      const terminalStates = ['firmo', 'firmado', 'rechazo', 'rechazado', 'aprobo', 'aprobado', 'cancelo', 'cancelado'];
+      const terminalStates = [
+        'firmo',
+        'firmado',
+        'rechazo',
+        'rechazado',
+        'aprobo',
+        'aprobado',
+        'cancelo',
+        'cancelado',
+      ];
       const updatedParticipantes = participantes.map((p: any) => {
         const currentSub = (p.sub_estado ?? '').toLowerCase();
         if (!terminalStates.includes(currentSub)) {
@@ -254,11 +372,26 @@ export async function POST(req: NextRequest) {
       if (doc.owner_id && doc.owner_id !== user.id) {
         createNotificationServer({
           userId: doc.owner_id,
-          type: 'document',
+          type: 'alert',
+          eventType: 'workflow.cancelled',
+          category: 'WORKFLOW',
+          severity: 'warning',
           title: 'Participante canceló el documento',
           description: `${actorName} ha cancelado "${docNombre}".${motivo ? ` Motivo: ${motivo}` : ''}`,
           priority: 'alta',
-          metadata: { documentoId, documentName: docNombre, participantEmail: user.email, action: 'cancelado' },
+          workspaceId: doc.workspace_id,
+          actorUserId: user.id,
+          entityType: 'document',
+          entityId: documentoId,
+          actionUrl: `/visor-documento/${documentoId}`,
+          actionLabel: 'Ver documento',
+          deduplicationKey: `workflow.cancelled.owner:${documentoId}:${user.id}:${now}`,
+          metadata: {
+            documentoId,
+            documentName: docNombre,
+            participantEmail: user.email,
+            action: 'cancelado',
+          },
         }).catch(() => {});
       }
 
@@ -269,10 +402,20 @@ export async function POST(req: NextRequest) {
 
       if (participantUserIds.length > 0) {
         createNotificationsForUsersServer(participantUserIds, {
-          type: 'document',
+          type: 'alert',
+          eventType: 'workflow.cancelled',
+          category: 'WORKFLOW',
+          severity: 'warning',
           title: 'Documento cancelado',
           description: `El documento "${docNombre}" ha sido cancelado. Tu participación ha concluido.`,
           priority: 'alta',
+          workspaceId: doc.workspace_id,
+          actorUserId: user.id,
+          entityType: 'document',
+          entityId: documentoId,
+          actionUrl: `/visor-documento/${documentoId}`,
+          actionLabel: 'Ver documento',
+          deduplicationKey: `workflow.cancelled:${documentoId}:${now}`,
           metadata: { documentoId, documentName: docNombre, action: 'cancelado' },
         }).catch(() => {});
       }
@@ -281,9 +424,19 @@ export async function POST(req: NextRequest) {
       createNotificationServer({
         userId: user.id,
         type: 'document',
+        eventType: 'workflow.cancelled',
+        category: 'WORKFLOW',
+        severity: 'warning',
         title: 'Has cancelado el documento',
         description: `El documento "${docNombre}" ha sido cancelado.`,
         priority: 'media',
+        workspaceId: doc.workspace_id,
+        actorUserId: user.id,
+        entityType: 'document',
+        entityId: documentoId,
+        actionUrl: `/visor-documento/${documentoId}`,
+        actionLabel: 'Ver documento',
+        deduplicationKey: `workflow.cancelled.confirmation:${documentoId}:${user.id}:${now}`,
         metadata: { documentoId, documentName: docNombre, action: 'cancelado' },
       }).catch(() => {});
 
@@ -295,7 +448,10 @@ export async function POST(req: NextRequest) {
         completedAt: now,
         participationMotivo: motivo,
       }).catch((err) => {
-        console.error('[update-estado] Failed to send cancelado emails on cancelar action:', err?.message || err);
+        console.error(
+          '[update-estado] Failed to send cancelado emails on cancelar action:',
+          err?.message || err
+        );
       });
 
       // Email to owner when a participant (not owner) cancels
@@ -310,7 +466,10 @@ export async function POST(req: NextRequest) {
           motivo,
           completedAt: now,
         }).catch((err) => {
-          console.error('[update-estado] Failed to send owner cancelado notification email:', err?.message || err);
+          console.error(
+            '[update-estado] Failed to send owner cancelado notification email:',
+            err?.message || err
+          );
         });
       }
 

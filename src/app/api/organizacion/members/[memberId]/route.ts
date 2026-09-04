@@ -5,7 +5,7 @@ import {
   organizationApiFailure,
   requireOrganizationReauthentication,
 } from '@/lib/organization/server';
-import { createNotificationServer } from '@/lib/notificationsInApp';
+import { createNotificationServer } from '@/lib/notificationsInApp.server';
 import { createServiceClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';

@@ -61,6 +61,7 @@ interface EmailPayload {
   xmlEvidenciaPath?: string;
   nom151ConstanciaPath?: string;
   padesPath?: string;
+  idempotencyKey?: string;
 }
 
 // ─── Shared layout helpers ────────────────────────────────────────────────────
@@ -1232,6 +1233,16 @@ serve(async (req) => {
     }
 
     const payload = sanitizePayload(rawPayload);
+    const idempotencyKey = rawPayload.idempotencyKey?.trim();
+    if (
+      idempotencyKey &&
+      (idempotencyKey.length > 256 || !/^[A-Za-z0-9_:/.-]+$/.test(idempotencyKey))
+    ) {
+      return new Response(JSON.stringify({ error: "Invalid idempotency key" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
 
     if (!RESEND_API_KEY) {
       console.error("[send-email-notifications] RESEND_API_KEY is not set as a Supabase Edge Function secret.");
@@ -1259,6 +1270,7 @@ serve(async (req) => {
       headers: {
         "Authorization": `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
       },
       body: JSON.stringify({
         from: FROM_EMAIL,

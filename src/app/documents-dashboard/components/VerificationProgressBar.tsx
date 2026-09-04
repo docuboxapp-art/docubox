@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mail,
-  Phone,
   Fingerprint,
   CheckCircle2,
   Loader2,
@@ -15,7 +14,6 @@ import {
   ShieldAlert,
   QrCode,
   Clock,
-  Shield,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -31,7 +29,7 @@ interface VerificationStatus {
   all_verified: boolean;
 }
 
-type ActiveStep = 'email' | 'phone' | 'biometric' | null;
+type ActiveStep = 'email' | 'biometric' | null;
 
 type EmailSendState = {
   sending: boolean;
@@ -85,8 +83,6 @@ export default function VerificationProgressBar() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [userPhone, setUserPhone] = useState<string | null>(null);
-  const [totpEnabled, setTotpEnabled] = useState(false);
 
   // Collapsed/expanded state for the whole bar
   const [expanded, setExpanded] = useState(false);
@@ -158,8 +154,6 @@ export default function VerificationProgressBar() {
         .select('phone')
         .eq('id', user.id)
         .single();
-      if (profile?.phone) setUserPhone(profile.phone);
-
       let { data: vs } = await supabase
         .from('user_verification_status')
         .select('*')
@@ -235,18 +229,6 @@ export default function VerificationProgressBar() {
         setStatus(vs as VerificationStatus);
       }
 
-      // Check TOTP status
-      try {
-        const { data: totpData } = await supabase
-          .from('user_totp_settings')
-          .select('is_enabled')
-          .eq('user_id', user.id)
-          .eq('is_enabled', true)
-          .maybeSingle();
-        setTotpEnabled(!!totpData);
-      } catch {
-        setTotpEnabled(false);
-      }
     } catch {
       // silent
     } finally {
@@ -449,13 +431,9 @@ export default function VerificationProgressBar() {
 
   // ── Required: email + biometric (2/2) ─────────────────────────────────────
   const requiredCompleted =
-    (status.email_verified ? 1 : 0) +
-    (status.phone_verified ? 1 : 0) +
-    (status.biometric_verified ? 1 : 0);
-  const requiredTotal = 3;
-  const requiredAllDone =
-    status.all_verified ||
-    (status.email_verified && status.phone_verified && status.biometric_verified);
+    (status.email_verified ? 1 : 0) + (status.biometric_verified ? 1 : 0);
+  const requiredTotal = 2;
+  const requiredAllDone = status.email_verified && status.biometric_verified;
 
   const requiredSteps: StepDef[] = [
     {
@@ -464,14 +442,6 @@ export default function VerificationProgressBar() {
       sublabel: userEmail ? `${userEmail.substring(0, 3)}***` : 'Verificar email',
       icon: <Mail size={14} />,
       verified: status.email_verified,
-    },
-    {
-      id: 'phone',
-      label: 'Número telefónico',
-      sublabel: userPhone ? `***${userPhone.slice(-4)}` : 'Sin teléfono registrado',
-      icon: <Phone size={14} />,
-      verified: status.phone_verified,
-      disabled: !status.phone_verified,
     },
     {
       id: 'biometric',
@@ -486,18 +456,7 @@ export default function VerificationProgressBar() {
     },
   ];
 
-  const optionalSteps: StepDef[] = [
-    {
-      id: null,
-      label: 'Autenticación M2FA',
-      sublabel: totpEnabled ? 'App autenticadora activa' : 'Doble factor de autenticación',
-      icon: <Shield size={14} />,
-      verified: totpEnabled,
-      disabled: false,
-    },
-  ];
-
-  // Hide bar only when all 3 required steps are done
+  // Hide the prompt once both currently required methods are complete.
   if (!loading && requiredAllDone) return null;
 
   const minutes = Math.floor(qrTimeLeft / 60);
@@ -804,22 +763,6 @@ export default function VerificationProgressBar() {
             </div>
           </div>
 
-          {/* Optional steps */}
-          <div className="border-t border-gray-200 pt-3">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">
-              Métodos opcionales
-            </p>
-            <div className="flex items-start gap-2">
-              {optionalSteps.map((step, i) => (
-                <React.Fragment key={step.id ?? step.label}>
-                  {renderStepCard(step)}
-                  {i < optionalSteps.length - 1 && (
-                    <div className="w-3 h-px bg-gray-200 flex-shrink-0 mt-4" />
-                  )}
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
         </div>
       )}
     </div>

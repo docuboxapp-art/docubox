@@ -17,6 +17,18 @@ import {
   upgradePadesBbCertificationToBt,
 } from '@/lib/certification/product-integration';
 import { CertificationError } from '@/lib/certification/types';
+import {
+  issueNom151ForVerifiedPadesBt,
+  Nom151ServiceError,
+} from '@/lib/nom151/service';
+import {
+  DocumentCompletionEmailError,
+  queueVerifiedDocumentCompletionEmails,
+} from '@/lib/notifications/document-completion';
+import {
+  documentEncryptionPolicy,
+  readDocumentStorageObject,
+} from '@/lib/crypto/document-encryption';
 
 function normalize(value: unknown) {
   return String(value || '')
@@ -46,6 +58,116 @@ function metadataValue(record: unknown, ...keys: string[]) {
   if (!record || typeof record !== 'object') return null;
   const source = record as Record<string, unknown>;
   return firstText(...keys.map((key) => source[key]));
+}
+
+async function recordCertificationStage(
+  service: ReturnType<typeof createServiceClient>,
+  input: {
+    documentId: string;
+    actorId: string;
+    action: string;
+    details?: Record<string, unknown>;
+  }
+) {
+  const result = await service.from('document_activity_log').insert({
+    documento_id: input.documentId,
+    actor_id: input.actorId,
+    actor_nombre: 'Docubox Certification Backend',
+    actor_email: '',
+    action: input.action,
+    category: 'certificacion',
+    details: input.details || {},
+  });
+  if (result.error) {
+    throw new CertificationError(
+      'CERTIFICATION_AUDIT_FAILED',
+      'No se pudo registrar la etapa de certificación.',
+      500
+    );
+  }
+}
+
+async function finalizeAfterVerifiedPadesBt(
+  service: ReturnType<typeof createServiceClient>,
+  input: {
+    documentId: string;
+    actorId: string;
+    certificationUuid: string;
+    storagePath: string;
+    sha256: string;
+  }
+) {
+  await recordCertificationStage(service, {
+    documentId: input.documentId,
+    actorId: input.actorId,
+    action: 'pades_bt_verified',
+    details: {
+      certification_uuid: input.certificationUuid,
+      certified_pdf_sha256: input.sha256,
+      certified_pdf_persisted: true,
+    },
+  });
+  await recordCertificationStage(service, {
+    documentId: input.documentId,
+    actorId: input.actorId,
+    action: 'nom151_requested',
+    details: { certification_uuid: input.certificationUuid },
+  });
+  const nom151 = await issueNom151ForVerifiedPadesBt(service, {
+    documentId: input.documentId,
+    requestedBy: input.actorId,
+  });
+  await recordCertificationStage(service, {
+    documentId: input.documentId,
+    actorId: input.actorId,
+    action: 'nom151_verified',
+    details: {
+      certification_uuid: input.certificationUuid,
+      nom151_record_id: nom151.recordId,
+      provider: nom151.provider,
+      environment: nom151.environment,
+      production_trusted: nom151.productionTrusted,
+      artifact_sha256: nom151.artifactSha256,
+    },
+  });
+  const email = await queueVerifiedDocumentCompletionEmails(service, {
+    documentId: input.documentId,
+    certificationUuid: input.certificationUuid,
+    requestedBy: input.actorId,
+  });
+  await recordCertificationStage(service, {
+    documentId: input.documentId,
+    actorId: input.actorId,
+    action: 'certification_completed',
+    details: {
+      certification_uuid: input.certificationUuid,
+      nom151_record_id: nom151.recordId,
+      email_delivery_statuses: email.deliveries.map((delivery) => delivery.status),
+    },
+  });
+  return {
+    nom151: {
+      record_id: nom151.recordId,
+      status: nom151.status,
+      verification_status: nom151.verificationStatus,
+      environment: nom151.environment,
+      production_trusted: nom151.productionTrusted,
+      provider: nom151.provider,
+      psc_name: nom151.pscName,
+      folio: nom151.folio,
+      issued_at: nom151.verification.issuedAt,
+      already_issued: nom151.alreadyIssued,
+    },
+    email: {
+      complete: email.complete,
+      deliveries: email.deliveries.map((delivery) => ({
+        id: delivery.id,
+        recipient_sha256: delivery.recipientEmailSha256,
+        status: delivery.status,
+        provider_message_id: delivery.providerMessageId,
+      })),
+    },
+  };
 }
 
 async function authenticatedUser(request: NextRequest) {
@@ -104,10 +226,17 @@ export async function POST(
       );
 
     const requiredPadesLevel = getRequiredPadesLevel();
+    if (requiredPadesLevel !== 'B-T') {
+      throw new CertificationError(
+        'FINAL_CERTIFICATION_REQUIRES_PADES_BT',
+        'La finalización certificada requiere PADES_REQUIRED_LEVEL=B-T.',
+        503
+      );
+    }
     const verifiedCertification = await service
       .from('document_certifications')
       .select(
-        'certification_uuid,certified_pdf_sha256,pades_profile,pdf_signature_status,certificate_status,timestamp_status,verification_status,pades_verified_at'
+        'certification_uuid,certified_pdf_path,certified_pdf_sha256,pades_profile,pdf_signature_status,certificate_status,timestamp_status,verification_status,pades_verified_at'
       )
       .eq('document_id', document.id)
       .eq('status', 'COMPLETED')
@@ -122,9 +251,8 @@ export async function POST(
     const existingVerifiedCertification = verifiedCertification.data;
     const existingProfileAccepted =
       existingVerifiedCertification &&
-      (requiredPadesLevel === 'B-B' ||
-        (existingVerifiedCertification.pades_profile === 'PAdES-B-T' &&
-          existingVerifiedCertification.timestamp_status === 'valid'));
+      existingVerifiedCertification.pades_profile === 'PAdES-B-T' &&
+      existingVerifiedCertification.timestamp_status === 'valid';
     if (
       document.sealed_pdf_path &&
       document.sealed_pdf_hash &&
@@ -132,6 +260,13 @@ export async function POST(
       existingProfileAccepted &&
       existingVerifiedCertification?.certified_pdf_sha256 === document.sealed_pdf_hash
     ) {
+      const finalized = await finalizeAfterVerifiedPadesBt(service, {
+        documentId: document.id,
+        actorId: user.id,
+        certificationUuid: existingVerifiedCertification.certification_uuid,
+        storagePath: document.sealed_pdf_path,
+        sha256: document.sealed_pdf_hash,
+      });
       return NextResponse.json({
         ok: true,
         already_sealed: true,
@@ -140,10 +275,10 @@ export async function POST(
         pades_profile: existingVerifiedCertification.pades_profile,
         pades_verified: true,
         certification_uuid: existingVerifiedCertification.certification_uuid,
+        ...finalized,
       });
     }
     if (
-      requiredPadesLevel === 'B-T' &&
       document.sealed_pdf_path &&
       document.sealed_pdf_hash &&
       existingVerifiedCertification?.pades_profile === 'PAdES-B-B' &&
@@ -152,6 +287,13 @@ export async function POST(
       const upgraded = await upgradePadesBbCertificationToBt(service, {
         documentId: document.id,
         triggeredBy: user.id,
+      });
+      const finalized = await finalizeAfterVerifiedPadesBt(service, {
+        documentId: document.id,
+        actorId: user.id,
+        certificationUuid: upgraded.certificationUuid,
+        storagePath: upgraded.storagePath,
+        sha256: upgraded.sha256,
       });
       return NextResponse.json({
         ok: true,
@@ -164,6 +306,7 @@ export async function POST(
         pades_verified_at: upgraded.verifiedAt,
         certification_uuid: upgraded.certificationUuid,
         timestamp: upgraded.timestamp || null,
+        ...finalized,
       });
     }
     if (document.sealed_pdf_path?.includes('/pades/')) {
@@ -214,10 +357,25 @@ export async function POST(
         { error: 'La estampa solo está disponible para documentos PDF.' },
         { status: 422 }
       );
-    const original = await service.storage.from('documents').download(storagePath);
-    if (original.error || !original.data)
-      throw original.error || new Error('No se pudo abrir el documento original.');
-    const originalBytes = new Uint8Array(await original.data.arrayBuffer());
+    const encryptionEnabled = documentEncryptionPolicy().enabled;
+    const original = encryptionEnabled
+      ? await readDocumentStorageObject({
+          service,
+          storageBucket: 'documents',
+          storagePath,
+          expectedPlaintextSha256: document.file_hash_sha256,
+          userId: user.id,
+          requestId: request.headers.get('x-request-id'),
+        })
+      : null;
+    const originalBytes = original
+      ? new Uint8Array(original.plaintext)
+      : await (async () => {
+          const downloaded = await service.storage.from('documents').download(storagePath);
+          if (downloaded.error || !downloaded.data)
+            throw downloaded.error || new Error('No se pudo abrir el documento original.');
+          return new Uint8Array(await downloaded.data.arrayBuffer());
+        })();
     const originalHash = createHash('sha256').update(originalBytes).digest('hex');
     if (document.file_hash_sha256 && normalize(document.file_hash_sha256) !== originalHash) {
       return NextResponse.json(
@@ -239,7 +397,11 @@ export async function POST(
       certificationResult,
       legalEvidenceResult,
     ] = await Promise.all([
-      service.from('profiles').select('full_name,email').eq('id', document.owner_id).maybeSingle(),
+      service
+        .from('user_profiles')
+        .select('full_name,email')
+        .eq('id', document.owner_id)
+        .maybeSingle(),
       service
         .from('document_versions')
         .select('version_number')
@@ -422,13 +584,27 @@ export async function POST(
     let metadataSnapshotSha256: string | null;
 
     if (document.sealed_pdf_path && !document.sealed_pdf_path.includes('/pades/')) {
-      const existingVisual = await service.storage
-        .from('documents')
-        .download(document.sealed_pdf_path);
-      if (existingVisual.error || !existingVisual.data) {
-        throw existingVisual.error || new Error('No se pudo recuperar el PDF visual existente.');
-      }
-      visualPdfBytes = new Uint8Array(await existingVisual.data.arrayBuffer());
+      const existingVisual = encryptionEnabled
+        ? await readDocumentStorageObject({
+            service,
+            storageBucket: 'documents',
+            storagePath: document.sealed_pdf_path,
+            expectedPlaintextSha256: document.sealed_pdf_hash,
+            userId: user.id,
+            requestId: request.headers.get('x-request-id'),
+          })
+        : null;
+      visualPdfBytes = existingVisual
+        ? new Uint8Array(existingVisual.plaintext)
+        : await (async () => {
+            const downloaded = await service.storage
+              .from('documents')
+              .download(document.sealed_pdf_path);
+            if (downloaded.error || !downloaded.data) {
+              throw downloaded.error || new Error('No se pudo recuperar el PDF visual existente.');
+            }
+            return new Uint8Array(await downloaded.data.arrayBuffer());
+          })();
       visualPdfSha256 = createHash('sha256').update(visualPdfBytes).digest('hex');
       if (document.sealed_pdf_hash && normalize(document.sealed_pdf_hash) !== visualPdfSha256) {
         return NextResponse.json(
@@ -479,6 +655,13 @@ export async function POST(
       signaturesApplied: stampsApplied,
       requiredLevel: requiredPadesLevel,
     });
+    if (pades.profile !== 'PAdES-B-T' || !pades.timestamp) {
+      throw new CertificationError(
+        'PADES_BT_VERIFICATION_REQUIRED',
+        'La cadena de finalización no obtuvo un PAdES-B-T verificable.',
+        409
+      );
+    }
 
     await service.from('document_activity_log').insert({
       documento_id: document.id,
@@ -504,6 +687,14 @@ export async function POST(
       },
     });
 
+    const finalized = await finalizeAfterVerifiedPadesBt(service, {
+      documentId: document.id,
+      actorId: user.id,
+      certificationUuid: pades.certificationUuid,
+      storagePath: pades.storagePath,
+      sha256: pades.sha256,
+    });
+
     return NextResponse.json({
       ok: true,
       sha256: pades.sha256,
@@ -516,6 +707,7 @@ export async function POST(
       pades_verified: true,
       pades_verified_at: pades.verifiedAt,
       timestamp: pades.timestamp || null,
+      ...finalized,
     });
   } catch (error) {
     console.error('[DOCUBOX][seal-signatures] No se pudo generar el PDF firmado:', error);
@@ -523,6 +715,18 @@ export async function POST(
       return NextResponse.json(
         { error: error.message, code: error.code },
         { status: error.httpStatus }
+      );
+    }
+    if (error instanceof Nom151ServiceError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+    if (error instanceof DocumentCompletionEmailError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
       );
     }
     return NextResponse.json(

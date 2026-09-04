@@ -4,6 +4,7 @@ import { pdflibAddPlaceholder } from '@signpdf/placeholder-pdf-lib';
 import { SUBFILTER_ETSI_CADES_DETACHED } from '@signpdf/utils';
 import * as asn1js from 'asn1js';
 import {
+  AlgorithmIdentifier,
   Certificate,
   ContentInfo,
   CryptoEngine,
@@ -27,6 +28,11 @@ import { timestampSignatureDigest } from './timestamp';
 
 export type PadesProfile = 'PAdES-B-B' | 'PAdES-B-T';
 const RFC3161_SIGNATURE_TIMESTAMP_OID = '1.2.840.113549.1.9.16.2.14';
+const CMS_CONTENT_TYPE_ATTRIBUTE_OID = '1.2.840.113549.1.9.3';
+const CMS_MESSAGE_DIGEST_ATTRIBUTE_OID = '1.2.840.113549.1.9.4';
+const CMS_SIGNING_TIME_ATTRIBUTE_OID = '1.2.840.113549.1.9.5';
+const CADES_SIGNING_CERTIFICATE_V2_OID = '1.2.840.113549.1.9.16.2.47';
+const SHA256_OID = '2.16.840.1.101.3.4.2.1';
 
 export type PreparePdfInput = {
   pdfBytes: Uint8Array;
@@ -149,6 +155,53 @@ function certificateFromPem(pem: string) {
   return new Certificate({ schema: parsed.result });
 }
 
+async function cadesSignedAttributes(
+  certificate: Certificate,
+  signedBytes: Uint8Array,
+  signingTime: Date
+) {
+  const [messageDigest, certificateDigest] = await Promise.all([
+    nodeWebCrypto.subtle.digest('SHA-256', toArrayBuffer(signedBytes)),
+    nodeWebCrypto.subtle.digest('SHA-256', certificate.toSchema().toBER(false)),
+  ]);
+  const signingCertificateV2 = new asn1js.Sequence({
+    value: [
+      new asn1js.Sequence({
+        value: [
+          new asn1js.Sequence({
+            value: [
+              new AlgorithmIdentifier({ algorithmId: SHA256_OID }).toSchema(),
+              new asn1js.OctetString({ valueHex: certificateDigest }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+  const attributes = [
+    new Attribute({
+      type: CMS_CONTENT_TYPE_ATTRIBUTE_OID,
+      values: [new asn1js.ObjectIdentifier({ value: SignedData.ID_DATA })],
+    }),
+    new Attribute({
+      type: CMS_MESSAGE_DIGEST_ATTRIBUTE_OID,
+      values: [new asn1js.OctetString({ valueHex: messageDigest })],
+    }),
+    new Attribute({
+      type: CMS_SIGNING_TIME_ATTRIBUTE_OID,
+      values: [new asn1js.UTCTime({ valueDate: signingTime })],
+    }),
+    new Attribute({
+      type: CADES_SIGNING_CERTIFICATE_V2_OID,
+      values: [signingCertificateV2],
+    }),
+  ];
+  attributes.sort((left, right) =>
+    Buffer.compare(buffer(left.toSchema().toBER(false)), buffer(right.toSchema().toBER(false)))
+  );
+  return new SignedAndUnsignedAttributes({ type: 0, attributes });
+}
+
 function locateSignature(pdf: Uint8Array) {
   const text = buffer(pdf).toString('latin1');
   const byteRangeMatch = /\/ByteRange\s*\[\s*0\s+([^\s\]]+)\s+([^\s\]]+)\s+([^\s\]]+)\s*\]/.exec(
@@ -199,13 +252,14 @@ function writeByteRange(pdf: Uint8Array) {
   }
   const original = byteRangeMatch[0];
   // @signpdf prefixes the placeholder with a slash in some PDF serializers.
-  // Preserve that exact syntax and replace only the three reserved tokens.
+  // Replace it with whitespace of the same width so ByteRange contains direct
+  // number objects without changing any subsequent PDF offsets.
   let replacement = original;
   tokens.forEach((token, index) => {
-    const prefix = token.startsWith('/') ? '/' : '';
+    const padding = token.startsWith('/') ? ' ' : '';
     replacement = replacement.replace(
       token,
-      `${prefix}${String(numbers[index]).padStart(widths[index], '0')}`
+      `${padding}${String(numbers[index]).padStart(widths[index], '0')}`
     );
   });
   if (replacement.length !== original.length)
@@ -240,11 +294,14 @@ function validateByteRange(pdf: Uint8Array, byteRange: [number, number, number, 
 
 function parseByteRange(pdf: Uint8Array) {
   const located = locateSignature(pdf);
-  const values = [
-    located.byteRangeMatch[1],
-    located.byteRangeMatch[2],
-    located.byteRangeMatch[3],
-  ].map((value) => Number(value.replace(/^\//, '')));
+  const tokens = [located.byteRangeMatch[1], located.byteRangeMatch[2], located.byteRangeMatch[3]];
+  if (tokens.some((value) => !/^\d+$/.test(value)))
+    throw new CertificationError(
+      'PADES_BYTERANGE_INVALID',
+      'El ByteRange del PDF debe contener objetos numericos directos.',
+      422
+    );
+  const values = tokens.map(Number);
   if (values.some((value) => !Number.isSafeInteger(value) || value < 0))
     throw new CertificationError(
       'PADES_BYTERANGE_INVALID',
@@ -411,6 +468,12 @@ export class PadesBbPdfSignatureProvider implements PdfSignatureProvider {
     const keyMetadata = await this.keyManagement.getKeyMetadata(signingKeyId);
     const certificate = certificateResult.certificate;
     const pkijsCertificate = certificateFromPem(certificate.pem);
+    const signingTime = new Date();
+    const signedAttrs = await cadesSignedAttributes(
+      pkijsCertificate,
+      input.prepared.signedBytes,
+      signingTime
+    );
     const signedData = new SignedData({
       version: 1,
       encapContentInfo: new EncapsulatedContentInfo({ eContentType: SignedData.ID_DATA }),
@@ -422,6 +485,7 @@ export class PadesBbPdfSignatureProvider implements PdfSignatureProvider {
             issuer: pkijsCertificate.issuer,
             serialNumber: pkijsCertificate.serialNumber,
           }),
+          signedAttrs,
         }),
       ],
     });
@@ -524,7 +588,7 @@ export class PadesBbPdfSignatureProvider implements PdfSignatureProvider {
       certificateFingerprintSha256: certificate.fingerprintSha256,
       signatureAlgorithm: remoteSignature.algorithm,
       digestAlgorithm: 'SHA-256',
-      signingTimeDeclared: new Date().toISOString(),
+      signingTimeDeclared: signingTime.toISOString(),
       keyId: remoteSignature.keyId,
       keyVersion: remoteSignature.keyVersion,
       timestamp,

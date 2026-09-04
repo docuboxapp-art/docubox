@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createNotificationServer } from '@/lib/notificationsInApp.server';
 import { OrganizationApiError, organizationApiFailure } from '@/lib/organization/server';
 import {
   authorizeCollaborationRequest,
@@ -266,7 +267,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
     );
     const current = await service
       .from('tareas')
-      .select('id,title,estado,is_blocked')
+      .select('id,title,estado,is_blocked,assigned_to,created_by')
       .eq('id', taskId)
       .eq('workspace_id', input.workspace_id)
       .maybeSingle();
@@ -338,16 +339,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
       .select('full_name')
       .eq('id', user.id)
       .maybeSingle();
-    await service
-      .from('task_history')
-      .insert({
-        tarea_id: taskId,
-        workspace_id: input.workspace_id,
-        action: `Tarea: ${input.action}`,
-        actor_id: user.id,
-        actor_name: profile.data?.full_name || user.email || 'Usuario',
-        metadata: { reason: input.reason || null },
-      });
+    await service.from('task_history').insert({
+      tarea_id: taskId,
+      workspace_id: input.workspace_id,
+      action: `Tarea: ${input.action}`,
+      actor_id: user.id,
+      actor_name: profile.data?.full_name || user.email || 'Usuario',
+      metadata: { reason: input.reason || null },
+    });
     await recordCollaborationAudit(service, {
       workspaceId: input.workspace_id,
       actorUserId: user.id,
@@ -357,6 +356,71 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
       summary: `Se actualizo la tarea ${result.data.title}.`,
       payload: { action: input.action, reason: input.reason || null },
     });
+    const assignee = result.data.assigned_to as string | null;
+    const taskRecipient = assignee && assignee !== user.id ? assignee : null;
+    const eventType =
+      input.action === 'reassign'
+        ? 'task.reassigned'
+        : input.action === 'block'
+          ? 'task.blocked'
+          : input.action === 'unblock'
+            ? 'task.unblocked'
+            : input.action === 'complete'
+              ? 'task.completed'
+              : input.action === 'cancel'
+                ? 'task.cancelled'
+                : null;
+    if (taskRecipient && eventType) {
+      const messages: Record<
+        string,
+        { title: string; description: string; priority: 'alta' | 'media' | 'baja' }
+      > = {
+        'task.reassigned': {
+          title: 'Se te reasignó una tarea',
+          description: `Ahora eres responsable de "${result.data.title}".`,
+          priority: 'media',
+        },
+        'task.blocked': {
+          title: 'Una tarea asignada está bloqueada',
+          description: `"${result.data.title}" requiere atención antes de continuar.`,
+          priority: 'alta',
+        },
+        'task.unblocked': {
+          title: 'Una tarea fue desbloqueada',
+          description: `Puedes continuar con "${result.data.title}".`,
+          priority: 'media',
+        },
+        'task.completed': {
+          title: 'Tarea completada',
+          description: `La tarea "${result.data.title}" fue completada.`,
+          priority: 'baja',
+        },
+        'task.cancelled': {
+          title: 'Tarea cancelada',
+          description: `La tarea "${result.data.title}" fue cancelada.`,
+          priority: 'media',
+        },
+      };
+      const message = messages[eventType];
+      void createNotificationServer({
+        userId: taskRecipient,
+        type: eventType === 'task.blocked' || eventType === 'task.cancelled' ? 'alert' : 'task',
+        eventType,
+        title: message.title,
+        description: message.description,
+        priority: message.priority,
+        workspaceId: input.workspace_id,
+        actorUserId: user.id,
+        entityType: 'task',
+        entityId: taskId,
+        actionUrl: `/colabora/tareas/${taskId}`,
+        actionLabel: 'Abrir tarea',
+        metadata: { taskId, reason: input.reason || null },
+        deduplicationKey: `${eventType}:${taskId}:${result.data.optimistic_version}:${taskRecipient}`,
+      }).catch((error) => {
+        console.error('[tasks] State notification could not be created', error);
+      });
+    }
     return Response.json({ success: true, data: result.data });
   } catch (error) {
     return organizationApiFailure(error);

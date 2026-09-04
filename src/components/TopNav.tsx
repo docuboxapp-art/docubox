@@ -59,6 +59,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace, type Workspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
+import { updateNotifications } from '@/lib/notifications/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSidebar } from '@/contexts/SidebarContext';
@@ -80,6 +81,7 @@ const avatarMenuItems = [
   { icon: UserCircle, label: 'Mi perfil', href: '/mi-perfil' },
   { icon: Store, label: 'App Market', href: '/app-market' },
   { icon: Settings, label: 'Configuración', href: '/configuracion' },
+  { icon: Bell, label: 'Notificaciones', href: '/notificaciones' },
   { icon: CreditCard, label: 'Plan y Facturación', href: '/facturacion' },
 ];
 
@@ -202,6 +204,8 @@ export default function TopNav() {
       time: string;
       read: boolean;
       type?: string;
+      action_url?: string | null;
+      action_label?: string | null;
     }>
   >([]);
 
@@ -218,6 +222,8 @@ export default function TopNav() {
     created_at?: string;
     priority?: string;
     metadata?: Record<string, unknown> | null;
+    action_url?: string | null;
+    action_label?: string | null;
   } | null>(null);
 
   // New feature states
@@ -276,24 +282,14 @@ export default function TopNav() {
 
   const markAllRead = async () => {
     if (!user) return;
-    const supabase = createClient();
-    await supabase
-      .from('notifications')
-      .update({ read: true })
-      .eq('user_id', user.id)
-      .eq('read', false);
+    await updateNotifications('read');
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
   const markSelectedRead = async () => {
     if (!user || selectedNotifIds.size === 0) return;
-    const supabase = createClient();
     const ids = Array.from(selectedNotifIds);
-    await supabase
-      .from('notifications')
-      .update({ read: true })
-      .in('id', ids)
-      .eq('user_id', user.id);
+    await updateNotifications('read', ids);
     setNotifications((prev) =>
       prev.map((n) => (selectedNotifIds.has(n.id) ? { ...n, read: true } : n))
     );
@@ -302,17 +298,15 @@ export default function TopNav() {
 
   const markOneRead = async (id: string | number) => {
     if (!user) return;
-    const supabase = createClient();
-    await supabase.from('notifications').update({ read: true }).eq('id', id).eq('user_id', user.id);
+    await updateNotifications('read', [id]);
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     setDetailNotif((prev) => (prev && prev.id === id ? { ...prev, read: true } : prev));
     setContextMenuId(null);
   };
 
-  const deleteNotification = async (id: string | number) => {
+  const archiveNotification = async (id: string | number) => {
     if (!user) return;
-    const supabase = createClient();
-    await supabase.from('notifications').delete().eq('id', id).eq('user_id', user.id);
+    await updateNotifications('archived', [id]);
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     setSelectedNotifIds((prev) => {
       const next = new Set(prev);
@@ -712,8 +706,11 @@ export default function TopNav() {
     const loadNotifications = async () => {
       const { data } = await supabase
         .from('notifications')
-        .select('id, title, description, created_at, read, type, priority, metadata')
+        .select(
+          'id, title, description, created_at, read, type, priority, metadata, action_url, action_label'
+        )
         .eq('user_id', user.id)
+        .is('archived_at', null)
         .order('created_at', { ascending: false })
         .limit(20);
       if (data) {
@@ -728,6 +725,8 @@ export default function TopNav() {
             created_at: n.created_at,
             priority: n.priority,
             metadata: n.metadata,
+            action_url: n.action_url,
+            action_label: n.action_label,
           }))
         );
       }
@@ -754,8 +753,7 @@ export default function TopNav() {
 
   const isBusinessWorkspace = activeWorkspace?.workspaceType === 'business';
   const canManageOrganization =
-    isBusinessWorkspace &&
-    (activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin');
+    isBusinessWorkspace && (activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin');
 
   // Build dynamic nav tabs based on active modules
   const navTabs = [
@@ -770,7 +768,7 @@ export default function TopNav() {
       ? [{ href: '/expedientes', label: 'Expedientes', icon: FolderKanban }]
       : []),
     ...(isModuleActive('notifica')
-      ? [{ href: '/notificaciones', label: 'Notifica', icon: MailCheck }]
+      ? [{ href: '/notificaciones-certificadas', label: 'Notifica', icon: MailCheck }]
       : []),
     ...(isModuleActive('credit-titles')
       ? [{ href: '/credit-titles', label: 'Titulos de Credito', icon: Landmark }]
@@ -827,7 +825,11 @@ export default function TopNav() {
       moduleItems.push({ href: '/expedientes', icon: FolderKanban, label: 'Expedientes' });
     }
     if (isModuleActive('notifica')) {
-      moduleItems.push({ href: '/notificaciones', icon: MailCheck, label: 'Notifica' });
+      moduleItems.push({
+        href: '/notificaciones-certificadas',
+        icon: MailCheck,
+        label: 'Notifica',
+      });
     }
     if (isModuleActive('credit-titles')) {
       moduleItems.push({ href: '/credit-titles', icon: Landmark, label: 'Titulos de Credito' });
@@ -853,7 +855,7 @@ export default function TopNav() {
       {/* TopNav header — primary bar always visible; secondary nav bar hidden when sidebar is open */}
       <header
         className={`fixed top-0 left-0 right-0 z-30 flex-shrink-0 bg-background/95 backdrop-blur-xl ${
-          usesWorkspaceChrome ? 'border-b border-slate-200/80 shadow-none' : 'shadow-sm'
+          usesWorkspaceChrome ? 'shadow-none' : 'shadow-sm'
         }`}
       >
         {/* ── Primary top bar ── h-16, px-4 — ALWAYS VISIBLE */}
@@ -1000,13 +1002,13 @@ export default function TopNav() {
           <div className="flex-1" />
 
           {/* Right section — action icons */}
-          <div className="flex items-center gap-0">
+          <div className="flex items-center gap-1">
             {/* LucIA Button — only visible when lucia module is active */}
             {user && !modulesLoading && isModuleActive('lucia') && (
               <button
                 title="Pregúntale a LucIA"
                 onClick={() => setLuciaOpen(true)}
-                className="mr-2 flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-600 transition-all duration-150 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40"
+                className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-600 transition-all duration-150 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40"
               >
                 <Sparkles className="h-4 w-4" />
                 <span className="hidden sm:inline">Pregúntale a LucIA</span>
@@ -1347,11 +1349,11 @@ export default function TopNav() {
                   setBellOpen(!bellOpen);
                   setAvatarOpen(false);
                 }}
-                className="w-10 h-10 rounded-md flex items-center justify-center text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all duration-150 relative"
+                className="relative flex h-10 w-10 items-center justify-center rounded-md text-slate-500 transition-all duration-150 hover:bg-primary/10 hover:text-primary"
               >
                 <Bell className="h-5 w-5" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 h-4 min-w-[1rem] px-0.5 bg-primary rounded-full flex items-center justify-center">
+                  <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-0.5">
                     <span className="text-white text-[9px] font-700 leading-none">
                       {unreadCount}
                     </span>
@@ -1360,7 +1362,7 @@ export default function TopNav() {
               </button>
 
               {bellOpen && (
-                <div className="absolute right-0 top-12 w-80 bg-background border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+                <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_16px_38px_-20px_rgba(30,107,255,0.32)] dark:border-slate-700 dark:bg-slate-900">
                   {/* REMOVED: inline detail overlay — now handled by standalone modal below */}
 
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -1368,7 +1370,7 @@ export default function TopNav() {
                     {selectedNotifIds.size > 0 ? (
                       <button
                         onClick={markSelectedRead}
-                        className="text-sm font-500 text-primary hover:text-primary-700 hover:underline transition-colors duration-150"
+                        className="text-sm font-500 text-primary transition-colors duration-150 hover:text-primary/80 hover:underline"
                       >
                         Marcar como leídos
                       </button>
@@ -1385,9 +1387,9 @@ export default function TopNav() {
                         key={n.id}
                         className={`relative flex items-start gap-2 px-3 py-3 transition-all duration-150 border-b border-border/50 last:border-0 group ${
                           selectedNotifIds.has(n.id)
-                            ? 'bg-primary/10'
+                            ? 'bg-primary/[0.08] shadow-[inset_2px_0_0_#1E6BFF]'
                             : !n.read
-                              ? 'bg-primary/[0.02] hover:bg-primary/5'
+                              ? 'bg-primary/[0.03] hover:bg-primary/[0.06]'
                               : 'hover:bg-muted/40'
                         }`}
                       >
@@ -1403,7 +1405,7 @@ export default function TopNav() {
                         </div>
 
                         {/* Icon */}
-                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
                           <FileText size={14} className="text-primary" />
                         </div>
 
@@ -1441,7 +1443,7 @@ export default function TopNav() {
                           </button>
 
                           {contextMenuId === n.id && (
-                            <div className="absolute right-0 top-8 w-44 bg-background border border-border rounded-lg shadow-lg z-50 py-1 overflow-hidden">
+                            <div className="absolute right-0 top-8 z-50 w-44 overflow-hidden rounded-lg border border-border bg-background py-1 shadow-[0_12px_26px_-16px_rgba(30,107,255,0.32)]">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1449,7 +1451,7 @@ export default function TopNav() {
                                   setBellOpen(false);
                                   setDetailNotif(n as any);
                                 }}
-                                className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-primary/5 hover:text-primary transition-colors w-full text-left"
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-primary/5 hover:text-primary"
                               >
                                 <Eye size={14} className="flex-shrink-0" />
                                 Ver detalle
@@ -1460,7 +1462,7 @@ export default function TopNav() {
                                     e.stopPropagation();
                                     markOneRead(n.id);
                                   }}
-                                  className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-primary/5 hover:text-primary transition-colors w-full text-left"
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-primary/5 hover:text-primary"
                                 >
                                   <Check size={14} className="flex-shrink-0" />
                                   Marcar como leído
@@ -1469,12 +1471,12 @@ export default function TopNav() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  deleteNotification(n.id);
+                                  archiveNotification(n.id);
                                 }}
                                 className="flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/5 transition-colors w-full text-left"
                               >
                                 <Trash2 size={14} className="flex-shrink-0" />
-                                Eliminar
+                                Archivar
                               </button>
                             </div>
                           )}
@@ -1484,9 +1486,9 @@ export default function TopNav() {
                   </div>
                   <div className="border-t border-border">
                     <Link
-                      href="/notifications"
+                      href="/notificaciones"
                       onClick={() => setBellOpen(false)}
-                      className="flex items-center justify-center w-full py-3 text-sm font-500 text-primary hover:bg-primary/5 hover:text-primary-700 transition-all duration-150"
+                      className="flex w-full items-center justify-center py-3 text-sm font-600 text-primary transition-all duration-150 hover:bg-primary/5 hover:text-primary/80"
                     >
                       Ver todas las notificaciones
                     </Link>
@@ -1502,18 +1504,23 @@ export default function TopNav() {
                   setAvatarOpen(!avatarOpen);
                   setBellOpen(false);
                 }}
-                className="flex items-center gap-2 rounded-full hover:bg-accent/50 px-2 py-1 transition-all duration-150"
+                className="flex h-10 w-10 items-center justify-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-primary/10 hover:text-primary"
                 title="Mi cuenta"
+                aria-label="Mi cuenta"
               >
-                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                  <span className="text-white text-xs font-700">{userInitials || 'U'}</span>
+                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary">
+                  <span className="text-[10px] font-700 leading-none text-white">
+                    {userInitials || 'U'}
+                  </span>
                 </div>
               </button>
 
               {avatarOpen && (
-                <div className="absolute right-0 top-12 w-52 bg-background border border-border rounded-xl shadow-lg z-50 overflow-hidden py-1">
+                <div className="absolute right-0 top-12 z-50 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_16px_38px_-20px_rgba(30,107,255,0.32)] dark:border-slate-700 dark:bg-slate-900">
                   <div className="px-4 py-3 border-b border-border">
-                    <p className="text-sm font-600 text-foreground truncate">{userFullName}</p>
+                    <p className="break-words text-sm font-600 leading-5 text-foreground">
+                      {userFullName}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">{userEmail}</p>
                   </div>
                   <div className="py-1">
@@ -1522,11 +1529,21 @@ export default function TopNav() {
                         key={item.label}
                         href={item.href}
                         onClick={() => setAvatarOpen(false)}
-                        className="flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 hover:text-primary transition-all duration-150 group"
+                        className={`group flex items-center gap-3 px-4 py-2.5 text-sm transition-all duration-150 ${
+                          item.href === '/notificaciones' &&
+                          (pathname === '/notificaciones' || pathname.startsWith('/notificaciones/'))
+                            ? 'bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary'
+                            : 'text-foreground hover:bg-slate-50 hover:text-slate-950 dark:hover:bg-slate-800'
+                        }`}
                       >
                         <item.icon
                           size={15}
-                          className="text-muted-foreground group-hover:text-primary flex-shrink-0 transition-colors duration-150"
+                          className={`flex-shrink-0 transition-colors duration-150 ${
+                            item.href === '/notificaciones' &&
+                            (pathname === '/notificaciones' || pathname.startsWith('/notificaciones/'))
+                              ? 'text-primary'
+                              : 'text-muted-foreground group-hover:text-slate-700'
+                          }`}
                         />
                         {item.label}
                       </Link>
@@ -1551,12 +1568,8 @@ export default function TopNav() {
         </div>
 
         {/* ── Secondary navigation bar ── desktop only — only rendered when sidebar is closed */}
-        {!sidebarOpen && (
-          <div
-            className={`hidden h-10 items-center overflow-x-auto px-4 scrollbar-none md:flex ${
-              usesWorkspaceChrome ? 'gap-1 bg-white lg:px-6' : 'gap-0 bg-primary'
-            }`}
-          >
+        {!sidebarOpen && navTabs.length > 0 && (
+          <div className="hidden h-10 items-center gap-1 overflow-x-auto overflow-y-hidden border-b border-slate-200 bg-white px-4 scrollbar-none md:flex lg:px-6 dark:border-slate-700 dark:bg-slate-900">
             {navTabs.map((tab) => {
               const isActive = getTabActive(tab.href);
               const TabIcon = tab.icon;
@@ -1565,13 +1578,9 @@ export default function TopNav() {
                   key={tab.label}
                   href={tab.href}
                   className={`relative flex h-10 items-center gap-2 whitespace-nowrap px-4 py-2 text-sm font-500 transition-all duration-150 ${
-                    usesWorkspaceChrome
-                      ? isActive
-                        ? 'text-primary font-700 after:absolute after:inset-x-4 after:bottom-0 after:h-0.5 after:bg-primary'
-                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-950'
-                      : isActive
-                        ? 'bg-white/20 font-600 text-white'
-                        : 'text-white/80 hover:bg-white/10 hover:text-white'
+                    isActive
+                      ? 'font-700 text-primary after:absolute after:inset-x-4 after:bottom-0 after:h-0.5 after:bg-primary'
+                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                   }`}
                 >
                   <TabIcon className="h-4 w-4 flex-shrink-0" />
@@ -1623,7 +1632,7 @@ export default function TopNav() {
         {/* Bottom — only Notificaciones, Ayuda, Cerrar Sesión */}
         <div className="space-y-1 border-t border-slate-200/90 bg-slate-50/40 px-3 py-3">
           <Link
-            href="/notifications"
+            href="/notificaciones"
             className="group flex min-h-10 items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm font-500 text-slate-600 transition-all duration-150 hover:border-slate-200/80 hover:bg-white hover:text-slate-950"
           >
             <Bell
@@ -1694,8 +1703,10 @@ export default function TopNav() {
           const handleContextualAction = async () => {
             if (!n.read) await markOneRead(n.id);
             const meta = (n as any).metadata as Record<string, unknown> | null | undefined;
-            if (nType === 'document') {
-              const docId = meta?.document_id as string | undefined;
+            if (n.action_url?.startsWith('/')) {
+              router.push(n.action_url);
+            } else if (nType === 'document') {
+              const docId = (meta?.document_id ?? meta?.documentoId) as string | undefined;
               router.push(docId ? `/visor-documento/${docId}` : '/mis-documentos');
             } else if (nType === 'task') {
               router.push('/mis-tareas');
@@ -1813,7 +1824,7 @@ export default function TopNav() {
                     className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white text-xs font-600 rounded-lg hover:bg-primary/90 transition-colors"
                   >
                     <ExternalLink size={13} />
-                    {contextualActionLabel()}
+                    {n.action_label || contextualActionLabel()}
                   </button>
                   {!n.read && (
                     <button
@@ -1826,13 +1837,13 @@ export default function TopNav() {
                   )}
                   <button
                     onClick={() => {
-                      deleteNotification(n.id);
+                      archiveNotification(n.id);
                       setDetailNotif(null);
                     }}
                     className="flex items-center gap-1.5 px-3 py-2 border border-destructive/30 text-destructive text-xs font-500 rounded-lg hover:bg-destructive/5 transition-colors"
                   >
                     <Trash2 size={13} />
-                    Eliminar
+                    Archivar
                   </button>
                 </div>
               </div>

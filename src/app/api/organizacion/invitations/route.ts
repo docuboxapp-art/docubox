@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import { Resend } from 'resend';
-import { createNotificationServer } from '@/lib/notificationsInApp';
+import { createNotificationServer } from '@/lib/notificationsInApp.server';
 import {
   authorizeOrganizationRequest,
   createOpaqueSecret,
@@ -284,10 +284,20 @@ export async function POST(request: Request) {
     if (recipientResult.data?.id) {
       await createNotificationServer({
         userId: recipientResult.data.id,
-        type: 'info',
+        type: 'request',
+        eventType: 'organization.invitation.created',
+        category: 'ORGANIZATION',
+        severity: 'info',
         title: `Invitación a ${workspaceResult.data.name}`,
         description: `${inviterResult.data?.full_name || 'Un administrador'} te invitó a colaborar. Revisa el enlace enviado a tu correo.`,
         priority: 'media',
+        workspaceId,
+        actorUserId: user.id,
+        entityType: 'organization_invitation',
+        entityId: inserted.data.id,
+        actionUrl: '/mi-perfil',
+        actionLabel: 'Ver invitación',
+        deduplicationKey: `organization.invitation.created:${inserted.data.id}`,
         metadata: {
           workspace_id: workspaceId,
           invitation_id: inserted.data.id,
@@ -410,13 +420,26 @@ export async function PATCH(request: Request) {
     if (recipient.data?.id) {
       await createNotificationServer({
         userId: recipient.data.id,
-        type: action === 'revoke' ? 'alert' : 'info',
+        type: action === 'revoke' ? 'alert' : 'request',
+        eventType:
+          action === 'revoke'
+            ? 'organization.invitation.revoked'
+            : 'organization.invitation.resent',
+        category: 'ORGANIZATION',
+        severity: action === 'revoke' ? 'warning' : 'info',
         title: action === 'revoke' ? 'Invitación cancelada' : 'Invitación reenviada',
         description:
           action === 'revoke'
             ? `La invitación para ${(existing.data.workspaces as any)?.name || 'la organización'} fue cancelada.`
             : `Se envió un nuevo enlace para ${(existing.data.workspaces as any)?.name || 'la organización'} a tu correo.`,
         priority: action === 'revoke' ? 'alta' : 'media',
+        workspaceId,
+        actorUserId: user.id,
+        entityType: 'organization_invitation',
+        entityId: invitationId,
+        actionUrl: '/mi-perfil',
+        actionLabel: 'Ver invitación',
+        deduplicationKey: `organization.invitation.${action}:${invitationId}:${existing.data.send_count || 0}`,
         metadata: {
           workspace_id: workspaceId,
           invitation_id: invitationId,

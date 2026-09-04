@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServerClient } from '@supabase/ssr';
 import crypto from 'crypto';
 
-const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmamax4272.builtwithrocket.new';
+import { createServiceClient } from '@/lib/supabase/server';
+
+const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://docubox-delta.vercel.app';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const FROM_EMAIL = 'Docubox <noreply@docubox.com.mx>';
 
 const LOGO_LIGHT = `${APP_URL}/assets/images/docubox-logo-2026.png`;
-const LOGO_WHITE =
-  'https://docubox-myi2411.public.builtwithrocket.new/assets/images/ChatGPT_Image_13_may_2026_20_28_22-1778729319274.png';
 
 function buildVerificationEmailHtml(recipientName: string, verificationUrl: string): string {
   const year = new Date().getFullYear();
@@ -17,47 +17,59 @@ function buildVerificationEmailHtml(recipientName: string, verificationUrl: stri
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta name="x-apple-disable-message-reformatting">
   <title>Verifica tu correo electrónico — Docubox</title>
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
-    body, p, h1, a, span { font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,Helvetica,sans-serif !important; }
-    body { margin:0;padding:0;background-color:#f3f4f6;-webkit-text-size-adjust:100%; }
+    body, table, td, p, h1, a, span { font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,Helvetica,sans-serif; }
+    body { margin:0;padding:0;background-color:#F6F8FB;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
     @media only screen and (max-width:600px){
       .email-container{width:100%!important;border-radius:0!important;}
       .email-body{padding:24px 20px!important;}
+      .email-header{padding:20px!important;}
+      .email-heading{padding:22px 20px!important;}
+      .email-footer{padding:24px 20px!important;}
+      .footer-link{display:block!important;margin:8px 0 0!important;}
     }
   </style>
 </head>
-<body style="margin:0;padding:0;background-color:#f3f4f6;">
-  <div style="display:none;max-height:0;overflow:hidden;">Verifica tu correo para activar tu cuenta en Docubox</div>
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6;padding:40px 16px;">
+<body style="margin:0;padding:0;background-color:#F6F8FB;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,Helvetica,sans-serif;">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Confirma tu correo para completar tu cuenta en Docubox.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F6F8FB;padding:40px 16px;">
     <tr>
       <td align="center">
-        <table class="email-container" width="600" cellpadding="0" cellspacing="0" border="0"
-               style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);max-width:600px;width:100%;">
+        <table role="presentation" class="email-container" width="600" cellpadding="0" cellspacing="0" border="0"
+               style="background-color:#ffffff;border:1px solid #E6EAF0;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
 
           <!-- HEADER -->
           <tr>
-            <td style="background-color:#ffffff;padding:24px 40px;border-bottom:1px solid #e5e7eb;">
-              <img src="${LOGO_LIGHT}" alt="Docubox" width="130" height="auto" style="display:block;border:0;max-width:130px;" />
+            <td class="email-header" style="background-color:#ffffff;padding:24px 40px;border-bottom:1px solid #EBEBF0;">
+              <img src="${LOGO_LIGHT}" alt="Docubox" width="142" height="auto" style="display:block;border:0;max-width:142px;" />
             </td>
           </tr>
 
-          <!-- HERO BAND -->
+          <!-- HEADING -->
           <tr>
-            <td style="background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);padding:36px 40px 32px;">
-              <table cellpadding="0" cellspacing="0" width="100%">
+            <td class="email-heading" style="background-color:#eff6ff;padding:24px 40px 20px;border-bottom:1px solid #dbeafe;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
-                  <td>
-                    <div style="width:52px;height:52px;background:rgba(255,255,255,0.15);border-radius:12px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px;">
-                      <span style="font-size:26px;">✉️</span>
-                    </div>
-                    <h1 style="font-family:'Inter',Arial,sans-serif;font-size:24px;font-weight:700;color:#ffffff;margin:0 0 8px;line-height:1.3;">
+                  <td style="vertical-align:middle;padding-right:16px;width:52px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" width="48" height="48" style="width:48px;height:48px;background-color:#1E6BFF;border-radius:8px;">
+                      <tr>
+                        <td align="center" valign="middle" style="color:#ffffff;font-family:Arial,sans-serif;font-size:22px;font-weight:700;text-align:center;vertical-align:middle;">&#9993;</td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td style="vertical-align:middle;">
+                    <p style="font-size:11px;font-weight:700;color:#2563eb;margin:0 0 4px;line-height:1.3;text-transform:uppercase;">
+                      Seguridad de la cuenta
+                    </p>
+                    <h1 style="font-size:20px;font-weight:700;color:#1e3a8a;margin:0 0 2px;line-height:1.3;">
                       Verifica tu correo electrónico
                     </h1>
-                    <p style="font-family:'Inter',Arial,sans-serif;font-size:15px;color:rgba(255,255,255,0.85);margin:0;line-height:1.6;">
-                      Un paso más para activar tu cuenta en Docubox
+                    <p style="font-size:13px;color:#3b82f6;margin:0;line-height:1.5;">
+                      Completa la validación de tu cuenta
                     </p>
                   </td>
                 </tr>
@@ -67,69 +79,42 @@ function buildVerificationEmailHtml(recipientName: string, verificationUrl: stri
 
           <!-- BODY -->
           <tr>
-            <td class="email-body" style="padding:36px 40px;">
-              <p style="font-family:'Inter',Arial,sans-serif;font-size:15px;color:#374151;margin:0 0 16px;line-height:1.7;">
+            <td class="email-body" style="padding:32px 40px 36px;background-color:#ffffff;">
+              <p style="font-size:15px;color:#374151;margin:0 0 8px;line-height:1.7;">
                 Hola <strong>${recipientName}</strong>,
               </p>
-              <p style="font-family:'Inter',Arial,sans-serif;font-size:15px;color:#374151;margin:0 0 24px;line-height:1.7;">
-                Gracias por registrarte en <strong>Docubox</strong>. Para completar tu registro y poder crear documentos, necesitas verificar tu dirección de correo electrónico.
+              <p style="font-size:15px;color:#6b7280;margin:0 0 24px;line-height:1.7;">
+                Confirma que esta dirección de correo te pertenece para completar tu registro y acceder a Docubox.
               </p>
 
               <!-- CTA Button -->
-              <table cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
                 <tr>
-                  <td style="border-radius:10px;background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);">
+                  <td style="border-radius:8px;background-color:#1E6BFF;">
                     <a href="${verificationUrl}" target="_blank"
-                       style="display:inline-block;padding:16px 40px;font-family:'Inter',Arial,sans-serif;font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.2px;border-radius:10px;">
-                      ✓ &nbsp;Validar cuenta
+                       style="display:inline-block;padding:14px 36px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">
+                      Validar correo
                     </a>
                   </td>
                 </tr>
               </table>
 
               <!-- Fallback link -->
-              <p style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#6b7280;margin:0 0 8px;line-height:1.6;">
-                Si el botón no funciona, copia y pega este enlace en tu navegador:
+              <p style="font-size:12px;color:#6b7280;margin:0 0 6px;line-height:1.6;">
+                Si el botón no funciona, abre este enlace:
               </p>
-              <p style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#3b82f6;margin:0 0 28px;word-break:break-all;">
-                <a href="${verificationUrl}" style="color:#3b82f6;text-decoration:underline;">${verificationUrl}</a>
+              <p style="font-size:12px;color:#1E6BFF;margin:0 0 24px;line-height:1.6;word-break:break-all;">
+                <a href="${verificationUrl}" style="color:#1E6BFF;text-decoration:underline;">${verificationUrl}</a>
               </p>
 
               <!-- Info banner -->
-              <table width="100%" cellpadding="0" cellspacing="0">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0;">
                 <tr>
-                  <td style="background-color:#eff6ff;border-radius:8px;padding:16px 18px;border-left:4px solid #3b82f6;">
-                    <p style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#1e40af;margin:0;line-height:1.6;">
-                      <strong>ℹ️ Importante:</strong> Este enlace es válido por <strong>72 horas</strong>. Si no solicitaste esta cuenta, puedes ignorar este correo.
+                  <td style="background-color:#eff6ff;border:1px solid #dbeafe;border-radius:8px;padding:14px 16px;">
+                    <p style="font-size:13px;color:#1e40af;margin:0;line-height:1.6;">
+                      <strong>Este enlace vence en 72 horas.</strong><br>
+                      Si no creaste una cuenta en Docubox, puedes ignorar este correo de forma segura.
                     </p>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- What happens next -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0 0;border-top:1px solid #f3f4f6;">
-                <tr>
-                  <td style="padding:20px 0 0;">
-                    <p style="font-family:'Inter',Arial,sans-serif;font-size:13px;font-weight:600;color:#111827;margin:0 0 12px;">
-                      ¿Qué puedes hacer después de verificar?
-                    </p>
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td style="padding:6px 0;">
-                          <span style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#374151;">📄 &nbsp;Crear y enviar documentos para firma</span>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding:6px 0;">
-                          <span style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#374151;">✍️ &nbsp;Firmar documentos electrónicamente</span>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding:6px 0;">
-                          <span style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#374151;">👥 &nbsp;Invitar participantes a tus documentos</span>
-                        </td>
-                      </tr>
-                    </table>
                   </td>
                 </tr>
               </table>
@@ -138,23 +123,24 @@ function buildVerificationEmailHtml(recipientName: string, verificationUrl: stri
 
           <!-- FOOTER -->
           <tr>
-            <td style="background-color:#111827;padding:32px 40px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
+            <td class="email-footer" style="background-color:#ffffff;padding:26px 40px;border-top:1px solid #EBEBF0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="vertical-align:middle;">
-                    <img src="${LOGO_WHITE}" alt="Docubox" width="110" height="auto" style="display:block;border:0;max-width:110px;" />
+                    <img src="${LOGO_LIGHT}" alt="Docubox" width="104" height="auto" style="display:block;border:0;max-width:104px;" />
                   </td>
                   <td style="vertical-align:middle;text-align:right;">
-                    <a href="${APP_URL}/login" style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Mi cuenta</a>
+                    <a class="footer-link" href="${APP_URL}/login" style="font-size:12px;color:#64748b;text-decoration:none;display:inline-block;margin-left:20px;">Mi cuenta</a>
+                    <a class="footer-link" href="${APP_URL}/politica-privacidad" style="font-size:12px;color:#64748b;text-decoration:none;display:inline-block;margin-left:20px;">Privacidad</a>
                   </td>
                 </tr>
                 <tr>
-                  <td colspan="2" style="border-top:1px solid #1f2937;padding-top:20px;margin-top:16px;">
-                    <p style="font-family:'Inter',Arial,sans-serif;font-size:11px;color:#6b7280;margin:16px 0 4px;">
+                  <td colspan="2" style="border-top:1px solid #f1f5f9;padding-top:16px;">
+                    <p style="font-size:11px;color:#6b7280;margin:16px 0 4px;line-height:1.6;">
                       © ${year} Docubox. Todos los derechos reservados.
                     </p>
-                    <p style="font-family:'Inter',Arial,sans-serif;font-size:11px;color:#4b5563;margin:0;line-height:1.6;">
-                      Recibiste este correo porque te registraste en Docubox. Si no reconoces esta actividad, ignora este mensaje.
+                    <p style="font-size:11px;color:#6b7280;margin:0;line-height:1.6;">
+                      Recibiste este mensaje porque se inició un registro con esta dirección.
                     </p>
                   </td>
                 </tr>
@@ -163,7 +149,7 @@ function buildVerificationEmailHtml(recipientName: string, verificationUrl: stri
           </tr>
 
         </table>
-        <p style="font-family:'Inter',Arial,sans-serif;font-size:11px;color:#9ca3af;margin:16px 0 0;text-align:center;">
+        <p style="font-size:11px;color:#9ca3af;margin:16px 0 0;text-align:center;">
           Este correo fue enviado de forma segura por Docubox.
         </p>
       </td>
@@ -173,36 +159,97 @@ function buildVerificationEmailHtml(recipientName: string, verificationUrl: stri
 </html>`;
 }
 
+function normalizeEmail(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      "'": '&#39;',
+      '"': '&quot;',
+    };
+    return entities[character] || character;
+  });
+}
+
+function isValidRegistrationSignature(userId: string, email: string, supplied: string | null) {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey || !supplied || !/^[a-f0-9]{64}$/i.test(supplied)) return false;
+  const expected = crypto
+    .createHmac('sha256', serviceRoleKey)
+    .update(`${userId}\n${email}`)
+    .digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(supplied, 'hex'));
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { userId, email, fullName } = await req.json();
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!userId || !email) {
+    if (!userId || !normalizedEmail) {
       return NextResponse.json({ error: 'userId y email son requeridos' }, { status: 400 });
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-    if (!serviceRoleKey) {
+    if (!supabaseUrl || !anonKey || !process.env.SUPABASE_SERVICE_ROLE_KEY || !RESEND_API_KEY) {
       return NextResponse.json({ error: 'Configuración del servidor incompleta' }, { status: 500 });
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
+    const authClient = createServerClient(supabaseUrl, anonKey, {
+      cookies: {
+        getAll: () => req.cookies.getAll(),
+        setAll: () => undefined,
+      },
     });
+    const {
+      data: { user: sessionUser },
+    } = await authClient.auth.getUser();
+    const sessionAuthorized = Boolean(
+      sessionUser &&
+      sessionUser.id === userId &&
+      normalizeEmail(sessionUser.email) === normalizedEmail
+    );
+    const registrationAuthorized = isValidRegistrationSignature(
+      userId,
+      normalizedEmail,
+      req.headers.get('x-docubox-registration-signature')
+    );
 
-    // Generate a secure random token
+    if (!sessionAuthorized && !registrationAuthorized) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
+    const supabaseAdmin = createServiceClient();
+    const { data: target, error: userError } = await supabaseAdmin.auth.admin.getUserById(userId);
+    if (userError || !target.user || normalizeEmail(target.user.email) !== normalizedEmail) {
+      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
+    }
+    if (target.user.email_confirmed_at) {
+      return NextResponse.json({ error: 'El correo ya está verificado' }, { status: 409 });
+    }
+
+    // Only the latest link remains usable. Store a digest, never the bearer token.
+    await supabaseAdmin
+      .from('email_verification_tokens')
+      .update({ used_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .is('used_at', null);
     const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
 
-    // Store token in DB
-    const { error: insertError } = await supabaseAdmin.from('email_verification_tokens').insert({
-      user_id: userId,
-      token,
-      email,
-      expires_at: expiresAt,
-    });
+    const { data: tokenRecord, error: insertError } = await supabaseAdmin
+      .from('email_verification_tokens')
+      .insert({ user_id: userId, token: tokenHash, email: normalizedEmail, expires_at: expiresAt })
+      .select('id')
+      .single();
 
     if (insertError) {
       console.error('[send-verification-email] Error inserting token:', insertError);
@@ -212,9 +259,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const verificationUrl = `${APP_URL}/verificar-correo?token=${token}`;
-    const recipientName = fullName || email.split('@')[0];
-    const html = buildVerificationEmailHtml(recipientName, verificationUrl);
+    const verificationUrl = `${req.nextUrl.origin}/verificar-correo?token=${token}`;
+    const recipientName =
+      (registrationAuthorized && typeof fullName === 'string' && fullName.trim()) ||
+      (typeof target.user.user_metadata?.full_name === 'string' &&
+        target.user.user_metadata.full_name.trim()) ||
+      normalizedEmail.split('@')[0];
+    const html = buildVerificationEmailHtml(escapeHtml(recipientName), verificationUrl);
 
     // Send via Resend
     const resendResponse = await fetch('https://api.resend.com/emails', {
@@ -226,7 +277,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         from: FROM_EMAIL,
         reply_to: 'noreply@docubox.com.mx',
-        to: [email],
+        to: [normalizedEmail],
         subject: 'Verifica tu correo electrónico — Docubox',
         html,
       }),
@@ -236,13 +287,17 @@ export async function POST(req: NextRequest) {
 
     if (!resendResponse.ok) {
       console.error('[send-verification-email] Resend error:', resendData);
+      await supabaseAdmin.from('email_verification_tokens').delete().eq('id', tokenRecord.id);
       return NextResponse.json(
         { error: 'Error al enviar correo de verificación' },
         { status: 500 }
       );
     }
 
-    console.log(`[send-verification-email] Sent to ${email}, resend id: ${resendData.id}`);
+    console.info('[send-verification-email] Verification link issued', {
+      userId,
+      providerMessageId: resendData.id,
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('[send-verification-email] Unexpected error:', err);

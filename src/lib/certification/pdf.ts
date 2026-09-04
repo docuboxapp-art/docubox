@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { PDFDocument, PDFPage, PDFFont, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, PDFPage, PDFFont, rgb } from 'pdf-lib';
 import QRCode from 'qrcode';
+import { embedDocuboxPdfFonts } from '@/lib/pdf/embedded-fonts';
 
 export type DocumentSealStatus = 'VALID' | 'INVALID' | 'UNVERIFIED' | 'REVOKED';
 
@@ -138,18 +139,53 @@ function roundedCard(page: PDFPage, x: number, y: number, width: number, height:
 }
 
 function drawHeader(page: PDFPage, logo: Awaited<ReturnType<PDFDocument['embedPng']>>, bold: PDFFont, regular: PDFFont, right: string) {
-  page.drawImage(logo, { x: MARGIN, y: PAGE_HEIGHT - 58, width: 18, height: 25 });
-  page.drawText('Docubox', { x: 62, y: PAGE_HEIGHT - 50, size: 17, font: bold, color: ink });
-  page.drawText('CERTIFICACION CRIPTOGRAFICA', { x: 160, y: PAGE_HEIGHT - 47, size: 10.5, font: bold, color: blue });
-  page.drawText(right, { x: PAGE_WIDTH - MARGIN - regular.widthOfTextAtSize(right, 8.5), y: PAGE_HEIGHT - 43, size: 8.5, font: regular, color: ink });
-  page.drawText('Docubox - valores generados criptograficamente', { x: PAGE_WIDTH - MARGIN - 176, y: PAGE_HEIGHT - 57, size: 6.8, font: regular, color: secondary });
+  const logoWidth = 145;
+  const logoHeight = logo.height * (logoWidth / logo.width);
+  const badge = 'EVIDENCIA CRIPTOGRÁFICA';
+  const badgeWidth = bold.widthOfTextAtSize(badge, 7.5) + 22;
+  page.drawImage(logo, {
+    x: MARGIN,
+    y: PAGE_HEIGHT - 53,
+    width: logoWidth,
+    height: logoHeight,
+  });
+  page.drawRectangle({
+    x: PAGE_WIDTH - MARGIN - badgeWidth,
+    y: PAGE_HEIGHT - 50,
+    width: badgeWidth,
+    height: 23,
+    color: paleBlue,
+    borderColor: line,
+    borderWidth: 0.7,
+  });
+  page.drawText(badge, {
+    x: PAGE_WIDTH - MARGIN - badgeWidth + 11,
+    y: PAGE_HEIGHT - 42,
+    size: 7.5,
+    font: bold,
+    color: rgb(0.08, 0.24, 0.56),
+  });
+  page.drawText(right, {
+    x: PAGE_WIDTH - MARGIN - regular.widthOfTextAtSize(right, 7.2),
+    y: PAGE_HEIGHT - 63,
+    size: 7.2,
+    font: regular,
+    color: secondary,
+  });
   page.drawLine({ start: { x: MARGIN, y: PAGE_HEIGHT - 72 }, end: { x: PAGE_WIDTH - MARGIN, y: PAGE_HEIGHT - 72 }, thickness: 1, color: line });
 }
 
-function drawFooter(page: PDFPage, regular: PDFFont, pageNumber: number, totalPages = 3) {
+function drawFooter(page: PDFPage, logo: Awaited<ReturnType<PDFDocument['embedPng']>>, regular: PDFFont, pageNumber: number, totalPages = 3) {
   page.drawLine({ start: { x: MARGIN, y: 31 }, end: { x: PAGE_WIDTH - MARGIN, y: 31 }, thickness: 1, color: line });
-  page.drawText('Verificacion: verificar.docubox.mx', { x: MARGIN, y: 18, size: 6.8, font: regular, color: secondary });
-  const text = `Anexo de certificacion ${pageNumber}/${totalPages}`;
+  const logoWidth = 76;
+  page.drawImage(logo, {
+    x: MARGIN,
+    y: 11,
+    width: logoWidth,
+    height: logo.height * (logoWidth / logo.width),
+  });
+  page.drawText('Constancia técnica de integridad y evidencia digital', { x: 219, y: 18, size: 6.5, font: regular, color: secondary });
+  const text = `Página ${pageNumber} de ${totalPages}`;
   page.drawText(text, { x: PAGE_WIDTH - MARGIN - regular.widthOfTextAtSize(text, 6.8), y: 18, size: 6.8, font: regular, color: secondary });
 }
 
@@ -182,12 +218,154 @@ function drawTechnicalBlock(page: PDFPage, regular: PDFFont, bold: PDFFont, y: n
   lines.forEach((value, lineIndex) => page.drawText(value, { x: MARGIN + 26, y: y + 53 - lineIndex * 7.2, size: 5.6, font: regular, color: rgb(0.2, 0.25, 0.34) }));
 }
 
+interface CompleteEvidenceSection {
+  title: string;
+  fields: Array<[label: string, value: string]>;
+}
+
+function completeEvidenceSections(data: IntegrityCertificatePdfData): CompleteEvidenceSection[] {
+  const sections: CompleteEvidenceSection[] = [
+    {
+      title: 'IDENTIFICADORES Y HUELLAS PRINCIPALES',
+      fields: [
+        ['FOLIO', data.folio],
+        ['DOCUMENT_UUID', data.documentUuid],
+        ['CERTIFICATION_UUID', data.certificationUuid],
+        ['DOCUMENT_VERSION', String(data.documentVersion)],
+        ['DOCUMENT_BODY_SHA256', data.documentBodySha256.toUpperCase()],
+        ['DOCUMENT_CHAIN_SHA256', data.documentChainSha256.toUpperCase()],
+        ['EVIDENCE_CHAIN_SHA256', data.evidenceChainSha256.toUpperCase()],
+        ['EVIDENCE_SEAL_SHA256', data.evidenceSealSha256.toUpperCase()],
+        ['CERTIFICATION_ROOT_SHA256', data.certificationRootSha256.toUpperCase()],
+        ['VERIFICATION_URL', data.verificationUrl],
+      ],
+    },
+    {
+      title: 'CADENA ORIGINAL DOCUBOX COMPLETA',
+      fields: [['DOCUMENT_CHAIN_DISPLAY', data.documentChainDisplay]],
+    },
+    {
+      title: 'SELLO DIGITAL DOCUBOX COMPLETO',
+      fields: [
+        ['SEAL_UUID', data.documentSeal.seal_uuid],
+        ['STATUS', data.documentSeal.status],
+        ['DOCUMENT_CHAIN_SHA256', data.documentSeal.document_chain_sha256.toUpperCase()],
+        ['SEAL_SHA256', data.documentSeal.seal_sha256.toUpperCase()],
+        ['SIGNATURE_ALGORITHM', data.documentSeal.signature_algorithm],
+        ['KEY_SIZE_BITS', String(data.documentSeal.key_size_bits)],
+        ['SIGNING_KEY_VERSION', data.documentSeal.signing_key_version],
+        ['PUBLIC_KEY_FINGERPRINT_SHA256', data.documentSeal.public_key_fingerprint_sha256.toUpperCase()],
+        ['SIGNED_AT', data.documentSeal.signed_at],
+        ['SEAL_BASE64', data.documentSeal.seal_base64],
+      ],
+    },
+    {
+      title: 'CADENA DE EVIDENCIA COMPLETA',
+      fields: [['EVIDENCE_CHAIN_DISPLAY', data.evidenceChainDisplay]],
+    },
+    {
+      title: 'SELLO DE EVIDENCIA COMPLETO',
+      fields: [
+        ['EVIDENCE_CHAIN_SHA256', data.evidenceChainSha256.toUpperCase()],
+        ['EVIDENCE_SEAL_SHA256', data.evidenceSealSha256.toUpperCase()],
+        ['EVIDENCE_KEY_VERSION', data.evidenceKeyVersion],
+        ['EVIDENCE_SEAL_BASE64', data.evidenceSealBase64],
+      ],
+    },
+  ];
+
+  sections.push(data.timestamp ? {
+    title: 'ESTAMPA DE TIEMPO RFC 3161',
+    fields: [
+      ['STATUS', 'PRESENT'],
+      ['GEN_TIME', data.timestamp.genTime],
+      ['TSA_NAME', data.timestamp.tsaName],
+      ['POLICY_OID', data.timestamp.policyOid],
+      ['SERIAL_NUMBER', data.timestamp.serialNumber],
+      ['MESSAGE_IMPRINT_SHA256', data.timestamp.messageImprintSha256.toUpperCase()],
+      ['TOKEN_SHA256', data.timestamp.tokenSha256.toUpperCase()],
+    ],
+  } : {
+    title: 'ESTAMPA DE TIEMPO RFC 3161',
+    fields: [['STATUS', 'NOT_PRESENT']],
+  });
+
+  return sections;
+}
+
+function drawCompleteEvidenceAppendix(
+  pdf: PDFDocument,
+  logo: Awaited<ReturnType<PDFDocument['embedPng']>>,
+  regular: PDFFont,
+  bold: PDFFont,
+  mono: PDFFont,
+  data: IntegrityCertificatePdfData,
+) {
+  const pages: PDFPage[] = [];
+  const bodySize = 5.5;
+  const lineHeight = 8;
+  const contentWidth = PAGE_WIDTH - MARGIN * 2 - 20;
+  let appendixPageNumber = 0;
+
+  const createPage = (continuedSection?: string) => {
+    appendixPageNumber += 1;
+    const nextPage = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+    pages.push(nextPage);
+    drawHeader(nextPage, logo, bold, regular, `Valores completos ${appendixPageNumber}`);
+    nextPage.drawText('ANEXO DE VALORES CRIPTOGRAFICOS COMPLETOS', { x: MARGIN, y: 690, size: 14, font: bold, color: ink });
+    nextPage.drawText('Los valores de este anexo se presentan integramente y sin abreviaturas.', { x: MARGIN, y: 673, size: 7.2, font: regular, color: secondary });
+    let nextY = 643;
+    if (continuedSection) {
+      nextPage.drawText(`${continuedSection} (CONTINUACION)`, { x: MARGIN, y: nextY, size: 8.2, font: bold, color: rgb(0.08, 0.24, 0.56) });
+      nextY -= 22;
+    }
+    return { page: nextPage, y: nextY };
+  };
+
+  const firstPage = createPage();
+  let page = firstPage.page;
+  let y = firstPage.y;
+
+  const ensureRoom = (requiredHeight: number, continuedSection?: string) => {
+    if (y - requiredHeight < 48) {
+      const nextPage = createPage(continuedSection);
+      page = nextPage.page;
+      y = nextPage.y;
+    }
+  };
+
+  for (const section of completeEvidenceSections(data)) {
+    ensureRoom(42);
+    page.drawRectangle({ x: MARGIN, y: y - 4, width: PAGE_WIDTH - MARGIN * 2, height: 22, color: paleBlue, borderColor: line, borderWidth: 0.7 });
+    page.drawText(section.title, { x: MARGIN + 10, y: y + 3, size: 8.2, font: bold, color: rgb(0.08, 0.24, 0.56) });
+    y -= 28;
+
+    for (const [label, value] of section.fields) {
+      const lines = wrapTechnicalText(`${label}=${value}`, mono, bodySize, contentWidth);
+      for (const [lineIndex, lineText] of lines.entries()) {
+        ensureRoom(lineHeight, section.title);
+        page.drawText(lineText, {
+          x: MARGIN + 10,
+          y,
+          size: bodySize,
+          font: mono,
+          color: lineIndex === 0 ? ink : rgb(0.2, 0.25, 0.34),
+          maxWidth: contentWidth,
+        });
+        y -= lineHeight;
+      }
+      y -= 3;
+    }
+    y -= 8;
+  }
+
+  return pages;
+}
+
 export async function generateIntegrityCertificatePdf(data: IntegrityCertificatePdfData) {
   const pdf = await PDFDocument.create();
-  const regular = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const mono = await pdf.embedFont(StandardFonts.Courier);
-  const logoBytes = await readFile(path.join(process.cwd(), 'public', 'assets', 'images', 'logo-D-1775350208982.png'));
+  const { regular, bold, mono } = await embedDocuboxPdfFonts(pdf);
+  const logoBytes = await readFile(path.join(process.cwd(), 'public', 'assets', 'images', 'docubox-logo-2026.png'));
   const logo = await pdf.embedPng(logoBytes);
   const qrDataUrl = await QRCode.toDataURL(data.verificationUrl, { errorCorrectionLevel: 'M', margin: 1, width: 420 });
   const qr = await pdf.embedPng(Buffer.from(qrDataUrl.split(',')[1], 'base64'));
@@ -198,7 +376,7 @@ export async function generateIntegrityCertificatePdf(data: IntegrityCertificate
   roundedCard(page1, MARGIN, 624, PAGE_WIDTH - MARGIN * 2, 75);
   page1.drawCircle({ x: 78, y: 661, size: 20, color: blue });
   page1.drawText('OK', { x: 68.5, y: 655.5, size: 11, font: bold, color: rgb(1, 1, 1) });
-  page1.drawText('DOCUMENTO INTEGRO Y CERTIFICADO', { x: 118, y: 668, size: 15, font: bold, color: ink });
+  page1.drawText('Documento íntegro y certificado', { x: 118, y: 668, size: 15, font: bold, color: ink });
   page1.drawText('El documento, las cadenas y la referencia temporal coinciden con los registros sellados.', { x: 118, y: 650, size: 7.5, font: regular, color: secondary });
   page1.drawRectangle({ x: 448, y: 644, width: 103, height: 32, color: paleGreen, borderColor: rgb(0.45, 0.88, 0.68), borderWidth: 0.8 });
   drawCheck(page1, 466, 660);
@@ -268,12 +446,11 @@ export async function generateIntegrityCertificatePdf(data: IntegrityCertificate
   drawKeyValue(page1, regular, bold, 58, 133, 'Documento', data.documentBodySha256, 390);
   drawKeyValue(page1, regular, bold, 58, 116, 'Evidencia', data.evidenceChainSha256, 390);
   page1.drawText(data.timestamp ? 'La estampa acredita una referencia temporal verificable. No sustituye por si sola una constancia NOM-151.' : 'La estampa RFC 3161 no esta configurada. Esta constancia no sustituye una constancia NOM-151.', { x: MARGIN, y: 88, size: 6.5, font: regular, color: secondary });
-  drawFooter(page1, regular, 1);
 
   const page2 = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   drawHeader(page2, logo, bold, regular, 'Anexo tecnico');
   page2.drawText('ANEXO TECNICO DE VALIDACION', { x: MARGIN, y: 690, size: 16, font: bold, color: ink });
-  page2.drawText('Representacion visible de las cadenas y sellos. Los valores completos se conservan en el paquete tecnico.', { x: MARGIN, y: 672, size: 7.5, font: regular, color: secondary });
+  page2.drawText('Resumen legible de las cadenas y sellos. Los valores integros se incluyen en el anexo final.', { x: MARGIN, y: 672, size: 7.5, font: regular, color: secondary });
   drawTechnicalBlock(page2, regular, bold, 529, 1, 'CADENA ORIGINAL DOCUBOX', 'Objeto canonico que representa el documento certificado.', data.documentChainDisplay, blue);
   const documentSealId = data.documentSeal.seal_uuid;
   drawTechnicalBlock(page2, regular, bold, 392, 2, 'SELLO DIGITAL DOCUBOX', 'Firma RSA-PSS SHA-256 emitida mediante una llave KMS.', `IDENTIFICADOR=${documentSealId}\nESTADO=${data.documentSeal.status}\nHUELLA_CADENA=${data.documentSeal.document_chain_sha256.toUpperCase()}\nHUELLA_SELLO=${data.documentSeal.seal_sha256.toUpperCase()}\nALGORITMO=${data.documentSeal.signature_algorithm} / RSA-${data.documentSeal.key_size_bits}\nLLAVE=${data.documentSeal.signing_key_version}`, green);
@@ -281,7 +458,6 @@ export async function generateIntegrityCertificatePdf(data: IntegrityCertificate
   drawTechnicalBlock(page2, regular, bold, 118, 4, 'SELLO DE LA CADENA DE EVIDENCIA', 'Sello que permite detectar sustituciones, eliminaciones o alteraciones.', `HASH_CADENA=${data.evidenceChainSha256.toUpperCase()}\nALGORITHM=RSA-PSS-SHA256 / RSA-3072\nKEY_VERSION=${data.evidenceKeyVersion}\nSEAL=${truncateHash(data.evidenceSealBase64, 48, 18)}`, green);
   page2.drawText(`Raiz de certificacion: ${data.certificationRootSha256.toUpperCase()}`, { x: MARGIN, y: 92, size: 6.2, font: regular, color: secondary });
   page2.drawText('Esta constancia facilita la verificacion tecnica de integridad y evidencia. No sustituye una constancia NOM-151 emitida por un PSC acreditado.', { x: MARGIN, y: 78, size: 6.2, font: regular, color: secondary });
-  drawFooter(page2, regular, 2);
 
   const page3 = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   drawHeader(page3, logo, bold, regular, 'Sello digital');
@@ -312,13 +488,16 @@ export async function generateIntegrityCertificatePdf(data: IntegrityCertificate
   }).slice(0, 8);
   previewLines.forEach((value, index) => page3.drawText(value, { x: 58, y: 360 - index * 13, size: 6.7, font: mono, color: rgb(0.2, 0.25, 0.34) }));
   page3.drawImage(qr, { x: 472, y: 244, width: 78, height: 78 });
-  page3.drawText('Consulta el valor completo', { x: 454, y: 232, size: 6.1, font: regular, color: secondary });
+  page3.drawText('Valor completo en el anexo', { x: 451, y: 232, size: 6.1, font: regular, color: secondary });
 
   roundedCard(page3, MARGIN, 103, PAGE_WIDTH - MARGIN * 2, 101, paleBlue, rgb(0.72, 0.78, 1));
   page3.drawText('COMPROBACION', { x: 58, y: 183, size: 8.2, font: bold, color: rgb(0.08, 0.24, 0.56) });
   const explanation = 'El Sello Digital Docubox es el resultado de firmar criptograficamente la Cadena Original Docubox mediante una llave privada administrada en un servicio seguro de gestion de llaves. Su validacion permite comprobar que la cadena fue emitida por Docubox y que no ha sido modificada despues de su sellado.';
   wrapText(explanation, regular, 7.1, 490).slice(0, 5).forEach((value, index) => page3.drawText(value, { x: 58, y: 164 - index * 12, size: 7.1, font: regular, color: ink }));
-  drawFooter(page3, regular, 3);
+  drawCompleteEvidenceAppendix(pdf, logo, regular, bold, mono, data);
+
+  const allPages = pdf.getPages();
+  allPages.forEach((page, index) => drawFooter(page, logo, regular, index + 1, allPages.length));
 
   pdf.setTitle(`Constancia tecnica de integridad - ${data.folio}`);
   pdf.setAuthor('Docubox');
@@ -386,9 +565,7 @@ export async function applyCryptographicPlacements(
   if (cryptoPlacements.length === 0) return documentBytes;
 
   const pdf = await PDFDocument.load(documentBytes, { ignoreEncryption: false });
-  const regular = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const mono = await pdf.embedFont(StandardFonts.Courier);
+  const { regular, bold, mono } = await embedDocuboxPdfFonts(pdf);
 
   for (const placement of cryptoPlacements) {
     const type = placement.cryptographicType as CryptographicPlacementType;

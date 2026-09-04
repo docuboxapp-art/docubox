@@ -220,8 +220,8 @@ export async function readDocumentStorageObject(input: {
     if (!policy.legacyAllowed) {
       storedBytes.fill(0);
       throw new DocumentEncryptionError(
-        'DOCUMENT_ENCRYPTION_METADATA_MISSING',
-        'El documento no tiene metadata de cifrado.',
+        'DOCUMENT_LEGACY_PLAINTEXT_BLOCKED',
+        'El documento legacy está pendiente de migración a almacenamiento cifrado.',
         409
       );
     }

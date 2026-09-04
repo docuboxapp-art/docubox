@@ -43,13 +43,6 @@ export default function RootLayout({
             __html: `(function(){try{var t=localStorage.getItem('docubox-theme');if(t==='dark'){document.documentElement.classList.add('dark');}else if(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches){document.documentElement.classList.add('dark');}}catch(e){}})();`,
           }}
         />
-
-        <script
-          type="module"
-          async
-          src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Ffirmamax4272back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.19"
-        />
-        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" />
       </head>
       <body>
         <AuthProvider>

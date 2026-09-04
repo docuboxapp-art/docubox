@@ -16,6 +16,8 @@ import {
   Lock,
   RefreshCw,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Calendar,
   Search,
   AlertCircle,
@@ -248,6 +250,8 @@ export default function ActivityAuditLog() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const [activeTab, setActiveTab] = useState<'actividad' | 'alertas'>('actividad');
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditPageSize, setAuditPageSize] = useState<10 | 30 | 50 | 100>(10);
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -388,7 +392,10 @@ export default function ActivityAuditLog() {
   }, [user, activeWorkspace, timeFilter]);
 
   useEffect(() => {
-    loadData();
+    const timer = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadData]);
 
   // ─── Filtered data ──────────────────────────────────────────────────────────
@@ -400,6 +407,10 @@ export default function ActivityAuditLog() {
       item.accion?.toLowerCase().includes(q) || item.documento_nombre?.toLowerCase().includes(q)
     );
   });
+  const auditPageCount = Math.max(1, Math.ceil(filteredAuditLog.length / auditPageSize));
+  const activeAuditPage = Math.min(auditPage, auditPageCount);
+  const auditPageStart = (activeAuditPage - 1) * auditPageSize;
+  const visibleAuditLog = filteredAuditLog.slice(auditPageStart, auditPageStart + auditPageSize);
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
@@ -439,7 +450,10 @@ export default function ActivityAuditLog() {
           ).map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                setActiveTab(tab.key);
+                setAuditPage(1);
+              }}
               className={`flex items-center gap-1.5 border-b-2 px-0 py-2.5 text-sm font-600 transition-colors -mb-px ${
                 activeTab === tab.key
                   ? 'border-primary text-primary'
@@ -480,7 +494,10 @@ export default function ActivityAuditLog() {
             type="text"
             placeholder="Buscar eventos..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setAuditPage(1);
+            }}
             className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-3 text-xs transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
           />
         </div>
@@ -504,6 +521,7 @@ export default function ActivityAuditLog() {
                   key={key}
                   onClick={() => {
                     setTimeFilter(key);
+                    setAuditPage(1);
                     setShowTimeDropdown(false);
                   }}
                   className={`w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors ${timeFilter === key ? 'text-primary font-semibold' : 'text-foreground'}`}
@@ -517,7 +535,7 @@ export default function ActivityAuditLog() {
       </div>
 
       {/* Content */}
-      <div className="max-h-[480px] divide-y divide-slate-100 overflow-y-auto">
+      <div className="divide-y divide-slate-100">
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-10">
             <svg
@@ -555,7 +573,7 @@ export default function ActivityAuditLog() {
                     </p>
                   </div>
                 ) : (
-                  filteredAuditLog.map((item) => {
+                  visibleAuditLog.map((item) => {
                     const cfg = getEventConfig(item.accion?.toLowerCase() || '', '');
                     return (
                       <div
@@ -588,6 +606,58 @@ export default function ActivityAuditLog() {
                       </div>
                     );
                   })
+                )}
+                {filteredAuditLog.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+                    <span className="text-xs text-slate-500">
+                      Mostrando {auditPageStart + 1}-
+                      {Math.min(auditPageStart + auditPageSize, filteredAuditLog.length)} de{' '}
+                      {filteredAuditLog.length} eventos
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                        Registros por página
+                        <select
+                          value={auditPageSize}
+                          onChange={(event) => {
+                            setAuditPageSize(Number(event.target.value) as 10 | 30 | 50 | 100);
+                            setAuditPage(1);
+                          }}
+                          className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-600 text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                          aria-label="Registros por página"
+                        >
+                          {[10, 30, 50, 100].map((size) => (
+                            <option key={size} value={size}>
+                              {size}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setAuditPage((page) => Math.max(1, page - 1))}
+                        disabled={activeAuditPage === 1}
+                        className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                        title="Página anterior"
+                        aria-label="Página anterior"
+                      >
+                        <ChevronLeft size={15} />
+                      </button>
+                      <span className="min-w-12 text-center text-xs font-600 text-slate-700">
+                        {activeAuditPage} de {auditPageCount}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setAuditPage((page) => Math.min(auditPageCount, page + 1))}
+                        disabled={activeAuditPage === auditPageCount}
+                        className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                        title="Página siguiente"
+                        aria-label="Página siguiente"
+                      >
+                        <ChevronRight size={15} />
+                      </button>
+                    </div>
+                  </div>
                 )}
               </>
             )}

@@ -42,7 +42,7 @@ test('signature stamps require an explicit field type or an exact legacy signatu
   assert.match(stampSource, /legacySignatureLabels/);
   assert.match(stampSource, /return !type && legacySignatureLabels\.has/);
   assert.doesNotMatch(stampSource, /\/firma\/i/);
-  assert.match(viewerSource, /return !type && \['firma', 'firma digital'/);
+  assert.match(viewerSource, /!type &&\s*\['firma', 'firma digital'/);
   assert.doesNotMatch(viewerSource, /\/firma\/i\.test/);
 });
 
@@ -62,14 +62,21 @@ test('viewer only requests a derived stamped PDF when a signature field exists',
 });
 
 test('NOM-151 waits for the exact final PDF when signature fields are configured', async () => {
-  const [viewerSource, serviceSource] = await Promise.all([
+  const [viewerSource, serviceSource, sealSource] = await Promise.all([
     readFile(viewerPath, 'utf8'),
     readFile(nom151ServicePath, 'utf8'),
+    readFile(routePath, 'utf8'),
   ]);
 
-  assert.match(viewerSource, /await stampGenPromise;[\s\S]*?fetch\('\/api\/nom151\/generate'/);
-  // Automatic issuance now waits for persisted PAdES-B-T readiness instead of
-  // trusting the former local finalPdfReady flag.
+  // Automatic issuance is backend-owned. The viewer only refreshes evidence
+  // after seal-signatures has completed the ordered certification chain.
+  assert.doesNotMatch(
+    viewerSource.slice(viewerSource.indexOf('const stampGenPromise'), viewerSource.indexOf('// ──────────────────────────────────────────────────────────────────', viewerSource.indexOf('const stampGenPromise'))),
+    /fetch\('\/api\/nom151\/generate'/,
+  );
+  assert.match(sealSource, /await integratePadesFinalDocument/);
+  assert.match(sealSource, /pades\.profile !== 'PAdES-B-T' \|\| !pades\.timestamp/);
+  assert.match(sealSource, /await issueNom151ForVerifiedPadesBt/);
   assert.match(
     viewerSource,
     /hasConfiguredSignatureFields &&[\s\S]*?!document\.sealed_pdf_path[\s\S]*?void ensureFinalSignedPdf\(\);[\s\S]*?return;/,
@@ -90,15 +97,25 @@ test('NOM-151 waits for the exact final PDF when signature fields are configured
 });
 
 test('the final participant automatically requests NOM-151 after PDF sealing', async () => {
-  const [signingSource, routeSource] = await Promise.all([
+  const [signingSource, routeSource, sealSource] = await Promise.all([
     readFile(signingPagePath, 'utf8'),
     readFile(nom151RoutePath, 'utf8'),
+    readFile(routePath, 'utf8'),
   ]);
 
   const sealPosition = signingSource.indexOf('/seal-signatures');
-  const nom151Position = signingSource.indexOf("fetch('/api/nom151/generate'");
-  assert.ok(sealPosition >= 0 && nom151Position > sealPosition);
+  assert.ok(sealPosition >= 0);
+  assert.doesNotMatch(signingSource, /fetch\('\/api\/nom151\/generate'/);
   assert.match(signingSource, /if \(documentoEstado === 'completado'\)/);
+  const padesPosition = sealSource.indexOf('await integratePadesFinalDocument');
+  const finalizationPosition = sealSource.indexOf(
+    'await finalizeAfterVerifiedPadesBt',
+    padesPosition,
+  );
+  const nom151Position = sealSource.indexOf('await issueNom151ForVerifiedPadesBt');
+  const emailPosition = sealSource.indexOf('await queueVerifiedDocumentCompletionEmails', nom151Position);
+  assert.ok(padesPosition >= 0 && finalizationPosition > padesPosition);
+  assert.ok(emailPosition > nom151Position);
   assert.match(routeSource, /access\.role === 'AUTHORIZED'/);
   assert.match(routeSource, /PARTICIPATION_NOT_COMPLETED/);
 });
@@ -114,6 +131,56 @@ test('NOM-151 generation is automatic and does not require opening downloads', a
   assert.match(viewerSource, /void generateNom151\(\{ silent: true \}\)/);
   assert.match(viewerSource, /void ensureFinalSignedPdf\(\)/);
   assert.doesNotMatch(nom151Card, /Generar ahora|Reintentar generaci[oó]n/);
+});
+
+test('a PAdES finalization error is not presented as a NOM-151 verification failure', async () => {
+  const viewerSource = await readFile(viewerPath, 'utf8');
+  const start = viewerSource.indexOf('const ensureFinalSignedPdf');
+  const end = viewerSource.indexOf('// Regulariza documentos completados', start);
+  const finalizationBlock = viewerSource.slice(start, end);
+
+  assert.match(finalizationBlock, /setSignedPdfError\(message\)/);
+  assert.doesNotMatch(finalizationBlock, /setNom151Error\(message\)/);
+  assert.match(viewerSource, /cryptoEvidenceStatusLabel/);
+  assert.match(viewerSource, /Evidencia de integridad sin certificación PAdES/);
+});
+
+test('viewer separates audit evidence from ordinary downloads', async () => {
+  const viewerSource = await readFile(viewerPath, 'utf8');
+  const auditTabPosition = viewerSource.indexOf("key: 'auditoria'");
+  const metadataTabPosition = viewerSource.indexOf("key: 'metadata'");
+
+  assert.ok(auditTabPosition >= 0 && auditTabPosition < metadataTabPosition);
+  assert.match(viewerSource, /title: 'Auditoría',\s*label: 'Auditoría'/);
+  assert.match(viewerSource, /activeTab === 'descargas' \|\| activeTab === 'auditoria'/);
+
+  for (const heading of [
+    'Constancia de Integridad y Evidencia Digital',
+    'Constancia de auditoría hasta el cierre',
+    'XML de Evidencia',
+  ]) {
+    const headingPosition = viewerSource.indexOf(heading);
+    const auditGuardPosition = viewerSource.indexOf(
+      "{activeTab === 'auditoria' && (",
+      headingPosition,
+    );
+    assert.ok(auditGuardPosition > headingPosition && auditGuardPosition - headingPosition < 200);
+  }
+
+  assert.match(viewerSource, /\{activeTab === 'descargas' && \(\s*<>/);
+});
+
+test('viewer presents document downloads in the expected operational order', async () => {
+  const viewerSource = await readFile(viewerPath, 'utf8');
+  const signedPosition = viewerSource.indexOf('Documento derivado del proceso de firma');
+  const originalPosition = viewerSource.indexOf('Documento Original', signedPosition);
+  const generalPosition = viewerSource.indexOf('Constancia General de Firma', originalPosition);
+  const nom151Position = viewerSource.indexOf('Constancia NOM-151', generalPosition);
+
+  assert.ok(signedPosition >= 0);
+  assert.ok(originalPosition > signedPosition);
+  assert.ok(generalPosition > originalPosition);
+  assert.ok(nom151Position > generalPosition);
 });
 
 test('NOM-151 status keeps polling until issuance or a terminal failure', async () => {

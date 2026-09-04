@@ -13,6 +13,7 @@ import {
 
 type RunnerResult = {
   status?: string;
+  code?: string;
   runId?: string;
   startedAt?: string;
   completedAt?: string;
@@ -24,9 +25,26 @@ type RunnerResult = {
   failureCode?: string;
 };
 
-type Row = { label: string; state: 'PASS' | 'FAIL' | 'BLOCKED'; detail?: string };
+type RowState = 'PASS' | 'FAIL' | 'BLOCKED' | 'NOT_RUN';
+type Row = { label: string; state: RowState; detail?: string };
+
+const RESULT_LABELS = [
+  'DOCUMENT ENCRYPTION BASE',
+  'PADES PRODUCTION E2E',
+  'TSA RFC3161 PRODUCTION E2E',
+  'NOM151 CRYPTOGRAPHIC VALID',
+  'NOM151 PRODUCTION_TRUSTED',
+  'CONSTANCIAS E2E',
+  'FULL CRYPTOGRAPHIC LIFECYCLE',
+  'FAIL-CLOSED',
+] as const;
 
 function rows(result: RunnerResult): Row[] {
+  const lifecycleStarted = Boolean(result.runId || result.startedAt || result.status);
+  if (!lifecycleStarted) {
+    return RESULT_LABELS.map((label) => ({ label, state: 'NOT_RUN' }));
+  }
+
   const pass = result.status === 'PRODUCTION_VERIFIED';
   return [
     { label: 'DOCUMENT ENCRYPTION BASE', state: result.document?.finalEncrypted ? 'PASS' : 'FAIL' },
@@ -54,7 +72,19 @@ function StatusIcon({ state }: { state: Row['state'] }) {
     return <CheckCircle2 size={17} className="text-emerald-600" aria-hidden="true" />;
   if (state === 'BLOCKED')
     return <Clock3 size={17} className="text-amber-500" aria-hidden="true" />;
+  if (state === 'NOT_RUN')
+    return <Clock3 size={17} className="text-muted-foreground" aria-hidden="true" />;
   return <XCircle size={17} className="text-red-600" aria-hidden="true" />;
+}
+
+function resultSummary(result: RunnerResult) {
+  if (result.status === 'PRODUCTION_VERIFIED') {
+    return { label: 'PASS', className: 'bg-emerald-50 text-emerald-700' };
+  }
+  if (!result.runId && !result.startedAt && !result.status) {
+    return { label: 'NOT RUN', className: 'bg-slate-100 text-slate-600' };
+  }
+  return { label: 'FAIL', className: 'bg-red-50 text-red-700' };
 }
 
 export default function CryptoLifecycleRunnerCard() {
@@ -84,6 +114,7 @@ export default function CryptoLifecycleRunnerCard() {
         setResult(payload);
         setError(
           payload.failureCode ||
+            payload.code ||
             (response.status === 403 ? 'OPERATOR_NOT_AUTHORIZED' : 'E2E_RUN_FAILED')
         );
         return;
@@ -97,6 +128,7 @@ export default function CryptoLifecycleRunnerCard() {
   }
 
   const resultRows = result ? rows(result) : [];
+  const summary = result ? resultSummary(result) : null;
 
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-background shadow-sm">
@@ -152,9 +184,9 @@ export default function CryptoLifecycleRunnerCard() {
             <div className="mb-3 flex items-center justify-between gap-3">
               <h3 className="text-sm font-medium text-foreground">Resultado sanitizado</h3>
               <span
-                className={`rounded-full px-2.5 py-1 text-xs font-medium ${result.status === 'PRODUCTION_VERIFIED' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium ${summary?.className}`}
               >
-                {result.status === 'PRODUCTION_VERIFIED' ? 'PASS' : 'FAIL'}
+                {summary?.label}
               </span>
             </div>
             <div className="divide-y divide-border rounded-md border border-border">
@@ -163,7 +195,7 @@ export default function CryptoLifecycleRunnerCard() {
                   <StatusIcon state={item.state} />
                   <span className="flex-1 text-sm text-foreground">{item.label}</span>
                   <span
-                    className={`text-xs font-medium ${item.state === 'PASS' ? 'text-emerald-700' : item.state === 'BLOCKED' ? 'text-amber-700' : 'text-red-700'}`}
+                    className={`text-xs font-medium ${item.state === 'PASS' ? 'text-emerald-700' : item.state === 'BLOCKED' ? 'text-amber-700' : item.state === 'NOT_RUN' ? 'text-muted-foreground' : 'text-red-700'}`}
                   >
                     {item.state}
                   </span>

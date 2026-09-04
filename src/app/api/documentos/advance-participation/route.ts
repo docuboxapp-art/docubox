@@ -4,7 +4,7 @@ import {
   isEmailNotificationEnabled,
   sendParticipantInvitationEmails,
 } from '@/lib/emailNotifications';
-import { createNotificationServer } from '@/lib/notificationsInApp';
+import { createNotificationServer } from '@/lib/notificationsInApp.server';
 import { getParticipantPortalUrl } from '@/lib/publicAppUrl';
 
 const supabaseAdmin = createClient(
@@ -13,8 +13,14 @@ const supabaseAdmin = createClient(
 );
 
 const TERMINAL_SUB_ESTADOS = [
-  'firmo', 'firmado', 'aprobo', 'aprobado',
-  'rechazo', 'rechazado', 'cancelo', 'cancelado',
+  'firmo',
+  'firmado',
+  'aprobo',
+  'aprobado',
+  'rechazo',
+  'rechazado',
+  'cancelo',
+  'cancelado',
 ];
 
 function isTerminal(sub: string): boolean {
@@ -40,7 +46,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
@@ -55,7 +64,9 @@ export async function POST(req: NextRequest) {
     // Fetch document
     const { data: doc, error: docError } = await supabaseAdmin
       .from('documentos')
-      .select('id, nombre, estado, owner_id, participantes, participation_order, grupos_firma, workspace_id')
+      .select(
+        'id, nombre, estado, owner_id, participantes, participation_order, grupos_firma, workspace_id'
+      )
       .eq('id', documentoId)
       .single();
 
@@ -118,6 +129,16 @@ export async function POST(req: NextRequest) {
         createNotificationServer({
           userId: participantUserId,
           type: 'document',
+          eventType: 'workflow.step_available',
+          category: 'WORKFLOW',
+          severity: 'warning',
+          workspaceId: doc.workspace_id,
+          actorUserId: user.id,
+          entityType: 'document',
+          entityId: documentoId,
+          actionUrl: signingUrl,
+          actionLabel: 'Revisar y participar',
+          deduplicationKey: `workflow.step_available:${documentoId}:${p.id || participantUserId}`,
           title: 'Es tu turno de participar en un documento',
           description: `${senderName} requiere tu participación en "${docNombre}".`,
           priority: 'alta',
@@ -165,7 +186,9 @@ export async function POST(req: NextRequest) {
     if (deliveredEmails.size > 0) {
       const deliveredAt = new Date().toISOString();
       const participantsWithDelivery = updatedParticipantes.map((participant: any) => {
-        const email = String(participant.email || '').trim().toLowerCase();
+        const email = String(participant.email || '')
+          .trim()
+          .toLowerCase();
         if (!deliveredEmails.has(email)) return participant;
         return {
           ...participant,
@@ -183,7 +206,9 @@ export async function POST(req: NextRequest) {
     try {
       await supabaseAdmin.from('audit_trail').insert(
         emailParticipants.map((p: any) => {
-          const normalizedEmail = String(p.email || '').trim().toLowerCase();
+          const normalizedEmail = String(p.email || '')
+            .trim()
+            .toLowerCase();
           const accepted = deliveredEmails.has(normalizedEmail);
           return {
             documento_id: documentoId,
@@ -201,7 +226,9 @@ export async function POST(req: NextRequest) {
           };
         })
       );
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
 
     return NextResponse.json({
       success: true,
@@ -243,8 +270,8 @@ function getNextParticipantsToNotify(
       const grupoParticipantIds: string[] = grupo.participantIds ?? [];
 
       // Get participants in this group
-      const grupoParticipantes = participantes.filter((p: any) =>
-        grupoParticipantIds.includes(p.id) && !p.isCurrentUser
+      const grupoParticipantes = participantes.filter(
+        (p: any) => grupoParticipantIds.includes(p.id) && !p.isCurrentUser
       );
 
       // Check if this group is fully completed
@@ -262,7 +289,9 @@ function getNextParticipantsToNotify(
         const orderedGroup = grupoParticipantIds
           .map((id: string) => participantes.find((p: any) => p.id === id))
           .filter(Boolean);
-        const next = orderedGroup.find((p: any) => !isTerminal(p.sub_estado ?? '') && !p.isCurrentUser);
+        const next = orderedGroup.find(
+          (p: any) => !isTerminal(p.sub_estado ?? '') && !p.isCurrentUser
+        );
         return next ? [next] : [];
       }
 

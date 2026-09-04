@@ -5,6 +5,10 @@ import {
   resolveInternalDocumentSource,
   type InternalSourceVariant,
 } from '@/lib/documents/internal-source';
+import {
+  documentEncryptionPolicy,
+  readDocumentStorageObject,
+} from '@/lib/crypto/document-encryption';
 
 function bearerToken(request: NextRequest) {
   const authorization = request.headers.get('authorization');
@@ -39,6 +43,18 @@ export async function GET(request: NextRequest) {
     });
 
     if (request.nextUrl.searchParams.get('mode') === 'url') {
+      if (documentEncryptionPolicy().enabled) {
+        const direct = new URL(request.url);
+        direct.searchParams.delete('mode');
+        return NextResponse.json(
+          {
+            url: `${direct.pathname}${direct.search}`,
+            expiresIn: 300,
+            sha256: source.sha256,
+          },
+          { headers: { 'Cache-Control': 'private, no-store, max-age=0' } }
+        );
+      }
       const signedUrl = await service.storage
         .from('documents')
         .createSignedUrl(source.storagePath, 300);
@@ -61,20 +77,35 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const downloaded = await service.storage.from('documents').download(source.storagePath);
-    if (downloaded.error || !downloaded.data) {
-      throw new InternalSourceError(
-        404,
-        'SOURCE_FILE_NOT_FOUND',
-        'El archivo de esta version no esta disponible.'
-      );
+    let bytes: Uint8Array;
+    if (documentEncryptionPolicy().enabled) {
+      const decrypted = await readDocumentStorageObject({
+        service,
+        storageBucket: 'documents',
+        storagePath: source.storagePath,
+        expectedPlaintextSha256: source.sha256,
+        userId: auth.data.user.id,
+        requestId: request.headers.get('x-request-id'),
+        accessEvent: 'DOCUMENT_VIEWED',
+      });
+      bytes = new Uint8Array(decrypted.plaintext);
+    } else {
+      const downloaded = await service.storage.from('documents').download(source.storagePath);
+      if (downloaded.error || !downloaded.data) {
+        throw new InternalSourceError(
+          404,
+          'SOURCE_FILE_NOT_FOUND',
+          'El archivo de esta version no esta disponible.'
+        );
+      }
+      bytes = new Uint8Array(await downloaded.data.arrayBuffer());
     }
 
-    return new NextResponse(await downloaded.data.arrayBuffer(), {
+    return new NextResponse(Buffer.from(bytes), {
       status: 200,
       headers: {
         'Content-Type': source.fileType,
-        'Content-Length': String(downloaded.data.size),
+        'Content-Length': String(bytes.byteLength),
         'Content-Disposition': `inline; filename="${safeFileName(source.fileName)}"`,
         'Cache-Control': 'private, no-store, max-age=0',
         'X-Content-Type-Options': 'nosniff',

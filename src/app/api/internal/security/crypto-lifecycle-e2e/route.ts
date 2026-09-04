@@ -10,6 +10,7 @@ import { integratePadesFinalDocument } from '@/lib/certification/product-integra
 import { CertificationError } from '@/lib/certification/types';
 import { issueNom151ForVerifiedPadesBt, type IssueNom151Result } from '@/lib/nom151/service';
 import { createNom151Provider } from '@/lib/nom151/provider';
+import { queueVerifiedDocumentCompletionEmails } from '@/lib/notifications/document-completion';
 import { requireApiUser } from '@/lib/certification/auth';
 import { createServiceClient } from '@/lib/supabase/server';
 import {
@@ -227,7 +228,16 @@ async function runLifecycle(
       descripcion: 'Artefacto temporal generado por el runner interno de seguridad.',
       estado: 'completado',
       fecha_completado: startedAt,
-      participantes: [],
+      participantes: [
+        {
+          id: user.id,
+          user_id: user.id,
+          email: user.email,
+          nombre: user.user_metadata?.full_name || user.email || 'Operador E2E',
+          rol: 'firmante',
+          sub_estado: 'firmado',
+        },
+      ],
       campos_solicitados: [],
       ultimo_paso: 4,
     })
@@ -257,6 +267,23 @@ async function runLifecycle(
     .single();
   if (version.error || !version.data)
     throw new LifecycleE2eError('CRYPTO_LIFECYCLE_E2E_VERSION_CREATE_FAILED');
+
+  const participation = await service.from('participation_responses').insert({
+    documento_id: documentId,
+    participante_email: user.email,
+    participante_nombre: user.user_metadata?.full_name || user.email || 'Operador E2E',
+    participante_id: user.id,
+    tipo_participacion: 'firmante',
+    terminos_aceptados: true,
+    terminos_aceptados_at: startedAt,
+    firma_completada: true,
+    firma_completada_at: startedAt,
+    campos_completados: [{ campo_id: 'e2e-signature', label: 'Firma E2E', value: 'firmado' }],
+    signature_method: 'autografa_digitalizada',
+    signature_metadata: { source: 'crypto_lifecycle_e2e', artificial: true },
+  });
+  if (participation.error)
+    throw new LifecycleE2eError('CRYPTO_LIFECYCLE_E2E_PARTICIPATION_CREATE_FAILED');
 
   await encryptedArtifact(service, {
     bytes: visualPdf,
@@ -292,6 +319,13 @@ async function runLifecycle(
   );
   if (nom151.verificationStatus !== 'verified')
     throw new LifecycleE2eError('CRYPTO_LIFECYCLE_E2E_NOM151_NOT_VERIFIED');
+  const email = await queueVerifiedDocumentCompletionEmails(service, {
+    documentId,
+    certificationUuid: pades.certificationUuid,
+    requestedBy: user.id,
+  });
+  if (!email.complete || email.deliveries.some((delivery) => delivery.status !== 'sent'))
+    throw new LifecycleE2eError('CRYPTO_LIFECYCLE_E2E_EMAIL_NOT_SENT');
 
   const certification = await service
     .from('document_certifications')
@@ -497,6 +531,15 @@ async function runLifecycle(
       folio: nom.folio,
       artifactSha256: nom.artifactSha256,
       productionTrusted: nom.productionTrusted,
+    },
+    email: {
+      status: 'sent',
+      deliveries: email.deliveries.map((delivery) => ({
+        id: delivery.id,
+        recipientSha256: delivery.recipientEmailSha256,
+        status: delivery.status,
+        providerMessageId: delivery.providerMessageId,
+      })),
     },
     constancias: constancias.map((item) => ({
       path: item.path,

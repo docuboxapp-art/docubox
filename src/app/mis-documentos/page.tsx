@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   SlidersHorizontal,
   X,
+  XCircle,
   Folder,
   FolderOpen,
   Share2,
@@ -32,6 +33,7 @@ import {
   Minimize2,
   Download,
   Home,
+  RotateCcw,
 } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -47,6 +49,14 @@ import PersonalizarVistaModal, {
   DEFAULT_CF_COLUMNS,
 } from './components/PersonalizarVistaModal';
 import AppLayout from '@/components/AppLayout';
+import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
+import { DocumentPriorityBadge } from '@/components/documents/DocumentPriorityBadge';
+import { getTrashCountdown } from '@/lib/documents/trash-countdown';
+import {
+  operationalPriorityRank,
+  normalizeDocumentPriority,
+  type DocumentPriority,
+} from '@/lib/documents/priority';
 
 // ─── ResizableTh Component ├───────────────────────────────────────────────────
 interface ResizableThProps {
@@ -224,12 +234,19 @@ interface Document {
   numeroOficio?: string | null;
   folioInterno?: string | null;
   rutaGuardado?: string | null;
+  priority?: DocumentPriority;
   esUrgente?: boolean;
   participantes?: any[];
   tipoDocumentoId?: string | null;
   tipoDocumentoNombre?: string | null;
   miSubEstado?: string | null;
   ownerName?: string | null;
+  estadoRaw?: string | null;
+  canTrash?: boolean;
+  canCancel?: boolean;
+  canDirectPurge?: boolean;
+  legalHoldActive?: boolean;
+  lifecycleBlockingCode?: string | null;
 }
 
 interface DeletedDocument {
@@ -239,9 +256,41 @@ interface DeletedDocument {
   tipo: string;
   eliminadoPor: string;
   fechaEliminacion: string;
+  deletedAt?: string | null;
   tamano: string;
   retencion?: string | null;
+  purgeEligible: boolean;
+  retentionReason?: string | null;
+  restoreUntil?: string | null;
+  legalHoldActive?: boolean;
+  purgeState?: 'FINAL_DELETE_CHECK' | null;
 }
+
+interface TrashedFolder {
+  id: string;
+  name: string;
+  deletedAt: string | null;
+  restoreUntil: string | null;
+}
+
+interface DeletionHistoryEntry {
+  id: string;
+  resource_type?: 'DOCUMENT' | 'FOLDER';
+  document_id: string;
+  workspace_id?: string | null;
+  document_name?: string | null;
+  document_type?: string | null;
+  document_created_at?: string | null;
+  document_trashed_at?: string | null;
+  deletion_method?:
+    'MOVED_TO_TRASH' | 'DIRECT_DELETE' | 'TRASH_PURGE' | 'AUTO_RECOVERY_PURGE' | null;
+  reason: string;
+  status: 'TRASHED' | 'PENDING' | 'STORAGE_REMOVED' | 'COMPLETED' | 'FAILED';
+  requested_at: string | null;
+  completed_at?: string | null;
+}
+
+const DELETION_HISTORY_PAGE_SIZE = 5;
 
 interface Carpeta {
   id: string;
@@ -309,6 +358,11 @@ interface ContextMenuState {
   isDraft: boolean;
   isFavorite: boolean;
   fileUrl: string | null;
+  canTrash: boolean;
+  canCancel: boolean;
+  canDirectPurge: boolean;
+  legalHoldActive: boolean;
+  lifecycleBlockingCode: string | null;
   x: number;
   y: number;
 }
@@ -538,12 +592,48 @@ function mapDocRow(d: any): Document {
     numeroOficio: d.numero_oficio || null,
     folioInterno: d.folio_interno || null,
     rutaGuardado: d.ruta_guardado || null,
-    esUrgente: !!d.es_urgente,
+    priority: normalizeDocumentPriority(d.priority, !!d.es_urgente),
+    esUrgente: normalizeDocumentPriority(d.priority, !!d.es_urgente) === 'urgent',
     participantes: d.participantes || [],
     tipoDocumentoId: d.tipo_documento_id || null,
     tipoDocumentoNombre: d.tipo_documento?.nombre || null,
     ownerName: d._ownerName || null,
+    estadoRaw: d.estado || null,
+    canTrash: d.can_trash === true,
+    canCancel: d.can_cancel === true,
+    canDirectPurge: d.can_direct_purge === true,
+    legalHoldActive: d.legal_hold_active === true,
+    lifecycleBlockingCode: d.lifecycle_blocking_code || null,
   };
+}
+
+function trashRetentionLabel(reason: string | null | undefined, purgeEligible: boolean) {
+  if (purgeEligible) return 'Purge elegible';
+  switch (reason) {
+    case 'LEGAL_HOLD':
+      return 'Legal Hold activo';
+    case 'RECOVERY_PERIOD':
+      return 'Periodo de recuperación';
+    case 'RETENTION_ACTIVE':
+      return 'Retención vigente';
+    default:
+      return 'Pendiente de evaluación';
+  }
+}
+
+function deletionMethodLabel(method: DeletionHistoryEntry['deletion_method']) {
+  switch (method) {
+    case 'MOVED_TO_TRASH':
+      return 'Movido a Papelera';
+    case 'DIRECT_DELETE':
+      return 'Eliminación directa';
+    case 'TRASH_PURGE':
+      return 'Purgado desde Papelera';
+    case 'AUTO_RECOVERY_PURGE':
+      return 'Purgado automáticamente';
+    default:
+      return 'Eliminación permanente registrada';
+  }
 }
 
 // Recursive sidebar folder tree node
@@ -1699,6 +1789,7 @@ function DocumentosSinRevisionSection({
 
 function MisDocumentosContent() {
   const [activeSection, setActiveSection] = useState('mi-espacio');
+  const [trashNow, setTrashNow] = useState(() => new Date());
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -1785,7 +1876,8 @@ function MisDocumentosContent() {
       fechaEliminacion: 150,
       tamano: 90,
       retencion: 100,
-      acciones: 200,
+      tiempoRestante: 180,
+      acciones: 76,
     },
     user?.id
   );
@@ -1825,7 +1917,11 @@ function MisDocumentosContent() {
   const [porVencerDocuments, setPorVencerDocuments] = useState<Document[]>([]);
   const [loadingPorVencer, setLoadingPorVencer] = useState(false);
   const [deletedDocuments, setDeletedDocuments] = useState<DeletedDocument[]>([]);
+  const [trashedFolders, setTrashedFolders] = useState<TrashedFolder[]>([]);
   const [loadingPapelera, setLoadingPapelera] = useState(false);
+  const [deletingFromTrash, setDeletingFromTrash] = useState(false);
+  const [deletionHistory, setDeletionHistory] = useState<DeletionHistoryEntry[]>([]);
+  const [deletionHistoryPage, setDeletionHistoryPage] = useState(1);
 
   const [statusCounts, setStatusCounts] = useState<StatusCounts>({
     borrador: 0,
@@ -1874,16 +1970,28 @@ function MisDocumentosContent() {
   const [crearCarpetaLoading, setCrearCarpetaLoading] = useState(false);
 
   const [papeleraSearch, setPapeleraSearch] = useState('');
+  const [papeleraSortOrder, setPapeleraSortOrder] = useState<
+    'deleted_desc' | 'deleted_asc' | 'name_asc' | 'name_desc'
+  >('deleted_desc');
+  const [papeleraViewMode, setPapeleraViewMode] = useState<'list' | 'grid'>('list');
+  const [papeleraFilterOpen, setPapeleraFilterOpen] = useState(false);
+  const [papeleraStatusFilter, setPapeleraStatusFilter] = useState<
+    'all' | 'restorable' | 'retained' | 'legal_hold' | 'evaluation'
+  >('all');
   const [confirmDelete, setConfirmDelete] = useState<{
     open: boolean;
     docId: string | null;
+    documentIds?: string[];
     docName: string;
     isEmptyAll: boolean;
+    confirmationText: string;
+    directDelete?: boolean;
   }>({
     open: false,
     docId: null,
     docName: '',
     isEmptyAll: false,
+    confirmationText: '',
   });
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -1893,6 +2001,11 @@ function MisDocumentosContent() {
     isDraft: false,
     isFavorite: false,
     fileUrl: null,
+    canTrash: false,
+    canCancel: false,
+    canDirectPurge: false,
+    legalHoldActive: false,
+    lifecycleBlockingCode: null,
     x: 0,
     y: 0,
   });
@@ -1916,12 +2029,37 @@ function MisDocumentosContent() {
     carpetaId: null as string | null,
     carpetaName: '',
   });
+  const [folderTrashModal, setFolderTrashModal] = useState<{
+    open: boolean;
+    loading: boolean;
+    executing: boolean;
+    folderId: string | null;
+    folderName: string;
+    summary: {
+      documents_total: number;
+      eligible: number;
+      legal_hold: number;
+      active_workflow: number;
+      no_permission: number;
+      already_trashed: number;
+      other_blocked: number;
+      folder_can_move: boolean;
+    } | null;
+  }>({
+    open: false,
+    loading: false,
+    executing: false,
+    folderId: null,
+    folderName: '',
+    summary: null,
+  });
 
-  // Confirmation for mover a papelera (docs and folders)
+  // Confirmation for Paperera, document cancellation, and empty-folder deletion.
   const [confirmPapelera, setConfirmPapelera] = useState<{
     open: boolean;
-    type: 'doc' | 'folder';
+    type: 'doc' | 'folder' | 'folders' | 'cancel';
     id: string | null;
+    ids?: string[];
     name: string;
   }>({
     open: false,
@@ -2059,7 +2197,7 @@ function MisDocumentosContent() {
   const [dragFolderId, setDragFolderId] = useState<string | null>(null);
 
   // Sort state for Mi Espacio
-  const [miEspacioSortOrder, setMiEspacioSortOrder] = useState('ultimaModificacion_desc');
+  const [miEspacioSortOrder, setMiEspacioSortOrder] = useState('operativo');
 
   const [activeContextMenuDocId, setActiveContextMenuDocId] = useState<string | null>(null);
   const [activeFolderContextMenuId, setActiveFolderContextMenuId] = useState<string | null>(null);
@@ -2106,6 +2244,11 @@ function MisDocumentosContent() {
       isDraft: !!doc.isDraft,
       isFavorite: !!doc.isFavorite,
       fileUrl: doc.fileUrl || null,
+      canTrash: doc.canTrash === true,
+      canCancel: doc.canCancel === true,
+      canDirectPurge: doc.canDirectPurge === true,
+      legalHoldActive: doc.legalHoldActive === true,
+      lifecycleBlockingCode: doc.lifecycleBlockingCode || null,
       x: rect.right,
       y: rect.bottom,
     });
@@ -2193,14 +2336,20 @@ function MisDocumentosContent() {
 
   const requestedFolderId = searchParams.get('carpeta');
   useEffect(() => {
-    if (!requestedFolderId || carpetas.length === 0 || openedSearchFolderRef.current === requestedFolderId) return;
+    if (
+      !requestedFolderId ||
+      carpetas.length === 0 ||
+      openedSearchFolderRef.current === requestedFolderId
+    )
+      return;
     const requestedFolder = carpetas.find((carpeta) => carpeta.id === requestedFolderId);
     if (!requestedFolder) return;
 
     const buildPath = (id: string): { id: string; name: string }[] => {
       const folder = carpetas.find((carpeta) => carpeta.id === id);
       if (!folder) return [];
-      if (folder.parentId) return [...buildPath(folder.parentId), { id: folder.id, name: folder.name }];
+      if (folder.parentId)
+        return [...buildPath(folder.parentId), { id: folder.id, name: folder.name }];
       return [{ id: folder.id, name: folder.name }];
     };
 
@@ -2242,53 +2391,203 @@ function MisDocumentosContent() {
     const carpetaId = folderContextMenu.carpetaId;
     const carpetaName = folderContextMenu.carpetaName;
     closeFolderContextMenu();
-    if (!carpetaId) return;
-    // Show confirmation dialog
-    setConfirmPapelera({ open: true, type: 'folder', id: carpetaId, name: carpetaName });
+    if (!carpetaId || !user) return;
+    setFolderTrashModal({
+      open: true,
+      loading: true,
+      executing: false,
+      folderId: carpetaId,
+      folderName: carpetaName,
+      summary: null,
+    });
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      showToast('Tu sesión expiró. Inicia sesión nuevamente.');
+      setFolderTrashModal((current) => ({ ...current, loading: false }));
+      return;
+    }
+    const response = await fetch('/api/documentos/carpetas/papelera', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ folder_id: carpetaId }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      showToast(result?.error || 'No fue posible evaluar la carpeta.');
+      setFolderTrashModal((current) => ({ ...current, open: false, loading: false }));
+      return;
+    }
+    setFolderTrashModal((current) => ({
+      ...current,
+      loading: false,
+      summary: result?.summary || null,
+    }));
+  };
+
+  const executeFolderTrash = async () => {
+    if (!folderTrashModal.folderId) return;
+    setFolderTrashModal((current) => ({ ...current, executing: true }));
+    try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+      const response = await fetch('/api/documentos/carpetas/papelera', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ folder_id: folderTrashModal.folderId, execute: true }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok)
+        throw new Error(result?.error || 'No fue posible mover la carpeta a Papelera.');
+      const moved = Number(result?.moved_document_count || 0);
+      const blocked = Number(result?.blocked_document_count || 0);
+      showToast(
+        result?.folder_moved
+          ? `Carpeta y ${moved} documento(s) movidos a Papelera.`
+          : `${moved} documento(s) movido(s) a Papelera. ${blocked} permanecen protegidos o en proceso.`
+      );
+      if (result?.folder_moved) {
+        const hidden = new Set([folderTrashModal.folderId]);
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const folder of carpetas) {
+            if (folder.parentId && hidden.has(folder.parentId) && !hidden.has(folder.id)) {
+              hidden.add(folder.id);
+              changed = true;
+            }
+          }
+        }
+        setCarpetas((current) => current.filter((folder) => !hidden.has(folder.id)));
+      }
+      await loadDocuments();
+      if (activeSection === 'papelera') {
+        await loadPapelera();
+        await loadDeletionHistory();
+      }
+      setFolderTrashModal((current) => ({ ...current, open: false, executing: false }));
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : 'No fue posible mover la carpeta a Papelera.'
+      );
+      setFolderTrashModal((current) => ({ ...current, executing: false }));
+    }
   };
 
   const handleConfirmPapelera = async () => {
-    const { type, id, name } = confirmPapelera;
+    const { type, id, ids, name } = confirmPapelera;
     setConfirmPapelera({ open: false, type: 'doc', id: null, name: '' });
-    if (!id || !user) return;
+    const folderIds = type === 'folders' ? ids || [] : type === 'folder' && id ? [id] : [];
+    if (!user || (!id && folderIds.length === 0)) return;
     const supabase = createClient();
-    if (type === 'folder') {
-      // Move all documents in this folder back to root (no folder)
-      await supabase
-        .from('documentos')
-        .update({ carpeta_id: null })
-        .eq('carpeta_id', id)
-        .eq('owner_id', user.id);
-      // Delete the folder
-      const { error } = await supabase
-        .from('carpetas')
-        .delete()
-        .eq('id', id)
-        .eq('owner_id', user.id);
-      if (error) {
-        showToast('Error al mover la carpeta a papelera');
+    if (type === 'folder' || type === 'folders') {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        showToast('Tu sesión expiró. Inicia sesión nuevamente.');
         return;
       }
-      setCarpetas((prev) => prev.filter((c) => c.id !== id));
-      if (currentFolderId === id) {
+      const folderById = new Map(carpetas.map((folder) => [folder.id, folder]));
+      const folderDepth = (folderId: string) => {
+        let depth = 0;
+        let current = folderById.get(folderId);
+        const visited = new Set<string>();
+        while (current?.parentId && !visited.has(current.parentId)) {
+          visited.add(current.parentId);
+          depth += 1;
+          current = folderById.get(current.parentId);
+        }
+        return depth;
+      };
+      const orderedFolderIds = [...folderIds].sort(
+        (left, right) => folderDepth(right) - folderDepth(left)
+      );
+      const outcomes = await Promise.all(
+        orderedFolderIds.map(async (folderId) => {
+          const response = await fetch(
+            `/api/documentos/carpetas?id=${encodeURIComponent(folderId)}`,
+            {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${session.access_token}` },
+            }
+          );
+          return { folderId, ok: response.ok, result: await response.json().catch(() => null) };
+        })
+      );
+      const deletedIds = outcomes
+        .filter((outcome) => outcome.ok)
+        .map((outcome) => outcome.folderId);
+      const failed = outcomes.filter((outcome) => !outcome.ok);
+      if (deletedIds.length === 0) {
+        showToast(failed[0]?.result?.error || 'No fue posible eliminar la carpeta.');
+        return;
+      }
+      setCarpetas((prev) => prev.filter((folder) => !deletedIds.includes(folder.id)));
+      setSelectedFolders((current) => current.filter((folderId) => !deletedIds.includes(folderId)));
+      if (currentFolderId && deletedIds.includes(currentFolderId)) {
         setCurrentFolderId(null);
         setFolderBreadcrumb([]);
       }
-      showToast(`Carpeta "${name}" movida a papelera`);
+      showToast(
+        failed.length > 0
+          ? `${deletedIds.length} carpeta(s) eliminada(s). ${failed.length} requiere(n) estar vacía(s).`
+          : type === 'folder'
+            ? `Carpeta "${name}" eliminada`
+            : `${deletedIds.length} carpeta(s) eliminada(s)`
+      );
       loadDocuments();
+    } else if (type === 'cancel') {
+      const response = await fetch('/api/documentos/update-estado', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancelar', documentoId: id }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        showToast(result?.error || 'No fue posible cancelar el documento.');
+        return;
+      }
+      showToast(`"${name}" fue cancelado. Ahora puedes moverlo a Papelera.`);
+      await loadDocuments();
     } else {
-      const { error } = await supabase
-        .from('documentos')
-        .update({ deleted_at: new Date().toISOString() })
-        .eq('id', id)
-        .eq('owner_id', user.id);
-      if (error) {
-        showToast('Error al mover a papelera');
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        showToast('Tu sesión expiró. Inicia sesión nuevamente.');
+        return;
+      }
+      const response = await fetch('/api/documentos/papelera', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ document_id: id }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        showToast(result?.error || 'No fue posible mover a Papelera.');
         return;
       }
       setRealDocuments((prev) => prev.filter((d) => d.id !== id));
       showToast(`"${name}" movido a papelera`);
-      if (activeSection === 'papelera') loadPapelera();
+      if (activeSection === 'papelera') {
+        loadPapelera();
+        loadDeletionHistory();
+      }
     }
   };
 
@@ -2495,22 +2794,69 @@ function MisDocumentosContent() {
     setConfirmPapelera({ open: true, type: 'doc', id: docId, name: docName });
   };
 
+  const handleMenuCancelar = () => {
+    const docId = contextMenu.docId;
+    const docName = contextMenu.docName;
+    closeContextMenu();
+    if (!docId) return;
+    setConfirmPapelera({ open: true, type: 'cancel', id: docId, name: docName });
+  };
+
   const handleBulkPapelera = async () => {
     if (!user || selectedRows.length === 0) return;
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('documentos')
-      .update({ deleted_at: new Date().toISOString() })
-      .in('id', selectedRows)
-      .eq('owner_id', user.id);
-    if (error) {
-      showToast('Error al mover a papelera');
+    const eligibleDocumentIds = realDocuments
+      .filter((document) => selectedRows.includes(document.id) && document.canTrash)
+      .map((document) => document.id);
+    if (eligibleDocumentIds.length === 0) {
+      showToast('Ninguno de los documentos seleccionados puede moverse a Papelera.');
       return;
     }
-    setRealDocuments((prev) => prev.filter((d) => !selectedRows.includes(d.id)));
-    showToast(`${selectedRows.length} documento(s) movido(s) a papelera`);
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      showToast('Tu sesión expiró. Inicia sesión nuevamente.');
+      return;
+    }
+    const outcomes = await Promise.all(
+      eligibleDocumentIds.map(async (documentId) => {
+        const response = await fetch('/api/documentos/papelera', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ document_id: documentId }),
+        });
+        return { documentId, ok: response.ok, result: await response.json().catch(() => null) };
+      })
+    );
+    const movedIds = outcomes.filter((outcome) => outcome.ok).map((outcome) => outcome.documentId);
+    const blocked =
+      selectedRows.length - eligibleDocumentIds.length + outcomes.length - movedIds.length;
+    setRealDocuments((prev) => prev.filter((d) => !movedIds.includes(d.id)));
+    showToast(
+      blocked > 0
+        ? `${movedIds.length} documento(s) movido(s). ${blocked} no se movió(eron) por estado, retención o Legal Hold.`
+        : `${movedIds.length} documento(s) movido(s) a papelera`
+    );
     setSelectedRows([]);
-    if (activeSection === 'papelera') loadPapelera();
+    if (activeSection === 'papelera') {
+      loadPapelera();
+      loadDeletionHistory();
+    }
+  };
+
+  const handleBulkDeleteFolders = () => {
+    if (selectedFolders.length === 0) return;
+    setConfirmPapelera({
+      open: true,
+      type: 'folders',
+      id: null,
+      ids: selectedFolders,
+      name: '',
+    });
   };
 
   useEffect(() => {
@@ -3105,11 +3451,19 @@ function MisDocumentosContent() {
         return;
       }
 
-      const res = await fetch('/api/documentos/listar?tipo=papelera', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const [res, folderRes] = await Promise.all([
+        fetch('/api/documentos/listar?tipo=papelera', {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch('/api/documentos/carpetas/papelera', {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al cargar papelera');
+      const folderJson = await folderRes.json().catch(() => null);
+      if (!folderRes.ok)
+        throw new Error(folderJson?.error || 'Error al cargar carpetas en Papelera');
       setDeletedDocuments(
         (json.data || []).map((d: any) => ({
           id: d.id,
@@ -3118,14 +3472,75 @@ function MisDocumentosContent() {
           tipo: 'Documento',
           eliminadoPor: user.user_metadata?.full_name || user.email || 'Usuario',
           fechaEliminacion: d.deleted_at ? formatDate(d.deleted_at) : '—',
+          deletedAt: d.deleted_at || null,
           tamano: d.file_size ? `${Math.round(d.file_size / 1024)} KB` : '—',
-          retencion: d.retencion || null,
+          retencion: trashRetentionLabel(d.retention_reason, d.purge_eligible === true),
+          purgeEligible: d.purge_eligible === true,
+          retentionReason: d.retention_reason || null,
+          restoreUntil: d.restore_until || null,
+          legalHoldActive: d.legal_hold_active === true,
+          purgeState: d.purge_state === 'FINAL_DELETE_CHECK' ? 'FINAL_DELETE_CHECK' : null,
+        }))
+      );
+      setTrashedFolders(
+        (folderJson?.data || []).map((folder: any) => ({
+          id: folder.id,
+          name: folder.nombre || 'Carpeta sin nombre',
+          deletedAt: folder.deleted_at || null,
+          restoreUntil: folder.restore_until || null,
         }))
       );
     } catch (err) {
       console.error('Error loading papelera:', err);
     } finally {
       setLoadingPapelera(false);
+    }
+  }, [user]);
+
+  const restoreTrashedFolder = async (folder: TrashedFolder) => {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      showToast('Tu sesión expiró. Inicia sesión nuevamente.');
+      return;
+    }
+    const response = await fetch('/api/documentos/carpetas/papelera', {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ folder_id: folder.id }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      showToast(result?.error || 'No fue posible restaurar la carpeta.');
+      return;
+    }
+    showToast(`Carpeta "${folder.name}" restaurada.`);
+    await loadPapelera();
+    await loadDocuments();
+  };
+
+  const loadDeletionHistory = useCallback(async () => {
+    if (!user) return;
+    const supabase = createClient();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const response = await fetch('/api/documentos/eliminaciones', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error || 'No fue posible cargar el historial.');
+      setDeletionHistory((result?.data || []) as DeletionHistoryEntry[]);
+      setDeletionHistoryPage(1);
+    } catch (error) {
+      console.error('Error loading deletion history:', error);
     }
   }, [user]);
 
@@ -3156,8 +3571,18 @@ function MisDocumentosContent() {
   useEffect(() => {
     if (activeSection === 'favoritos') loadFavorites();
     if (activeSection === 'por-vencer') loadPorVencer();
-    if (activeSection === 'papelera') loadPapelera();
-  }, [activeSection, loadFavorites, loadPorVencer, loadPapelera]);
+    if (activeSection === 'papelera') {
+      loadPapelera();
+      loadDeletionHistory();
+    }
+  }, [activeSection, loadFavorites, loadPorVencer, loadPapelera, loadDeletionHistory]);
+
+  useEffect(() => {
+    if (activeSection !== 'papelera') return;
+    setTrashNow(new Date());
+    const interval = window.setInterval(() => setTrashNow(new Date()), 60_000);
+    return () => window.clearInterval(interval);
+  }, [activeSection]);
 
   useEffect(() => {
     setSelectedRows([]);
@@ -3589,6 +4014,20 @@ function MisDocumentosContent() {
 
   // Sort visible documents for Mi Espacio
   const sortedDocuments = [...visibleDocuments].sort((a, b) => {
+    if (miEspacioSortOrder === 'operativo') {
+      const priorityDifference =
+        operationalPriorityRank({
+          priority: a.priority,
+          legacyUrgent: a.esUrgente,
+          expiresAt: a.fechaVencimiento,
+        }) -
+        operationalPriorityRank({
+          priority: b.priority,
+          legacyUrgent: b.esUrgente,
+          expiresAt: b.fechaVencimiento,
+        });
+      if (priorityDifference) return priorityDifference;
+    }
     if (miEspacioSortOrder === 'nombre_asc') return a.name.localeCompare(b.name);
     if (miEspacioSortOrder === 'nombre_desc') return b.name.localeCompare(a.name);
     if (miEspacioSortOrder === 'estado_asc') return a.estado.localeCompare(b.estado);
@@ -3638,47 +4077,216 @@ function MisDocumentosContent() {
   const handleRestore = async (docId: string) => {
     if (!user) return;
     const supabase = createClient();
-    const { error } = await supabase
-      .from('documentos')
-      .update({ deleted_at: null })
-      .eq('id', docId)
-      .eq('owner_id', user.id);
-    if (!error) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      showToast('Tu sesión expiró. Inicia sesión nuevamente.');
+      return;
+    }
+    const response = await fetch('/api/documentos/papelera', {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ document_id: docId }),
+    });
+    const result = await response.json().catch(() => null);
+    if (response.ok) {
       setDeletedDocuments((prev) => prev.filter((d) => d.id !== docId));
       showToast('Documento restaurado correctamente');
       loadDocuments();
-    } else showToast('Error al restaurar el documento');
+    } else showToast(result?.error || 'Error al restaurar el documento');
   };
 
   const openConfirmDelete = (docId: string, docName: string) =>
-    setConfirmDelete({ open: true, docId, docName, isEmptyAll: false });
+    setConfirmDelete({ open: true, docId, docName, isEmptyAll: false, confirmationText: '' });
+  const openConfirmDirectDelete = (docId: string, docName: string) =>
+    setConfirmDelete({
+      open: true,
+      docId,
+      docName,
+      isEmptyAll: false,
+      confirmationText: '',
+      directDelete: true,
+    });
   const openConfirmEmptyAll = () =>
-    setConfirmDelete({ open: true, docId: null, docName: '', isEmptyAll: true });
+    setConfirmDelete({
+      open: true,
+      docId: null,
+      docName: '',
+      isEmptyAll: true,
+      confirmationText: '',
+    });
+
+  const openConfirmSelectedPurge = (documentIds: string[]) =>
+    setConfirmDelete({
+      open: true,
+      docId: null,
+      documentIds,
+      docName: '',
+      isEmptyAll: false,
+      confirmationText: '',
+    });
 
   const handleConfirmPermanentDelete = async () => {
     if (!user) return;
-    const supabase = createClient();
-    if (confirmDelete.isEmptyAll) {
-      const { error } = await supabase
-        .from('documentos')
-        .delete()
-        .eq('owner_id', user.id)
-        .not('deleted_at', 'is', null);
-      if (!error) setDeletedDocuments([]);
-    } else if (confirmDelete.docId) {
-      const { error } = await supabase
-        .from('documentos')
-        .delete()
-        .eq('id', confirmDelete.docId)
-        .eq('owner_id', user.id);
-      if (!error) setDeletedDocuments((prev) => prev.filter((d) => d.id !== confirmDelete.docId));
+    setDeletingFromTrash(true);
+    try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+
+      const response = await fetch('/api/documentos/papelera', {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(
+          confirmDelete.isEmptyAll
+            ? { empty_all: true, confirmation: confirmDelete.confirmationText }
+            : confirmDelete.documentIds?.length
+              ? {
+                  document_ids: confirmDelete.documentIds,
+                  confirmation: confirmDelete.confirmationText,
+                }
+              : {
+                  document_id: confirmDelete.docId,
+                  confirmation: confirmDelete.confirmationText,
+                  direct_delete: confirmDelete.directDelete === true,
+                }
+        ),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error || 'No fue posible eliminar el documento.');
+      }
+
+      const deletedCount = Number(result?.deleted_count || 0);
+      const protectedCount = Number(result?.protected_count || 0);
+      const failedCount = Array.isArray(result?.failed) ? result.failed.length : 0;
+      if (deletedCount > 0 && protectedCount > 0) {
+        showToast(
+          `${deletedCount} documento(s) eliminado(s). ${protectedCount} permanece(n) por Legal Hold, retención o periodo de recuperación.`
+        );
+      } else if (deletedCount > 0) {
+        showToast(`${deletedCount} documento(s) eliminado(s) permanentemente.`);
+      } else if (protectedCount > 0) {
+        showToast(
+          'Los documentos restantes siguen protegidos por Legal Hold, retención o recuperación.'
+        );
+      } else if (failedCount > 0) {
+        showToast(
+          'No fue posible completar una o más eliminaciones. Se conservaron para reintento seguro.'
+        );
+      }
+      await loadPapelera();
+      await loadDeletionHistory();
+      loadDocuments();
+      setSelectedRows([]);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'No fue posible procesar la papelera.');
+    } finally {
+      setDeletingFromTrash(false);
+      setConfirmDelete({
+        open: false,
+        docId: null,
+        docName: '',
+        isEmptyAll: false,
+        confirmationText: '',
+      });
     }
-    setConfirmDelete({ open: false, docId: null, docName: '', isEmptyAll: false });
   };
 
-  const filteredDeleted = deletedDocuments.filter((doc) =>
-    doc.name.toLowerCase().includes(papeleraSearch.toLowerCase())
+  const filteredDeleted = deletedDocuments
+    .filter((doc) => doc.name.toLowerCase().includes(papeleraSearch.toLowerCase()))
+    .filter((doc) => {
+      if (papeleraStatusFilter === 'all') return true;
+      if (papeleraStatusFilter === 'legal_hold') return doc.legalHoldActive;
+      if (papeleraStatusFilter === 'evaluation') return doc.purgeState === 'FINAL_DELETE_CHECK';
+      if (papeleraStatusFilter === 'retained') return !doc.purgeEligible && !doc.legalHoldActive;
+      return doc.purgeEligible && !doc.legalHoldActive;
+    })
+    .sort((left, right) => {
+      if (papeleraSortOrder === 'name_asc') return left.name.localeCompare(right.name);
+      if (papeleraSortOrder === 'name_desc') return right.name.localeCompare(left.name);
+      const leftDate = new Date(left.deletedAt || 0).getTime();
+      const rightDate = new Date(right.deletedAt || 0).getTime();
+      return papeleraSortOrder === 'deleted_asc' ? leftDate - rightDate : rightDate - leftDate;
+    });
+
+  const deletionHistoryPageCount = Math.max(
+    1,
+    Math.ceil(deletionHistory.length / DELETION_HISTORY_PAGE_SIZE)
   );
+  const activeDeletionHistoryPage = Math.min(deletionHistoryPage, deletionHistoryPageCount);
+  const deletionHistoryStart = (activeDeletionHistoryPage - 1) * DELETION_HISTORY_PAGE_SIZE;
+  const visibleDeletionHistory = deletionHistory.slice(
+    deletionHistoryStart,
+    deletionHistoryStart + DELETION_HISTORY_PAGE_SIZE
+  );
+
+  const selectedWorkspaceDocuments = realDocuments.filter((document) =>
+    selectedRows.includes(document.id)
+  );
+  const selectedBulkTrashEligible = selectedWorkspaceDocuments.filter(
+    (document) => document.canTrash
+  );
+  const selectedBulkItemCount = selectedRows.length + selectedFolders.length;
+  const selectedBulkTrashBlocked =
+    selectedWorkspaceDocuments.length - selectedBulkTrashEligible.length;
+
+  const selectedTrashDocuments = deletedDocuments.filter((document) =>
+    selectedRows.includes(document.id)
+  );
+  const selectedTrashEligible = selectedTrashDocuments.filter((document) => document.purgeEligible);
+  const selectedTrashLegalHold = selectedTrashDocuments.filter(
+    (document) => document.legalHoldActive
+  );
+  const selectedTrashRetained = selectedTrashDocuments.length - selectedTrashEligible.length;
+
+  const clearTrashSelection = () => {
+    const trashDocumentIds = new Set(deletedDocuments.map((document) => document.id));
+    setSelectedRows((current) => current.filter((id) => !trashDocumentIds.has(id)));
+  };
+
+  const handleBulkRestore = async () => {
+    if (!user || selectedTrashDocuments.length === 0) return;
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      showToast('Tu sesión expiró. Inicia sesión nuevamente.');
+      return;
+    }
+    const results = await Promise.all(
+      selectedTrashDocuments.map(async (document) => {
+        const response = await fetch('/api/documentos/papelera', {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ document_id: document.id }),
+        });
+        return response.ok;
+      })
+    );
+    const restoredCount = results.filter(Boolean).length;
+    showToast(
+      restoredCount === selectedTrashDocuments.length
+        ? `${restoredCount} documento(s) restaurado(s).`
+        : `${restoredCount} de ${selectedTrashDocuments.length} documento(s) fueron restaurados.`
+    );
+    await loadPapelera();
+    loadDocuments();
+    clearTrashSelection();
+  };
 
   const handleCrearCarpeta = async () => {
     const nombre = nuevaCarpetaNombre.trim();
@@ -4093,9 +4701,7 @@ function MisDocumentosContent() {
           ) : null;
         case 'prioridad':
           return doc.esUrgente ? (
-            <span className="px-2 py-0.5 text-xs font-semibold bg-red-100 text-red-600 rounded-full">
-              Urgente
-            </span>
+            <DocumentPriorityBadge priority={doc.priority} legacyUrgent={doc.esUrgente} />
           ) : (
             <span className="text-sm text-muted-foreground">Normal</span>
           );
@@ -4182,6 +4788,7 @@ function MisDocumentosContent() {
             >
               {doc.name}
             </button>
+            {doc.legalHoldActive && <LegalHoldBadge />}
           </div>
 
           {/* Tags below name (before divider) */}
@@ -4434,6 +5041,7 @@ function MisDocumentosContent() {
                 )}
                 <span>{doc.name}</span>
               </button>
+              {doc.legalHoldActive && <LegalHoldBadge />}
               {doc.descripcion ? (
                 <span className="text-xs text-muted-foreground">{doc.descripcion}</span>
               ) : (
@@ -4565,9 +5173,7 @@ function MisDocumentosContent() {
         {cols.find((c) => c.id === 'prioridad')?.visible && (
           <td className="px-3 py-3 min-w-[90px]">
             {doc.esUrgente ? (
-              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">
-                Urgente
-              </span>
+              <DocumentPriorityBadge priority={doc.priority} legacyUrgent={doc.esUrgente} />
             ) : (
               <span className="text-xs text-muted-foreground">Normal</span>
             )}
@@ -4641,7 +5247,7 @@ function MisDocumentosContent() {
           className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
         >
           <Trash2 size={15} className="text-red-500" />
-          Mover a papelera
+          Mover a Papelera
         </button>
       </div>
     ) : null;
@@ -4651,9 +5257,9 @@ function MisDocumentosContent() {
     contextMenu.open ? (
       <div
         ref={contextMenuRef}
-        className="fixed z-[300] bg-white border border-border rounded-xl shadow-xl py-1 min-w-[180px]"
+        className="fixed z-[300] max-h-[calc(100vh-16px)] min-w-[180px] overflow-y-auto rounded-xl border border-border bg-white py-1 shadow-xl"
         style={{
-          top: Math.min(contextMenu.y + 4, window.innerHeight - 320),
+          top: Math.max(8, Math.min(contextMenu.y + 4, window.innerHeight - 440)),
           left: Math.max(contextMenu.x - 180, 8),
         }}
       >
@@ -4726,13 +5332,43 @@ function MisDocumentosContent() {
           Modo Confidencial
         </button>
         <div className="border-t border-border my-1" />
-        <button
-          onClick={handleMenuPapelera}
-          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
-        >
-          <Trash2 size={15} className="text-red-500" />
-          Mover a papelera
-        </button>
+        {contextMenu.legalHoldActive ? (
+          <div
+            className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-400"
+            title="Este documento está protegido mediante Legal Hold y no puede moverse a Papelera ni eliminarse."
+          >
+            <Lock size={15} />
+            Legal Hold activo
+          </div>
+        ) : contextMenu.canCancel ? (
+          <button
+            onClick={handleMenuCancelar}
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-orange-700 hover:bg-orange-50 transition-colors text-left"
+          >
+            <XCircle size={15} className="text-orange-600" />
+            Cancelar documento
+          </button>
+        ) : contextMenu.canDirectPurge ? (
+          <button
+            onClick={() => {
+              if (contextMenu.docId)
+                openConfirmDirectDelete(contextMenu.docId, contextMenu.docName);
+              closeContextMenu();
+            }}
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
+          >
+            <Trash2 size={15} className="text-red-500" />
+            Eliminar permanentemente
+          </button>
+        ) : contextMenu.canTrash ? (
+          <button
+            onClick={handleMenuPapelera}
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
+          >
+            <Trash2 size={15} className="text-red-500" />
+            Mover a papelera
+          </button>
+        ) : null}
       </div>
     ) : null;
 
@@ -5539,6 +6175,7 @@ function MisDocumentosContent() {
               {miEspacioSortDropdownOpen && (
                 <div className="absolute right-0 top-full z-50 mt-1 min-w-[168px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
                   {[
+                    { value: 'operativo', label: 'Prioridad operativa' },
                     { value: 'ultimaModificacion_desc', label: 'Más reciente' },
                     { value: 'ultimaModificacion_asc', label: 'Más antiguo' },
                     { value: 'nombre_asc', label: 'Nombre A–Z' },
@@ -5644,11 +6281,23 @@ function MisDocumentosContent() {
           <div className="p-1">
             {/* Selection bar when items are checked in grid view */}
             {(selectedRows.length > 0 || selectedFolders.length > 0) && (
-              <div className="flex items-center justify-between bg-muted/60 border border-border rounded-xl px-4 py-3 mb-3">
-                <span className="text-sm font-medium text-foreground">
-                  {selectedRows.length + selectedFolders.length} elemento(s) seleccionado(s)
-                </span>
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <span className="text-sm font-medium text-foreground">
+                    {selectedBulkItemCount} elemento(s) seleccionado(s)
+                  </span>
+                  {selectedBulkTrashBlocked > 0 && (
+                    <p className="mt-0.5 text-xs text-amber-700">
+                      {selectedBulkTrashBlocked} documento(s) no se pueden mover a Papelera.
+                    </p>
+                  )}
+                  {selectedFolders.length > 0 && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Las carpetas vacías se eliminan de inmediato y no pasan por Papelera.
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => {
                       if (selectedRows.length > 0) {
@@ -5661,18 +6310,34 @@ function MisDocumentosContent() {
                     <Move size={14} />
                     Mover a...
                   </button>
-                  <button
-                    onClick={() => {
-                      if (selectedRows.length > 0) {
-                        handleBulkPapelera();
+                  {selectedRows.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (selectedBulkTrashEligible.length > 0) {
+                          handleBulkPapelera();
+                        }
+                      }}
+                      disabled={selectedBulkTrashEligible.length === 0}
+                      title={
+                        selectedBulkTrashEligible.length === 0
+                          ? 'No hay documentos seleccionados que puedan moverse a Papelera.'
+                          : `${selectedBulkTrashEligible.length} documento(s) se moverán a Papelera.`
                       }
-                    }}
-                    disabled={selectedRows.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Trash2 size={14} />
-                    Mover a la papelera
-                  </button>
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      <Trash2 size={14} />
+                      Mover {selectedBulkTrashEligible.length || ''} a la papelera
+                    </button>
+                  )}
+                  {selectedFolders.length > 0 && (
+                    <button
+                      onClick={handleBulkDeleteFolders}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                      Eliminar {selectedFolders.length} carpeta(s) permanentemente
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -5717,11 +6382,23 @@ function MisDocumentosContent() {
           <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             {/* Selection action bar for list view */}
             {(selectedRows.length > 0 || selectedFolders.length > 0) && (
-              <div className="flex items-center justify-between bg-muted/60 border-b border-border px-4 py-3">
-                <span className="text-sm font-medium text-foreground">
-                  {selectedRows.length + selectedFolders.length} elemento(s) seleccionado(s)
-                </span>
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-3 border-b border-border bg-muted/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <span className="text-sm font-medium text-foreground">
+                    {selectedBulkItemCount} elemento(s) seleccionado(s)
+                  </span>
+                  {selectedBulkTrashBlocked > 0 && (
+                    <p className="mt-0.5 text-xs text-amber-700">
+                      {selectedBulkTrashBlocked} documento(s) no se pueden mover a Papelera.
+                    </p>
+                  )}
+                  {selectedFolders.length > 0 && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Las carpetas vacías se eliminan de inmediato y no pasan por Papelera.
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => {
                       setSelectedRows([]);
@@ -5744,18 +6421,34 @@ function MisDocumentosContent() {
                     <Move size={14} />
                     Mover a...
                   </button>
-                  <button
-                    onClick={() => {
-                      if (selectedRows.length > 0) {
-                        handleBulkPapelera();
+                  {selectedRows.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (selectedBulkTrashEligible.length > 0) {
+                          handleBulkPapelera();
+                        }
+                      }}
+                      disabled={selectedBulkTrashEligible.length === 0}
+                      title={
+                        selectedBulkTrashEligible.length === 0
+                          ? 'No hay documentos seleccionados que puedan moverse a Papelera.'
+                          : `${selectedBulkTrashEligible.length} documento(s) se moverán a Papelera.`
                       }
-                    }}
-                    disabled={selectedRows.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Trash2 size={14} />
-                    Mover a la papelera
-                  </button>
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      <Trash2 size={14} />
+                      Mover {selectedBulkTrashEligible.length || ''} a la papelera
+                    </button>
+                  )}
+                  {selectedFolders.length > 0 && (
+                    <button
+                      onClick={handleBulkDeleteFolders}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                      Eliminar {selectedFolders.length} carpeta(s) permanentemente
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -6213,9 +6906,7 @@ function MisDocumentosContent() {
               <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <h1 className="text-2xl font-700 text-slate-950">Favoritos</h1>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Documentos marcados como favoritos
-                  </p>
+                  <p className="mt-1 text-sm text-slate-500">Documentos marcados como favoritos</p>
                 </div>
               </div>
               <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
@@ -6390,6 +7081,38 @@ function MisDocumentosContent() {
                   )}
                 </div>
               </div>
+              {trashedFolders.length > 0 && (
+                <section className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-700 text-slate-800">
+                    <Folder size={16} className="text-amber-600" />
+                    Carpetas en Papelera
+                  </div>
+                  <div className="space-y-2">
+                    {trashedFolders.map((folder) => (
+                      <div
+                        key={folder.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-600 text-slate-800">{folder.name}</p>
+                          <p className="text-xs text-slate-500">
+                            Movida: {formatDateTime(folder.deletedAt)} · Restaurable hasta:{' '}
+                            {formatDateTime(folder.restoreUntil)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => restoreTrashedFolder(folder)}
+                          className="flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-white px-2.5 text-xs font-600 text-primary hover:bg-primary/5"
+                        >
+                          <RotateCcw size={14} />
+                          Restaurar carpeta
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
               <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
                 {loadingFavorites ? (
                   <div className="flex items-center justify-center py-12 gap-3">
@@ -6441,9 +7164,20 @@ function MisDocumentosContent() {
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-max">
+                    <table className="w-full min-w-max table-fixed">
+                      <colgroup>
+                        <col style={{ width: '40px' }} />
+                        <col style={{ width: `${papeleraColWidths.nombre}px` }} />
+                        <col style={{ width: `${papeleraColWidths.tipo}px` }} />
+                        <col style={{ width: `${papeleraColWidths.eliminadoPor}px` }} />
+                        <col style={{ width: `${papeleraColWidths.fechaEliminacion}px` }} />
+                        <col style={{ width: `${papeleraColWidths.tamano}px` }} />
+                        <col style={{ width: `${papeleraColWidths.retencion}px` }} />
+                        <col style={{ width: `${papeleraColWidths.tiempoRestante}px` }} />
+                        <col style={{ width: '76px' }} />
+                      </colgroup>
                       <thead>
-                            <tr className="border-b border-slate-200 bg-slate-50/80">
+                        <tr className="border-b border-slate-200 bg-slate-50/80">
                           <th
                             className={selectionCheckboxCellClass}
                             style={{ width: `${favColWidths.checkbox}px` }}
@@ -6794,13 +7528,12 @@ function MisDocumentosContent() {
                           d.name.toLowerCase().includes(favSearchQuery.toLowerCase())
                         ).length === 0 && (
                           <tr>
-                            <td
-                              colSpan={10}
-                              className="p-0"
-                            >
+                            <td colSpan={10} className="p-0">
                               <LibraryEmptyState
                                 icon={Star}
-                                title={favSearchQuery ? 'Sin resultados' : 'Aún no tienes favoritos'}
+                                title={
+                                  favSearchQuery ? 'Sin resultados' : 'Aún no tienes favoritos'
+                                }
                                 description={
                                   favSearchQuery
                                     ? 'Prueba con otro nombre o término de búsqueda.'
@@ -7053,7 +7786,7 @@ function MisDocumentosContent() {
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-max">
                       <thead>
-                            <tr className="border-b border-slate-200 bg-slate-50/80">
+                        <tr className="border-b border-slate-200 bg-slate-50/80">
                           <th
                             className={selectionCheckboxCellClass}
                             style={{ width: `${porVencerColWidths.checkbox}px` }}
@@ -7403,10 +8136,7 @@ function MisDocumentosContent() {
                           d.name.toLowerCase().includes(porVencerSearch.toLowerCase())
                         ).length === 0 && (
                           <tr>
-                            <td
-                              colSpan={10}
-                              className="p-0"
-                            >
+                            <td colSpan={10} className="p-0">
                               <LibraryEmptyState
                                 icon={AlertTriangle}
                                 title={porVencerSearch ? 'Sin resultados' : 'Todo está al día'}
@@ -7432,35 +8162,315 @@ function MisDocumentosContent() {
               <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <h1 className="text-2xl font-700 text-slate-950">Papelera</h1>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Documentos eliminados recientemente
-                  </p>
+                  <p className="mt-1 text-sm text-slate-500">Documentos eliminados recientemente</p>
                 </div>
-                {deletedDocuments.length > 0 && (
+                {deletedDocuments.some((document) => document.purgeEligible) && (
                   <button
                     onClick={openConfirmEmptyAll}
                     className="flex h-9 items-center gap-2 rounded-lg bg-red-600 px-3.5 text-sm font-700 text-white transition-colors hover:bg-red-700"
                   >
                     <Trash2 size={15} />
-                    Vaciar papelera
+                    Vaciar eliminables
                   </button>
                 )}
               </div>
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-                <div className="relative flex-1">
-                  <Search
-                    size={15}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Buscar en papelera..."
-                    value={papeleraSearch}
-                    onChange={(e) => setPapeleraSearch(e.target.value)}
-                    className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
-                  />
+              <details className="mb-3 rounded-lg border border-slate-200/90 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                <summary className="cursor-pointer text-sm font-700 text-slate-900">
+                  Historial de eliminaciones
+                  <span className="ml-2 text-xs font-400 text-slate-500">Últimos 30 días</span>
+                </summary>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-slate-500">
+                    Se muestran únicamente eliminaciones definitivas completadas durante los últimos
+                    30 días.
+                  </p>
+                  <button
+                    onClick={() => router.push('/mi-perfil?section=historial-eliminaciones')}
+                    className="flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    Ver todos
+                    <ChevronRight size={14} />
+                  </button>
                 </div>
+                {deletionHistory.length > 0 ? (
+                  <>
+                    <div className="mt-3 divide-y divide-slate-100 rounded-md border border-slate-100 bg-slate-50/40">
+                      <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(125px,.7fr)_minmax(125px,.7fr)_minmax(145px,.8fr)_minmax(145px,.8fr)_minmax(160px,.9fr)] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-700 uppercase tracking-wide text-slate-500 xl:grid">
+                        <span>Elemento</span>
+                        <span className="text-right">Creación</span>
+                        <span className="text-right">Ingreso a Papelera</span>
+                        <span className="text-right">Eliminación solicitada</span>
+                        <span className="text-right">Forma de eliminación</span>
+                        <span className="text-right">Resultado</span>
+                      </div>
+                      {visibleDeletionHistory.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="grid gap-3 px-3 py-3 text-xs xl:grid-cols-[minmax(0,1.35fr)_minmax(125px,.7fr)_minmax(125px,.7fr)_minmax(145px,.8fr)_minmax(145px,.8fr)_minmax(160px,.9fr)] xl:items-center"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            {entry.resource_type === 'FOLDER' ? (
+                              <Folder size={15} className="shrink-0 text-slate-400" />
+                            ) : (
+                              <FileText size={15} className="shrink-0 text-slate-400" />
+                            )}
+                            <div className="min-w-0">
+                              <p
+                                className="truncate font-600 text-slate-800"
+                                title={entry.document_name || 'Elemento eliminado'}
+                              >
+                                {entry.document_name || 'Elemento eliminado'}
+                              </p>
+                              <p className="mt-0.5 truncate text-slate-500">
+                                {entry.document_type || 'Documento'} ·{' '}
+                                {entry.reason === 'AUTO_RECOVERY_EXPIRY'
+                                  ? 'Depuración automática'
+                                  : entry.reason === 'ADMINISTRATIVE'
+                                    ? 'Eliminación administrativa'
+                                    : 'Eliminado por solicitud'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-slate-600 xl:text-right">
+                            <span className="mr-1 text-[10px] font-600 uppercase tracking-wide text-slate-400 xl:hidden">
+                              Creación
+                            </span>
+                            <span>{formatDateTime(entry.document_created_at)}</span>
+                          </div>
+                          <div className="text-slate-600 xl:text-right">
+                            <span className="mr-1 text-[10px] font-600 uppercase tracking-wide text-slate-400 xl:hidden">
+                              Ingreso a Papelera
+                            </span>
+                            <span>{formatDateTime(entry.document_trashed_at)}</span>
+                          </div>
+                          <div className="text-slate-600 xl:text-right">
+                            <span className="mr-1 text-[10px] font-600 uppercase tracking-wide text-slate-400 xl:hidden">
+                              Eliminación solicitada
+                            </span>
+                            <span>{formatDateTime(entry.requested_at)}</span>
+                          </div>
+                          <div className="text-slate-600 xl:text-right">
+                            <span className="mr-1 text-[10px] font-600 uppercase tracking-wide text-slate-400 xl:hidden">
+                              Forma de eliminación
+                            </span>
+                            <span>{deletionMethodLabel(entry.deletion_method)}</span>
+                          </div>
+                          <div className="xl:text-right">
+                            <span
+                              className={
+                                entry.status === 'COMPLETED'
+                                  ? 'font-700 text-emerald-600'
+                                  : entry.status === 'FAILED'
+                                    ? 'font-700 text-red-600'
+                                    : 'font-700 text-amber-600'
+                              }
+                            >
+                              {entry.status === 'COMPLETED'
+                                ? 'Eliminado permanentemente'
+                                : entry.status === 'FAILED'
+                                  ? 'Requiere revisión'
+                                  : 'Eliminación en proceso'}
+                            </span>
+                            {entry.completed_at && (
+                              <p className="mt-0.5 text-slate-500">
+                                Completada: {formatDateTime(entry.completed_at)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+                      <span>
+                        Mostrando {deletionHistoryStart + 1}-
+                        {Math.min(
+                          deletionHistoryStart + DELETION_HISTORY_PAGE_SIZE,
+                          deletionHistory.length
+                        )}{' '}
+                        de {deletionHistory.length}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDeletionHistoryPage((page) => Math.max(1, page - 1))}
+                          disabled={activeDeletionHistoryPage === 1}
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                          aria-label="Página anterior del historial de eliminaciones"
+                          title="Página anterior"
+                        >
+                          <ChevronLeft size={15} />
+                        </button>
+                        <span className="min-w-12 text-center font-600 text-slate-700">
+                          {activeDeletionHistoryPage} de {deletionHistoryPageCount}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeletionHistoryPage((page) =>
+                              Math.min(deletionHistoryPageCount, page + 1)
+                            )
+                          }
+                          disabled={activeDeletionHistoryPage === deletionHistoryPageCount}
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                          aria-label="Página siguiente del historial de eliminaciones"
+                          title="Página siguiente"
+                        >
+                          <ChevronRight size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-3 text-xs text-slate-500">
+                    No hay eliminaciones permanentes durante los últimos 30 días.
+                  </p>
+                )}
+              </details>
+              <div className="mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                <div className="flex flex-wrap items-center gap-2 p-3">
+                  <div className="relative flex-1">
+                    <Search
+                      size={15}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Buscar en papelera..."
+                      value={papeleraSearch}
+                      onChange={(e) => setPapeleraSearch(e.target.value)}
+                      className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
+                    />
+                  </div>
+                  <div className="relative">
+                    <button
+                      onClick={() => setPapeleraFilterOpen((value) => !value)}
+                      className={`flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-600 transition-colors ${papeleraStatusFilter !== 'all' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+                    >
+                      <Filter size={14} />
+                      Filtros
+                    </button>
+                    {papeleraFilterOpen && (
+                      <div className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
+                        {[
+                          ['all', 'Todos los documentos'],
+                          ['restorable', 'Restaurables'],
+                          ['retained', 'Bajo retención'],
+                          ['legal_hold', 'Legal Hold'],
+                          ['evaluation', 'En evaluación final'],
+                        ].map(([value, label]) => (
+                          <button
+                            key={value}
+                            onClick={() => {
+                              setPapeleraStatusFilter(value as typeof papeleraStatusFilter);
+                              setPapeleraFilterOpen(false);
+                            }}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${papeleraStatusFilter === value ? 'font-600 text-primary' : 'text-slate-700'}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <select
+                    value={papeleraSortOrder}
+                    onChange={(event) =>
+                      setPapeleraSortOrder(event.target.value as typeof papeleraSortOrder)
+                    }
+                    className="h-9 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-600 text-slate-600 outline-none transition-colors hover:border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                    aria-label="Ordenar documentos de Papelera"
+                  >
+                    <option value="deleted_desc">Más recientes</option>
+                    <option value="deleted_asc">Más antiguos</option>
+                    <option value="name_asc">Nombre A-Z</option>
+                    <option value="name_desc">Nombre Z-A</option>
+                  </select>
+                  <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
+                    <button
+                      onClick={() => setPapeleraViewMode('list')}
+                      className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${papeleraViewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                      title="Vista de lista"
+                      aria-label="Vista de lista"
+                    >
+                      <LayoutList size={16} />
+                    </button>
+                    <button
+                      onClick={() => setPapeleraViewMode('grid')}
+                      className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${papeleraViewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                      title="Vista de tarjetas"
+                      aria-label="Vista de tarjetas"
+                    >
+                      <LayoutGrid size={16} />
+                    </button>
+                  </div>
+                </div>
+                {papeleraStatusFilter !== 'all' && (
+                  <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2">
+                    <span className="text-xs text-slate-500">Filtro activo</span>
+                    <button
+                      onClick={() => setPapeleraStatusFilter('all')}
+                      className="flex items-center gap-1 text-xs font-600 text-primary hover:underline"
+                    >
+                      Limpiar
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
               </div>
+              {selectedTrashDocuments.length > 0 && (
+                <section className="mb-3 flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/[0.04] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-700 text-slate-900">
+                      {selectedTrashDocuments.length} documento(s) seleccionado(s)
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                      {selectedTrashEligible.length > 0 && (
+                        <span className="font-600 text-red-700">
+                          {selectedTrashEligible.length} listo(s) para eliminación permanente
+                        </span>
+                      )}
+                      {selectedTrashRetained > 0 && (
+                        <span className="text-slate-600">
+                          {selectedTrashRetained} retenido(s) por recuperación, retención o Legal
+                          Hold
+                        </span>
+                      )}
+                      {selectedTrashLegalHold.length > 0 && (
+                        <span className="font-600 text-amber-700">
+                          {selectedTrashLegalHold.length} con Legal Hold
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={clearTrashSelection}
+                      className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-700 transition-colors hover:bg-slate-50"
+                    >
+                      Limpiar selección
+                    </button>
+                    <button
+                      onClick={handleBulkRestore}
+                      className="flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-white px-2.5 text-xs font-600 text-primary transition-colors hover:bg-primary/5"
+                    >
+                      <RotateCcw size={14} />
+                      Restaurar seleccionados
+                    </button>
+                    <button
+                      onClick={() =>
+                        openConfirmSelectedPurge(
+                          selectedTrashEligible.map((document) => document.id)
+                        )
+                      }
+                      disabled={selectedTrashEligible.length === 0}
+                      className="flex h-8 items-center gap-1.5 rounded-md bg-red-600 px-2.5 text-xs font-700 text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      <Trash2 size={14} />
+                      Eliminar {selectedTrashEligible.length || ''} seleccionados
+                    </button>
+                  </div>
+                </section>
+              )}
               <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
                 {loadingPapelera ? (
                   <div className="flex items-center justify-center py-12 gap-3">
@@ -7485,6 +8495,78 @@ function MisDocumentosContent() {
                       />
                     </svg>
                     <span className="text-sm text-muted-foreground">Cargando papelera...</span>
+                  </div>
+                ) : papeleraViewMode === 'grid' ? (
+                  <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {filteredDeleted.map((doc) => (
+                      <article
+                        key={doc.id}
+                        className="rounded-lg border border-slate-200 bg-white p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <FileText size={16} className="shrink-0 text-slate-400" />
+                              <p className="truncate text-sm font-700 text-slate-900">{doc.name}</p>
+                            </div>
+                            {doc.descripcion && (
+                              <p className="mt-1 truncate text-xs text-slate-500">
+                                {doc.descripcion}
+                              </p>
+                            )}
+                          </div>
+                          {doc.legalHoldActive && <LegalHoldBadge />}
+                        </div>
+                        <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                          <div>
+                            <dt className="text-slate-400">Eliminado</dt>
+                            <dd className="mt-0.5 text-slate-700">{doc.fechaEliminacion}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-400">Tamaño</dt>
+                            <dd className="mt-0.5 text-slate-700">{doc.tamano}</dd>
+                          </div>
+                          <div className="col-span-2">
+                            <dt className="text-slate-400">Estado</dt>
+                            <dd className="mt-0.5 font-600 text-slate-700">
+                              {doc.legalHoldActive
+                                ? 'Eliminación suspendida'
+                                : getTrashCountdown(doc.restoreUntil, trashNow).label}
+                            </dd>
+                          </div>
+                        </dl>
+                        <div className="mt-4 flex justify-end gap-1.5 border-t border-slate-100 pt-3">
+                          <button
+                            onClick={() => handleRestore(doc.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-md border border-primary/30 text-primary transition-colors hover:bg-primary/5"
+                            title="Restaurar"
+                            aria-label={`Restaurar ${doc.name}`}
+                          >
+                            <RotateCcw size={15} />
+                          </button>
+                          <button
+                            onClick={() => openConfirmDelete(doc.id, doc.name)}
+                            disabled={!doc.purgeEligible}
+                            className="flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white"
+                            title={
+                              doc.purgeEligible
+                                ? 'Eliminar permanentemente'
+                                : doc.retencion || 'No disponible durante la retención'
+                            }
+                            aria-label={`Eliminar permanentemente ${doc.name}`}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                    {filteredDeleted.length === 0 && (
+                      <div className="col-span-full py-8 text-center text-sm text-slate-500">
+                        {papeleraSearch
+                          ? 'No hay coincidencias para la búsqueda.'
+                          : 'La papelera está vacía.'}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -7559,9 +8641,18 @@ function MisDocumentosContent() {
                           >
                             Retención
                           </ResizableTh>
+                          <ResizableTh
+                            colKey="tiempoRestante"
+                            width={papeleraColWidths.tiempoRestante}
+                            minWidth={150}
+                            onResize={resizePapeleraCol}
+                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                          >
+                            Tiempo restante
+                          </ResizableTh>
                           <th
-                            className="sticky right-0 border-l border-slate-200 bg-slate-50/80 px-3 py-3 text-left text-xs font-semibold text-muted-foreground shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"
-                            style={{ width: `${papeleraColWidths.acciones}px` }}
+                            className="sticky right-0 w-[76px] border-l border-slate-200 bg-slate-50/80 px-1 py-3 text-center text-xs font-semibold text-muted-foreground shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"
+                            style={{ width: '76px', minWidth: '76px' }}
                           >
                             Acciones
                           </th>
@@ -7589,9 +8680,12 @@ function MisDocumentosContent() {
                                   className="text-muted-foreground flex-shrink-0 mt-0.5"
                                 />
                                 <div className="flex flex-col min-w-0">
-                                  <span className="text-xs font-medium text-foreground">
-                                    {doc.name}
-                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-xs font-medium text-foreground">
+                                      {doc.name}
+                                    </span>
+                                    {doc.legalHoldActive && <LegalHoldBadge />}
+                                  </div>
                                   {doc.descripcion && (
                                     <span className="text-xs text-muted-foreground">
                                       {doc.descripcion}
@@ -7621,19 +8715,55 @@ function MisDocumentosContent() {
                                 {doc.retencion || '—'}
                               </span>
                             </td>
-                            <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
-                              <div className="flex items-center gap-2 justify-end">
+                            <td className="px-3 py-3">
+                              <div className="flex flex-col gap-0.5">
+                                <span
+                                  className={`text-xs font-medium ${
+                                    doc.legalHoldActive
+                                      ? 'text-amber-700'
+                                      : getTrashCountdown(doc.restoreUntil, trashNow).state ===
+                                          'DUE_FOR_EVALUATION'
+                                        ? 'text-slate-600'
+                                        : 'text-slate-700'
+                                  }`}
+                                >
+                                  {doc.legalHoldActive
+                                    ? 'Eliminación suspendida'
+                                    : getTrashCountdown(doc.restoreUntil, trashNow).label}
+                                </span>
+                                {doc.restoreUntil && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Eliminación automática: {formatDateTime(doc.restoreUntil)}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td
+                              className="sticky right-0 w-[76px] bg-white px-1 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"
+                              style={{ width: '76px', minWidth: '76px' }}
+                            >
+                              <div className="flex items-center justify-center gap-1">
                                 <button
                                   onClick={() => handleRestore(doc.id)}
-                                  className="px-3 py-1.5 text-xs font-medium text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors whitespace-nowrap"
+                                  className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/30 text-primary transition-colors hover:bg-primary/5"
+                                  title="Restaurar"
+                                  aria-label={`Restaurar ${doc.name}`}
                                 >
-                                  Restaurar
+                                  <RotateCcw size={15} />
                                 </button>
                                 <button
                                   onClick={() => openConfirmDelete(doc.id, doc.name)}
-                                  className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap"
+                                  disabled={!doc.purgeEligible}
+                                  title={
+                                    doc.purgeEligible
+                                      ? 'Eliminar permanentemente'
+                                      : doc.retencion ||
+                                        'Este documento todavía no puede eliminarse definitivamente.'
+                                  }
+                                  aria-label={`Eliminar permanentemente ${doc.name}`}
+                                  className="flex h-7 w-7 items-center justify-center rounded-md border border-red-200 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white"
                                 >
-                                  Eliminar permanentemente
+                                  <Trash2 size={15} />
                                 </button>
                               </div>
                             </td>
@@ -7641,10 +8771,7 @@ function MisDocumentosContent() {
                         ))}
                         {filteredDeleted.length === 0 && (
                           <tr>
-                            <td
-                              colSpan={8}
-                              className="p-0"
-                            >
+                            <td colSpan={9} className="p-0">
                               <LibraryEmptyState
                                 icon={Trash2}
                                 title={papeleraSearch ? 'Sin resultados' : 'La papelera está vacía'}
@@ -7667,7 +8794,13 @@ function MisDocumentosContent() {
                   <div
                     className="absolute inset-0 bg-black/40 backdrop-blur-sm"
                     onClick={() =>
-                      setConfirmDelete({ open: false, docId: null, docName: '', isEmptyAll: false })
+                      setConfirmDelete({
+                        open: false,
+                        docId: null,
+                        docName: '',
+                        isEmptyAll: false,
+                        confirmationText: '',
+                      })
                     }
                   />
                   <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 z-10">
@@ -7678,6 +8811,7 @@ function MisDocumentosContent() {
                           docId: null,
                           docName: '',
                           isEmptyAll: false,
+                          confirmationText: '',
                         })
                       }
                       className="absolute top-4 right-4 p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
@@ -7688,11 +8822,23 @@ function MisDocumentosContent() {
                       <AlertCircle size={24} className="text-red-600" />
                     </div>
                     <h2 className="text-lg font-bold text-foreground mb-2">
-                      {confirmDelete.isEmptyAll ? 'Vaciar papelera' : 'Eliminar permanentemente'}
+                      {confirmDelete.isEmptyAll
+                        ? 'Vaciar eliminables'
+                        : confirmDelete.documentIds?.length
+                          ? 'Eliminar seleccionados'
+                          : 'Eliminar permanentemente'}
                     </h2>
                     <p className="text-sm text-muted-foreground mb-6">
                       {confirmDelete.isEmptyAll ? (
-                        'Se eliminarán permanentemente todos los documentos de la papelera. Esta acción no se puede deshacer.'
+                        'Se eliminarán permanentemente los documentos cuyo periodo de recuperación venció. Legal Hold y las políticas de retención siguen bloqueando la acción.'
+                      ) : confirmDelete.documentIds?.length ? (
+                        <>
+                          Se eliminarán permanentemente{' '}
+                          <span className="font-semibold text-foreground">
+                            {confirmDelete.documentIds.length} documentos seleccionados
+                          </span>
+                          . Los documentos retenidos no se incluyen en esta operación.
+                        </>
                       ) : (
                         <>
                           ¿Estás seguro de que deseas eliminar permanentemente{' '}
@@ -7703,6 +8849,20 @@ function MisDocumentosContent() {
                         </>
                       )}
                     </p>
+                    <label className="mb-5 block text-sm text-slate-700">
+                      Escribe <span className="font-700">ELIMINAR</span> para continuar.
+                      <input
+                        value={confirmDelete.confirmationText}
+                        onChange={(event) =>
+                          setConfirmDelete((current) => ({
+                            ...current,
+                            confirmationText: event.target.value,
+                          }))
+                        }
+                        autoComplete="off"
+                        className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
+                      />
+                    </label>
                     <div className="flex items-center gap-3 justify-end">
                       <button
                         onClick={() =>
@@ -7711,6 +8871,7 @@ function MisDocumentosContent() {
                             docId: null,
                             docName: '',
                             isEmptyAll: false,
+                            confirmationText: '',
                           })
                         }
                         className="px-4 py-2 text-sm font-semibold text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
@@ -7719,9 +8880,18 @@ function MisDocumentosContent() {
                       </button>
                       <button
                         onClick={handleConfirmPermanentDelete}
-                        className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+                        disabled={
+                          deletingFromTrash || confirmDelete.confirmationText !== 'ELIMINAR'
+                        }
+                        className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:cursor-wait disabled:opacity-60"
                       >
-                        {confirmDelete.isEmptyAll ? 'Vaciar papelera' : 'Eliminar permanentemente'}
+                        {deletingFromTrash
+                          ? 'Procesando…'
+                          : confirmDelete.isEmptyAll
+                            ? 'Vaciar eliminables'
+                            : confirmDelete.documentIds?.length
+                              ? 'Eliminar seleccionados'
+                              : 'Eliminar permanentemente'}
                       </button>
                     </div>
                   </div>
@@ -8185,33 +9355,36 @@ function MisDocumentosContent() {
                                       <div
                                         className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En progreso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}
                                       >
-                                        <FileText size={16} className={getDocIconColor(doc.estado)} />
+                                        <FileText
+                                          size={16}
+                                          className={getDocIconColor(doc.estado)}
+                                        />
                                       </div>
                                       <div className="flex min-w-0 flex-col">
                                         <div className="flex items-center gap-1.5">
-                                        <button
-                                          onClick={() =>
-                                            doc.isDraft
-                                              ? router.push(`/crear-documento?draft=${doc.id}`)
-                                              : router.push(`/visor-documento/${doc.id}`)
-                                          }
-                                          className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
-                                          title={doc.name}
-                                        >
-                                          {doc.name}
-                                        </button>
-                                        {doc.isFavorite && (
-                                          <Star
-                                            size={12}
-                                            className="text-yellow-400 fill-yellow-400 flex-shrink-0"
-                                          />
-                                        )}
-                                        {doc.esUrgente && (
-                                          <span
-                                            className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
-                                            title="Urgente"
-                                          />
-                                        )}
+                                          <button
+                                            onClick={() =>
+                                              doc.isDraft
+                                                ? router.push(`/crear-documento?draft=${doc.id}`)
+                                                : router.push(`/visor-documento/${doc.id}`)
+                                            }
+                                            className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
+                                            title={doc.name}
+                                          >
+                                            {doc.name}
+                                          </button>
+                                          {doc.isFavorite && (
+                                            <Star
+                                              size={12}
+                                              className="text-yellow-400 fill-yellow-400 flex-shrink-0"
+                                            />
+                                          )}
+                                          {doc.esUrgente && (
+                                            <span
+                                              className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
+                                              title="Urgente"
+                                            />
+                                          )}
                                         </div>
                                         {doc.descripcion ? (
                                           <span className="text-xs text-muted-foreground">
@@ -8219,7 +9392,9 @@ function MisDocumentosContent() {
                                           </span>
                                         ) : (
                                           <span className="text-xs text-muted-foreground">
-                                            {doc.fechaCreacion ? doc.fechaCreacion.split(' ')[0] : ''}
+                                            {doc.fechaCreacion
+                                              ? doc.fechaCreacion.split(' ')[0]
+                                              : ''}
                                           </span>
                                         )}
                                       </div>
@@ -8387,10 +9562,7 @@ function MisDocumentosContent() {
                               ))}
                               {docs.length === 0 && (
                                 <tr>
-                                  <td
-                                    colSpan={visibleCols.length + 2}
-                                    className="p-0"
-                                  >
+                                  <td colSpan={visibleCols.length + 2} className="p-0">
                                     <LibraryEmptyState
                                       icon={Filter}
                                       title={cfSearch ? 'Sin resultados' : 'Sin documentos'}
@@ -8442,6 +9614,87 @@ function MisDocumentosContent() {
         }}
       />
 
+      {folderTrashModal.open && (
+        <div className="fixed inset-0 z-[510] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <section className="relative z-10 w-full max-w-lg rounded-lg bg-white p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-600">
+                <Trash2 size={19} />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-base font-700 text-slate-900">Mover carpeta a Papelera</h2>
+                <p className="mt-1 truncate text-sm text-slate-600">
+                  {folderTrashModal.folderName}
+                </p>
+              </div>
+            </div>
+            {folderTrashModal.loading ? (
+              <p className="py-8 text-center text-sm text-slate-500">
+                Validando documentos y protecciones...
+              </p>
+            ) : folderTrashModal.summary ? (
+              <div className="mt-5 space-y-2 text-sm text-slate-700">
+                <p>La carpeta contiene {folderTrashModal.summary.documents_total} documento(s).</p>
+                <p className="font-600 text-emerald-700">
+                  {folderTrashModal.summary.eligible} pueden moverse a Papelera
+                </p>
+                {folderTrashModal.summary.legal_hold > 0 && (
+                  <p>{folderTrashModal.summary.legal_hold} tienen Legal Hold</p>
+                )}
+                {folderTrashModal.summary.active_workflow > 0 && (
+                  <p>{folderTrashModal.summary.active_workflow} están en proceso de firma</p>
+                )}
+                {folderTrashModal.summary.no_permission > 0 && (
+                  <p>{folderTrashModal.summary.no_permission} no tienes permiso para eliminarlos</p>
+                )}
+                {folderTrashModal.summary.already_trashed > 0 && (
+                  <p>{folderTrashModal.summary.already_trashed} ya están en Papelera</p>
+                )}
+                {folderTrashModal.summary.other_blocked > 0 && (
+                  <p>{folderTrashModal.summary.other_blocked} requieren revisión de estado</p>
+                )}
+                {!folderTrashModal.summary.folder_can_move && (
+                  <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Los documentos bloqueados permanecerán en la carpeta.
+                  </p>
+                )}
+                {folderTrashModal.summary.folder_can_move && (
+                  <p className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                    La carpeta y todos sus documentos se podrán restaurar durante 30 días.
+                  </p>
+                )}
+              </div>
+            ) : null}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={folderTrashModal.executing}
+                onClick={() => setFolderTrashModal((current) => ({ ...current, open: false }))}
+                className="rounded-md border border-slate-200 px-4 py-2 text-sm font-600 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={
+                  folderTrashModal.loading ||
+                  folderTrashModal.executing ||
+                  !folderTrashModal.summary ||
+                  folderTrashModal.summary.eligible === 0
+                }
+                onClick={executeFolderTrash}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-700 text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {folderTrashModal.executing
+                  ? 'Moviendo...'
+                  : `Mover ${folderTrashModal.summary?.eligible || 0} documento(s)`}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {/* Confirmation dialog for Mover a papelera */}
       {confirmPapelera.open && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center">
@@ -8459,13 +9712,47 @@ function MisDocumentosContent() {
             <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mb-4">
               <Trash2 size={24} className="text-red-600" />
             </div>
-            <h2 className="text-lg font-bold text-foreground mb-2">Mover a papelera</h2>
+            <h2 className="text-lg font-bold text-foreground mb-2">
+              {confirmPapelera.type === 'cancel'
+                ? 'Cancelar documento'
+                : confirmPapelera.type === 'folder' || confirmPapelera.type === 'folders'
+                  ? 'Eliminar carpeta permanentemente'
+                  : 'Mover a papelera'}
+            </h2>
             <p className="text-sm text-muted-foreground mb-6">
-              ¿Estás seguro de que deseas mover{' '}
-              <span className="font-semibold text-foreground">
-                &ldquo;{confirmPapelera.name}&rdquo;
-              </span>{' '}
-              a la papelera? Podrás restaurarlo desde la sección Papelera.
+              {confirmPapelera.type === 'cancel' ? (
+                <>
+                  Se detendrán las invitaciones, recordatorios y firmas pendientes de{' '}
+                  <span className="font-semibold text-foreground">
+                    &ldquo;{confirmPapelera.name}&rdquo;
+                  </span>
+                  . Las evidencias existentes se conservarán.
+                </>
+              ) : confirmPapelera.type === 'folder' || confirmPapelera.type === 'folders' ? (
+                <>
+                  {confirmPapelera.type === 'folder' ? (
+                    <>
+                      Se eliminará{' '}
+                      <span className="font-semibold text-foreground">
+                        &ldquo;{confirmPapelera.name}&rdquo;
+                      </span>
+                      .
+                    </>
+                  ) : (
+                    <>Se intentará eliminar {confirmPapelera.ids?.length || 0} carpeta(s).</>
+                  )}{' '}
+                  Solo se permiten carpetas vacías, sin documentos ni subcarpetas. Esta acción no se
+                  puede deshacer.
+                </>
+              ) : (
+                <>
+                  ¿Estás seguro de que deseas mover{' '}
+                  <span className="font-semibold text-foreground">
+                    &ldquo;{confirmPapelera.name}&rdquo;
+                  </span>{' '}
+                  a la papelera? Podrás restaurarlo desde la sección Papelera durante 30 días.
+                </>
+              )}
             </p>
             <div className="flex items-center gap-3 justify-end">
               <button
@@ -8478,7 +9765,11 @@ function MisDocumentosContent() {
                 onClick={handleConfirmPapelera}
                 className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
               >
-                Mover a papelera
+                {confirmPapelera.type === 'cancel'
+                  ? 'Cancelar documento'
+                  : confirmPapelera.type === 'folder' || confirmPapelera.type === 'folders'
+                    ? 'Eliminar permanentemente'
+                    : 'Mover a papelera'}
               </button>
             </div>
           </div>
@@ -8494,9 +9785,7 @@ function MisDocumentosContent() {
                 <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
                   <Filter size={16} />
                 </div>
-                <h2 className="text-base font-700 text-slate-950">
-                  Crear filtro personalizado
-                </h2>
+                <h2 className="text-base font-700 text-slate-950">Crear filtro personalizado</h2>
               </div>
               <button
                 type="button"

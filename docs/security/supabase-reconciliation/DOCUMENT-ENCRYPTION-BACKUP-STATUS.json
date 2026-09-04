@@ -1,0 +1,7 @@
+{
+  "backups": null,
+  "physical_backup_data": {},
+  "pitr_enabled": false,
+  "region": "us-east-1",
+  "walg_enabled": true
+}

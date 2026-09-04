@@ -37,6 +37,16 @@ const ABSOLUTE_SESSION_LIMIT_SECONDS = 10 * 60 * 60;
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  const isLegacyAdminPath =
+    (pathname === '/admin' || pathname.startsWith('/admin/')) &&
+    !pathname.startsWith('/admin/security/crypto-e2e');
+  if (isLegacyAdminPath || pathname === '/superadmin' || pathname.startsWith('/superadmin/')) {
+    const panelUrl = request.nextUrl.clone();
+    const legacyPrefix = pathname.startsWith('/superadmin') ? '/superadmin' : '/admin';
+    panelUrl.pathname = `/panel${pathname.slice(legacyPrefix.length)}`;
+    return NextResponse.redirect(panelUrl, 307);
+  }
+
   if (pathname === '/auth/totp-verification') {
     const verificationUrl = request.nextUrl.clone();
     verificationUrl.pathname = '/login/totp-verification';

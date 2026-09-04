@@ -1,0 +1,30 @@
+Docubox remote migration history (read-only capture 2026-08-30T02:39:43.319Z)
+Project: kbjejiclhgjmiasauxyr
+Remote entries: 25
+
+version | name | present_remote_history | present_local_file | tracked_in_git | tracked_logical_counterpart
+20260816225730 | colabora_commercial_tiers | yes | yes | no | 20260816220000_colabora_commercial_tiers.sql
+20260816225740 | webauthn_qr_tokens_rls | yes | yes | no | 20260816230000_webauthn_qr_tokens_rls.sql
+20260816225855 | document_dek_diagnostics_security | yes | yes | no | 20260816240000_document_dek_diagnostics_security.sql
+20260817045846 | docubox_certifica_phase1 | yes | yes | no | 20260817044200_docubox_certifica_phase1.sql
+20260817050013 | docubox_certifica_hardening | yes | yes | no | 20260817051500_docubox_certifica_hardening.sql
+20260817050628 | docubox_certifica_api_hardening | yes | yes | no | 20260817054000_docubox_certifica_api_hardening.sql
+20260817180845 | document_internal_derivations | yes | yes | no | 20260817063837_document_internal_derivations.sql
+20260817183358 | backfill_legacy_document_storage_paths | yes | yes | no | 20260817183318_backfill_legacy_document_storage_paths.sql
+20260817194126 | crypto_foundation_truthful_certification | yes | yes | no | 20260817192825_crypto_foundation_truthful_certification.sql
+20260817202824 | registration_workspace_slug_and_invite_identity | yes | yes | no | 20260817201827_registration_workspace_slug_and_invite_identity.sql
+20260820231916 | default_autografa_stamp_ac0 | yes | yes | no | 20260820120000_default_autografa_stamp_ac0.sql
+20260820234122 | persist_signature_stamp_evidence | yes | yes | no | 20260820130000_persist_signature_stamp_evidence.sql
+20260821222955 | wp_crypto_01_capability_statuses | yes | yes | no | 20260821100000_wp_crypto_01_capability_statuses.sql
+20260821222958 | wp_crypto_02_certification_orchestrator | yes | yes | no | 20260821113000_wp_crypto_02_certification_orchestrator.sql
+20260821223000 | wp_crypto_03_key_management_provider | yes | yes | no | 20260821120000_wp_crypto_03_key_management_provider.sql
+20260821223003 | wp_crypto_04_x509_certificate_layer | yes | yes | no | 20260821123000_wp_crypto_04_x509_certificate_layer.sql
+20260821223008 | wp_crypto_05_pades_engine | yes | yes | no | 20260821200622_wp_crypto_05_pades_engine.sql
+20260821223010 | wp_crypto_06_rfc3161_tsa | yes | yes | no | 20260821204141_wp_crypto_06_rfc3161_tsa.sql
+20260821223031 | wp_crypto_07_security_hardening | yes | yes | no | 20260821210000_wp_crypto_07_security_hardening.sql
+20260828223717 | fix_legal_evidence_pgcrypto_resolution | yes | yes | no | 20260828153000_fix_legal_evidence_pgcrypto_resolution.sql
+20260829015344 | external_tsa_provenance | yes | yes | no | 20260829005923_external_tsa_provenance.sql
+20260829030432 | nom151_audit_alignment | yes | yes | no | 20260829023344_nom151_audit_alignment.sql
+20260829030600 | consolidate_nom151_read_policy | yes | yes | no | 20260829030526_consolidate_nom151_read_policy.sql
+20260829030942 | replace_nom151_document_uniqueness | yes | yes | no | 20260829030915_replace_nom151_document_uniqueness.sql
+20260829051752 | nom151_production_trust | yes | yes | no | 20260829051444_nom151_production_trust.sql

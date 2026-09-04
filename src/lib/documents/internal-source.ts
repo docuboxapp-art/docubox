@@ -1,5 +1,9 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
+import {
+  documentEncryptionPolicy,
+  readDocumentStorageObject,
+} from '@/lib/crypto/document-encryption';
 
 export type InternalSourceVariant = 'original' | 'version' | 'certified';
 
@@ -241,16 +245,33 @@ export async function resolveInternalDocumentSource(
     );
   }
 
-  const originalObject = await service.storage.from('documents').download(originalStoragePath);
-  if (originalObject.error || !originalObject.data) {
-    throw new InternalSourceError(
-      404,
-      'ORIGINAL_FILE_NOT_FOUND',
-      'El archivo original no esta disponible en Storage.'
-    );
+  let originalBytes: Buffer;
+  let originalMimeType = document.file_type || 'application/octet-stream';
+  if (documentEncryptionPolicy().enabled) {
+    const decrypted = await readDocumentStorageObject({
+      service,
+      storageBucket: 'documents',
+      storagePath: originalStoragePath,
+      expectedPlaintextSha256: document.file_hash_sha256,
+      userId: user.id,
+    });
+    originalBytes = decrypted.plaintext;
+    originalMimeType = document.file_type || decrypted.mimeType;
+  } else {
+    const originalObject = await service.storage.from('documents').download(originalStoragePath);
+    if (originalObject.error || !originalObject.data) {
+      throw new InternalSourceError(
+        404,
+        'ORIGINAL_FILE_NOT_FOUND',
+        'El archivo original no esta disponible en Storage.'
+      );
+    }
+    originalBytes = Buffer.from(await originalObject.data.arrayBuffer());
+    originalMimeType = document.file_type || originalObject.data.type || 'application/octet-stream';
   }
-  const originalBytes = Buffer.from(await originalObject.data.arrayBuffer());
   const verifiedSha256 = createHash('sha256').update(originalBytes).digest('hex');
+  const originalSize = originalBytes.byteLength;
+  originalBytes.fill(0);
 
   return {
     workspaceId: request.workspaceId,
@@ -259,8 +280,8 @@ export async function resolveInternalDocumentSource(
     variant: 'original',
     documentoId: document.documento_id,
     fileName: document.file_name,
-    fileSize: originalBytes.byteLength,
-    fileType: document.file_type || originalObject.data.type || 'application/octet-stream',
+    fileSize: originalSize,
+    fileType: originalMimeType,
     sha256: verifiedSha256,
     storagePath: originalStoragePath,
     versionNumber: 1,

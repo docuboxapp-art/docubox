@@ -48,11 +48,17 @@ test('schema preserves historical records and enforces idempotency and tenant RL
 });
 
 test('UI separates verified NOM-151 evidence from provider environment', () => {
-  assert.match(ui, /const padesBtVerified = padesVerified/);
+  assert.match(ui, /const padesBtVerified/);
+  assert.match(ui, /padesVerified &&/);
   assert.match(ui, /padesBtVerified &&/);
   assert.match(ui, /Constancia NOM-151 verificada/);
   assert.match(ui, /Estado de integridad/);
   assert.match(ui, /Entorno del proveedor/);
   assert.doesNotMatch(ui, /NOM-151 no productiva/);
   assert.match(ui, /production_trusted/);
+  assert.match(ui, /const nom151EvidenceStatus/);
+  assert.match(ui, /nom151Presentation\.verificationStatus === 'verified'/);
+  assert.match(ui, /\['Constancia NOM-151', nom151EvidenceStatus\]/);
+  assert.match(ui, /label === 'Constancia NOM-151' && status === 'valid'\) return 'Verificada'/);
+  assert.match(ui, /Entorno del proveedor NOM-151/);
 });

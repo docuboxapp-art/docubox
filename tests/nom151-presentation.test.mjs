@@ -40,6 +40,7 @@ test('provider environment is presented independently from verification', () => 
   });
   assert.equal(development.providerEnvironment, 'development');
   assert.match(development.providerEnvironmentLabel, /pendiente de confirmación productiva/i);
+  assert.doesNotMatch(development.providerEnvironmentLabel, /desarrollo/i);
 
   const production = getNom151Presentation({
     verificationStatus: 'verified',

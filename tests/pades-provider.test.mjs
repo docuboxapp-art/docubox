@@ -168,6 +168,17 @@ test('PAdES-B-B signs a detached CMS with the managed key and verifies ByteRange
   assert.equal(signed.signatureAlgorithm, 'RSA-PSS-SHA256');
   assert.equal(signed.cmsHashSha256.length, 64);
   assert.equal(signed.pdfHashAfterSignature, sha256Hex(signed.pdfBytes));
+  const signedPdfText = Buffer.from(signed.pdfBytes).toString('latin1');
+  const signatureDictionary = /\/Type\s*\/Sig[\s\S]*?\/Contents\s*</.exec(signedPdfText)?.[0];
+  assert.ok(signatureDictionary, 'the PDF must contain a signature dictionary');
+  assert.match(signatureDictionary, /\/Filter\s*\/Adobe\.PPKLite/);
+  assert.match(signatureDictionary, /\/SubFilter\s*\/ETSI\.CAdES\.detached/);
+  const byteRange = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(
+    signatureDictionary,
+  );
+  assert.ok(byteRange, 'ByteRange must contain four direct number objects');
+  assert.deepEqual(byteRange.slice(1).map(Number), signed.byteRange);
+  assert.doesNotMatch(signatureDictionary, /\/ByteRange\s*\[[^\]]*\s\/[0-9]+/);
   const verification = await provider.verifyPdf({ pdfBytes: signed.pdfBytes, expectedCertificateFingerprintSha256: issued.certificate.fingerprintSha256 });
   assert.equal(verification.valid, true);
   assert.equal(verification.byteRangeValid, true);
@@ -183,9 +194,24 @@ test('PAdES-B-B signs a detached CMS with the managed key and verifies ByteRange
     Buffer.from(signed.pdfBytes).subarray(signed.byteRange[2], signed.byteRange[2] + signed.byteRange[3]),
   ]);
   assert.deepEqual(externalContent, Buffer.from(prepared.signedBytes));
-  assert.deepEqual(keyProvider.lastSignedBytes, externalContent);
+  assert.notDeepEqual(
+    keyProvider.lastSignedBytes,
+    externalContent,
+    'the managed key must sign the DER-encoded CAdES signedAttrs',
+  );
   await writeFile(contentPath, externalContent);
   await runOpenSsl(['cms', '-verify', '-binary', '-inform', 'DER', '-in', cmsPath, '-content', contentPath, '-noverify', '-out', outputPath], issued.directory);
+  const printedCms = await runOpenSsl(
+    ['cms', '-cmsout', '-print', '-inform', 'DER', '-in', cmsPath],
+    issued.directory,
+  );
+  assert.match(printedCms.stdout, /contentType \(1\.2\.840\.113549\.1\.9\.3\)/);
+  assert.match(printedCms.stdout, /messageDigest \(1\.2\.840\.113549\.1\.9\.4\)/);
+  assert.match(printedCms.stdout, /signingTime \(1\.2\.840\.113549\.1\.9\.5\)/);
+  assert.match(
+    printedCms.stdout,
+    /id-smime-aa-signingCertificateV2 \(1\.2\.840\.113549\.1\.9\.16\.2\.47\)/,
+  );
 });
 
 test('PAdES verification rejects a post-signature byte mutation and a malformed PDF', async (context) => {
@@ -202,6 +228,17 @@ test('PAdES verification rejects a post-signature byte mutation and a malformed 
   altered[20] ^= 1;
   assert.equal((await provider.verifyPdf({ pdfBytes: altered })).valid, false);
   assert.equal((await provider.verifyPdf({ pdfBytes: Buffer.from('%PDF-not-a-valid-signed-document') })).valid, false);
+
+  const slashPrefixedByteRange = Buffer.from(signed.pdfBytes);
+  const signedText = slashPrefixedByteRange.toString('latin1');
+  const byteRange = /\/ByteRange\s*\[\s*0\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(signedText);
+  assert.ok(byteRange);
+  const secondTokenOffset = signedText.indexOf(byteRange[1], byteRange.index);
+  assert.equal(slashPrefixedByteRange[secondTokenOffset - 1], 0x20);
+  slashPrefixedByteRange[secondTokenOffset - 1] = 0x2f;
+  const malformedByteRange = await provider.verifyPdf({ pdfBytes: slashPrefixedByteRange });
+  assert.equal(malformedByteRange.valid, false);
+  assert.equal(malformedByteRange.detail, 'PADES_BYTERANGE_INVALID');
 });
 
 test('PAdES-B-T embeds and verifies a real RFC 3161 signature timestamp', async (context) => {

@@ -15,6 +15,8 @@ import {
   Phone,
   FileText,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle,
   AlertCircle,
   Loader2,
@@ -45,6 +47,8 @@ import {
   CheckCircle2,
   FolderOpen,
   Maximize2,
+  History,
+  Search,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -102,6 +106,27 @@ interface WorkspaceDoc {
   status?: string;
   created_at: string;
   isOwner: boolean;
+}
+
+interface DeletionHistoryEntry {
+  id: string;
+  resource_type?: 'DOCUMENT' | 'FOLDER';
+  document_id: string;
+  workspace_id?: string | null;
+  document_name?: string | null;
+  document_type?: string | null;
+  document_created_at?: string | null;
+  document_trashed_at?: string | null;
+  deletion_method?:
+    | 'MOVED_TO_TRASH'
+    | 'DIRECT_DELETE'
+    | 'TRASH_PURGE'
+    | 'AUTO_RECOVERY_PURGE'
+    | null;
+  reason: string;
+  status: 'TRASHED' | 'PENDING' | 'STORAGE_REMOVED' | 'COMPLETED' | 'FAILED';
+  requested_at: string | null;
+  completed_at?: string | null;
 }
 
 interface VerificationStatus {
@@ -240,6 +265,7 @@ const sidebarItems = [
   { id: 'firmas', label: 'Firmas', icon: PenTool },
   { id: 'seguridad', label: 'Seguridad', icon: Shield },
   { id: 'mi-expediente', label: 'Mi expediente', icon: FolderOpen },
+  { id: 'historial-eliminaciones', label: 'Historial de eliminaciones', icon: History },
   { id: 'privacidad', label: 'Privacidad', icon: Lock },
 ];
 
@@ -1350,6 +1376,13 @@ export default function MiPerfilPage() {
   const { user } = useAuth();
   const { workspaces, activeWorkspace, setActiveWorkspace, refreshWorkspaces } = useWorkspace();
   const [activeSection, setActiveSection] = useState('informacion-personal');
+  const [deletionHistory, setDeletionHistory] = useState<DeletionHistoryEntry[]>([]);
+  const [deletionHistoryLoading, setDeletionHistoryLoading] = useState(false);
+  const [deletionHistoryError, setDeletionHistoryError] = useState<string | null>(null);
+  const [deletionHistorySearch, setDeletionHistorySearch] = useState('');
+  const [deletionHistorySort, setDeletionHistorySort] = useState<'newest' | 'oldest'>('newest');
+  const [deletionHistoryPage, setDeletionHistoryPage] = useState(1);
+  const [deletionHistoryPageSize, setDeletionHistoryPageSize] = useState<15 | 30 | 50 | 100>(15);
 
   // Profile state
   const [profile, setProfile] = useState<ProfileData>({
@@ -1617,6 +1650,49 @@ export default function MiPerfilPage() {
       }
     })();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('section') === 'historial-eliminaciones') {
+      setActiveSection('historial-eliminaciones');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user || activeSection !== 'historial-eliminaciones') return;
+    let active = true;
+    const loadDeletionHistory = async () => {
+      setDeletionHistoryLoading(true);
+      setDeletionHistoryError(null);
+      try {
+        const supabase = createClient();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('No autenticado.');
+        const response = await fetch('/api/documentos/eliminaciones?scope=all', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(result?.error || 'No fue posible cargar el historial.');
+        if (active) {
+          setDeletionHistory((result?.data || []) as DeletionHistoryEntry[]);
+          setDeletionHistoryPage(1);
+        }
+      } catch (error) {
+        if (active)
+          setDeletionHistoryError(
+            error instanceof Error ? error.message : 'No fue posible cargar el historial.'
+          );
+      } finally {
+        if (active) setDeletionHistoryLoading(false);
+      }
+    };
+    loadDeletionHistory();
+    return () => {
+      active = false;
+    };
+  }, [activeSection, user]);
 
   // Load verification status
   useEffect(() => {
@@ -2640,37 +2716,16 @@ export default function MiPerfilPage() {
     if (!user) return;
     setVerificationAction('email');
     try {
-      const supabase = createClient();
-      await supabase.auth.signInWithOtp({ email: user.email! });
-      alert(
-        `Se ha enviado un código de verificación a ${user.email}. Revisa tu bandeja de entrada.`
-      );
-    } catch {
-      /* silent */
-    } finally {
-      setVerificationAction(null);
-    }
-  };
-
-  const handleVerifyPhone = async () => {
-    if (!user || !profile.telefono) {
-      alert('Primero debes agregar un número de teléfono en Información Personal.');
-      return;
-    }
-    setVerificationAction('phone');
-    try {
-      const supabase = createClient();
-      await supabase
-        .from('user_verification_status')
-        .update({
-          phone_verified: true,
-          phone_verified_at: new Date().toISOString(),
-          phone_number: profile.telefono,
-        })
-        .eq('user_id', user.id);
-      await loadVerificationStatus();
-    } catch {
-      /* silent */
+      const response = await fetch('/api/registro/send-verification-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, email: user.email }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'No fue posible enviar el correo.');
+      alert(`Se envió un enlace de validación a ${user.email}. Revisa tu bandeja de entrada.`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No fue posible enviar el correo.');
     } finally {
       setVerificationAction(null);
     }
@@ -4216,8 +4271,13 @@ export default function MiPerfilPage() {
         year: 'numeric',
       });
     };
-    const steps = verificationStatus?.verification_steps_completed ?? 0;
-    const progressPct = Math.round((steps / 3) * 100);
+    const steps =
+      (verificationStatus?.email_verified ? 1 : 0) +
+      (verificationStatus?.biometric_verified ? 1 : 0);
+    const progressPct = Math.round((steps / 2) * 100);
+    const requiredVerificationComplete =
+      Boolean(verificationStatus?.email_verified) &&
+      Boolean(verificationStatus?.biometric_verified);
     const verificationItems = [
       {
         key: 'email',
@@ -4230,19 +4290,6 @@ export default function MiPerfilPage() {
         actionLoading: verificationAction === 'email',
         onAction: handleVerifyEmail,
         color: 'blue',
-      },
-      {
-        key: 'phone',
-        label: 'Número Telefónico',
-        description:
-          profile.telefono || verificationStatus?.phone_number || 'Sin teléfono registrado',
-        icon: Smartphone,
-        verified: verificationStatus?.phone_verified ?? false,
-        verifiedAt: verificationStatus?.phone_verified_at ?? null,
-        actionLabel: 'Verificar teléfono',
-        actionLoading: verificationAction === 'phone',
-        onAction: handleVerifyPhone,
-        color: 'green',
       },
       {
         key: 'biometric',
@@ -4298,11 +4345,11 @@ export default function MiPerfilPage() {
             <div>
               <p className="text-sm font-700 text-foreground">Progreso de verificación</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {steps} de 3 verificaciones completadas
+                {steps} de 2 verificaciones completadas
               </p>
             </div>
             {verificationLoading && <Loader2 size={15} className="text-primary animate-spin" />}
-            {verificationStatus?.all_verified && (
+            {requiredVerificationComplete && (
               <span className="flex items-center gap-1.5 text-xs font-600 text-green-700 bg-green-100 px-2.5 py-1 rounded-full">
                 <CheckCircle size={13} />
                 Identidad verificada
@@ -6287,6 +6334,243 @@ export default function MiPerfilPage() {
     return 'SO desconocido';
   }
 
+  const renderDeletionHistory = () => {
+    const records = deletionHistory
+      .filter((entry) => {
+        const query = deletionHistorySearch.trim().toLowerCase();
+        const matchesSearch =
+          !query ||
+          (entry.document_name || '').toLowerCase().includes(query) ||
+          entry.document_id.toLowerCase().includes(query) ||
+          entry.id.toLowerCase().includes(query) ||
+          entry.reason.toLowerCase().includes(query);
+        return matchesSearch;
+      })
+      .sort((left, right) => {
+        const difference =
+          new Date(right.requested_at || right.document_trashed_at || 0).getTime() -
+          new Date(left.requested_at || left.document_trashed_at || 0).getTime();
+        return deletionHistorySort === 'newest' ? difference : -difference;
+      });
+    const deletionHistoryPageCount = Math.max(
+      1,
+      Math.ceil(records.length / deletionHistoryPageSize)
+    );
+    const activeDeletionHistoryPage = Math.min(deletionHistoryPage, deletionHistoryPageCount);
+    const deletionHistoryStart = (activeDeletionHistoryPage - 1) * deletionHistoryPageSize;
+    const visibleRecords = records.slice(
+      deletionHistoryStart,
+      deletionHistoryStart + deletionHistoryPageSize
+    );
+
+    const formatHistoryDate = (value: string | null | undefined) =>
+      value
+        ? new Intl.DateTimeFormat('es-MX', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+          }).format(new Date(value))
+        : '—';
+
+    const statusLabel: Record<DeletionHistoryEntry['status'], string> = {
+      TRASHED: 'En Papelera',
+      PENDING: 'En proceso',
+      STORAGE_REMOVED: 'Almacenamiento eliminado',
+      COMPLETED: 'Eliminado permanentemente',
+      FAILED: 'Requiere revisión',
+    };
+    const methodLabel: Record<NonNullable<DeletionHistoryEntry['deletion_method']>, string> = {
+      MOVED_TO_TRASH: 'Movido a Papelera',
+      DIRECT_DELETE: 'Eliminación directa',
+      TRASH_PURGE: 'Purgado desde Papelera',
+      AUTO_RECOVERY_PURGE: 'Purgado automáticamente',
+    };
+    const reasonLabel: Record<string, string> = {
+      USER_REQUEST: 'Solicitud del titular',
+      ADMINISTRATIVE: 'Acción administrativa autorizada',
+      AUTO_RECOVERY_EXPIRY: 'Fin del periodo de recuperación',
+      MOVED_TO_TRASH: 'Movimiento a Papelera',
+    };
+    const recordsWithDetail = records.filter(
+      (entry) => entry.document_name || entry.document_created_at || entry.document_trashed_at
+    ).length;
+    return (
+      <div className="flex flex-col gap-5">
+        <ProfileSectionHeader
+          title="Historial de eliminaciones"
+          description="Consulta las eliminaciones permanentes por purga o eliminación directa registradas en tus espacios de trabajo."
+        />
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-slate-200 bg-blue-50/60 px-4 py-3 text-xs text-slate-600">
+          <span>Incluye tu cuenta y los espacios donde eres propietario o administrador.</span>
+          <span>
+            <strong className="font-700 text-slate-800">{records.length}</strong> eliminaciones permanentes
+          </span>
+          <span>
+            <strong className="font-700 text-slate-800">{recordsWithDetail}</strong> registros con detalle disponible
+          </span>
+        </div>
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3">
+            <div className="relative min-w-[220px] flex-1">
+              <Search
+                size={15}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                value={deletionHistorySearch}
+                onChange={(event) => {
+                  setDeletionHistorySearch(event.target.value);
+                  setDeletionHistoryPage(1);
+                }}
+                placeholder="Buscar por documento, referencia o motivo..."
+                className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm outline-none transition-colors focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/10"
+              />
+            </div>
+            <select
+              value={deletionHistorySort}
+              onChange={(event) => {
+                setDeletionHistorySort(event.target.value as typeof deletionHistorySort);
+                setDeletionHistoryPage(1);
+              }}
+              className="h-9 rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+              aria-label="Ordenar historial"
+            >
+              <option value="newest">Más recientes</option>
+              <option value="oldest">Más antiguas</option>
+            </select>
+          </div>
+          {deletionHistoryLoading ? (
+            <div className="px-5 py-12 text-center text-sm text-slate-500">
+              Cargando historial...
+            </div>
+          ) : deletionHistoryError ? (
+            <div className="px-5 py-12 text-center text-sm text-red-600">
+              {deletionHistoryError}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1040px]">
+                <thead className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-600 text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Elemento</th>
+                    <th className="px-4 py-3">Cronología</th>
+                    <th className="px-4 py-3">Acción</th>
+                    <th className="px-4 py-3">Estado</th>
+                    <th className="px-4 py-3">Registro</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {visibleRecords.map((entry) => (
+                    <tr key={entry.id} className="hover:bg-slate-50/70">
+                      <td className="px-4 py-3">
+                        <p
+                          className="max-w-[280px] truncate font-600 text-slate-700"
+                          title={entry.document_name || 'Elemento eliminado'}
+                        >
+                          {entry.document_name || 'Elemento histórico eliminado'}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {entry.document_type || 'Documento'}
+                          {!entry.document_name && ' · Detalle del elemento no disponible'}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-600">
+                        <div className="space-y-1">
+                          {entry.document_created_at && <p>Creado: {formatHistoryDate(entry.document_created_at)}</p>}
+                          {entry.document_trashed_at && <p>En Papelera: {formatHistoryDate(entry.document_trashed_at)}</p>}
+                          {!entry.document_created_at && !entry.document_trashed_at && (
+                            <p className="text-slate-400">Sin cronología previa disponible</p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="text-sm font-600 text-slate-700">
+                          {entry.deletion_method
+                            ? methodLabel[entry.deletion_method]
+                            : entry.status === 'COMPLETED'
+                              ? 'Eliminación permanente registrada'
+                              : 'Método no disponible'}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {reasonLabel[entry.reason] || 'Motivo registrado sin clasificación'}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-600 ${entry.status === 'COMPLETED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : entry.status === 'TRASHED' ? 'border-blue-200 bg-blue-50 text-blue-700' : entry.status === 'FAILED' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
+                        >
+                          {statusLabel[entry.status]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-600">
+                        <p>Registrada: {formatHistoryDate(entry.requested_at)}</p>
+                        {entry.completed_at && <p className="mt-1">Finalizada: {formatHistoryDate(entry.completed_at)}</p>}
+                      </td>
+                    </tr>
+                  ))}
+                  {records.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
+                        No hay registros que coincidan con los filtros.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!deletionHistoryLoading && !deletionHistoryError && records.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
+              <label className="flex items-center gap-2">
+                <span>Registros por página</span>
+                <select
+                  value={deletionHistoryPageSize}
+                  onChange={(event) => {
+                    setDeletionHistoryPageSize(
+                      Number(event.target.value) as 15 | 30 | 50 | 100
+                    );
+                    setDeletionHistoryPage(1);
+                  }}
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-600 text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  aria-label="Registros por página"
+                >
+                  <option value={15}>15</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletionHistoryPage((page) => Math.max(1, page - 1))}
+                  disabled={activeDeletionHistoryPage === 1}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                  aria-label="Página anterior"
+                >
+                  <ChevronLeft size={15} />
+                </button>
+                <span className="min-w-12 text-center font-600 text-slate-700">
+                  {activeDeletionHistoryPage} de {deletionHistoryPageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDeletionHistoryPage((page) => Math.min(deletionHistoryPageCount, page + 1))
+                  }
+                  disabled={activeDeletionHistoryPage === deletionHistoryPageCount}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                  aria-label="Página siguiente"
+                >
+                  <ChevronRight size={15} />
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (activeSection) {
       case 'informacion-personal':
@@ -6303,6 +6587,8 @@ export default function MiPerfilPage() {
         return renderSeguridad();
       case 'mi-expediente':
         return renderMiExpediente();
+      case 'historial-eliminaciones':
+        return renderDeletionHistory();
       case 'privacidad':
         return renderPrivacidad();
       default:

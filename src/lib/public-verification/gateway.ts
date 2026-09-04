@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LocatedVerificationDocument, PublicVerificationResult } from './types';
 import { VERIFIER_VERSION } from './types';
+import { documentEncryptionPolicy } from '@/lib/crypto/document-encryption';
 
 const attempts = new Map<string, { count: number; expiresAt: number }>();
 
@@ -71,6 +72,15 @@ export async function attachTemporaryDocumentUrl(
   result: PublicVerificationResult
 ) {
   if (!document.isPublic || !result.document) return result;
+  if (documentEncryptionPolicy().enabled) {
+    return {
+      ...result,
+      document: {
+        ...result.document,
+        documentUrl: `/api/verificacion/documentos/${document.id}/archivo`,
+      },
+    };
+  }
   const candidates: Array<{ bucket: string; path: string }> = [];
   if (document.sealedPdfPath) {
     candidates.push({ bucket: 'documents-signed', path: document.sealedPdfPath });

@@ -8,9 +8,62 @@ import { CertificationError } from '@/lib/certification/types';
 import { createCertificationProviderSet } from '@/lib/certification/providers';
 import { isCryptoCertificationE2eEnabled } from '@/lib/certification/feature-flags';
 import { getCryptoProviderMode, isProductionCertificationEnabled } from '@/lib/certification/provider-mode';
+import { getRequiredPadesLevel } from '@/lib/certification/product-integration';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+async function padesReadiness() {
+  const providers = createCertificationProviderSet();
+  const [kms, x509, pades, tsa, independent] = await Promise.all([
+    providers.keyManagement.healthCheck(),
+    providers.certificate.healthCheck(),
+    providers.pdfSignature.healthCheck(),
+    providers.timestampAuthority.healthCheck(),
+    providers.independentVerification.healthCheck(),
+  ]);
+  let protectionLevel: string | null = null;
+  if (kms.ready && kms.keyId) {
+    try {
+      protectionLevel = (await providers.keyManagement.getKeyMetadata(kms.keyId)).protectionLevel;
+    } catch {
+      protectionLevel = null;
+    }
+  }
+  const requiredLevel = getRequiredPadesLevel();
+  const productionEnabled = providers.mode !== 'production' || providers.productionEnabled;
+  const hsmRequired = providers.mode === 'production';
+  const hsmReady = !hsmRequired || protectionLevel === 'hsm';
+  const ready = requiredLevel === 'B-T'
+    && productionEnabled
+    && hsmReady
+    && kms.ready
+    && x509.ready
+    && pades.ready
+    && tsa.ready
+    && independent.ready;
+  const failureCodes = [...new Set([
+    ...(requiredLevel === 'B-T' ? [] : ['PADES_REQUIRED_LEVEL_NOT_B_T']),
+    ...(productionEnabled ? [] : ['PRODUCTION_CERTIFICATION_DISABLED']),
+    ...(hsmReady ? [] : ['PRODUCTION_HSM_REQUIRED']),
+    ...kms.missing,
+    ...x509.missing,
+    ...pades.missing,
+    ...tsa.missing,
+    ...independent.missing,
+  ])];
+  return {
+    ready,
+    requiredLevel,
+    cryptoProfile: providers.mode === 'production' ? 'production-hsm' : 'development',
+    kms: { ...kms, protectionLevel },
+    x509,
+    tsa,
+    pades,
+    independent,
+    failureCodes,
+  };
+}
 
 function errorResponse(error: unknown) {
   const failure = error instanceof CertificationError
@@ -22,7 +75,7 @@ function errorResponse(error: unknown) {
 async function enrichViewerEvidence(
   supabase: SupabaseClient,
   documentId: string,
-  certification: Record<string, any> | null,
+  certification: Awaited<ReturnType<CertificationOrchestrator['getStatus']>> | null,
 ) {
   if (!certification) return null;
   const evidence = await supabase
@@ -85,9 +138,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const orchestrator = new CertificationOrchestrator(supabase);
     const summary = await orchestrator.getStatus(documentId, user.id);
     const certification = await enrichViewerEvidence(supabase, documentId, summary);
-    const providerStatus = certification?.status === 'COMPLETED'
-      ? { ready: false, missing: [], checked: false }
-      : { ...(await createCertificationProviderSet().healthCheck()), checked: true };
+    const hasVerifiedPades = certification?.status === 'COMPLETED'
+      && certification.pdfSignatureStatus === 'valid'
+      && certification.certificateStatus === 'valid'
+      && certification.verificationStatus === 'valid';
+    const readiness = hasVerifiedPades ? null : await padesReadiness();
+    const providerStatus = hasVerifiedPades
+      ? { ready: true, missing: [], checked: false }
+      : {
+          ready: Boolean(readiness?.ready),
+          missing: readiness?.failureCodes || [],
+          checked: true,
+        };
     return NextResponse.json(
       {
         certification,
@@ -98,6 +160,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         e2eEnabled: isCryptoCertificationE2eEnabled(),
         providerMode: getCryptoProviderMode(),
         productionEnabled: isProductionCertificationEnabled(),
+        padesReadiness: readiness,
       },
       { headers: { 'Cache-Control': 'no-store' } },
     );

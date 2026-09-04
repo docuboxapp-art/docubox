@@ -71,7 +71,10 @@ test('lifecycle response and audit are sanitized', () => {
   assert.match(route, /CRYPTO_LIFECYCLE_E2E_STARTED/);
   assert.match(route, /CRYPTO_LIFECYCLE_E2E_COMPLETED/);
   assert.match(route, /CRYPTO_LIFECYCLE_E2E_FAILED/);
-  assert.match(route, /error instanceof LifecycleE2eError \|\| error instanceof CertificationError/);
+  assert.match(
+    route,
+    /error instanceof LifecycleE2eError \|\| error instanceof CertificationError/
+  );
   assert.match(route, /provider_parameters: false/);
   assert.match(route, /audit_source: 'internal-security-runner'/);
   assert.match(route, /outcome: input\.outcome === 'failed' \? 'failed' : 'success'/);
@@ -91,6 +94,19 @@ test('temporary administrative page uses the normal browser session and shared i
     card,
     /localStorage|document\.cookie|access_token|wrapped.?dek|private.?key/i
   );
+});
+
+test('precondition failures are reported as NOT_RUN instead of crypto failures', () => {
+  assert.match(card, /type RowState = 'PASS' \| 'FAIL' \| 'BLOCKED' \| 'NOT_RUN'/);
+  assert.match(
+    card,
+    /const lifecycleStarted = Boolean\(result\.runId \|\| result\.startedAt \|\| result\.status\)/
+  );
+  assert.match(card, /if \(!lifecycleStarted\)/);
+  assert.match(card, /state: 'NOT_RUN'/);
+  assert.match(card, /label: 'NOT RUN'/);
+  assert.match(card, /payload\.failureCode/);
+  assert.match(card, /payload\.code/);
 });
 
 test('shared guard denies tenant roles and distinguishes disabled runner from internal access', () => {

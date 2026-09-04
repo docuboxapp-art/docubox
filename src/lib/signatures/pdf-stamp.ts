@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { PDFDocument, StandardFonts, rgb, type PDFPage } from 'pdf-lib';
+import { PDFDocument, rgb, type PDFPage } from 'pdf-lib';
 import { applyFinalPdfMetadata, type FinalPdfTechnicalMetadata } from '@/lib/documents/final-pdf-metadata';
+import { embedDocuboxPdfFonts, type DocuboxPdfFonts } from '@/lib/pdf/embedded-fonts';
 
 export type SignatureStampResponse = {
   participante_id?: string | null;
@@ -114,10 +115,9 @@ async function drawStamp(
   response: SignatureStampResponse,
   field: SignatureStampField | null,
   index: number,
+  fonts: DocuboxPdfFonts,
 ) {
-  const regular = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const mono = await pdf.embedFont(StandardFonts.Courier);
+  const { regular, bold } = fonts;
   const metadata = response.signature_metadata || {};
   const method = responseMethod(response);
   const style = responseStyle(response);
@@ -171,6 +171,7 @@ export async function createSignedDocumentPdf(params: {
   technicalMetadata: FinalPdfTechnicalMetadata;
 }) {
   const pdf = await PDFDocument.load(params.originalBytes, { ignoreEncryption: false });
+  const fonts = await embedDocuboxPdfFonts(pdf);
   const signatureFields = params.fields.filter(isSignatureStampField);
   let stampsApplied = 0;
 
@@ -178,7 +179,7 @@ export async function createSignedDocumentPdf(params: {
     const matching = signatureFields.filter((field) => matchesField(field, response));
     for (const field of matching) {
       const pageIndex = Math.max(0, Math.min(pdf.getPageCount() - 1, Number(field.page || 1) - 1));
-      await drawStamp(pdf, pdf.getPage(pageIndex), response, field, 0);
+      await drawStamp(pdf, pdf.getPage(pageIndex), response, field, 0, fonts);
       stampsApplied += 1;
     }
   }

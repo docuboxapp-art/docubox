@@ -23,8 +23,10 @@ import {
 import { createClient } from '@/lib/supabase/client';
 
 interface TotpSetupModalProps {
-  onClose: () => void;
+  onClose?: () => void;
   onSuccess: () => void;
+  mandatory?: boolean;
+  requiredAuthenticator?: AuthenticatorId;
 }
 
 type Step = 'instructions' | 'qr' | 'password' | 'verify' | 'success';
@@ -80,7 +82,12 @@ const AUTHENTICATOR_APPS: Array<{
   },
 ];
 
-export default function TotpSetupModal({ onClose, onSuccess }: TotpSetupModalProps) {
+export default function TotpSetupModal({
+  onClose,
+  onSuccess,
+  mandatory = false,
+  requiredAuthenticator,
+}: TotpSetupModalProps) {
   const [step, setStep] = useState<Step>('instructions');
   const [loading, setLoading] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
@@ -297,7 +304,12 @@ export default function TotpSetupModal({ onClose, onSuccess }: TotpSetupModalPro
   };
 
   const formatSecret = (s: string) => s.match(/.{1,4}/g)?.join(' ') || s;
-  const selectedApp = AUTHENTICATOR_APPS.find((app) => app.id === selectedAuthenticator)!;
+  const availableAuthenticatorApps = requiredAuthenticator
+    ? AUTHENTICATOR_APPS.filter((app) => app.id === requiredAuthenticator)
+    : AUTHENTICATOR_APPS;
+  const selectedApp =
+    availableAuthenticatorApps.find((app) => app.id === selectedAuthenticator) ||
+    availableAuthenticatorApps[0];
 
   const returnToQr = () => {
     setDigits(['', '', '', '', '', '']);
@@ -318,17 +330,27 @@ export default function TotpSetupModal({ onClose, onSuccess }: TotpSetupModalPro
               <Shield size={19} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-base font-600 text-foreground">Configurar app autenticadora</h2>
+              <h2 className="text-base font-600 text-foreground">
+                {requiredAuthenticator
+                  ? `Configurar ${selectedApp.name}`
+                  : 'Configurar app autenticadora'}
+              </h2>
               <p className="text-sm text-muted-foreground">Verificación en dos pasos (TOTP)</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <X size={18} />
-          </button>
+          {mandatory ? (
+            <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-600 text-amber-800">
+              Obligatorio
+            </span>
+          ) : (
+            <button
+              onClick={onClose}
+              aria-label="Cerrar"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         {/* Content */}
@@ -340,13 +362,14 @@ export default function TotpSetupModal({ onClose, onSuccess }: TotpSetupModalPro
                 <p className="mb-1 text-xs font-600 uppercase text-primary">Paso 1 de 2</p>
                 <h3 className="text-xl font-600 text-foreground">Prepara tu app autenticadora</h3>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Instala una de estas aplicaciones en tu teléfono y sigue las instrucciones para
-                  enlazar tu cuenta Docubox.
+                  {requiredAuthenticator
+                    ? `Instala ${selectedApp.name} en tu teléfono y sigue las instrucciones para enlazar tu cuenta Docubox.`
+                    : 'Instala una de estas aplicaciones en tu teléfono y sigue las instrucciones para enlazar tu cuenta Docubox.'}
                 </p>
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {AUTHENTICATOR_APPS.map((app) => (
+                {availableAuthenticatorApps.map((app) => (
                   <button
                     key={app.id}
                     type="button"

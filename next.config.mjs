@@ -5,6 +5,7 @@ const nextConfig = {
   productionBrowserSourceMaps: true,
   distDir: process.env.DIST_DIR || '.next',
   outputFileTracingIncludes: {
+    '/*': ['./infra/pdf/fonts/**/*'],
     '/api/nom151/**': ['./infra/nom151/trust/**/*'],
     '/api/internal/crypto/nom151-health': ['./infra/nom151/trust/**/*'],
   },

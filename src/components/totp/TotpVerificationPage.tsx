@@ -5,14 +5,19 @@ import { Shield, AlertCircle, Loader2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import TotpCodeInput from '@/components/totp/TotpCodeInput';
+import { createClient } from '@/lib/supabase/client';
 
 interface TotpVerificationPageProps {
-  userId: string;
   onSuccess: () => void;
   onBack?: () => void;
+  onPasskeyRequired?: () => void;
 }
 
-export default function TotpVerificationPage({ userId, onSuccess, onBack }: TotpVerificationPageProps) {
+export default function TotpVerificationPage({
+  onSuccess,
+  onBack,
+  onPasskeyRequired,
+}: TotpVerificationPageProps) {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,14 +30,29 @@ export default function TotpVerificationPage({ userId, onSuccess, onBack }: Totp
     setLoading(true);
     setError(null);
     try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setError('La sesión expiró. Inicia sesión nuevamente.');
+        return;
+      }
       const res = await fetch('/api/auth/totp/verify-login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, code }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ code }),
       });
 
       const data = await res.json();
       if (!res.ok) {
+        if (data.errorCode === 'PLATFORM_PASSKEY_REQUIRED' && onPasskeyRequired) {
+          onPasskeyRequired();
+          return;
+        }
         if (data.locked) {
           setError(data.error);
         } else {
@@ -47,7 +67,7 @@ export default function TotpVerificationPage({ userId, onSuccess, onBack }: Totp
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            userId,
+            userId: session.user.id,
             loginSuccess: true,
             authMethod: 'totp',
             userAgent: navigator.userAgent,
@@ -55,11 +75,19 @@ export default function TotpVerificationPage({ userId, onSuccess, onBack }: Totp
             language: navigator.language || undefined,
             platform: navigator.platform || undefined,
             deviceFingerprint: btoa(
-              [navigator.userAgent, navigator.language, window.screen.width, window.screen.height, navigator.hardwareConcurrency || 0].join('|')
+              [
+                navigator.userAgent,
+                navigator.language,
+                window.screen.width,
+                window.screen.height,
+                navigator.hardwareConcurrency || 0,
+              ].join('|')
             ).slice(0, 64),
           }),
         });
-      } catch { /* non-blocking */ }
+      } catch {
+        /* non-blocking */
+      }
 
       onSuccess();
     } catch {
@@ -123,7 +151,10 @@ export default function TotpVerificationPage({ userId, onSuccess, onBack }: Totp
           {/* Help text */}
           <div className="flex items-start gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl mb-5">
             <Shield size={13} className="text-blue-500 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-blue-700">Los códigos cambian cada 30 segundos. Si el código no funciona, espera a que tu app genere uno nuevo.</p>
+            <p className="text-xs text-blue-700">
+              Los códigos cambian cada 30 segundos. Si el código no funciona, espera a que tu app
+              genere uno nuevo.
+            </p>
           </div>
 
           {/* Verify button */}
@@ -151,7 +182,9 @@ export default function TotpVerificationPage({ userId, onSuccess, onBack }: Totp
           <div className="mt-4 pt-4 border-t border-border">
             <p className="text-xs text-center text-muted-foreground">
               <span className="opacity-50 cursor-not-allowed">No tengo acceso a mi app</span>
-              <span className="text-xs text-muted-foreground ml-1">(Próximamente: códigos de recuperación)</span>
+              <span className="text-xs text-muted-foreground ml-1">
+                (Próximamente: códigos de recuperación)
+              </span>
             </p>
           </div>
         </div>

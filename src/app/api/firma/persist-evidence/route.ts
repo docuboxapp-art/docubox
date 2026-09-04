@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendOwnerParticipantActionEmail } from '@/lib/emailNotifications';
-import { createNotificationServer } from '@/lib/notificationsInApp';
+import { createNotificationServer } from '@/lib/notificationsInApp.server';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,7 +9,16 @@ const supabaseAdmin = createClient(
 );
 
 // Terminal sub_estados that count as "participated"
-const TERMINAL_SUB_ESTADOS = ['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'];
+const TERMINAL_SUB_ESTADOS = [
+  'firmo',
+  'firmado',
+  'aprobo',
+  'aprobado',
+  'rechazo',
+  'rechazado',
+  'cancelo',
+  'cancelado',
+];
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,7 +29,10 @@ export async function POST(req: NextRequest) {
     const token = authHeader.replace('Bearer ', '');
 
     // Verify user
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
@@ -78,7 +90,10 @@ export async function POST(req: NextRequest) {
 
     const isOwner = documento.owner_id === user.id;
     if (!participacion && !isOwner) {
-      return NextResponse.json({ error: 'No tienes permiso para firmar este documento' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'No tienes permiso para firmar este documento' },
+        { status: 403 }
+      );
     }
 
     // Fetch workspace name if workspace_id exists
@@ -109,9 +124,8 @@ export async function POST(req: NextRequest) {
     let participantRole: string | null = userRole ?? null;
     if (!participantRole && documento.participantes) {
       const parts: any[] = documento.participantes ?? [];
-      const myPart = parts.find((p: any) =>
-        p.email?.toLowerCase() === (user.email ?? '').toLowerCase() ||
-        p.id === user.id
+      const myPart = parts.find(
+        (p: any) => p.email?.toLowerCase() === (user.email ?? '').toLowerCase() || p.id === user.id
       );
       if (myPart) {
         participantRole = myPart.rol ?? myPart.role ?? null;
@@ -130,7 +144,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Calculate document size in KB
-    const documentSizeKb = documento.file_size ? Math.round((documento.file_size / 1024) * 100) / 100 : null;
+    const documentSizeKb = documento.file_size
+      ? Math.round((documento.file_size / 1024) * 100) / 100
+      : null;
 
     // Insert into signature_evidence using service role (bypasses RLS)
     const evidencePayload: Record<string, any> = {
@@ -212,8 +228,14 @@ export async function POST(req: NextRequest) {
     if (evidenceError) {
       console.error('Error inserting signature_evidence:', evidenceError);
       // If already exists, that's ok — continue
-      if (!evidenceError.message?.includes('duplicate') && !evidenceError.message?.includes('unique')) {
-        return NextResponse.json({ error: 'Error al guardar evidencia: ' + evidenceError.message }, { status: 500 });
+      if (
+        !evidenceError.message?.includes('duplicate') &&
+        !evidenceError.message?.includes('unique')
+      ) {
+        return NextResponse.json(
+          { error: 'Error al guardar evidencia: ' + evidenceError.message },
+          { status: 500 }
+        );
       }
     }
 
@@ -231,13 +253,19 @@ export async function POST(req: NextRequest) {
     // Update participant sub_estado in documentos.participantes JSONB
     const userEmailLower = (user.email || '').toLowerCase();
     if (userEmailLower) {
-      const { error: participantStateError } = await supabaseAdmin.rpc('update_participante_sub_estado', {
-        p_documento_id: documentId,
-        p_email: user.email,
-        p_sub_estado: 'firmado',
-      });
+      const { error: participantStateError } = await supabaseAdmin.rpc(
+        'update_participante_sub_estado',
+        {
+          p_documento_id: documentId,
+          p_email: user.email,
+          p_sub_estado: 'firmado',
+        }
+      );
       if (participantStateError) {
-        console.warn('[persist-evidence] No se pudo actualizar el subestado:', participantStateError.message);
+        console.warn(
+          '[persist-evidence] No se pudo actualizar el subestado:',
+          participantStateError.message
+        );
       }
     }
 
@@ -278,7 +306,10 @@ export async function POST(req: NextRequest) {
             },
           });
         if (completionLogError) {
-          console.warn('[persist-evidence] No se pudo registrar el cierre:', completionLogError.message);
+          console.warn(
+            '[persist-evidence] No se pudo registrar el cierre:',
+            completionLogError.message
+          );
         }
       } else {
         // ── Advance participation chain for sequential/mixed orders ──────────
@@ -290,7 +321,7 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': authHeader,
+              Authorization: authHeader,
             },
             body: JSON.stringify({ documentoId: documentId }),
           });
@@ -302,19 +333,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Log activity
-    const { error: signatureLogError } = await supabaseAdmin
-      .from('document_activity_log')
-      .insert({
-        documento_id: documentId,
-        user_id: user.id,
-        action: 'firma_autografa_completada',
-        details: {
-          evidence_id: insertedEvidence?.id || evidenceId,
-          otp_verified: otpVerified,
-          human_score: humanScore,
-          has_biometric: !!biometric,
-        },
-      });
+    const { error: signatureLogError } = await supabaseAdmin.from('document_activity_log').insert({
+      documento_id: documentId,
+      user_id: user.id,
+      action: 'firma_autografa_completada',
+      details: {
+        evidence_id: insertedEvidence?.id || evidenceId,
+        otp_verified: otpVerified,
+        human_score: humanScore,
+        has_biometric: !!biometric,
+      },
+    });
     if (signatureLogError) {
       console.warn('[persist-evidence] No se pudo registrar la firma:', signatureLogError.message);
     }
@@ -328,9 +357,19 @@ export async function POST(req: NextRequest) {
       createNotificationServer({
         userId: documento.owner_id,
         type: 'document',
+        eventType: 'document.participation.completed',
+        category: 'SIGNATURE',
+        severity: 'success',
         title: 'Participante firmó el documento',
         description: `${actorName} ha firmado "${docName}".`,
         priority: 'media',
+        workspaceId: documento.workspace_id || null,
+        actorUserId: user.id,
+        entityType: 'document',
+        entityId: documentId,
+        actionUrl: `/visor-documento/${documentId}`,
+        actionLabel: 'Ver documento',
+        deduplicationKey: `document.participation.completed:${documentId}:${user.id}:${capturedAt}`,
         metadata: { documentoId: documentId, documentName: docName, signerEmail: user.email },
       }).catch(() => {});
 

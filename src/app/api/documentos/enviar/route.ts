@@ -5,7 +5,7 @@ import {
   isEmailNotificationEnabled,
   sendParticipantInvitationEmails,
 } from '@/lib/emailNotifications';
-import { createNotificationServer } from '@/lib/notificationsInApp';
+import { createNotificationServer } from '@/lib/notificationsInApp.server';
 import { findUnsupportedOrganizationSignatureMethods } from '@/lib/organization/governance';
 import { initializeCollaborationDocumentVersion } from '@/lib/collaboration/documents';
 import {
@@ -14,6 +14,11 @@ import {
   type ResolvedInternalSource,
 } from '@/lib/documents/internal-source';
 import { getParticipantPortalUrl } from '@/lib/publicAppUrl';
+import {
+  documentEncryptionPolicy,
+  encryptAndUploadDocumentObject,
+  readDocumentStorageObject,
+} from '@/lib/crypto/document-encryption';
 
 type OrganizationGovernance = {
   workflow: Record<string, any> | null;
@@ -22,8 +27,31 @@ type OrganizationGovernance = {
 };
 
 const ADDITIONAL_METADATA_TYPES = new Set([
-  'text', 'number', 'currency', 'date', 'datetime', 'boolean', 'list', 'rfc', 'curp', 'email', 'identifier', 'reference',
+  'text',
+  'number',
+  'currency',
+  'date',
+  'datetime',
+  'boolean',
+  'list',
+  'rfc',
+  'curp',
+  'email',
+  'identifier',
+  'reference',
 ]);
+
+const LEGAL_HOLD_REASONS = new Set([
+  'litigio',
+  'requerimiento_autoridad',
+  'auditoria_investigacion',
+  'prevencion_eliminacion',
+  'otro',
+]);
+
+function getLegalHoldReason(value: unknown) {
+  return typeof value === 'string' && LEGAL_HOLD_REASONS.has(value) ? value : null;
+}
 
 type NormalizedAdditionalMetadata = {
   id: string;
@@ -33,13 +61,15 @@ type NormalizedAdditionalMetadata = {
   scope: 'document' | 'management';
 };
 
-function isAdditionalMetadataSchemaMissing(error: { code?: string | null; message?: string | null } | null) {
+function isAdditionalMetadataSchemaMissing(
+  error: { code?: string | null; message?: string | null } | null
+) {
   if (!error) return false;
   const message = error.message || '';
   return (
     error.code === 'PGRST204' ||
-    /additional_metadata|document_additional_metadata/i.test(message) &&
-      /schema cache|does not exist|relation/i.test(message)
+    (/additional_metadata|document_additional_metadata/i.test(message) &&
+      /schema cache|does not exist|relation/i.test(message))
   );
 }
 
@@ -73,25 +103,61 @@ function normalizeAdditionalMetadata(value: unknown): NormalizedAdditionalMetada
 
   const names = new Set<string>();
   return value.map((entry, index) => {
-    if (!entry || typeof entry !== 'object') throw new Error(`El metadato ${index + 1} no es válido.`);
+    if (!entry || typeof entry !== 'object')
+      throw new Error(`El metadato ${index + 1} no es válido.`);
     const raw = entry as Record<string, unknown>;
     const name = String(raw.name || '').trim();
-    const dataType = String(raw.dataType || '').trim().toLowerCase();
-    const scope = raw.scope === 'management' ? 'management' : raw.scope === 'document' ? 'document' : null;
-    const metadataValue = typeof raw.value === 'boolean' ? raw.value : String(raw.value ?? '').trim();
+    const dataType = String(raw.dataType || '')
+      .trim()
+      .toLowerCase();
+    const scope =
+      raw.scope === 'management' ? 'management' : raw.scope === 'document' ? 'document' : null;
+    const metadataValue =
+      typeof raw.value === 'boolean' ? raw.value : String(raw.value ?? '').trim();
     const id = String(raw.id || randomUUID()).trim();
 
-    if (!name || name.length > 120) throw new Error(`El nombre del metadato ${index + 1} no es válido.`);
-    if (!ADDITIONAL_METADATA_TYPES.has(dataType)) throw new Error(`El tipo de dato de "${name}" no es válido.`);
+    if (!name || name.length > 120)
+      throw new Error(`El nombre del metadato ${index + 1} no es válido.`);
+    if (!ADDITIONAL_METADATA_TYPES.has(dataType))
+      throw new Error(`El tipo de dato de "${name}" no es válido.`);
     if (!scope) throw new Error(`El alcance de "${name}" no es válido.`);
-    if (dataType !== 'boolean' && !metadataValue) throw new Error(`Indica un valor para "${name}".`);
-    if (typeof metadataValue === 'string' && metadataValue.length > 2000) throw new Error(`El valor de "${name}" es demasiado largo.`);
-    if (['number', 'currency'].includes(dataType) && (typeof metadataValue !== 'string' || !Number.isFinite(Number(metadataValue)))) throw new Error(`El valor de "${name}" debe ser numérico.`);
-    if (dataType === 'date' && (typeof metadataValue !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(metadataValue) || Number.isNaN(Date.parse(`${metadataValue}T00:00:00Z`)))) throw new Error(`La fecha de "${name}" no es válida.`);
-    if (dataType === 'datetime' && (typeof metadataValue !== 'string' || Number.isNaN(Date.parse(metadataValue)))) throw new Error(`La fecha y hora de "${name}" no es válida.`);
-    if (dataType === 'email' && (typeof metadataValue !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(metadataValue))) throw new Error(`El correo de "${name}" no es válido.`);
-    if (dataType === 'rfc' && (typeof metadataValue !== 'string' || !/^[A-Z&Ñ]{3,4}\d{6}[A-Z\d]{3}$/i.test(metadataValue))) throw new Error(`El RFC de "${name}" no es válido.`);
-    if (dataType === 'curp' && (typeof metadataValue !== 'string' || !/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z\d]\d$/i.test(metadataValue))) throw new Error(`La CURP de "${name}" no es válida.`);
+    if (dataType !== 'boolean' && !metadataValue)
+      throw new Error(`Indica un valor para "${name}".`);
+    if (typeof metadataValue === 'string' && metadataValue.length > 2000)
+      throw new Error(`El valor de "${name}" es demasiado largo.`);
+    if (
+      ['number', 'currency'].includes(dataType) &&
+      (typeof metadataValue !== 'string' || !Number.isFinite(Number(metadataValue)))
+    )
+      throw new Error(`El valor de "${name}" debe ser numérico.`);
+    if (
+      dataType === 'date' &&
+      (typeof metadataValue !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(metadataValue) ||
+        Number.isNaN(Date.parse(`${metadataValue}T00:00:00Z`)))
+    )
+      throw new Error(`La fecha de "${name}" no es válida.`);
+    if (
+      dataType === 'datetime' &&
+      (typeof metadataValue !== 'string' || Number.isNaN(Date.parse(metadataValue)))
+    )
+      throw new Error(`La fecha y hora de "${name}" no es válida.`);
+    if (
+      dataType === 'email' &&
+      (typeof metadataValue !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(metadataValue))
+    )
+      throw new Error(`El correo de "${name}" no es válido.`);
+    if (
+      dataType === 'rfc' &&
+      (typeof metadataValue !== 'string' || !/^[A-Z&Ñ]{3,4}\d{6}[A-Z\d]{3}$/i.test(metadataValue))
+    )
+      throw new Error(`El RFC de "${name}" no es válido.`);
+    if (
+      dataType === 'curp' &&
+      (typeof metadataValue !== 'string' ||
+        !/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z\d]\d$/i.test(metadataValue))
+    )
+      throw new Error(`La CURP de "${name}" no es válida.`);
 
     const normalizedName = name.toLocaleLowerCase();
     if (names.has(normalizedName)) throw new Error(`El metadato "${name}" está duplicado.`);
@@ -282,6 +348,9 @@ export async function POST(req: NextRequest) {
       publico,
       selloDigital,
       estampaAutenticacion,
+      legalHoldEnabled,
+      legalHoldReason,
+      urgente,
       metadatosAdicionales,
       additionalMetadata,
       docuboxSource,
@@ -291,12 +360,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
     }
 
+    const requestedLegalHold = legalHoldEnabled === true;
+    const validLegalHoldReason = getLegalHoldReason(legalHoldReason);
+    if (requestedLegalHold && !validLegalHoldReason) {
+      return NextResponse.json(
+        {
+          error: 'Selecciona un motivo válido para aplicar Legal Hold.',
+          code: 'LEGAL_HOLD_REASON_REQUIRED',
+        },
+        { status: 400 }
+      );
+    }
+
+    let legalHoldAlreadyActive = false;
+    if (requestedLegalHold) {
+      const existing = await supabaseAdmin
+        .from('documentos')
+        .select('legal_hold,legal_hold_status')
+        .eq('documento_id', documentoId)
+        .maybeSingle();
+      if (existing.error) throw existing.error;
+      legalHoldAlreadyActive =
+        existing.data?.legal_hold === true || existing.data?.legal_hold_status === 'ACTIVE';
+    }
+
     let normalizedAdditionalMetadata: NormalizedAdditionalMetadata[];
     try {
       normalizedAdditionalMetadata = normalizeAdditionalMetadata(additionalMetadata);
     } catch (metadataError) {
       return NextResponse.json(
-        { error: metadataError instanceof Error ? metadataError.message : 'Los metadatos adicionales no son válidos.' },
+        {
+          error:
+            metadataError instanceof Error
+              ? metadataError.message
+              : 'Los metadatos adicionales no son válidos.',
+        },
         { status: 400 }
       );
     }
@@ -305,7 +403,8 @@ export async function POST(req: NextRequest) {
     if (hasAdditionalMetadata && !(await isAdditionalMetadataSchemaReady())) {
       return NextResponse.json(
         {
-          error: 'Los metadatos adicionales requieren actualizar la base de datos antes de crear el documento.',
+          error:
+            'Los metadatos adicionales requieren actualizar la base de datos antes de crear el documento.',
           code: 'ADDITIONAL_METADATA_MIGRATION_REQUIRED',
         },
         { status: 503 }
@@ -357,8 +456,8 @@ export async function POST(req: NextRequest) {
         variant: docuboxSource.variant,
       });
       if (
-        docuboxSource.expectedSha256
-        && resolvedInternalSource.sha256 !== String(docuboxSource.expectedSha256).toLowerCase()
+        docuboxSource.expectedSha256 &&
+        resolvedInternalSource.sha256 !== String(docuboxSource.expectedSha256).toLowerCase()
       ) {
         return NextResponse.json(
           { error: 'La version de origen cambio desde que fue seleccionada. Vuelve a elegirla.' },
@@ -369,13 +468,17 @@ export async function POST(req: NextRequest) {
 
     const effectiveFileName = resolvedInternalSource?.fileName || fileName;
     let effectiveFileSize = resolvedInternalSource?.fileSize ?? fileSize;
-    const effectiveFileType = resolvedInternalSource?.fileType || fileType || 'application/octet-stream';
+    const effectiveFileType =
+      resolvedInternalSource?.fileType || fileType || 'application/octet-stream';
     let effectiveFileHash = resolvedInternalSource?.sha256 || String(fileHashSha256).toLowerCase();
     let uploadedFileBuffer: ArrayBuffer | null = null;
 
     if (!resolvedInternalSource) {
       if (!file) {
-        return NextResponse.json({ error: 'El archivo a enviar no está disponible.' }, { status: 400 });
+        return NextResponse.json(
+          { error: 'El archivo a enviar no está disponible.' },
+          { status: 400 }
+        );
       }
 
       // The server is the source of truth: the hash must describe the exact
@@ -460,9 +563,12 @@ export async function POST(req: NextRequest) {
       notificado: p.isCurrentUser ? true : false,
     }));
 
-    const resolvedOtherDocumentType = tipoDocumentoId === '__otros__'
-      ? otroTipoDocumento || null
-      : (tipoDocumentoId ? null : 'No especificado');
+    const resolvedOtherDocumentType =
+      tipoDocumentoId === '__otros__'
+        ? otroTipoDocumento || null
+        : tipoDocumentoId
+          ? null
+          : 'No especificado';
 
     const documentRecord: Record<string, unknown> = {
       documento_id: documentoId,
@@ -485,6 +591,8 @@ export async function POST(req: NextRequest) {
       campos_solicitados: camposSolicitados || [],
       participation_order: effectiveOrder,
       grupos_firma: effectiveGrupos.length > 0 ? effectiveGrupos : null,
+      priority: urgente === true ? 'urgent' : 'normal',
+      es_urgente: urgente === true,
       es_publico: publico ?? false,
       sello_digital: selloDigital ?? false,
       estampa_autenticacion: estampaAutenticacion ?? false,
@@ -492,6 +600,17 @@ export async function POST(req: NextRequest) {
     };
     if (hasAdditionalMetadata) {
       documentRecord.additional_metadata = normalizedAdditionalMetadata;
+    }
+    if (requestedLegalHold && !legalHoldAlreadyActive) {
+      const now = new Date().toISOString();
+      documentRecord.legal_hold = true;
+      documentRecord.legal_hold_status = 'ACTIVE';
+      documentRecord.legal_hold_reason = validLegalHoldReason;
+      documentRecord.legal_hold_created_at = now;
+      documentRecord.legal_hold_created_by = user.id;
+      documentRecord.legal_hold_released_at = null;
+      documentRecord.legal_hold_released_by = null;
+      documentRecord.legal_hold_release_reason = null;
     }
     if (governance) {
       documentRecord.organization_workflow_id = governance.workflow?.id || null;
@@ -526,10 +645,145 @@ export async function POST(req: NextRequest) {
 
     const dbDocumentId = docRow.id;
 
+    if (requestedLegalHold && !legalHoldAlreadyActive) {
+      const { error: auditError } = await supabaseAdmin
+        .from('document_lifecycle_audit_events')
+        .insert({
+          workspace_id: resolvedWorkspaceId,
+          document_id: dbDocumentId,
+          actor_id: user.id,
+          actor_email: user.email || null,
+          action: 'LEGAL_HOLD_ACTIVATED',
+          previous_state: { legal_hold: false, legal_hold_status: 'NONE' },
+          new_state: {
+            legal_hold: true,
+            legal_hold_status: 'ACTIVE',
+            reason: validLegalHoldReason,
+          },
+          reason: validLegalHoldReason,
+          result: 'success',
+          request_id: req.headers.get('x-request-id') || randomUUID(),
+          ip_address: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+          user_agent: req.headers.get('user-agent') || null,
+        });
+      if (auditError) {
+        console.error('[DOCUBOX][enviar] Legal Hold audit failed:', auditError.message);
+        return NextResponse.json(
+          {
+            error: 'No fue posible registrar la auditoría de Legal Hold.',
+            code: 'LEGAL_HOLD_AUDIT_FAILED',
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    const documentMetadataSnapshot = normalizedAdditionalMetadata
+      .filter((metadata) => metadata.scope === 'document')
+      .map(({ name, dataType, value }) => ({ name, dataType, value }));
+    const hasDocumentScopedAdditionalMetadata = documentMetadataSnapshot.length > 0;
+    const documentMetadataSnapshotHash = hasDocumentScopedAdditionalMetadata
+      ? createHash('sha256').update(JSON.stringify(documentMetadataSnapshot)).digest('hex')
+      : null;
+    const encryptionPolicy = documentEncryptionPolicy();
+    const requestId = req.headers.get('x-request-id') || randomUUID();
+    let targetVersionId: string | null = null;
+    let encryptedVersionCreated = false;
+
+    if (encryptionPolicy.enabled) {
+      if (!resolvedWorkspaceId) {
+        return NextResponse.json(
+          { error: 'El cifrado documental requiere un espacio de trabajo valido.' },
+          { status: 503 }
+        );
+      }
+      const requestedVersionId = randomUUID();
+      const plannedStoragePath = `tenants/${resolvedWorkspaceId}/documents/${dbDocumentId}/versions/${requestedVersionId}/payload.enc`;
+      const versionResult = await initializeCollaborationDocumentVersion({
+        service: supabaseAdmin,
+        workspaceId: resolvedWorkspaceId,
+        documentId: dbDocumentId,
+        actorUserId: user.id,
+        sha256: effectiveFileHash,
+        fileUrl: `/api/documentos/${dbDocumentId}/viewer-file`,
+        storagePath: plannedStoragePath,
+        mimeType: effectiveFileType,
+        byteSize: effectiveFileSize || null,
+        displayName: nombre || effectiveFileName,
+        sourceVersionId: resolvedInternalSource?.versionId || null,
+        requireCollaborationEntitlement: false,
+        additionalDocumentMetadataSnapshot: documentMetadataSnapshot,
+        additionalDocumentMetadataSnapshotHash: documentMetadataSnapshotHash,
+        requestedVersionId,
+      });
+      if (!versionResult.versionId) {
+        return NextResponse.json(
+          { error: 'No se pudo reservar la version cifrada del documento.' },
+          { status: 500 }
+        );
+      }
+      targetVersionId = versionResult.versionId;
+      encryptedVersionCreated = versionResult.created;
+    }
+
     // Upload file to storage using service role (bypasses storage RLS)
     let uploadedStoragePath: string | null = null;
     let uploadedFileUrl: string | null = null;
-    if (resolvedInternalSource) {
+    if (encryptionPolicy.enabled && targetVersionId) {
+      const storagePath = `tenants/${resolvedWorkspaceId}/documents/${dbDocumentId}/versions/${targetVersionId}/payload.enc`;
+      let plaintext: Buffer;
+      if (resolvedInternalSource) {
+        const source = await readDocumentStorageObject({
+          service: supabaseAdmin,
+          storageBucket: 'documents',
+          storagePath: resolvedInternalSource.storagePath,
+          expectedPlaintextSha256: resolvedInternalSource.sha256,
+          userId: user.id,
+          requestId,
+        });
+        plaintext = source.plaintext;
+      } else {
+        plaintext = Buffer.from(uploadedFileBuffer || (await file!.arrayBuffer()));
+      }
+      try {
+        const encrypted = await encryptAndUploadDocumentObject({
+          service: supabaseAdmin,
+          plaintext,
+          tenantId: resolvedWorkspaceId!,
+          documentId: dbDocumentId,
+          documentVersionId: targetVersionId,
+          artifactKind: 'document',
+          storageBucket: 'documents',
+          storagePath,
+          originalFileName: effectiveFileName,
+          originalMimeType: effectiveFileType,
+          userId: user.id,
+          requestId,
+        });
+        if (encrypted.metadata.plaintext_sha256 !== effectiveFileHash) {
+          throw new Error('DOCUMENT_PLAINTEXT_HASH_MISMATCH');
+        }
+      } catch (error) {
+        if (encryptedVersionCreated) {
+          await supabaseAdmin.storage.from('documents').remove([storagePath]);
+          await supabaseAdmin
+            .from('document_encryption_metadata')
+            .delete()
+            .eq('document_version_id', targetVersionId);
+          await supabaseAdmin.from('document_versions').delete().eq('id', targetVersionId);
+        }
+        throw error;
+      } finally {
+        plaintext.fill(0);
+      }
+      uploadedStoragePath = storagePath;
+      uploadedFileUrl = `/api/documentos/${dbDocumentId}/viewer-file`;
+      const documentFileUpdate = await supabaseAdmin
+        .from('documentos')
+        .update({ file_url: uploadedFileUrl, storage_path: storagePath })
+        .eq('id', dbDocumentId);
+      if (documentFileUpdate.error) throw documentFileUpdate.error;
+    } else if (resolvedInternalSource) {
       uploadedStoragePath = resolvedInternalSource.storagePath;
       const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin.storage
         .from('documents')
@@ -551,7 +805,7 @@ export async function POST(req: NextRequest) {
       const storagePath = `${wsId}/${dbDocumentId}/${safeFileName}`;
       uploadedStoragePath = storagePath;
 
-      const fileBuffer = uploadedFileBuffer || await file.arrayBuffer();
+      const fileBuffer = uploadedFileBuffer || (await file.arrayBuffer());
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from('documents')
@@ -589,15 +843,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const documentMetadataSnapshot = normalizedAdditionalMetadata
-      .filter((metadata) => metadata.scope === 'document')
-      .map(({ name, dataType, value }) => ({ name, dataType, value }));
-    const hasDocumentScopedAdditionalMetadata = documentMetadataSnapshot.length > 0;
-    const documentMetadataSnapshotHash = hasDocumentScopedAdditionalMetadata
-      ? createHash('sha256').update(JSON.stringify(documentMetadataSnapshot)).digest('hex')
-      : null;
-    let targetVersionId: string | null = null;
-    if (resolvedWorkspaceId) {
+    if (resolvedWorkspaceId && !targetVersionId) {
       try {
         const versionResult = await initializeCollaborationDocumentVersion({
           service: supabaseAdmin,
@@ -628,10 +874,17 @@ export async function POST(req: NextRequest) {
       const signingStartedAt = new Date().toISOString();
       const metadataRows = normalizedAdditionalMetadata.map((metadata) => {
         const valueJson = metadata.value;
-        const valueDisplay = metadata.value === true ? 'Sí' : metadata.value === false ? 'No' : metadata.value;
-        const snapshotPayload = metadata.scope === 'document'
-          ? JSON.stringify({ name: metadata.name, data_type: metadata.dataType, value: valueJson, version: targetVersionId || 1 })
-          : null;
+        const valueDisplay =
+          metadata.value === true ? 'Sí' : metadata.value === false ? 'No' : metadata.value;
+        const snapshotPayload =
+          metadata.scope === 'document'
+            ? JSON.stringify({
+                name: metadata.name,
+                data_type: metadata.dataType,
+                value: valueJson,
+                version: targetVersionId || 1,
+              })
+            : null;
         return {
           document_id: dbDocumentId,
           workspace_id: resolvedWorkspaceId,
@@ -643,7 +896,9 @@ export async function POST(req: NextRequest) {
           value_json: valueJson,
           value_display: valueDisplay,
           snapshot_value: metadata.scope === 'document' ? valueJson : null,
-          snapshot_hash: snapshotPayload ? createHash('sha256').update(snapshotPayload).digest('hex') : null,
+          snapshot_hash: snapshotPayload
+            ? createHash('sha256').update(snapshotPayload).digest('hex')
+            : null,
           locked_at: metadata.scope === 'document' ? signingStartedAt : null,
           client_reference: metadata.id,
           created_by: user.id,
@@ -653,10 +908,19 @@ export async function POST(req: NextRequest) {
 
       const metadataInsert = await supabaseAdmin
         .from('document_additional_metadata')
-        .upsert(metadataRows, { onConflict: 'document_id,client_reference', ignoreDuplicates: true });
+        .upsert(metadataRows, {
+          onConflict: 'document_id,client_reference',
+          ignoreDuplicates: true,
+        });
       if (metadataInsert.error) {
-        console.error('[DOCUBOX][enviar] Error al registrar metadatos adicionales:', metadataInsert.error.message);
-        return NextResponse.json({ error: 'No se pudieron registrar los metadatos adicionales.' }, { status: 500 });
+        console.error(
+          '[DOCUBOX][enviar] Error al registrar metadatos adicionales:',
+          metadataInsert.error.message
+        );
+        return NextResponse.json(
+          { error: 'No se pudieron registrar los metadatos adicionales.' },
+          { status: 500 }
+        );
       }
 
       await supabaseAdmin.from('document_activity_log').insert({
@@ -667,8 +931,11 @@ export async function POST(req: NextRequest) {
         action: 'DOCUMENT_ADDITIONAL_METADATA_SNAPSHOTTED',
         category: 'metadatos',
         details: {
-          document_metadata_count: metadataRows.filter((item) => item.metadata_scope === 'document').length,
-          management_metadata_count: metadataRows.filter((item) => item.metadata_scope === 'management').length,
+          document_metadata_count: metadataRows.filter((item) => item.metadata_scope === 'document')
+            .length,
+          management_metadata_count: metadataRows.filter(
+            (item) => item.metadata_scope === 'management'
+          ).length,
           document_version_id: targetVersionId,
           locked_at: signingStartedAt,
         },
@@ -676,29 +943,32 @@ export async function POST(req: NextRequest) {
     }
 
     if (resolvedInternalSource && resolvedWorkspaceId) {
-      const relation = await supabaseAdmin
-        .from('document_relations')
-        .insert({
-          workspace_id: resolvedWorkspaceId,
-          source_document_id: resolvedInternalSource.documentId,
-          source_version_id: resolvedInternalSource.versionId,
-          target_document_id: dbDocumentId,
-          target_version_id: targetVersionId,
-          relation_type: 'derived_from',
-          source_sha256: resolvedInternalSource.sha256,
-          target_initial_sha256: effectiveFileHash,
-          created_by: user.id,
-          metadata: {
-            schema_version: 1,
-            source_variant: resolvedInternalSource.variant,
-            source_version_number: resolvedInternalSource.versionNumber,
-            source_version_status: resolvedInternalSource.versionStatus,
-            storage_reused: true,
-          },
-        });
+      const relation = await supabaseAdmin.from('document_relations').insert({
+        workspace_id: resolvedWorkspaceId,
+        source_document_id: resolvedInternalSource.documentId,
+        source_version_id: resolvedInternalSource.versionId,
+        target_document_id: dbDocumentId,
+        target_version_id: targetVersionId,
+        relation_type: 'derived_from',
+        source_sha256: resolvedInternalSource.sha256,
+        target_initial_sha256: effectiveFileHash,
+        created_by: user.id,
+        metadata: {
+          schema_version: 1,
+          source_variant: resolvedInternalSource.variant,
+          source_version_number: resolvedInternalSource.versionNumber,
+          source_version_status: resolvedInternalSource.versionStatus,
+          storage_reused: true,
+        },
+      });
       if (relation.error) {
-        await supabaseAdmin.from('documentos').update({ estado: 'borrador' }).eq('id', dbDocumentId);
-        throw new Error(`No se pudo registrar la procedencia del documento: ${relation.error.message}`);
+        await supabaseAdmin
+          .from('documentos')
+          .update({ estado: 'borrador' })
+          .eq('id', dbDocumentId);
+        throw new Error(
+          `No se pudo registrar la procedencia del documento: ${relation.error.message}`
+        );
       }
 
       const activity = await supabaseAdmin.from('document_activity_log').insert({
@@ -720,8 +990,13 @@ export async function POST(req: NextRequest) {
         },
       });
       if (activity.error) {
-        await supabaseAdmin.from('documentos').update({ estado: 'borrador' }).eq('id', dbDocumentId);
-        throw new Error(`No se pudo registrar la auditoria de la importacion: ${activity.error.message}`);
+        await supabaseAdmin
+          .from('documentos')
+          .update({ estado: 'borrador' })
+          .eq('id', dbDocumentId);
+        throw new Error(
+          `No se pudo registrar la auditoria de la importacion: ${activity.error.message}`
+        );
       }
     }
 
@@ -807,14 +1082,29 @@ export async function POST(req: NextRequest) {
           createNotificationServer({
             userId: participantUserId,
             type: 'document',
-            title: 'Has sido invitado a participar en un documento',
-            description: `${senderName} te ha invitado a participar en "${nombre || fileName}".`,
+            eventType: 'signature.requested',
+            category: 'SIGNATURE',
+            severity: 'warning',
+            workspaceId: resolvedWorkspaceId,
+            actorUserId: user.id,
+            entityType: 'document',
+            entityId: dbDocumentId,
+            actionUrl: getParticipantPortalUrl((p as any).portal_token || dbDocumentId),
+            actionLabel: 'Revisar y firmar',
+            deduplicationKey: `signature.requested:${dbDocumentId}:${(p as any).id || participantUserId}`,
+            title: urgente === true
+              ? 'Documento urgente: se requiere tu participación'
+              : 'Has sido invitado a participar en un documento',
+            description: urgente === true
+              ? `${senderName} te ha invitado a participar con prioridad en "${nombre || fileName}".`
+              : `${senderName} te ha invitado a participar en "${nombre || fileName}".`,
             priority: 'alta',
             metadata: {
               documentoId: dbDocumentId,
               documentName: nombre || fileName,
               senderName,
               role: (p as any).acto || 'Participante',
+              priority: urgente === true ? 'urgent' : 'normal',
             },
           }).catch(() => {});
         }
@@ -857,14 +1147,13 @@ export async function POST(req: NextRequest) {
         allEmailParticipants.splice(
           0,
           allEmailParticipants.length,
-          ...allEmailParticipants.filter((participant) =>
-            deliveryByEmail.has(participant.email!.trim().toLowerCase())
-          ).map((participant) => ({
-            ...participant,
-            providerMessageId: deliveryByEmail.get(
-              participant.email!.trim().toLowerCase()
-            )?.providerMessageId,
-          }))
+          ...allEmailParticipants
+            .filter((participant) => deliveryByEmail.has(participant.email!.trim().toLowerCase()))
+            .map((participant) => ({
+              ...participant,
+              providerMessageId: deliveryByEmail.get(participant.email!.trim().toLowerCase())
+                ?.providerMessageId,
+            }))
         );
 
         if (delivery.failed.length > 0) {
@@ -894,8 +1183,12 @@ export async function POST(req: NextRequest) {
             const now = new Date().toISOString();
             const updatedParticipantes = (docRow2.participantes as any[]).map((p: any) => {
               const isNotified = allNotifiedParticipants.some(
-                (ep) => ep.email
-                  && ep.email.trim().toLowerCase() === String(p.email || '').trim().toLowerCase()
+                (ep) =>
+                  ep.email &&
+                  ep.email.trim().toLowerCase() ===
+                    String(p.email || '')
+                      .trim()
+                      .toLowerCase()
               );
               if (isNotified) {
                 return { ...p, notificado: true, fecha_notificacion: now };
@@ -913,22 +1206,20 @@ export async function POST(req: NextRequest) {
 
         // ── Log audit trail: invitacion_enviada per participant ────────────
         try {
-          const auditRows = allNotifiedParticipants.map(
-            (p) => ({
-              documento_id: dbDocumentId,
-              actor_id: user.id,
-              action: 'invitacion_enviada',
-              category: 'notificacion',
-              details: {
-                participant_email: p.email,
-                participant_name: p.name,
-                channel: 'email',
-                email_type: 'participant_invitation',
-                delivery_status: 'accepted',
-                provider_message_id: p.providerMessageId || null,
-              },
-            })
-          );
+          const auditRows = allNotifiedParticipants.map((p) => ({
+            documento_id: dbDocumentId,
+            actor_id: user.id,
+            action: 'invitacion_enviada',
+            category: 'notificacion',
+            details: {
+              participant_email: p.email,
+              participant_name: p.name,
+              channel: 'email',
+              email_type: 'participant_invitation',
+              delivery_status: 'accepted',
+              provider_message_id: p.providerMessageId || null,
+            },
+          }));
           await supabaseAdmin.from('audit_trail').insert(auditRows);
         } catch (auditErr) {
           console.error('[DOCUBOX][enviar] Error al registrar audit trail:', auditErr);
@@ -945,10 +1236,7 @@ export async function POST(req: NextRequest) {
     );
   } catch (err: unknown) {
     if (err instanceof InternalSourceError) {
-      return NextResponse.json(
-        { error: err.message, code: err.code },
-        { status: err.status }
-      );
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
     }
     const msg = err instanceof Error ? err.message : 'Error interno';
     console.error('[DOCUBOX][enviar] Error inesperado:', msg);

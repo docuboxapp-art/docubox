@@ -1,10 +1,10 @@
+import 'server-only';
+
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
 
-// Lazy-initialize so this module is safe to import in client components.
-// The actual Supabase client is only created when sendEmailNotification() is
-// first called — which only happens server-side / in API routes where
-// SUPABASE_SERVICE_ROLE_KEY is available.
+// Lazy initialization keeps server startup cheap. This module is explicitly
+// server-only because it requires the service role to invoke the Edge Function.
 let _supabase: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
   if (!_supabase) {
@@ -59,6 +59,7 @@ interface SendEmailParams {
   xmlEvidenciaPath?: string;
   nom151ConstanciaPath?: string;
   padesPath?: string;
+  idempotencyKey?: string;
 }
 
 export interface EmailSendResult {

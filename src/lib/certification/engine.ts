@@ -27,7 +27,13 @@ import { createStoredZip } from './zip';
 import { CertificationError, CertificationStatus, CertificationSummary, EvidenceItem } from './types';
 import type { CertificationArtifactKind } from './types';
 import { requireCertificationManagerAccess } from './access';
-import { assertProductionCertificationEnabled } from './provider-mode';
+import { assertProductionCertificationEnabled, getCryptoProviderMode } from './provider-mode';
+import {
+  documentEncryptionPolicy,
+  encryptAndUploadDocumentObject,
+  readDocumentStorageObject,
+  type DocumentArtifactKind,
+} from '@/lib/crypto/document-encryption';
 
 type DocumentRow = {
   id: string;
@@ -236,7 +242,32 @@ async function markFailed(supabase: SupabaseClient, certification: Certification
   throw failure;
 }
 
-async function uploadArtifact(supabase: SupabaseClient, path: string, bytes: Uint8Array, contentType: string) {
+async function uploadArtifact(
+  supabase: SupabaseClient,
+  path: string,
+  bytes: Uint8Array,
+  contentType: string,
+  encryptionContext?: {
+    tenantId: string;
+    documentId: string;
+    documentVersionId: string;
+    artifactKind: DocumentArtifactKind;
+    actorId: string;
+  }
+) {
+  if (encryptionContext && documentEncryptionPolicy().enabled) {
+    await encryptAndUploadDocumentObject({
+      service: supabase,
+      plaintext: bytes,
+      ...encryptionContext,
+      storageBucket: ARTIFACT_BUCKET,
+      storagePath: path,
+      originalFileName: path.split('/').at(-1) || null,
+      originalMimeType: contentType,
+      userId: encryptionContext.actorId,
+    });
+    return path;
+  }
   const { error } = await supabase.storage.from(ARTIFACT_BUCKET).upload(path, bytes, {
     contentType,
     upsert: false,
@@ -252,6 +283,34 @@ async function uploadArtifact(supabase: SupabaseClient, path: string, bytes: Uin
     throw new CertificationError('ARTIFACT_STORAGE_FAILED', error.message, 500);
   }
   return path;
+}
+
+async function downloadArtifactBytes(
+  supabase: SupabaseClient,
+  path: string,
+  userId?: string | null,
+  expectedSha256?: string | null
+) {
+  if (documentEncryptionPolicy().enabled) {
+    const decrypted = await readDocumentStorageObject({
+      service: supabase,
+      storageBucket: ARTIFACT_BUCKET,
+      storagePath: path,
+      expectedPlaintextSha256: expectedSha256,
+      userId,
+      accessEvent: userId ? 'DOCUMENT_DOWNLOADED' : 'DOCUMENT_DECRYPTED',
+    });
+    return new Uint8Array(decrypted.plaintext);
+  }
+  const downloaded = await supabase.storage.from(ARTIFACT_BUCKET).download(path);
+  if (downloaded.error || !downloaded.data) {
+    throw new CertificationError(
+      'CERTIFICATION_ARTIFACT_READ_FAILED',
+      downloaded.error?.message || 'No se pudo descargar el archivo.',
+      500
+    );
+  }
+  return new Uint8Array(await downloaded.data.arrayBuffer());
 }
 
 function mapSummary(row: CertificationRow, timestamp?: Record<string, any> | null): CertificationSummary {
@@ -570,7 +629,8 @@ export async function createCertification(
         verification_status: FOUNDATION_CAPABILITIES.verificationStatus,
         provider_metadata: {
           mode: 'foundation_only',
-          environment: executionEnvironment(),
+          environment: getCryptoProviderMode() === 'production' ? 'production' : 'development',
+          runtime_environment: executionEnvironment(),
           missing_capabilities: providerStatus.missing,
           source_snapshot: {
             bucket: source.storageBucket,
@@ -791,6 +851,18 @@ export async function createCertification(
 
     const executionAttempt = Math.max(1, Number(certification.execution_attempt || 1));
     const artifactRoot = `${tenantId}/${document.id}/${certificationUuid}/attempt-${executionAttempt}`;
+    const storeArtifact = (
+      path: string,
+      bytes: Uint8Array,
+      contentType: string,
+      artifactKind: DocumentArtifactKind = 'evidence'
+    ) => uploadArtifact(supabase, path, bytes, contentType, {
+      tenantId,
+      documentId: document.id,
+      documentVersionId: source.versionId,
+      artifactKind,
+      actorId: userId,
+    });
     let timestampRow: Record<string, unknown> | null = null;
 
     for (const [purpose, seal] of [['DOCUMENT_SEAL', documentSeal], ['EVIDENCE_SEAL', evidenceSeal]] as const) {
@@ -849,7 +921,7 @@ export async function createCertification(
       evidenceSealSha256: evidenceSeal.signatureSha256, evidenceSealBase64: evidenceSeal.signatureBase64,
       evidenceKeyVersion: evidenceSeal.keyVersion, certificationRootSha256: certificationRoot.sha256,
     });
-    const certificatePath = await uploadArtifact(supabase, `${artifactRoot}/constancia-integridad-evidencia.pdf`, certificateBytes, 'application/pdf');
+    const certificatePath = await storeArtifact(`${artifactRoot}/constancia-integridad-evidencia.pdf`, certificateBytes, 'application/pdf', 'constancia');
 
     await transition(supabase, certification, 'APPENDING_CERTIFICATE', userId);
     const documentWithVisibleCertification = await applyCryptographicPlacements(
@@ -901,12 +973,12 @@ export async function createCertification(
     }
     const certifiedPdf = signedPdf.pdfBytes;
     const certifiedPdfSha256 = signedPdf.pdfHashAfterSignature;
-    const certifiedPdfPath = await uploadArtifact(supabase, `${artifactRoot}/documento-certificado-pades.pdf`, certifiedPdf, 'application/pdf');
+    const certifiedPdfPath = await storeArtifact(`${artifactRoot}/documento-certificado-pades.pdf`, certifiedPdf, 'application/pdf', 'certified_pdf');
     if (signedPdf.timestamp) {
       const timestamp = signedPdf.timestamp;
-      const requestPath = await uploadArtifact(supabase, `${artifactRoot}/timestamp/request.tsq`, timestamp.request, 'application/timestamp-query');
-      const responsePath = await uploadArtifact(supabase, `${artifactRoot}/timestamp/response.tsr`, timestamp.response, 'application/timestamp-reply');
-      const tokenPath = await uploadArtifact(supabase, `${artifactRoot}/timestamp/token.tst`, timestamp.token, 'application/timestamp-token');
+      const requestPath = await storeArtifact(`${artifactRoot}/timestamp/request.tsq`, timestamp.request, 'application/timestamp-query');
+      const responsePath = await storeArtifact(`${artifactRoot}/timestamp/response.tsr`, timestamp.response, 'application/timestamp-reply');
+      const tokenPath = await storeArtifact(`${artifactRoot}/timestamp/token.tst`, timestamp.token, 'application/timestamp-token');
       const { data: storedTimestamp, error: timestampError } = await supabase.from('timestamp_records').upsert({
         tenant_id: tenantId,
         document_certification_id: certification.id,
@@ -1057,20 +1129,19 @@ export async function createCertification(
       ] : []),
       { name: 'verification-result.json', data: Buffer.from(JSON.stringify(report, null, 2), 'utf8'), contentType: 'application/json' },
     ];
-    await Promise.all(publicVerificationArtifacts.map((artifact) => uploadArtifact(
-      supabase,
+    await Promise.all(publicVerificationArtifacts.map((artifact) => storeArtifact(
       `${artifactRoot}/public/${artifact.name}`,
       artifact.data,
       artifact.contentType,
     )));
     await Promise.all([
-      uploadArtifact(supabase, `${artifactRoot}/technical/verification-report.json`, Buffer.from(JSON.stringify(report, null, 2), 'utf8'), 'application/json'),
-      uploadArtifact(supabase, `${artifactRoot}/technical/signing-certificate.pem`, Buffer.from(signingCertificate.pem, 'utf8'), 'application/octet-stream'),
-      uploadArtifact(supabase, `${artifactRoot}/technical/certificate-chain.pem`, Buffer.from(
+      storeArtifact(`${artifactRoot}/technical/verification-report.json`, Buffer.from(JSON.stringify(report, null, 2), 'utf8'), 'application/json'),
+      storeArtifact(`${artifactRoot}/technical/signing-certificate.pem`, Buffer.from(signingCertificate.pem, 'utf8'), 'application/octet-stream'),
+      storeArtifact(`${artifactRoot}/technical/certificate-chain.pem`, Buffer.from(
         (await providers.certificate.getCertificateChain()).map((certificate) => certificate.pem).join('\n'),
         'utf8',
       ), 'application/octet-stream'),
-      uploadArtifact(supabase, `${artifactRoot}/technical/evidence-manifest.json`, Buffer.from(manifest.canonical, 'utf8'), 'application/json'),
+      storeArtifact(`${artifactRoot}/technical/evidence-manifest.json`, Buffer.from(manifest.canonical, 'utf8'), 'application/json'),
     ]);
     const technicalPackage = createStoredZip([
       { name: 'certification-package/certification-report.json', data: JSON.stringify(report, null, 2) },
@@ -1105,7 +1176,7 @@ export async function createCertification(
       { name: 'certification-package/verification-result.json', data: JSON.stringify(report, null, 2) },
       { name: 'certification-package/public-keys.json', data: JSON.stringify({ document: documentSeal.publicKeyPem, evidence: evidenceSeal.publicKeyPem }, null, 2) },
     ]);
-    const technicalPackagePath = await uploadArtifact(supabase, `${artifactRoot}/certification-package.zip`, technicalPackage, 'application/zip');
+    const technicalPackagePath = await storeArtifact(`${artifactRoot}/certification-package.zip`, technicalPackage, 'application/zip');
 
     await verifyFrozenCertificationSource(supabase, source);
     const completedAtNow = new Date().toISOString();
@@ -1267,13 +1338,17 @@ export async function getCertificationArtifact(
   };
   const path = paths[kind];
   if (!path) throw new CertificationError('CERTIFICATION_ARTIFACT_MISSING', 'El archivo solicitado no esta disponible.', 404);
-  const { data: blob, error } = await supabase.storage.from(ARTIFACT_BUCKET).download(path);
-  if (error || !blob) throw new CertificationError('CERTIFICATION_ARTIFACT_READ_FAILED', error?.message || 'No se pudo descargar el archivo.', 500);
+  const bytes = await downloadArtifactBytes(
+    supabase,
+    path,
+    userId,
+    kind === 'certified-pdf' ? data.certified_pdf_sha256 : null
+  );
   await supabase.from('certification_access_logs').insert({
     tenant_id: data.tenant_id, certification_id: data.id, verification_uuid: data.verification_uuid,
     actor_id: userId, action: `DOWNLOAD_${kind.toUpperCase().replace('-', '_')}`, result: 'SUCCESS',
   });
-  return { bytes: new Uint8Array(await blob.arrayBuffer()), certification: data as CertificationRow };
+  return { bytes, certification: data as CertificationRow };
 }
 
 export async function getPublicCertification(supabase: SupabaseClient, verificationUuid: string) {
@@ -1396,9 +1471,13 @@ export async function getPublicCertification(supabase: SupabaseClient, verificat
     supabase.from('evidence_manifests').select('canonical_manifest_json,manifest_sha256').eq('id', certification.evidence_manifest_id).maybeSingle(),
     supabase.from('documentos').select('id,documento_id,nombre,estado,owner_id,workspace_id,file_url,file_name,file_type,file_size,file_hash_sha256,sealed_pdf_path,sealed_pdf_hash,created_at,fecha_completado,updated_at,participantes').eq('id', certification.document_id).maybeSingle(),
     supabase.from('legal_evidence_events').select('event_uuid,sequence_number,event_type,event_result,event_hash,previous_event_hash,chain_material,occurred_at').eq('document_id', certification.document_id).order('sequence_number', { ascending: true }),
-    supabase.storage.from(ARTIFACT_BUCKET).download(certification.certified_pdf_path),
+    downloadArtifactBytes(supabase, certification.certified_pdf_path, null, certification.certified_pdf_sha256)
+      .then((data) => ({ data, error: null as Error | null }))
+      .catch((error) => ({ data: null, error: error as Error })),
     timestamp?.token_storage_path
-      ? supabase.storage.from(ARTIFACT_BUCKET).download(timestamp.token_storage_path)
+      ? downloadArtifactBytes(supabase, timestamp.token_storage_path)
+        .then((data) => ({ data, error: null as Error | null }))
+        .catch((error) => ({ data: null, error: error as Error }))
       : Promise.resolve({ data: null, error: new Error('Timestamp token missing') }),
   ]);
 
@@ -1443,7 +1522,7 @@ export async function getPublicCertification(supabase: SupabaseClient, verificat
       documentBodyHashMatch = false;
     }
   }
-  const certifiedPdfBytes = certifiedPdfResult.data ? new Uint8Array(await certifiedPdfResult.data.arrayBuffer()) : null;
+  const certifiedPdfBytes = certifiedPdfResult.data ? new Uint8Array(certifiedPdfResult.data) : null;
   const certifiedPdfHashMatch = Boolean(certifiedPdfBytes && sha256Hex(certifiedPdfBytes) === certification.certified_pdf_sha256);
   const requiresTimestamp = ['PAdES-B-T', 'PAdES-B-LT', 'PAdES-B-LTA'].includes(String(certification.pades_profile || ''));
   const publicPadesVerification = certifiedPdfBytes
@@ -1452,7 +1531,7 @@ export async function getPublicCertification(supabase: SupabaseClient, verificat
       expectedCertificateFingerprintSha256: certification.pades_certificate_fingerprint_sha256,
     })
     : null;
-  const timestampTokenBytes = timestampTokenResult.data ? new Uint8Array(await timestampTokenResult.data.arrayBuffer()) : null;
+  const timestampTokenBytes = timestampTokenResult.data ? new Uint8Array(timestampTokenResult.data) : null;
   const timestampTokenHashMatch = Boolean(timestamp && timestampTokenBytes && sha256Hex(timestampTokenBytes) === timestamp.timestamp_token_sha256);
   const timestampImprintMatch = Boolean(timestamp && publicPadesVerification?.timestamp?.messageImprintValid);
   const timestampValidForProfile = !requiresTimestamp || Boolean(
@@ -1600,8 +1679,12 @@ export async function getPublicCertificationArtifact(
   const artifactRoot = certification.provider_metadata?.artifact_root
     || `${certification.tenant_id}/${certification.document_id}/${certification.certification_uuid}`;
   const storagePath = `${artifactRoot}/public/${artifactName}`;
-  const { data, error } = await supabase.storage.from(ARTIFACT_BUCKET).download(storagePath);
-  if (error || !data) throw new CertificationError('ARTIFACT_NOT_FOUND', 'Artefacto no disponible.', 404);
+  let bytes: Uint8Array;
+  try {
+    bytes = await downloadArtifactBytes(supabase, storagePath);
+  } catch {
+    throw new CertificationError('ARTIFACT_NOT_FOUND', 'Artefacto no disponible.', 404);
+  }
   await supabase.from('certification_access_logs').insert({
     tenant_id: certification.tenant_id,
     certification_id: certification.id,
@@ -1611,5 +1694,5 @@ export async function getPublicCertificationArtifact(
     result: 'SUCCESS',
     metadata: { artifact_name: artifactName },
   });
-  return { bytes: new Uint8Array(await data.arrayBuffer()), contentType };
+  return { bytes, contentType };
 }

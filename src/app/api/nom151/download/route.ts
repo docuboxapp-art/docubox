@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
+import {
+  documentEncryptionPolicy,
+  readDocumentStorageObject,
+} from '@/lib/crypto/document-encryption';
 
 function safeFileName(value: string) {
   return value.replace(/[\r\n"\\/:*?<>|]/g, '_');
@@ -12,7 +16,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { document, service } = await requireDocumentAccess(request, documentoId);
+    const { user, document, service } = await requireDocumentAccess(request, documentoId);
     const { data: pades, error: padesError } = await service
       .from('document_certifications')
       .select('id,document_version_id,certified_pdf_sha256')
@@ -33,7 +37,7 @@ export async function GET(request: NextRequest) {
     }
     const { data: certificate, error } = await service
       .from('nom151_constancias_doc')
-      .select('constancia_path,created_at')
+      .select('constancia_path,constancia_sha256,created_at')
       .eq('documento_id', documentoId)
       .eq('document_certification_id', pades.id)
       .eq('document_version_id', pades.document_version_id)
@@ -53,21 +57,36 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const downloaded = await service.storage.from('nom151-constancias').download(storagePath);
-    if (downloaded.error || !downloaded.data) {
-      console.error('[DOCUBOX][nom151-download] No se pudo leer el archivo .asn1:', downloaded.error?.message);
-      return NextResponse.json(
-        { error: 'El archivo .asn1 emitido no est\u00e1 disponible en el almacenamiento privado.' },
-        { status: 404 },
-      );
+    let bytes: Uint8Array;
+    if (documentEncryptionPolicy().enabled) {
+      const decrypted = await readDocumentStorageObject({
+        service,
+        storageBucket: 'nom151-constancias',
+        storagePath,
+        expectedPlaintextSha256: certificate?.constancia_sha256,
+        userId: user.id,
+        requestId: request.headers.get('x-request-id'),
+        accessEvent: 'DOCUMENT_DOWNLOADED',
+      });
+      bytes = new Uint8Array(decrypted.plaintext);
+    } else {
+      const downloaded = await service.storage.from('nom151-constancias').download(storagePath);
+      if (downloaded.error || !downloaded.data) {
+        console.error('[DOCUBOX][nom151-download] No se pudo leer el archivo .asn1:', downloaded.error?.message);
+        return NextResponse.json(
+          { error: 'El archivo .asn1 emitido no est\u00e1 disponible en el almacenamiento privado.' },
+          { status: 404 },
+        );
+      }
+      bytes = new Uint8Array(await downloaded.data.arrayBuffer());
     }
 
     const documentLabel = String(document.documento_id || document.nombre || documentoId);
     const filename = safeFileName(`constancia-nom151-${documentLabel}.asn1`);
-    return new NextResponse(await downloaded.data.arrayBuffer(), {
+    return new NextResponse(Buffer.from(bytes), {
       headers: {
         'Content-Type': 'application/octet-stream',
-        'Content-Length': String(downloaded.data.size),
+        'Content-Length': String(bytes.byteLength),
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Cache-Control': 'private, no-store, max-age=0',
         'Referrer-Policy': 'no-referrer',

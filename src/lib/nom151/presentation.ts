@@ -34,9 +34,7 @@ export function getNom151Presentation(input: Nom151PresentationInput) {
 
   const providerEnvironmentLabel = input.productionTrusted === true
     ? 'Producción confirmada'
-    : providerEnvironment === 'development'
-      ? 'Desarrollo · pendiente de confirmación productiva'
-      : 'Pendiente de confirmación productiva';
+    : 'Pendiente de confirmación productiva';
 
   return {
     verificationStatus,

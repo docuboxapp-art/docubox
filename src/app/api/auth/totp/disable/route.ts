@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { resolvePlatformAccess } from '@/lib/platform-admin/access';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,9 +36,29 @@ export async function POST(req: NextRequest) {
     }
     const token = authHeader.slice(7);
 
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
+    const platformAccess = await resolvePlatformAccess(user, supabaseAdmin);
+    if (platformAccess) {
+      await logSecurityEvent(
+        user.id,
+        'TOTP_DISABLE_DENIED',
+        'Intento de desactivar el segundo factor obligatorio del personal de plataforma',
+        req
+      );
+      return NextResponse.json(
+        {
+          error: 'El Token Móvil es obligatorio para el personal interno de Docubox.',
+          errorCode: 'PLATFORM_STAFF_TOTP_REQUIRED',
+        },
+        { status: 403 }
+      );
     }
 
     const body = await req.json();
@@ -50,7 +71,10 @@ export async function POST(req: NextRequest) {
     // Verify password by attempting sign-in with user's email
     const email = user.email;
     if (!email) {
-      return NextResponse.json({ error: 'No se pudo obtener el correo del usuario' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'No se pudo obtener el correo del usuario' },
+        { status: 400 }
+      );
     }
 
     // Use a separate client (anon key) to verify the password

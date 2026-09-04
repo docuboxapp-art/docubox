@@ -1,0 +1,58 @@
+{
+  "captured_at": "2026-08-30T02:49:11.9910704Z",
+  "total_global": 195,
+  "encryption_related": 3,
+  "results": [
+    {
+      "name": "anon_security_definer_function_executable",
+      "title": "Public Can Execute SECURITY DEFINER Function",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects `SECURITY DEFINER` functions that are callable without signing in. Revoke `EXECUTE`, switch the function to `SECURITY INVOKER`, or move it out of your exposed API schema if it is not meant to be public.",
+      "detail": "Function `public.generate_participant_dek_wrap(p_document_id uuid, p_workspace_id uuid, p_participant_email text, p_participant_user_id uuid, p_participant_role text, p_wrapped_dek text, p_kek_version text, p_key_derivation_ctx jsonb)` can be executed by the `anon` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/generate_participant_dek_wrap`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable",
+      "metadata": {
+        "name": "generate_participant_dek_wrap",
+        "schema": "public"
+      },
+      "cacheKey": "anon_security_definer_function_executable_public_generate_participant_dek_wrap_p_document_id uuid, p_workspace_id uuid, p_participant_email text, p_participant_user_id uuid, p_participant_role text, p_wrapped_dek text, p_kek_version text, p_key_derivation_ctx jsonb"
+    },
+    {
+      "name": "anon_security_definer_function_executable",
+      "title": "Public Can Execute SECURITY DEFINER Function",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects `SECURITY DEFINER` functions that are callable without signing in. Revoke `EXECUTE`, switch the function to `SECURITY INVOKER`, or move it out of your exposed API schema if it is not meant to be public.",
+      "detail": "Function `public.sync_encryption_metadata_dek_counts()` can be executed by the `anon` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/sync_encryption_metadata_dek_counts`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable",
+      "metadata": {
+        "name": "sync_encryption_metadata_dek_counts",
+        "schema": "public"
+      },
+      "cacheKey": "anon_security_definer_function_executable_public_sync_encryption_metadata_dek_counts_"
+    },
+    {
+      "name": "authenticated_security_definer_function_executable",
+      "title": "Signed-In Users Can Execute SECURITY DEFINER Function",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects `SECURITY DEFINER` functions that are callable by signed-in users. Revoke `EXECUTE`, switch the function to `SECURITY INVOKER`, or move it out of your exposed API schema if signed-in users should not call it.",
+      "detail": "Function `public.sync_encryption_metadata_dek_counts()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/sync_encryption_metadata_dek_counts`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable",
+      "metadata": {
+        "name": "sync_encryption_metadata_dek_counts",
+        "schema": "public"
+      },
+      "cacheKey": "authenticated_security_definer_function_executable_public_sync_encryption_metadata_dek_counts_"
+    }
+  ]
+}

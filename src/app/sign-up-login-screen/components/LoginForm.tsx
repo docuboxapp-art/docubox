@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface Props {
   onSwitchToSignup: () => void;
@@ -104,7 +104,6 @@ function CountdownTimer({ seconds, onExpire }: { seconds: number; onExpire: () =
 
   useEffect(() => {
     expiredRef.current = false;
-    setRemaining(seconds);
     const interval = setInterval(() => {
       setRemaining((prev) => {
         if (prev <= 1) {
@@ -207,6 +206,7 @@ function AccordionItem({
 
 export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props) {
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   // ── Step 1: email ──────────────────────────────────────────────────────
   const [emailValue, setEmailValue] = useState('');
@@ -387,6 +387,49 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         : undefined,
   });
 
+  const requestedRedirect = () => {
+    const value = searchParams?.get('redirect');
+    if (!value || !value.startsWith('/') || value.startsWith('//')) return '/inicio';
+    return value === '/visor-documento' ? '/mis-participaciones' : value;
+  };
+
+  const enforcePostLoginSecurity = async (primaryFactor: 'passkey' | 'other' = 'other') => {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('No se pudo validar la sesión iniciada.');
+
+    const response = await fetch('/api/auth/totp/check', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (!response.ok) {
+      await supabase.auth.signOut();
+      throw new Error('No se pudieron validar los requisitos de seguridad de la cuenta.');
+    }
+
+    const requirements = await response.json();
+    const target = requirements.platformStaff ? '/panel' : requestedRedirect();
+    if (requirements.passkeyRequired && !requirements.passkeyEnrolled) {
+      router.push(`/auth/passkey-enrollment?redirect=${encodeURIComponent(target)}`);
+      return true;
+    }
+    if (requirements.passkeyRequired && primaryFactor !== 'passkey') {
+      router.push(`/auth/passkey-verification?redirect=${encodeURIComponent(target)}`);
+      return true;
+    }
+    if (requirements.enrollmentRequired) {
+      router.push(`/auth/totp-enrollment?redirect=${encodeURIComponent(target)}`);
+      return true;
+    }
+    if (requirements.totpEnabled) {
+      router.push(`/login/totp-verification?redirect=${encodeURIComponent(target)}`);
+      return true;
+    }
+    return false;
+  };
+
   // ── Password login ─────────────────────────────────────────────────────
   const handlePasswordLogin = async () => {
     if (!emailValue.trim() || !/^\S+@\S+\.\S+$/.test(emailValue.trim())) {
@@ -445,42 +488,19 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         /* non-blocking */
       }
 
-      // ── Check TOTP (only on password auth) ──────────────────────────────
-      if (authData.user?.id) {
-        try {
-          const totpRes = await fetch('/api/auth/totp/check', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: authData.user.id }),
-          });
-          const totpData = await totpRes.json();
-          if (totpData.totpEnabled) {
-            const redirectParam = searchParams?.get('redirect');
-            const finalRedirect =
-              redirectParam === '/visor-documento' ? '/mis-participaciones' : '/inicio';
-            window.location.href = `/login/totp-verification?userId=${authData.user.id}&redirect=${encodeURIComponent(finalRedirect)}`;
-            return;
-          }
-        } catch {
-          /* non-blocking */
-        }
-      }
+      if (await enforcePostLoginSecurity()) return;
 
       // Device check
       if (authData.user?.id) {
         try {
-          const { data: profile } = await supabase
-            .from('user_profiles')
-            .select('full_name')
-            .eq('id', authData.user.id)
-            .maybeSingle();
           const res = await fetch('/api/security/check-device', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${authData.session?.access_token || ''}`,
+            },
             body: JSON.stringify({
               userId: authData.user.id,
-              userEmail: emailValue.trim(),
-              userName: profile?.full_name || undefined,
             }),
           });
           const deviceResult = await res.json();
@@ -497,11 +517,11 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         }
       }
 
-      const redirectParam = searchParams?.get('redirect');
-      window.location.href =
-        redirectParam === '/visor-documento' ? '/mis-participaciones' : '/inicio';
-    } catch {
-      setPasswordError('Error de conexión. Intenta nuevamente.');
+      window.location.href = requestedRedirect();
+    } catch (error) {
+      setPasswordError(
+        error instanceof Error ? error.message : 'Error de conexión. Intenta nuevamente.'
+      );
       setPasswordLoading(false);
     }
   };
@@ -536,9 +556,10 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
   useEffect(() => {
     if (activeTab === 'otp' && !otpSent && !otpLoading) {
-      sendOtp();
+      const timeout = window.setTimeout(sendOtp, 0);
+      return () => window.clearTimeout(timeout);
     }
-  }, [activeTab]);
+  }, [activeTab, otpLoading, otpSent, sendOtp]);
 
   const handleOtpVerify = async () => {
     if (otpCode.replace(/\s/g, '').length < 6) {
@@ -605,11 +626,12 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       } catch {
         /* non-blocking */
       }
-      const redirectParam = searchParams?.get('redirect');
-      window.location.href =
-        redirectParam === '/visor-documento' ? '/mis-participaciones' : '/inicio';
-    } catch {
-      setOtpError('Error de conexión. Intenta nuevamente.');
+      if (await enforcePostLoginSecurity()) return;
+      window.location.href = requestedRedirect();
+    } catch (error) {
+      setOtpError(
+        error instanceof Error ? error.message : 'Error de conexión. Intenta nuevamente.'
+      );
       setOtpLoading(false);
     }
   };
@@ -736,9 +758,8 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       } catch {
         /* non-blocking */
       }
-      const redirectParam = searchParams?.get('redirect');
-      window.location.href =
-        redirectParam === '/visor-documento' ? '/mis-participaciones' : '/inicio';
+      if (await enforcePostLoginSecurity('passkey')) return;
+      window.location.href = requestedRedirect();
     } catch (err: unknown) {
       const name = err instanceof Error ? err.name : '';
       if (name === 'NotAllowedError') setBiometricError('Autenticación cancelada.');
@@ -808,72 +829,74 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
           {passwordEnabled && (
             <>
-              {!isOtpMode && <div className="space-y-3">
-                {newDeviceWarning && (
-                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                    <ShieldAlert size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-800">{newDeviceWarning}</p>
-                  </div>
-                )}
-
-                {passwordError && (
-                  <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
-                    <AlertTriangle size={13} className="text-red-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-red-700">{passwordError}</p>
-                  </div>
-                )}
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-600 text-foreground">
-                      Contraseña <span className="text-red-500">*</span>
-                    </label>
-                    <Link
-                      href="/olvide-contrasena"
-                      tabIndex={-1}
-                      className="text-xs text-primary hover:underline font-500"
-                    >
-                      ¿Olvidaste tu contraseña?
-                    </Link>
-                  </div>
-                  <div className="relative">
-                    <input
-                      ref={passwordInputRef}
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handlePasswordLogin();
-                      }}
-                      placeholder="Tu contraseña"
-                      autoComplete="current-password"
-                      disabled={!passwordEnabled}
-                      className={`h-11 w-full rounded-lg border px-3 pr-10 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${passwordError ? 'border-red-400 bg-red-50' : 'border-border bg-white'} disabled:bg-muted/60 disabled:text-muted-foreground`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      disabled={!passwordEnabled}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handlePasswordLogin}
-                  disabled={passwordLoading || !passwordEnabled}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
-                  style={{ minHeight: '44px' }}
-                >
-                  {passwordLoading ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    'Iniciar sesión'
+              {!isOtpMode && (
+                <div className="space-y-3">
+                  {newDeviceWarning && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <ShieldAlert size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-800">{newDeviceWarning}</p>
+                    </div>
                   )}
-                </button>
-              </div>}
+
+                  {passwordError && (
+                    <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
+                      <AlertTriangle size={13} className="text-red-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-red-700">{passwordError}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-600 text-foreground">
+                        Contraseña <span className="text-red-500">*</span>
+                      </label>
+                      <Link
+                        href="/olvide-contrasena"
+                        tabIndex={-1}
+                        className="text-xs text-primary hover:underline font-500"
+                      >
+                        ¿Olvidaste tu contraseña?
+                      </Link>
+                    </div>
+                    <div className="relative">
+                      <input
+                        ref={passwordInputRef}
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handlePasswordLogin();
+                        }}
+                        placeholder="Tu contraseña"
+                        autoComplete="current-password"
+                        disabled={!passwordEnabled}
+                        className={`h-11 w-full rounded-lg border px-3 pr-10 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${passwordError ? 'border-red-400 bg-red-50' : 'border-border bg-white'} disabled:bg-muted/60 disabled:text-muted-foreground`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        disabled={!passwordEnabled}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handlePasswordLogin}
+                    disabled={passwordLoading || !passwordEnabled}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                    style={{ minHeight: '44px' }}
+                  >
+                    {passwordLoading ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      'Iniciar sesión'
+                    )}
+                  </button>
+                </div>
+              )}
 
               {!isOtpMode && emailLoading && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -884,12 +907,14 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
               {availableTabs.some((tab) => tab !== 'password') && (
                 <div className="space-y-3">
-                  {!isOtpMode && <div>
-                    <p className="text-sm font-700 text-foreground">Opciones adicionales</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      También puedes iniciar sesión con otro método disponible.
-                    </p>
-                  </div>}
+                  {!isOtpMode && (
+                    <div>
+                      <p className="text-sm font-700 text-foreground">Opciones adicionales</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        También puedes iniciar sesión con otro método disponible.
+                      </p>
+                    </div>
+                  )}
 
                   {/* ── OTP ── */}
                   {availableTabs.includes('otp') && (
@@ -903,77 +928,79 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                         onToggle={() => handleAccordionToggle('otp')}
                       >
                         <div className="space-y-4 pt-2">
-                        {otpError && (
-                          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
-                            <AlertTriangle
-                              size={13}
-                              className="text-red-600 flex-shrink-0 mt-0.5"
-                            />
-                            <p className="text-xs text-red-700">{otpError}</p>
-                          </div>
-                        )}
-                        {otpLoading && !otpSent ? (
-                          <div className="flex flex-col items-center gap-2 py-4">
-                            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                            <p className="text-xs text-muted-foreground">Enviando código...</p>
-                          </div>
-                        ) : otpSent ? (
-                          <>
-                            <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
-                              <CheckCircle2
+                          {otpError && (
+                            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
+                              <AlertTriangle
                                 size={13}
-                                className="text-blue-600 flex-shrink-0 mt-0.5"
+                                className="text-red-600 flex-shrink-0 mt-0.5"
                               />
-                              <p className="text-xs text-blue-700">
-                                Se envió un código de 6 dígitos a <strong>{emailValue}</strong>.
-                                Revisa tu bandeja de entrada.
-                              </p>
+                              <p className="text-xs text-red-700">{otpError}</p>
                             </div>
-                            <div className="flex justify-center">
-                              {!otpExpired ? (
-                                <CountdownTimer
-                                  key={otpTimerKey}
-                                  seconds={300}
-                                  onExpire={() => setOtpExpired(true)}
+                          )}
+                          {otpLoading && !otpSent ? (
+                            <div className="flex flex-col items-center gap-2 py-4">
+                              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                              <p className="text-xs text-muted-foreground">Enviando código...</p>
+                            </div>
+                          ) : otpSent ? (
+                            <>
+                              <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                                <CheckCircle2
+                                  size={13}
+                                  className="text-blue-600 flex-shrink-0 mt-0.5"
                                 />
-                              ) : (
-                                <div className="flex flex-col items-center gap-2">
-                                  <p className="text-xs text-red-600 font-600">El código expiró.</p>
+                                <p className="text-xs text-blue-700">
+                                  Se envió un código de 6 dígitos a <strong>{emailValue}</strong>.
+                                  Revisa tu bandeja de entrada.
+                                </p>
+                              </div>
+                              <div className="flex justify-center">
+                                {!otpExpired ? (
+                                  <CountdownTimer
+                                    key={otpTimerKey}
+                                    seconds={300}
+                                    onExpire={() => setOtpExpired(true)}
+                                  />
+                                ) : (
+                                  <div className="flex flex-col items-center gap-2">
+                                    <p className="text-xs text-red-600 font-600">
+                                      El código expiró.
+                                    </p>
+                                    <button
+                                      onClick={sendOtp}
+                                      className="flex items-center gap-1.5 text-xs text-primary hover:underline font-600"
+                                    >
+                                      <RefreshCw size={12} /> Reenviar código
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              {!otpExpired && (
+                                <>
+                                  <OtpInput value={otpCode} onChange={setOtpCode} />
+                                  <button
+                                    onClick={handleOtpVerify}
+                                    disabled={otpLoading || otpCode.length < 6}
+                                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                                    style={{ minHeight: '44px' }}
+                                  >
+                                    {otpLoading ? (
+                                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                      'Verificar código'
+                                    )}
+                                  </button>
                                   <button
                                     onClick={sendOtp}
-                                    className="flex items-center gap-1.5 text-xs text-primary hover:underline font-600"
+                                    disabled={otpLoading}
+                                    className="w-full text-xs text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1"
                                   >
-                                    <RefreshCw size={12} /> Reenviar código
+                                    <RefreshCw size={11} /> Reenviar código
                                   </button>
-                                </div>
+                                </>
                               )}
-                            </div>
-                            {!otpExpired && (
-                              <>
-                                <OtpInput value={otpCode} onChange={setOtpCode} />
-                                <button
-                                  onClick={handleOtpVerify}
-                                  disabled={otpLoading || otpCode.length < 6}
-                                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
-                                  style={{ minHeight: '44px' }}
-                                >
-                                  {otpLoading ? (
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                  ) : (
-                                    'Verificar código'
-                                  )}
-                                </button>
-                                <button
-                                  onClick={sendOtp}
-                                  disabled={otpLoading}
-                                  className="w-full text-xs text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1"
-                                >
-                                  <RefreshCw size={11} /> Reenviar código
-                                </button>
-                              </>
-                            )}
-                          </>
-                        ) : null}
+                            </>
+                          ) : null}
                         </div>
                       </AccordionItem>
                       {isOtpMode && (

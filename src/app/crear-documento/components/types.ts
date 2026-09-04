@@ -40,6 +40,13 @@ export interface SecuritySettings {
   impedirExtraccion: boolean;
   evitarMontaje: boolean;
   legalHoldEnabled: boolean;
+  legalHoldReason?:
+    | 'litigio'
+    | 'requerimiento_autoridad'
+    | 'auditoria_investigacion'
+    | 'prevencion_eliminacion'
+    | 'otro'
+    | '';
   urgente?: boolean;
   publico?: boolean;
   selloDigital?: boolean;
@@ -52,10 +59,7 @@ export interface SecuritySettings {
 }
 
 export type CryptographicElementType =
-  | 'document_chain'
-  | 'document_seal'
-  | 'timestamp'
-  | 'evidence_chain';
+  'document_chain' | 'document_seal' | 'timestamp' | 'evidence_chain';
 
 export type AdditionalMetadataScope = 'document' | 'management';
 
@@ -192,9 +196,23 @@ export const STEPS = [
   { id: 4, label: 'Enviar', iconName: 'Send' },
 ];
 
-export const PARTICIPANT_COLORS = ['bg-blue-500', 'bg-violet-500', 'bg-emerald-500', 'bg-orange-500', 'bg-pink-500', 'bg-teal-500'];
+export const PARTICIPANT_COLORS = [
+  'bg-blue-500',
+  'bg-violet-500',
+  'bg-emerald-500',
+  'bg-orange-500',
+  'bg-pink-500',
+  'bg-teal-500',
+];
 
-export const PARTICIPANT_COLORS_HEX = ['#3b82f6', '#8b5cf6', '#10b981', '#f97316', '#ec4899', '#14b8a6'];
+export const PARTICIPANT_COLORS_HEX = [
+  '#3b82f6',
+  '#8b5cf6',
+  '#10b981',
+  '#f97316',
+  '#ec4899',
+  '#14b8a6',
+];
 
 export interface GrupoFirma {
   id: string;

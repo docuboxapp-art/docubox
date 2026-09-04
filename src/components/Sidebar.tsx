@@ -90,8 +90,7 @@ export default function Sidebar() {
   const { activeWorkspace } = useWorkspace();
   const isBusinessWorkspace = activeWorkspace?.workspaceType === 'business';
   const canManageOrganization =
-    isBusinessWorkspace &&
-    (activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin');
+    isBusinessWorkspace && (activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin');
 
   const userFullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Usuario';
   const userEmail = user?.email || '';
@@ -147,7 +146,7 @@ export default function Sidebar() {
     }
     if (isModuleActive('notifica')) {
       moduleItems.push({
-        href: '/notificaciones',
+        href: '/notificaciones-certificadas',
         icon: MailCheck,
         label: 'Notifica',
         badge: null,
@@ -202,7 +201,8 @@ export default function Sidebar() {
           .from('notifications')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
-          .eq('read', false);
+          .eq('read', false)
+          .is('archived_at', null);
         setUnreadCount(count ?? 0);
       } catch {
         // silent
@@ -266,11 +266,11 @@ export default function Sidebar() {
                   ? pathname.startsWith('/organizacion')
                   : item?.href === '/colabora'
                     ? pathname.startsWith('/colabora')
-                  : pathname === item?.href && item?.label === 'Dashboard'
-                  ? true
-                  : pathname === item?.href && item?.href !== '/inicio'
-                    ? true
-                    : false;
+                    : pathname === item?.href && item?.label === 'Dashboard'
+                      ? true
+                      : pathname === item?.href && item?.href !== '/inicio'
+                        ? true
+                        : false;
               return (
                 <Link
                   key={`nav-${item?.label}`}
@@ -310,9 +310,9 @@ export default function Sidebar() {
       {/* Bottom section */}
       <div className="border-t border-border px-2 py-3 space-y-0.5 bg-background">
         <Link
-          href="/notifications"
+          href="/notificaciones"
           className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-all duration-150 group relative ${
-            pathname === '/notifications'
+            pathname === '/notificaciones'
               ? 'bg-primary/10 text-primary font-600'
               : 'text-muted-foreground hover:bg-muted hover:text-foreground'
           }`}
@@ -320,7 +320,7 @@ export default function Sidebar() {
         >
           <Bell
             size={18}
-            className={`flex-shrink-0 ${pathname === '/notifications' ? 'text-primary' : 'group-hover:text-foreground'}`}
+            className={`flex-shrink-0 ${pathname === '/notificaciones' ? 'text-primary' : 'group-hover:text-foreground'}`}
           />
           {!collapsed && (
             <>

@@ -2,10 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { OrganizationApiError } from '@/lib/organization/server';
 import { hasCurrentCollaborationEntitlement } from './entitlements-server';
-import {
-  automationRetryStatus,
-  calculateAutomationBackoffSeconds,
-} from './automation-policy';
+import { automationRetryStatus, calculateAutomationBackoffSeconds } from './automation-policy';
+import { emitDomainEvent } from '@/lib/notifications/service';
 
 export { automationRetryStatus, calculateAutomationBackoffSeconds } from './automation-policy';
 
@@ -56,28 +54,31 @@ export async function executeConfiguredAutomation(
           'La automatizacion no tiene un responsable para recibir la notificacion.'
         );
       }
-      const inserted = await service.from('notifications').insert({
-        user_id: ownerId,
-        type: 'task',
-        title: action.title || `Automatizacion: ${String(automation.name || 'Colabora')}`,
+      const emitted = await emitDomainEvent({
+        type: 'workflow.automation_completed',
+        recipients: [{ userId: ownerId }],
+        title: action.title || `Automatización: ${String(automation.name || 'Colabora')}`,
         description:
-          action.message || 'Una automatizacion de Docubox Colabora fue ejecutada correctamente.',
-        priority: 'media',
-        read: false,
+          action.message || 'Una automatización de Docubox Colabora se ejecutó correctamente.',
+        legacyType: 'task',
+        category: 'WORKFLOW',
+        severity: 'info',
+        workspaceId: String(automation.workspace_id || ''),
+        actorUserId,
+        entityType: 'collaboration_automation',
+        entityId: String(automation.id || ''),
         metadata: {
           module: 'colabora',
           automation_id: automation.id,
-          actor_user_id: actorUserId,
           correlation_id: correlationId || null,
         },
-        idempotency_key: idempotencyKey,
+        deduplicationKey: idempotencyKey,
       });
-      if (inserted.error?.code === '23505') {
-        results.push({ type: action.type, delivered_to: ownerId, deduplicated: true });
-        continue;
-      }
-      if (inserted.error) throw inserted.error;
-      results.push({ type: action.type, delivered_to: ownerId });
+      results.push({
+        type: action.type,
+        delivered_to: ownerId,
+        deduplicated: emitted.deduplicated.length > 0,
+      });
       continue;
     }
 
