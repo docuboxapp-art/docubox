@@ -146,7 +146,9 @@ function useColumnWidths(
     try {
       const stored = localStorage.getItem(storageKey);
       if (stored) return { ...defaults, ...JSON.parse(stored) };
-    } catch {}
+    } catch {
+      // Local preferences are optional; fall back to the supplied defaults.
+    }
     return defaults;
   });
 
@@ -170,7 +172,9 @@ function useColumnWidths(
             setWidths(merged);
             try {
               localStorage.setItem(storageKey, JSON.stringify(merged));
-            } catch {}
+            } catch {
+              // Supabase remains the source of truth when local storage is unavailable.
+            }
           }
         }
       });
@@ -187,7 +191,9 @@ function useColumnWidths(
         // Persist to localStorage immediately
         try {
           localStorage.setItem(storageKey, JSON.stringify(updated));
-        } catch {}
+        } catch {
+          // Persist remotely even when the browser denies local storage access.
+        }
         // Debounce Supabase save (500ms)
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(async () => {
@@ -669,6 +675,7 @@ function FolderTreeNode({
   // Auto-expand if current folder is a descendant
   useEffect(() => {
     if (currentFolderId && isDescendant(carpeta.id, currentFolderId, allCarpetas)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Keep ancestors visible after navigation changes.
       setExpanded(true);
     }
   }, [allCarpetas, carpeta.id, currentFolderId]);
@@ -2360,6 +2367,7 @@ function MisDocumentosContent() {
     };
 
     openedSearchFolderRef.current = requestedFolderId;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Apply a validated folder deep-link atomically.
     setActiveSection('mi-espacio');
     setCurrentFolderId(requestedFolder.id);
     setFolderBreadcrumb(buildPath(requestedFolder.id));
@@ -2950,10 +2958,12 @@ function MisDocumentosContent() {
     }
   }, []);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- These async loaders own their loading-state transitions. */
   useEffect(() => {
     loadTiposDocumento();
     loadGruposDocumento();
   }, [loadTiposDocumento, loadGruposDocumento]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const loadEtiquetas = useCallback(async () => {
     setLoadingEtiquetas(true);
@@ -3049,11 +3059,13 @@ function MisDocumentosContent() {
     }
   }, [user]);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- These async loaders own their loading-state transitions. */
   useEffect(() => {
     loadEtiquetas();
     loadWorkspaceUsers();
     loadParticipantUsers();
   }, [loadEtiquetas, loadWorkspaceUsers, loadParticipantUsers]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const loadDocuments = useCallback(async () => {
     if (!user) return;
@@ -3577,6 +3589,7 @@ function MisDocumentosContent() {
     };
   }, [user, loadDocuments]);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- Section entry intentionally refreshes its server-backed data. */
   useEffect(() => {
     if (activeSection === 'favoritos') loadFavorites();
     if (activeSection === 'por-vencer') loadPorVencer();
@@ -3585,15 +3598,18 @@ function MisDocumentosContent() {
       loadDeletionHistory();
     }
   }, [activeSection, loadFavorites, loadPorVencer, loadPapelera, loadDeletionHistory]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (activeSection !== 'papelera') return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Initialize the visible retention countdown on entry.
     setTrashNow(new Date());
     const interval = window.setInterval(() => setTrashNow(new Date()), 60_000);
     return () => window.clearInterval(interval);
   }, [activeSection]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Selection never carries across document sections.
     setSelectedRows([]);
     setSelectedFolders([]);
   }, [activeSection]);

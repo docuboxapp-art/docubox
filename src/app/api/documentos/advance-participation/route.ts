@@ -170,6 +170,7 @@ export async function POST(req: NextRequest) {
 
       const delivery = await sendParticipantInvitationEmails({
         participants: participantsWithPortalUrl,
+        documentId: documentoId,
         documentName: docNombre,
         senderName,
         documentUrl: getParticipantPortalUrl(documentoId),

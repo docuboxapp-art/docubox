@@ -47,7 +47,8 @@ test('email-selected participants receive an individual participant portal link'
 
 test('email delivery keeps the per-participant URL through the provider template', () => {
   assert.match(emailService, /const participantDocumentUrl = p\.documentUrl \|\| documentUrl/);
-  assert.match(emailService, /creator_participation_invitation' : 'participant_invitation'/);
+  assert.match(emailService, /const emailType = p\.isCurrentUser/);
+  assert.match(emailService, /type: emailType/);
   assert.match(emailService, /documentUrl: participantDocumentUrl/);
   assert.match(
     emailFunction,
@@ -57,10 +58,9 @@ test('email delivery keeps the per-participant URL through the provider template
 });
 
 test('a creator who is also a participant receives a dedicated participation template', () => {
-  assert.match(
-    emailService,
-    /type: p\.isCurrentUser \? 'creator_participation_invitation' : 'participant_invitation'/
-  );
+  assert.match(emailService, /const emailType = p\.isCurrentUser/);
+  assert.match(emailService, /\? 'creator_participation_invitation'/);
+  assert.match(emailService, /: 'participant_invitation'/);
   assert.match(emailFunction, /function buildCreatorParticipationInvitationHtml/);
   assert.match(emailFunction, /Tu participaci\\u00f3n está pendiente/);
   assert.match(emailFunction, /Creaste este documento/);

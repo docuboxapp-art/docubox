@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { documentEncryptionPolicy } from '@/lib/crypto/document-encryption';
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import { enforcePublicRateLimit } from '@/lib/public-verification/gateway';
 
 type PublicDocumentRow = {
   id: string;
@@ -29,6 +28,24 @@ type PublicDocumentRow = {
   participantes?: Array<Record<string, unknown>> | null;
 };
 
+type PublicEvidenceRow = {
+  id: string;
+  evidence_type: string;
+  captured_at: string;
+  participant_name?: string | null;
+  participant_role?: string | null;
+  signature_hash?: string | null;
+  efirma_nombre?: string | null;
+  efirma_rfc?: string | null;
+  cert_rfc?: string | null;
+};
+
+type PublicVerificationBundle = {
+  document: PublicDocumentRow;
+  owner_full_name?: string | null;
+  evidence?: PublicEvidenceRow[] | null;
+};
+
 function publicResponse(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -43,7 +60,9 @@ function sanitizeParticipants(participants: PublicDocumentRow['participantes']) 
   if (!Array.isArray(participants)) return [];
 
   return participants.map((participant) => ({
-    name: String(participant.nombre || participant.name || 'Participante').replace(/\s*\(Tú\)\s*$/i, '').trim(),
+    name: String(participant.nombre || participant.name || 'Participante')
+      .replace(/\s*\(Tú\)\s*$/i, '')
+      .trim(),
     role: String(participant.acto || participant.rolDocumento || 'Participante'),
     status: String(participant.sub_estado || participant.estado || 'completado'),
     signatureMethods: Array.isArray(participant.tipoFirma)
@@ -55,7 +74,9 @@ function sanitizeParticipants(participants: PublicDocumentRow['participantes']) 
 function extractStorageReference(rawUrl: string) {
   try {
     const parsed = new URL(rawUrl);
-    const match = parsed.pathname.match(/\/storage\/v1\/object\/(?:sign|public|authenticated)\/([^/]+)\/(.+)$/);
+    const match = parsed.pathname.match(
+      /\/storage\/v1\/object\/(?:sign|public|authenticated)\/([^/]+)\/(.+)$/
+    );
     if (!match) return null;
     return {
       bucket: decodeURIComponent(match[1]),
@@ -66,7 +87,10 @@ function extractStorageReference(rawUrl: string) {
   }
 }
 
-async function createTemporaryDocumentUrl(supabase: ReturnType<typeof createServiceClient>, document: PublicDocumentRow) {
+async function createTemporaryDocumentUrl(
+  supabase: ReturnType<typeof createServiceClient>,
+  document: PublicDocumentRow
+) {
   if (documentEncryptionPolicy().enabled) {
     return `/api/verificacion/documentos/${document.id}/archivo`;
   }
@@ -106,52 +130,28 @@ async function createTemporaryDocumentUrl(supabase: ReturnType<typeof createServ
 
 async function findCompletedDocument(identifier: string) {
   const supabase = createServiceClient();
-  const select = [
-    'id',
-    'documento_id',
-    'folio_interno',
-    'nombre',
-    'descripcion',
-    'estado',
-    'es_publico',
-    'owner_id',
-    'file_name',
-    'file_size',
-    'file_type',
-    'file_url',
-    'file_hash_sha256',
-    'sealed_pdf_path',
-    'sealed_pdf_hash',
-    'sealed_at',
-    'xml_hash_sha256',
-    'xml_generated_at',
-    'created_at',
-    'updated_at',
-    'fecha_completado',
-    'participantes',
-  ].join(',');
-
-  const baseQuery = () => supabase
-    .from('documentos')
-    .select(select)
-    .eq('estado', 'completado');
-
-  if (UUID_PATTERN.test(identifier)) {
-    const { data } = await baseQuery().eq('id', identifier).maybeSingle();
-    return { supabase, document: data as unknown as PublicDocumentRow | null };
-  }
-
-  const { data: byDocumentId } = await baseQuery().eq('documento_id', identifier).maybeSingle();
-  if (byDocumentId) return { supabase, document: byDocumentId as unknown as PublicDocumentRow };
-
-  const { data: byFolio } = await baseQuery().eq('folio_interno', identifier).maybeSingle();
-  return { supabase, document: byFolio as unknown as PublicDocumentRow | null };
+  const { data, error } = await supabase.rpc('get_public_document_verification_bundle', {
+    p_identifier: identifier,
+  });
+  if (error) throw error;
+  return { supabase, bundle: data as PublicVerificationBundle | null };
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ identifier: string }> }
 ) {
+  try {
+    if (!(await enforcePublicRateLimit(request, 'completed-document', 30))) {
+      return publicResponse({ error: 'Demasiadas consultas. Intenta mas tarde.' }, 429);
+    }
+  } catch {
+    return publicResponse(
+      { error: 'El servicio de verificación no está disponible temporalmente.' },
+      503
+    );
+  }
+
   try {
     const { identifier: rawIdentifier } = await params;
     const identifier = decodeURIComponent(rawIdentifier || '').trim();
@@ -160,32 +160,23 @@ export async function GET(
       return publicResponse({ error: 'Ingresa un folio o ID de documento válido.' }, 400);
     }
 
-    const { supabase, document } = await findCompletedDocument(identifier);
+    const { supabase, bundle } = await findCompletedDocument(identifier);
+    const document = bundle?.document || null;
 
     if (!document) {
-      return publicResponse({
-        error: 'No encontramos un documento completado con ese identificador.',
-      }, 404);
+      return publicResponse(
+        {
+          error: 'No encontramos un documento completado con ese identificador.',
+        },
+        404
+      );
     }
-
-    const [{ data: owner }, { data: evidence }] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('full_name')
-        .eq('id', document.owner_id)
-        .maybeSingle(),
-      supabase
-        .from('signature_evidence')
-        .select('id,evidence_type,captured_at,participant_name,participant_role,signature_hash,efirma_nombre,efirma_rfc,cert_rfc')
-        .eq('document_id', document.id)
-        .eq('is_voided', false)
-        .order('captured_at', { ascending: true }),
-    ]);
 
     const documentUrl = document.es_publico
       ? await createTemporaryDocumentUrl(supabase, document)
       : null;
-    const verificationHash = document.sealed_pdf_hash || document.file_hash_sha256 || document.xml_hash_sha256 || null;
+    const verificationHash =
+      document.sealed_pdf_hash || document.file_hash_sha256 || document.xml_hash_sha256 || null;
 
     return publicResponse({
       valid: true,
@@ -198,7 +189,7 @@ export async function GET(
         description: document.descripcion || null,
         status: document.estado,
         isPublic: document.es_publico,
-        issuer: owner?.full_name || 'Cuenta Docubox',
+        issuer: bundle?.owner_full_name || 'Cuenta Docubox',
         createdAt: document.created_at,
         completedAt: document.fecha_completado || document.sealed_at || document.updated_at,
         fileName: document.file_name,
@@ -215,7 +206,7 @@ export async function GET(
               : null,
         xmlHash: document.xml_hash_sha256 || null,
         participants: sanitizeParticipants(document.participantes),
-        signatures: (evidence || []).map((item) => ({
+        signatures: (bundle?.evidence || []).map((item) => ({
           id: item.id,
           type: item.evidence_type,
           capturedAt: item.captured_at,

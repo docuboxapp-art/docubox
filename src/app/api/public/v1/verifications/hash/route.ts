@@ -5,7 +5,12 @@ import { verifyLocatedDocument } from '@/lib/public-verification/orchestrator';
 import { findArtifactsByHash, normalizeSha256 } from '@/lib/public-verification/repository';
 
 export async function POST(request: NextRequest) {
-  if (!enforcePublicRateLimit(request, 'hash', 20)) return json({ error: 'Demasiadas consultas. Intenta mas tarde.' }, 429);
+  try {
+    if (!(await enforcePublicRateLimit(request, 'hash', 20)))
+      return json({ error: 'Demasiadas consultas. Intenta mas tarde.' }, 429);
+  } catch {
+    return json({ error: 'El servicio de verificacion no esta disponible temporalmente.' }, 503);
+  }
   const startedAt = Date.now();
   try {
     const body = await request.json();
@@ -28,4 +33,3 @@ export async function POST(request: NextRequest) {
 function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' } });
 }
-

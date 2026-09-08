@@ -14,8 +14,15 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ identifier: string }> }
 ) {
-  if (!enforcePublicRateLimit(request, 'public-document-file', 20)) {
-    return NextResponse.json({ error: 'Demasiadas solicitudes.' }, { status: 429 });
+  try {
+    if (!(await enforcePublicRateLimit(request, 'public-document-file', 20))) {
+      return NextResponse.json({ error: 'Demasiadas solicitudes.' }, { status: 429 });
+    }
+  } catch {
+    return NextResponse.json(
+      { error: 'El servicio de verificacion no esta disponible temporalmente.' },
+      { status: 503 }
+    );
   }
   const { identifier: rawIdentifier } = await params;
   const identifier = decodeURIComponent(rawIdentifier || '').trim();

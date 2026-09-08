@@ -24,6 +24,11 @@ test('middleware performs no remote authentication without session material', ()
   assert.equal(middleware.match(/supabase\.rpc\('enforce_docubox_session_policy'/g)?.length, 1);
 });
 
+test('protected namespaces cannot bypass the session policy with static-looking suffixes', () => {
+  assert.match(middleware, /_next\/static\|_next\/image\|favicon\.ico\|assets\//);
+  assert.doesNotMatch(middleware, /\.\*\\\.\(\?:svg\|png\|jpg/);
+});
+
 test('invalid refresh material is cleared instead of retried', () => {
   assert.match(middleware, /refresh_token_not_found/);
   assert.match(middleware, /hasMalformedSessionCookie/);

@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
 
@@ -11,7 +12,9 @@ function getSupabase(): SupabaseClient {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) {
-      throw new Error('[emailNotifications] Missing Supabase credentials. This function must be called server-side.');
+      throw new Error(
+        '[emailNotifications] Missing Supabase credentials. This function must be called server-side.'
+      );
     }
     _supabase = createClient(url, key);
   }
@@ -19,10 +22,21 @@ function getSupabase(): SupabaseClient {
 }
 
 type EmailType =
-  | 'signature_request' | 'document_completed' | 'certificate_expiry' | 'document_expired'
-  | 'action_required' | 'participant_invitation' | 'creator_participation_invitation' | 'participation_reminder'
-  | 'participation_completed' | 'owner_participant_signed' | 'owner_participant_approved'
-  | 'owner_participant_cancelled' | 'owner_participant_rejected' | 'new_device_login' | 'login_otp';
+  | 'signature_request'
+  | 'document_completed'
+  | 'certificate_expiry'
+  | 'document_expired'
+  | 'action_required'
+  | 'participant_invitation'
+  | 'creator_participation_invitation'
+  | 'participation_reminder'
+  | 'participation_completed'
+  | 'owner_participant_signed'
+  | 'owner_participant_approved'
+  | 'owner_participant_cancelled'
+  | 'owner_participant_rejected'
+  | 'new_device_login'
+  | 'login_otp';
 
 interface SendEmailParams {
   type: EmailType;
@@ -80,11 +94,7 @@ export interface ParticipantInvitationSummary {
 }
 
 export function isEmailNotificationEnabled(value: unknown): boolean {
-  const methods = Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-      ? [value]
-      : [];
+  const methods = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
 
   return methods.some((method) => {
     const normalized = String(method)
@@ -94,10 +104,12 @@ export function isEmailNotificationEnabled(value: unknown): boolean {
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[_-]+/g, ' ');
 
-    return normalized === 'email'
-      || normalized === 'e mail'
-      || normalized === 'correo'
-      || normalized.startsWith('correo electron');
+    return (
+      normalized === 'email' ||
+      normalized === 'e mail' ||
+      normalized === 'correo' ||
+      normalized.startsWith('correo electron')
+    );
   });
 }
 
@@ -108,17 +120,30 @@ export async function sendEmailNotification(params: SendEmailParams): Promise<Em
       body: params,
     });
     if (error) {
-      console.error(`[emailNotifications] Edge function invocation error for ${params.type} to ${params.to}:`, error.message, JSON.stringify(error));
+      console.error(
+        `[emailNotifications] Edge function invocation error for ${params.type} to ${params.to}:`,
+        error.message,
+        JSON.stringify(error)
+      );
       throw new Error(`Edge function error: ${error.message}`);
     }
     if (data && !data.success) {
-      console.error(`[emailNotifications] Resend rejected ${params.type} to ${params.to}:`, JSON.stringify(data));
+      console.error(
+        `[emailNotifications] Resend rejected ${params.type} to ${params.to}:`,
+        JSON.stringify(data)
+      );
       throw new Error(`Resend error: ${data.error || JSON.stringify(data)}`);
     }
-    console.log(`[emailNotifications] Successfully sent ${params.type} to ${params.to}`, data?.id ? `(id: ${data.id})` : '');
+    console.log(
+      `[emailNotifications] Successfully sent ${params.type} to ${params.to}`,
+      data?.id ? `(id: ${data.id})` : ''
+    );
     return { id: typeof data?.id === 'string' ? data.id : undefined };
   } catch (err) {
-    console.error(`[emailNotifications] FAILED sending ${params.type} to ${params.to}:`, err instanceof Error ? err.message : err);
+    console.error(
+      `[emailNotifications] FAILED sending ${params.type} to ${params.to}:`,
+      err instanceof Error ? err.message : err
+    );
     // Re-throw so callers can handle/log the failure
     throw err;
   }
@@ -146,7 +171,10 @@ export async function sendSignatureRequestEmails(params: {
   );
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      console.error(`[emailNotifications] signature_request failed for ${emailParticipants[i]?.email}:`, r.reason);
+      console.error(
+        `[emailNotifications] signature_request failed for ${emailParticipants[i]?.email}:`,
+        r.reason
+      );
     }
   });
 }
@@ -221,11 +249,15 @@ export async function sendDocumentCompletedToAllSigners(params: {
   }
 
   if (recipients.length === 0) {
-    console.warn('[emailNotifications] sendDocumentCompletedToAllSigners: no valid recipients found.');
+    console.warn(
+      '[emailNotifications] sendDocumentCompletedToAllSigners: no valid recipients found.'
+    );
     return;
   }
 
-  console.log(`[emailNotifications] Sending document_completed to ${recipients.length} recipients for document ${documentId}`);
+  console.log(
+    `[emailNotifications] Sending document_completed to ${recipients.length} recipients for document ${documentId}`
+  );
 
   const results = await Promise.allSettled(
     recipients.map((r) =>
@@ -246,7 +278,10 @@ export async function sendDocumentCompletedToAllSigners(params: {
 
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      console.error(`[emailNotifications] document_completed failed for ${recipients[i]?.email}:`, r.reason);
+      console.error(
+        `[emailNotifications] document_completed failed for ${recipients[i]?.email}:`,
+        r.reason
+      );
     }
   });
 }
@@ -333,7 +368,10 @@ export async function sendDocumentExpiredToAll(params: {
   );
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      console.error(`[emailNotifications] document_expired failed for ${recipients[i]?.email}:`, r.reason);
+      console.error(
+        `[emailNotifications] document_expired failed for ${recipients[i]?.email}:`,
+        r.reason
+      );
     }
   });
 }
@@ -349,12 +387,14 @@ export async function sendParticipantInvitationEmails(params: {
     documentUrl?: string;
     isCurrentUser?: boolean;
   }>;
+  documentId: string;
   documentName: string;
   documentDescription?: string;
   senderName: string;
   documentUrl?: string;
 }): Promise<ParticipantInvitationSummary> {
-  const { participants, documentName, documentDescription, senderName, documentUrl } = params;
+  const { participants, documentId, documentName, documentDescription, senderName, documentUrl } =
+    params;
 
   // Send only to participants who explicitly selected email as notification method.
   const emailParticipants = participants.filter((p) => {
@@ -362,7 +402,9 @@ export async function sendParticipantInvitationEmails(params: {
     return isEmailNotificationEnabled(p.tipoNotificacion);
   });
 
-  console.log(`[emailNotifications] sendParticipantInvitationEmails: ${emailParticipants.length} recipients (of ${participants.length} total participants)`);
+  console.log(
+    `[emailNotifications] sendParticipantInvitationEmails: ${emailParticipants.length} recipients (of ${participants.length} total participants)`
+  );
 
   if (emailParticipants.length === 0) {
     console.warn('[emailNotifications] No participants with valid email found.');
@@ -371,18 +413,29 @@ export async function sendParticipantInvitationEmails(params: {
 
   const results = await Promise.allSettled(
     emailParticipants.map((p) => {
-      const firmaLabel = (p.tipoFirma || [])
-        .map((f) => {
-          const map: Record<string, string> = { autografa: 'Firma Autógrafa Digital', efirma: 'e.Firma SAT', biometria: 'Biometría' };
-          return map[f] || f;
-        })
-        .join(', ') || 'Firma Electrónica';
+      const firmaLabel =
+        (p.tipoFirma || [])
+          .map((f) => {
+            const map: Record<string, string> = {
+              autografa: 'Firma Autógrafa Digital',
+              efirma: 'e.Firma SAT',
+              biometria: 'Biometría',
+            };
+            return map[f] || f;
+          })
+          .join(', ') || 'Firma Electrónica';
 
       // Use per-participant documentUrl if available, fall back to shared documentUrl
       const participantDocumentUrl = p.documentUrl || documentUrl;
+      const emailType = p.isCurrentUser
+        ? 'creator_participation_invitation'
+        : 'participant_invitation';
+      const recipientHash = createHash('sha256')
+        .update(p.email!.trim().toLowerCase())
+        .digest('hex');
 
       return sendEmailNotification({
-        type: p.isCurrentUser ? 'creator_participation_invitation' : 'participant_invitation',
+        type: emailType,
         to: p.email!,
         recipientName: p.name,
         documentName,
@@ -392,6 +445,7 @@ export async function sendParticipantInvitationEmails(params: {
         participantRole: p.acto || 'Participante',
         signatureMethod: firmaLabel,
         personalMessage: p.mensajePersonalizado,
+        idempotencyKey: `${emailType}/${documentId}/${recipientHash}`,
       });
     })
   );
@@ -405,11 +459,12 @@ export async function sendParticipantInvitationEmails(params: {
     const participant = emailParticipants[index];
     const email = participant?.email || '';
     if (result.status === 'rejected') {
-      const error = result.reason instanceof Error
-        ? result.reason.message
-        : String(result.reason);
+      const error = result.reason instanceof Error ? result.reason.message : String(result.reason);
       summary.failed.push({ email, name: participant?.name, error });
-      console.error(`[emailNotifications] participant_invitation failed for ${email}:`, result.reason);
+      console.error(
+        `[emailNotifications] participant_invitation failed for ${email}:`,
+        result.reason
+      );
       return;
     }
 
@@ -455,7 +510,9 @@ export async function sendParticipationCompletionEmail(params: {
   participationMotivo?: string;
 }): Promise<void> {
   if (!params.participantEmail || !params.participantEmail.includes('@')) {
-    console.warn(`[emailNotifications] sendParticipationCompletionEmail: invalid email "${params.participantEmail}", skipping`);
+    console.warn(
+      `[emailNotifications] sendParticipationCompletionEmail: invalid email "${params.participantEmail}", skipping`
+    );
     return;
   }
   await sendEmailNotification({
@@ -470,16 +527,25 @@ export async function sendParticipationCompletionEmail(params: {
 }
 
 export async function sendParticipationCompletionEmailToAll(params: {
-  participants: Array<{ email?: string; nombre?: string; name?: string; sub_estado?: string; motivo_rechazo?: string }>;
+  participants: Array<{
+    email?: string;
+    nombre?: string;
+    name?: string;
+    sub_estado?: string;
+    motivo_rechazo?: string;
+  }>;
   documentName: string;
   participationStatus: 'firmado' | 'rechazado' | 'cancelado' | 'vencido';
   completedAt?: string;
   participationMotivo?: string;
 }): Promise<void> {
-  const { participants, documentName, participationStatus, completedAt, participationMotivo } = params;
+  const { participants, documentName, participationStatus, completedAt, participationMotivo } =
+    params;
   const emailParticipants = participants.filter((p) => p.email && p.email.includes('@'));
 
-  console.log(`[emailNotifications] sendParticipationCompletionEmailToAll: ${emailParticipants.length} recipients, status=${participationStatus}`);
+  console.log(
+    `[emailNotifications] sendParticipationCompletionEmailToAll: ${emailParticipants.length} recipients, status=${participationStatus}`
+  );
 
   const results = await Promise.allSettled(
     emailParticipants.map((p) =>
@@ -495,7 +561,10 @@ export async function sendParticipationCompletionEmailToAll(params: {
   );
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      console.error(`[emailNotifications] participation_completed (${participationStatus}) failed for ${emailParticipants[i]?.email}:`, r.reason);
+      console.error(
+        `[emailNotifications] participation_completed (${participationStatus}) failed for ${emailParticipants[i]?.email}:`,
+        r.reason
+      );
     }
   });
 }

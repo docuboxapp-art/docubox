@@ -5,7 +5,12 @@ import { verifyLocatedDocument } from '@/lib/public-verification/orchestrator';
 import { locateVerificationDocument } from '@/lib/public-verification/repository';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
-  if (!enforcePublicRateLimit(request, 'public-document', 30)) return json({ error: 'Demasiadas consultas. Intenta mas tarde.' }, 429);
+  try {
+    if (!(await enforcePublicRateLimit(request, 'public-document', 30)))
+      return json({ error: 'Demasiadas consultas. Intenta mas tarde.' }, 429);
+  } catch {
+    return json({ error: 'El servicio de verificacion no esta disponible temporalmente.' }, 503);
+  }
   const startedAt = Date.now();
   const { token: rawToken } = await params;
   const token = decodeURIComponent(rawToken || '').trim();
@@ -34,4 +39,3 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' } });
 }
-

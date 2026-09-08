@@ -33,6 +33,13 @@ const auditChainDigestFix = await readFile(
   ),
   'utf8'
 );
+const concurrencyMigration = await readFile(
+  new URL(
+    '../supabase/migrations/20260908195414_fase5_distributed_concurrency.sql',
+    import.meta.url
+  ),
+  'utf8'
+);
 
 test('lifecycle runner is disabled by default and POST-only', () => {
   assert.match(route, /lifecycleRunnerEnabled\(\)/);
@@ -131,6 +138,16 @@ test('manual administrative trigger is audited separately from the lifecycle res
   assert.match(route, /CRYPTO_LIFECYCLE_E2E_MANUAL_TRIGGERED/);
   assert.match(route, /source: 'admin-ui'/);
   assert.match(route, /result: 'started'/);
+});
+
+test('lifecycle runner uses a durable distributed lease instead of instance memory', () => {
+  assert.match(route, /rpc\('claim_crypto_lifecycle_e2e_run'/);
+  assert.match(route, /rpc\('finish_crypto_lifecycle_e2e_run'/);
+  assert.doesNotMatch(route, /let activeRun/);
+  assert.doesNotMatch(route, /lastRunByUser/);
+  assert.match(concurrencyMigration, /pg_advisory_xact_lock/);
+  assert.match(concurrencyMigration, /platform_system_jobs/);
+  assert.match(concurrencyMigration, /CRYPTO_LIFECYCLE_E2E_LEASE_EXPIRED/);
 });
 
 test('audit-chain repair resolves pgcrypto from the extensions schema', () => {

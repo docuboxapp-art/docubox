@@ -1,7 +1,26 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Check, RotateCcw, PenLine, Loader2, CheckCircle2, Camera, ChevronRight, AlertTriangle, Download, Shield, Smartphone, Monitor, QrCode, RefreshCw, Clock, Share2 } from 'lucide-react';
+import {
+  Check,
+  RotateCcw,
+  PenLine,
+  Loader2,
+  CheckCircle2,
+  Camera,
+  ChevronRight,
+  AlertTriangle,
+  Download,
+  Shield,
+  Smartphone,
+  Monitor,
+  QrCode,
+  RefreshCw,
+  Clock,
+  Share2,
+  Maximize2,
+  Minimize2,
+} from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import QRCode from 'qrcode';
 
@@ -9,12 +28,16 @@ import QRCode from 'qrcode';
 async function sha256(str: string): Promise<string> {
   const buf = new TextEncoder().encode(str);
   const digest = await crypto.subtle.digest('SHA-256', buf);
-  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 async function sha256Bytes(buffer: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', buffer);
-  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 // ─── User-Agent Parser ────────────────────────────────────────────────────────
@@ -26,22 +49,42 @@ function parseUserAgent(ua: string): { deviceType: string; browserName: string; 
   else if (/Windows NT 6\.2/.test(ua)) osName = 'Windows 8';
   else if (/Windows NT 6\.1/.test(ua)) osName = 'Windows 7';
   else if (/Windows/.test(ua)) osName = 'Windows';
-  else if (/iPhone OS/.test(ua)) { const v = ua.match(/iPhone OS ([\d_]+)/); osName = `iOS ${v ? v[1].replace(/_/g, '.') : ''}`; }
-  else if (/iPad.*OS/.test(ua)) { const v = ua.match(/OS ([\d_]+)/); osName = `iPadOS ${v ? v[1].replace(/_/g, '.') : ''}`; }
-  else if (/Android/.test(ua)) { const v = ua.match(/Android ([\d.]+)/); osName = `Android ${v ? v[1] : ''}`; }
-  else if (/Mac OS X/.test(ua)) { const v = ua.match(/Mac OS X ([\d_]+)/); osName = `macOS ${v ? v[1].replace(/_/g, '.') : ''}`; }
-  else if (/Linux/.test(ua)) osName = 'Linux';
+  else if (/iPhone OS/.test(ua)) {
+    const v = ua.match(/iPhone OS ([\d_]+)/);
+    osName = `iOS ${v ? v[1].replace(/_/g, '.') : ''}`;
+  } else if (/iPad.*OS/.test(ua)) {
+    const v = ua.match(/OS ([\d_]+)/);
+    osName = `iPadOS ${v ? v[1].replace(/_/g, '.') : ''}`;
+  } else if (/Android/.test(ua)) {
+    const v = ua.match(/Android ([\d.]+)/);
+    osName = `Android ${v ? v[1] : ''}`;
+  } else if (/Mac OS X/.test(ua)) {
+    const v = ua.match(/Mac OS X ([\d_]+)/);
+    osName = `macOS ${v ? v[1].replace(/_/g, '.') : ''}`;
+  } else if (/Linux/.test(ua)) osName = 'Linux';
   else if (/CrOS/.test(ua)) osName = 'Chrome OS';
 
   // Browser detection
   let browserName = 'Desconocido';
-  if (/Edg\//.test(ua)) { const v = ua.match(/Edg\/([\d.]+)/); browserName = `Edge ${v ? v[1] : ''}`; }
-  else if (/OPR\//.test(ua) || /Opera\//.test(ua)) { const v = ua.match(/OPR\/([\d.]+)/); browserName = `Opera ${v ? v[1] : ''}`; }
-  else if (/SamsungBrowser/.test(ua)) { const v = ua.match(/SamsungBrowser\/([\d.]+)/); browserName = `Samsung Browser ${v ? v[1] : ''}`; }
-  else if (/Chrome\//.test(ua) && !/Chromium/.test(ua)) { const v = ua.match(/Chrome\/([\d.]+)/); browserName = `Chrome ${v ? v[1] : ''}`; }
-  else if (/Firefox\//.test(ua)) { const v = ua.match(/Firefox\/([\d.]+)/); browserName = `Firefox ${v ? v[1] : ''}`; }
-  else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) { const v = ua.match(/Version\/([\d.]+)/); browserName = `Safari ${v ? v[1] : ''}`; }
-  else if (/MSIE|Trident/.test(ua)) browserName = 'Internet Explorer';
+  if (/Edg\//.test(ua)) {
+    const v = ua.match(/Edg\/([\d.]+)/);
+    browserName = `Edge ${v ? v[1] : ''}`;
+  } else if (/OPR\//.test(ua) || /Opera\//.test(ua)) {
+    const v = ua.match(/OPR\/([\d.]+)/);
+    browserName = `Opera ${v ? v[1] : ''}`;
+  } else if (/SamsungBrowser/.test(ua)) {
+    const v = ua.match(/SamsungBrowser\/([\d.]+)/);
+    browserName = `Samsung Browser ${v ? v[1] : ''}`;
+  } else if (/Chrome\//.test(ua) && !/Chromium/.test(ua)) {
+    const v = ua.match(/Chrome\/([\d.]+)/);
+    browserName = `Chrome ${v ? v[1] : ''}`;
+  } else if (/Firefox\//.test(ua)) {
+    const v = ua.match(/Firefox\/([\d.]+)/);
+    browserName = `Firefox ${v ? v[1] : ''}`;
+  } else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) {
+    const v = ua.match(/Version\/([\d.]+)/);
+    browserName = `Safari ${v ? v[1] : ''}`;
+  } else if (/MSIE|Trident/.test(ua)) browserName = 'Internet Explorer';
 
   // Device type
   let deviceType = 'Escritorio';
@@ -173,7 +216,9 @@ function SignatureOtpInput({
       {digits.map((digit, index) => (
         <input
           key={index}
-          ref={(element) => { inputRefs.current[index] = element; }}
+          ref={(element) => {
+            inputRefs.current[index] = element;
+          }}
           type="text"
           inputMode="numeric"
           autoComplete={index === 0 ? 'one-time-code' : 'off'}
@@ -272,11 +317,26 @@ function analyzeHumanBehavior(strokes: any[]): HumanBehavior {
     return arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length;
   };
 
-  if (speeds.length > 5 && variance(speeds) < 0.5) { score -= 0.35; flags.push('CONSTANT_SPEED'); }
-  if (speeds.length && Math.max(...speeds) > 5000) { score -= 0.30; flags.push('SPEED_TOO_HIGH'); }
-  if (allPoints.length < 10) { score -= 0.20; flags.push('TOO_FEW_POINTS'); }
-  if (allPoints.every((p: any) => p.pressure === 1.0)) { score -= 0.25; flags.push('SYNTHETIC_PRESSURE'); }
-  if (totalDuration < 500) { score -= 0.30; flags.push('DURATION_TOO_SHORT'); }
+  if (speeds.length > 5 && variance(speeds) < 0.5) {
+    score -= 0.35;
+    flags.push('CONSTANT_SPEED');
+  }
+  if (speeds.length && Math.max(...speeds) > 5000) {
+    score -= 0.3;
+    flags.push('SPEED_TOO_HIGH');
+  }
+  if (allPoints.length < 10) {
+    score -= 0.2;
+    flags.push('TOO_FEW_POINTS');
+  }
+  if (allPoints.every((p: any) => p.pressure === 1.0)) {
+    score -= 0.25;
+    flags.push('SYNTHETIC_PRESSURE');
+  }
+  if (totalDuration < 500) {
+    score -= 0.3;
+    flags.push('DURATION_TOO_SHORT');
+  }
 
   const avgPressure = allPoints.length
     ? allPoints.reduce((s: number, p: any) => s + p.pressure, 0) / allPoints.length
@@ -326,8 +386,11 @@ function ConstanciaParticipacion({
   const formatDate = (iso: string) => {
     try {
       const d = new Date(iso);
-      return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) +
-        ' | '+ d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return (
+        d.toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) +
+        ' | ' +
+        d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      );
     } catch {
       return iso;
     }
@@ -341,7 +404,8 @@ function ConstanciaParticipacion({
     try {
       const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
 
-      const safe = (str: string | null | undefined) => (str || '-').replace(/[^\x20-\x7E\xA0-\xFF]/g, '?');
+      const safe = (str: string | null | undefined) =>
+        (str || '-').replace(/[^\x20-\x7E\xA0-\xFF]/g, '?');
 
       const pdfDoc = await PDFDocument.create();
       const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -384,7 +448,13 @@ function ConstanciaParticipacion({
       const drawSectionHeading = (title: string) => {
         ensureSpace(30);
         page.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 20, color: darkBg });
-        page.drawText(safe(title), { x: margin + 8, y: y - 12, size: 8, font: fontBold, color: white });
+        page.drawText(safe(title), {
+          x: margin + 8,
+          y: y - 12,
+          size: 8,
+          font: fontBold,
+          color: white,
+        });
         y -= 26;
       };
 
@@ -392,21 +462,53 @@ function ConstanciaParticipacion({
       const drawKV = (label: string, value: string, mono = false) => {
         ensureSpace(22);
         const rowH = 18;
-        page.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: veryLightGray, borderColor: lightGray, borderWidth: 0.3 });
-        page.drawText(safe(label), { x: margin + 6, y: y - 12, size: 7.5, font: fontBold, color: darkGray });
+        page.drawRectangle({
+          x: margin,
+          y: y - rowH,
+          width: contentW,
+          height: rowH,
+          color: veryLightGray,
+          borderColor: lightGray,
+          borderWidth: 0.3,
+        });
+        page.drawText(safe(label), {
+          x: margin + 6,
+          y: y - 12,
+          size: 7.5,
+          font: fontBold,
+          color: darkGray,
+        });
         const valStr = safe(value);
         const maxValLen = 72;
         const displayVal = valStr.length > maxValLen ? valStr.slice(0, maxValLen) + '...' : valStr;
-        page.drawText(displayVal, { x: margin + 180, y: y - 12, size: 7.5, font: mono ? fontReg : fontReg, color: black });
+        page.drawText(displayVal, {
+          x: margin + 180,
+          y: y - 12,
+          size: 7.5,
+          font: mono ? fontReg : fontReg,
+          color: black,
+        });
         y -= rowH;
       };
 
       // ── Helper: draw table header row ─────────────────────────────────────────
       const drawTableHeader = (cols: { label: string; x: number; w: number }[]) => {
         ensureSpace(20);
-        page.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 18, color: rgb(0.2, 0.2, 0.25) });
+        page.drawRectangle({
+          x: margin,
+          y: y - 18,
+          width: contentW,
+          height: 18,
+          color: rgb(0.2, 0.2, 0.25),
+        });
         for (const col of cols) {
-          page.drawText(safe(col.label), { x: col.x, y: y - 12, size: 7, font: fontBold, color: white });
+          page.drawText(safe(col.label), {
+            x: col.x,
+            y: y - 12,
+            size: 7,
+            font: fontBold,
+            color: white,
+          });
         }
         y -= 18;
       };
@@ -415,7 +517,15 @@ function ConstanciaParticipacion({
       const drawTableRow = (cells: { text: string; x: number; w: number }[], rowIndex: number) => {
         ensureSpace(18);
         const bg = rowIndex % 2 === 0 ? veryLightGray : white;
-        page.drawRectangle({ x: margin, y: y - 16, width: contentW, height: 16, color: bg, borderColor: lightGray, borderWidth: 0.3 });
+        page.drawRectangle({
+          x: margin,
+          y: y - 16,
+          width: contentW,
+          height: 16,
+          color: bg,
+          borderColor: lightGray,
+          borderWidth: 0.3,
+        });
         for (const cell of cells) {
           const txt = safe(cell.text);
           const maxLen = Math.floor(cell.w / 5.5);
@@ -432,36 +542,108 @@ function ConstanciaParticipacion({
       // ── Top header bar ────────────────────────────────────────────────────────
       page.drawRectangle({ x: 0, y: height - 55, width, height: 55, color: darkBg });
       page.drawText('CONSTANCIA INDIVIDUAL DE PARTICIPACION', {
-        x: margin, y: height - 22, size: 13, font: fontBold, color: white,
+        x: margin,
+        y: height - 22,
+        size: 13,
+        font: fontBold,
+        color: white,
       });
       page.drawText('Documento confidencial - uso exclusivo del firmante', {
-        x: margin, y: height - 36, size: 8, font: fontReg, color: rgb(0.75, 0.75, 0.85),
+        x: margin,
+        y: height - 36,
+        size: 8,
+        font: fontReg,
+        color: rgb(0.75, 0.75, 0.85),
       });
       page.drawText('DOCUBOX', {
-        x: width - 90, y: height - 28, size: 10, font: fontBold, color: accentBlue,
+        x: width - 90,
+        y: height - 28,
+        size: 10,
+        font: fontBold,
+        color: accentBlue,
       });
       y = height - 55;
 
       // ── Confidential banner ───────────────────────────────────────────────────
-      page.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 18, color: rgb(0.95, 0.95, 0.97), borderColor: rgb(0.6, 0.6, 0.7), borderWidth: 0.5 });
+      page.drawRectangle({
+        x: margin,
+        y: y - 18,
+        width: contentW,
+        height: 18,
+        color: rgb(0.95, 0.95, 0.97),
+        borderColor: rgb(0.6, 0.6, 0.7),
+        borderWidth: 0.5,
+      });
       page.drawText('CONFIDENCIAL - SOLO PARA EL FIRMANTE', {
-        x: margin + 8, y: y - 12, size: 7.5, font: fontBold, color: rgb(0.3, 0.3, 0.4),
+        x: margin + 8,
+        y: y - 12,
+        size: 7.5,
+        font: fontBold,
+        color: rgb(0.3, 0.3, 0.4),
       });
       page.drawText('METODO: FIRMA AUTOGRAFA DIGITALIZADA', {
-        x: margin + 280, y: y - 12, size: 7.5, font: fontBold, color: accentBlue,
+        x: margin + 280,
+        y: y - 12,
+        size: 7.5,
+        font: fontBold,
+        color: accentBlue,
       });
       y -= 22;
 
       // ── Folio / header table ──────────────────────────────────────────────────
-      page.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 18, color: rgb(0.2, 0.2, 0.25) });
+      page.drawRectangle({
+        x: margin,
+        y: y - 18,
+        width: contentW,
+        height: 18,
+        color: rgb(0.2, 0.2, 0.25),
+      });
       page.drawText('FOLIO', { x: margin + 6, y: y - 12, size: 7, font: fontBold, color: white });
-      page.drawText('GENERADA (UTC)', { x: margin + 200, y: y - 12, size: 7, font: fontBold, color: white });
-      page.drawText('FIRMANTE', { x: margin + 370, y: y - 12, size: 7, font: fontBold, color: white });
+      page.drawText('GENERADA (UTC)', {
+        x: margin + 200,
+        y: y - 12,
+        size: 7,
+        font: fontBold,
+        color: white,
+      });
+      page.drawText('FIRMANTE', {
+        x: margin + 370,
+        y: y - 12,
+        size: 7,
+        font: fontBold,
+        color: white,
+      });
       y -= 18;
-      page.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 18, color: veryLightGray, borderColor: lightGray, borderWidth: 0.3 });
-      page.drawText(safe(folioId), { x: margin + 6, y: y - 12, size: 7, font: fontReg, color: black });
-      page.drawText(safe(capturedAt || new Date().toISOString()), { x: margin + 200, y: y - 12, size: 7, font: fontReg, color: black });
-      page.drawText(safe(userEmail), { x: margin + 370, y: y - 12, size: 7, font: fontReg, color: black });
+      page.drawRectangle({
+        x: margin,
+        y: y - 18,
+        width: contentW,
+        height: 18,
+        color: veryLightGray,
+        borderColor: lightGray,
+        borderWidth: 0.3,
+      });
+      page.drawText(safe(folioId), {
+        x: margin + 6,
+        y: y - 12,
+        size: 7,
+        font: fontReg,
+        color: black,
+      });
+      page.drawText(safe(capturedAt || new Date().toISOString()), {
+        x: margin + 200,
+        y: y - 12,
+        size: 7,
+        font: fontReg,
+        color: black,
+      });
+      page.drawText(safe(userEmail), {
+        x: margin + 370,
+        y: y - 12,
+        size: 7,
+        font: fontReg,
+        color: black,
+      });
       y -= 24;
 
       // ── DATOS DEL PARTICIPANTE ────────────────────────────────────────────────
@@ -482,7 +664,13 @@ function ConstanciaParticipacion({
 
       // Sub-heading: Red e Identidad
       ensureSpace(16);
-      page.drawText('Red e Identidad', { x: margin + 6, y: y - 10, size: 7.5, font: fontBold, color: accentBlue });
+      page.drawText('Red e Identidad', {
+        x: margin + 6,
+        y: y - 10,
+        size: 7.5,
+        font: fontBold,
+        color: accentBlue,
+      });
       y -= 16;
       drawKV('IP DEL FIRMANTE', constanciaData?.ip_address || '-');
       let geo = constanciaData?.geo;
@@ -490,13 +678,25 @@ function ConstanciaParticipacion({
 
       // Sub-heading: Sellado de Tiempo
       ensureSpace(16);
-      page.drawText('Sellado de Tiempo', { x: margin + 6, y: y - 10, size: 7.5, font: fontBold, color: accentBlue });
+      page.drawText('Sellado de Tiempo', {
+        x: margin + 6,
+        y: y - 10,
+        size: 7.5,
+        font: fontBold,
+        color: accentBlue,
+      });
       y -= 16;
       drawKV('TIMESTAMP UTC (SERVIDOR)', capturedAt || '-');
 
       // Sub-heading: Dispositivo
       ensureSpace(16);
-      page.drawText('Dispositivo', { x: margin + 6, y: y - 10, size: 7.5, font: fontBold, color: accentBlue });
+      page.drawText('Dispositivo', {
+        x: margin + 6,
+        y: y - 10,
+        size: 7.5,
+        font: fontBold,
+        color: accentBlue,
+      });
       y -= 16;
       drawKV('TIPO', constanciaData?.device_type || '-');
       drawKV('NAVEGADOR', constanciaData?.browser_name || '-');
@@ -520,25 +720,59 @@ function ConstanciaParticipacion({
       const frames = constanciaData?.frames || [];
       if (frames.length === 0) {
         ensureSpace(18);
-        page.drawRectangle({ x: margin, y: y - 16, width: contentW, height: 16, color: veryLightGray, borderColor: lightGray, borderWidth: 0.3 });
-        page.drawText('Sin capturas registradas', { x: margin + 6, y: y - 11, size: 7, font: fontReg, color: midGray });
+        page.drawRectangle({
+          x: margin,
+          y: y - 16,
+          width: contentW,
+          height: 16,
+          color: veryLightGray,
+          borderColor: lightGray,
+          borderWidth: 0.3,
+        });
+        page.drawText('Sin capturas registradas', {
+          x: margin + 6,
+          y: y - 11,
+          size: 7,
+          font: fontReg,
+          color: midGray,
+        });
         y -= 16;
       } else {
         frames.slice(0, 3).forEach((f, i) => {
-          drawTableRow([
-            { text: String(i + 1), x: margin + 6, w: 20 },
-            { text: f.event || '-', x: margin + 30, w: 100 },
-            { text: f.sha256 || '-', x: margin + 140, w: 240 },
-            { text: f.timestamp || '-', x: margin + 390, w: 120 },
-          ], i);
+          drawTableRow(
+            [
+              { text: String(i + 1), x: margin + 6, w: 20 },
+              { text: f.event || '-', x: margin + 30, w: 100 },
+              { text: f.sha256 || '-', x: margin + 140, w: 240 },
+              { text: f.timestamp || '-', x: margin + 390, w: 120 },
+            ],
+            i
+          );
         });
       }
       // Chain hash
       ensureSpace(20);
-      page.drawRectangle({ x: margin, y: y - 18, width: contentW, height: 18, color: veryLightGray, borderColor: lightGray, borderWidth: 0.3 });
-      page.drawText('CHAIN HASH', { x: margin + 6, y: y - 12, size: 7.5, font: fontBold, color: darkGray });
+      page.drawRectangle({
+        x: margin,
+        y: y - 18,
+        width: contentW,
+        height: 18,
+        color: veryLightGray,
+        borderColor: lightGray,
+        borderWidth: 0.3,
+      });
+      page.drawText('CHAIN HASH', {
+        x: margin + 6,
+        y: y - 12,
+        size: 7.5,
+        font: fontBold,
+        color: darkGray,
+      });
       const chainHashDisplay = safe(constanciaData?.chain_hash || '-');
-      page.drawText(chainHashDisplay.length > 72 ? chainHashDisplay.slice(0, 72) + '...' : chainHashDisplay, { x: margin + 100, y: y - 12, size: 7, font: fontReg, color: black });
+      page.drawText(
+        chainHashDisplay.length > 72 ? chainHashDisplay.slice(0, 72) + '...' : chainHashDisplay,
+        { x: margin + 100, y: y - 12, size: 7, font: fontReg, color: black }
+      );
       y -= 24;
 
       // ── FIRMA AUTOGRAFA DIGITALIZADA ──────────────────────────────────────────
@@ -550,12 +784,20 @@ function ConstanciaParticipacion({
         try {
           ensureSpace(100);
           const base64 = sigImgDataUrl.split(',')[1];
-          const imgBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+          const imgBytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
           const embeddedImg = await pdfDoc.embedPng(imgBytes);
           const imgW = 180;
           const imgH = 70;
           const imgX = margin + 6;
-          page.drawRectangle({ x: imgX - 2, y: y - imgH - 6, width: imgW + 4, height: imgH + 4, color: white, borderColor: lightGray, borderWidth: 0.5 });
+          page.drawRectangle({
+            x: imgX - 2,
+            y: y - imgH - 6,
+            width: imgW + 4,
+            height: imgH + 4,
+            color: white,
+            borderColor: lightGray,
+            borderWidth: 0.5,
+          });
           page.drawImage(embeddedImg, { x: imgX, y: y - imgH - 4, width: imgW, height: imgH });
           y -= imgH + 14;
         } catch {
@@ -568,21 +810,59 @@ function ConstanciaParticipacion({
       drawKV('VECTOR SHA-256', constanciaData?.strokes_sha256 || '-', true);
       drawKV('HASH COMBINADO', constanciaData?.combined_sha256 || '-', true);
       drawKV('TRAZOS', String(constanciaData?.total_strokes ?? '-'));
-      drawKV('DURACION', constanciaData?.total_duration_ms ? `${(constanciaData.total_duration_ms / 1000).toFixed(2)} segundos` : '-');
-      drawKV('SCORE HUMANIDAD', constanciaData?.human_score != null ? `${constanciaData.human_score.toFixed(2)} / 1.00` : '-');
-      drawKV('FLAGS ANOMALIA', constanciaData?.anomaly_flags?.length ? constanciaData.anomaly_flags.join(', ') : 'Ninguno');
-      drawKV('PRESION PROM.', constanciaData?.avg_pressure != null ? String(constanciaData.avg_pressure) : '-');
+      drawKV(
+        'DURACION',
+        constanciaData?.total_duration_ms
+          ? `${(constanciaData.total_duration_ms / 1000).toFixed(2)} segundos`
+          : '-'
+      );
+      drawKV(
+        'SCORE HUMANIDAD',
+        constanciaData?.human_score != null
+          ? `${constanciaData.human_score.toFixed(2)} / 1.00`
+          : '-'
+      );
+      drawKV(
+        'FLAGS ANOMALIA',
+        constanciaData?.anomaly_flags?.length ? constanciaData.anomaly_flags.join(', ') : 'Ninguno'
+      );
+      drawKV(
+        'PRESION PROM.',
+        constanciaData?.avg_pressure != null ? String(constanciaData.avg_pressure) : '-'
+      );
       y -= 6;
 
       // Legal note for autograph
       ensureSpace(30);
-      page.drawRectangle({ x: margin, y: y - 26, width: contentW, height: 26, color: rgb(0.97, 0.98, 1), borderColor: rgb(0.7, 0.8, 0.95), borderWidth: 0.5 });
-      page.drawText('La firma autografa fue capturada con mecanismos de deteccion de comportamiento humano conforme al Art. 97 del Codigo de Comercio de Mexico.', {
-        x: margin + 6, y: y - 12, size: 6.5, font: fontReg, color: midGray,
+      page.drawRectangle({
+        x: margin,
+        y: y - 26,
+        width: contentW,
+        height: 26,
+        color: rgb(0.97, 0.98, 1),
+        borderColor: rgb(0.7, 0.8, 0.95),
+        borderWidth: 0.5,
       });
-      page.drawText('El vector de trazos y la imagen se encuentran cifrados con AES-256 en custodia segura.', {
-        x: margin + 6, y: y - 22, size: 6.5, font: fontReg, color: midGray,
-      });
+      page.drawText(
+        'La firma autografa fue capturada con mecanismos de deteccion de comportamiento humano conforme al Art. 97 del Codigo de Comercio de Mexico.',
+        {
+          x: margin + 6,
+          y: y - 12,
+          size: 6.5,
+          font: fontReg,
+          color: midGray,
+        }
+      );
+      page.drawText(
+        'El vector de trazos y la imagen se encuentran cifrados con AES-256 en custodia segura.',
+        {
+          x: margin + 6,
+          y: y - 22,
+          size: 6.5,
+          font: fontReg,
+          color: midGray,
+        }
+      );
       y -= 32;
 
       // ── INTEGRIDAD Y VERIFICACION ─────────────────────────────────────────────
@@ -594,33 +874,79 @@ function ConstanciaParticipacion({
 
       // Verification URL
       ensureSpace(20);
-      page.drawText(`https://verificar.docubox.mx?constancia=${safe(folioId)}&doc=${safe(evidenceId || '-')}`, {
-        x: margin + 6, y: y - 10, size: 7, font: fontReg, color: accentBlue,
-      });
+      page.drawText(
+        `https://verificar.docubox.mx?constancia=${safe(folioId)}&doc=${safe(evidenceId || '-')}`,
+        {
+          x: margin + 6,
+          y: y - 10,
+          size: 7,
+          font: fontReg,
+          color: accentBlue,
+        }
+      );
       y -= 20;
 
       // ── FUNDAMENTO LEGAL ──────────────────────────────────────────────────────
       drawSectionHeading('FUNDAMENTO LEGAL');
       ensureSpace(60);
       const legalBlocks = [
-        ['Confidencialidad:', 'Este documento contiene datos personales protegidos por la LFPDPPP. Su divulgacion a terceros no autorizados esta prohibida.'],
-        ['Validez juridica:', 'Certifica la participacion y voluntad de firma conforme a los Arts. 89-97 del Codigo de Comercio, LFEA y NOM-151-SCFI-2016.'],
-        ['No repudio:', 'Los elementos registrados constituyen prueba de la libre y expresa manifestacion de voluntad del firmante.'],
+        [
+          'Confidencialidad:',
+          'Este documento contiene datos personales protegidos por la LFPDPPP. Su divulgacion a terceros no autorizados esta prohibida.',
+        ],
+        [
+          'Validez juridica:',
+          'Certifica la participacion y voluntad de firma conforme a los Arts. 89-97 del Codigo de Comercio, LFEA y NOM-151-SCFI-2016.',
+        ],
+        [
+          'No repudio:',
+          'Los elementos registrados constituyen prueba de la libre y expresa manifestacion de voluntad del firmante.',
+        ],
       ];
       for (const [label, text] of legalBlocks) {
         ensureSpace(24);
-        page.drawText(safe(label), { x: margin + 6, y: y - 10, size: 7.5, font: fontBold, color: darkGray });
-        page.drawText(safe(text), { x: margin + 6, y: y - 20, size: 7, font: fontReg, color: midGray });
+        page.drawText(safe(label), {
+          x: margin + 6,
+          y: y - 10,
+          size: 7.5,
+          font: fontBold,
+          color: darkGray,
+        });
+        page.drawText(safe(text), {
+          x: margin + 6,
+          y: y - 20,
+          size: 7,
+          font: fontReg,
+          color: midGray,
+        });
         y -= 28;
       }
 
       // ── Footer ────────────────────────────────────────────────────────────────
       ensureSpace(30);
-      page.drawLine({ start: { x: margin, y: y - 4 }, end: { x: width - margin, y: y - 4 }, thickness: 0.5, color: lightGray });
-      page.drawText('Generado por: DOCUBOX - https://docubox.mx', { x: margin, y: y - 16, size: 7, font: fontReg, color: midGray });
-      page.drawText(`Generado automaticamente al momento de la firma - ${safe(capturedAt || new Date().toISOString())}`, {
-        x: margin, y: y - 26, size: 7, font: fontReg, color: midGray,
+      page.drawLine({
+        start: { x: margin, y: y - 4 },
+        end: { x: width - margin, y: y - 4 },
+        thickness: 0.5,
+        color: lightGray,
       });
+      page.drawText('Generado por: DOCUBOX - https://docubox.mx', {
+        x: margin,
+        y: y - 16,
+        size: 7,
+        font: fontReg,
+        color: midGray,
+      });
+      page.drawText(
+        `Generado automaticamente al momento de la firma - ${safe(capturedAt || new Date().toISOString())}`,
+        {
+          x: margin,
+          y: y - 26,
+          size: 7,
+          font: fontReg,
+          color: midGray,
+        }
+      );
 
       const pdfBytes = await pdfDoc.save();
       const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
@@ -699,7 +1025,9 @@ function ConstanciaParticipacion({
     if (navigator.share) {
       try {
         await navigator.share({ title: 'Constancia de Participación — DOCUBOX', text: shareText });
-      } catch { /* user cancelled */ }
+      } catch {
+        /* user cancelled */
+      }
     } else {
       await navigator.clipboard.writeText(shareText).catch(() => {});
       setShareSuccess(true);
@@ -710,32 +1038,53 @@ function ConstanciaParticipacion({
   let geo = constanciaData?.geo;
 
   return (
-    <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-white'}`}>
+    <div
+      className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-white'}`}
+    >
       {/* ── Header ── */}
       <div className={`px-5 py-4 ${isDark ? 'bg-gray-950' : 'bg-slate-900'}`}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-bold text-white tracking-wide">CONSTANCIA INDIVIDUAL DE PARTICIPACIÓN</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Documento confidencial — uso exclusivo del firmante</p>
+            <h2 className="text-base font-bold text-white tracking-wide">
+              CONSTANCIA INDIVIDUAL DE PARTICIPACIÓN
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Documento confidencial — uso exclusivo del firmante
+            </p>
           </div>
           <span className="text-xs font-bold text-blue-400 flex-shrink-0">DOCUBOX</span>
         </div>
-        <div className={`mt-3 flex items-center justify-between px-3 py-1.5 rounded text-xs font-semibold ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-800 text-slate-200'}`}>
+        <div
+          className={`mt-3 flex items-center justify-between px-3 py-1.5 rounded text-xs font-semibold ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-800 text-slate-200'}`}
+        >
           <span>■ CONFIDENCIAL · SOLO PARA EL FIRMANTE</span>
           <span className="text-blue-400">MÉTODO: FIRMA AUTÓGRAFA DIGITALIZADA</span>
         </div>
       </div>
 
       {/* ── Folio row ── */}
-      <div className={`grid grid-cols-3 border-b text-xs ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-slate-50'}`}>
+      <div
+        className={`grid grid-cols-3 border-b text-xs ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-slate-50'}`}
+      >
         {[
           { label: 'FOLIO', value: folioId },
           { label: 'GENERADA (UTC)', value: capturedAt || '—' },
           { label: 'FIRMANTE', value: userEmail },
         ].map(({ label, value }) => (
-          <div key={label} className={`px-3 py-2 border-r last:border-r-0 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-            <p className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>{label}</p>
-            <p className={`font-mono text-[10px] break-all ${isDark ? 'text-gray-200' : 'text-slate-700'}`}>{value}</p>
+          <div
+            key={label}
+            className={`px-3 py-2 border-r last:border-r-0 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+          >
+            <p
+              className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-slate-400'}`}
+            >
+              {label}
+            </p>
+            <p
+              className={`font-mono text-[10px] break-all ${isDark ? 'text-gray-200' : 'text-slate-700'}`}
+            >
+              {value}
+            </p>
           </div>
         ))}
       </div>
@@ -743,71 +1092,123 @@ function ConstanciaParticipacion({
       <div className="divide-y divide-slate-200 dark:divide-gray-700">
         {/* ── DATOS DEL PARTICIPANTE ── */}
         <CertSection title="DATOS DEL PARTICIPANTE" isDark={isDark}>
-          <CertKVTable isDark={isDark} rows={[
-            ['NOMBRE COMPLETO', userName],
-            ['CORREO', userEmail],
-            ['ROL', 'Firmante'],
-          ]} />
+          <CertKVTable
+            isDark={isDark}
+            rows={[
+              ['NOMBRE COMPLETO', userName],
+              ['CORREO', userEmail],
+              ['ROL', 'Firmante'],
+            ]}
+          />
         </CertSection>
 
         {/* ── DATOS DEL DOCUMENTO ── */}
         <CertSection title="DATOS DEL DOCUMENTO" isDark={isDark}>
-          <CertKVTable isDark={isDark} rows={[
-            ['TÍTULO', documentName],
-            ['SHA-256', constanciaData?.combined_sha256 || constanciaData?.image_sha256 || '—'],
-          ]} />
+          <CertKVTable
+            isDark={isDark}
+            rows={[
+              ['TÍTULO', documentName],
+              ['SHA-256', constanciaData?.combined_sha256 || constanciaData?.image_sha256 || '—'],
+            ]}
+          />
         </CertSection>
 
         {/* ── EVIDENCIA DE SESIÓN ── */}
         <CertSection title="EVIDENCIA DE SESIÓN · RECOLECCIÓN AUTOMÁTICA" isDark={isDark}>
-          <p className={`text-[10px] font-semibold mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Red e Identidad</p>
-          <CertKVTable isDark={isDark} rows={[
-            ['IP DEL FIRMANTE', constanciaData?.ip_address || '—'],
-            ['COORDENADAS', geo ? `${geo.latitude.toFixed(6)}, ${geo.longitude.toFixed(6)}` : '—'],
-          ]} />
-          <p className={`text-[10px] font-semibold mt-2 mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Sellado de Tiempo</p>
-          <CertKVTable isDark={isDark} rows={[
-            ['TIMESTAMP UTC (SERVIDOR)', capturedAt || '—'],
-          ]} />
-          <p className={`text-[10px] font-semibold mt-2 mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Dispositivo</p>
-          <CertKVTable isDark={isDark} rows={[
-            ['TIPO', constanciaData?.device_type || '—'],
-            ['NAVEGADOR', constanciaData?.browser_name || '—'],
-            ['SISTEMA', constanciaData?.os_name || '—'],
-          ]} />
+          <p
+            className={`text-[10px] font-semibold mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+          >
+            Red e Identidad
+          </p>
+          <CertKVTable
+            isDark={isDark}
+            rows={[
+              ['IP DEL FIRMANTE', constanciaData?.ip_address || '—'],
+              [
+                'COORDENADAS',
+                geo ? `${geo.latitude.toFixed(6)}, ${geo.longitude.toFixed(6)}` : '—',
+              ],
+            ]}
+          />
+          <p
+            className={`text-[10px] font-semibold mt-2 mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+          >
+            Sellado de Tiempo
+          </p>
+          <CertKVTable isDark={isDark} rows={[['TIMESTAMP UTC (SERVIDOR)', capturedAt || '—']]} />
+          <p
+            className={`text-[10px] font-semibold mt-2 mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+          >
+            Dispositivo
+          </p>
+          <CertKVTable
+            isDark={isDark}
+            rows={[
+              ['TIPO', constanciaData?.device_type || '—'],
+              ['NAVEGADOR', constanciaData?.browser_name || '—'],
+              ['SISTEMA', constanciaData?.os_name || '—'],
+            ]}
+          />
         </CertSection>
 
         {/* ── HUELLA DIGITAL ── */}
         <CertSection title="Huella Digital del Dispositivo" isDark={isDark}>
-          <CertKVTable isDark={isDark} rows={[
-            ['FINGERPRINT ID', constanciaData?.fingerprint_id || '—'],
-          ]} mono />
+          <CertKVTable
+            isDark={isDark}
+            rows={[['FINGERPRINT ID', constanciaData?.fingerprint_id || '—']]}
+            mono
+          />
         </CertSection>
 
         {/* ── CAPTURAS DE PANTALLA ── */}
         <CertSection title="Capturas de Pantalla del Proceso" isDark={isDark}>
-          <div className={`rounded border overflow-hidden text-[10px] ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-            <div className={`grid grid-cols-4 px-2 py-1.5 font-bold uppercase tracking-wide ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-slate-700 text-white'}`}>
+          <div
+            className={`rounded border overflow-hidden text-[10px] ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+          >
+            <div
+              className={`grid grid-cols-4 px-2 py-1.5 font-bold uppercase tracking-wide ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-slate-700 text-white'}`}
+            >
               <span>#</span>
               <span>MOMENTO</span>
               <span className="col-span-2">SHA-256</span>
             </div>
             {(constanciaData?.frames || []).length === 0 ? (
-              <div className={`px-2 py-2 ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>Sin capturas registradas</div>
+              <div className={`px-2 py-2 ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
+                Sin capturas registradas
+              </div>
             ) : (
               (constanciaData?.frames || []).slice(0, 3).map((f, i) => (
-                <div key={i} className={`grid grid-cols-4 px-2 py-1.5 border-t ${isDark ? 'border-gray-700 odd:bg-gray-800 even:bg-gray-900' : 'border-slate-100 odd:bg-white even:bg-slate-50'}`}>
+                <div
+                  key={i}
+                  className={`grid grid-cols-4 px-2 py-1.5 border-t ${isDark ? 'border-gray-700 odd:bg-gray-800 even:bg-gray-900' : 'border-slate-100 odd:bg-white even:bg-slate-50'}`}
+                >
                   <span className={isDark ? 'text-gray-300' : 'text-slate-600'}>{i + 1}</span>
-                  <span className={isDark ? 'text-gray-300' : 'text-slate-600'}>{f.event || '—'}</span>
-                  <span className={`col-span-2 font-mono break-all ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>{f.sha256 ? f.sha256.slice(0, 32) + '...' : '—'}</span>
+                  <span className={isDark ? 'text-gray-300' : 'text-slate-600'}>
+                    {f.event || '—'}
+                  </span>
+                  <span
+                    className={`col-span-2 font-mono break-all ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+                  >
+                    {f.sha256 ? f.sha256.slice(0, 32) + '...' : '—'}
+                  </span>
                 </div>
               ))
             )}
           </div>
           {constanciaData?.chain_hash && (
-            <div className={`mt-2 flex items-start gap-2 px-2 py-1.5 rounded text-[10px] ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-slate-50 border border-slate-200'}`}>
-              <span className={`font-bold flex-shrink-0 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>CHAIN HASH</span>
-              <span className={`font-mono break-all ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>{constanciaData.chain_hash}</span>
+            <div
+              className={`mt-2 flex items-start gap-2 px-2 py-1.5 rounded text-[10px] ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-slate-50 border border-slate-200'}`}
+            >
+              <span
+                className={`font-bold flex-shrink-0 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+              >
+                CHAIN HASH
+              </span>
+              <span
+                className={`font-mono break-all ${isDark ? 'text-gray-300' : 'text-slate-600'}`}
+              >
+                {constanciaData.chain_hash}
+              </span>
             </div>
           )}
         </CertSection>
@@ -815,34 +1216,72 @@ function ConstanciaParticipacion({
         {/* ── FIRMA AUTÓGRAFA DIGITALIZADA ── */}
         <CertSection title="FIRMA AUTÓGRAFA DIGITALIZADA" isDark={isDark}>
           {constanciaData?.signature_data_url && (
-            <div className={`flex justify-center mb-3 p-3 rounded border ${isDark ? 'bg-white border-gray-600' : 'bg-gray-50 border-slate-200'}`}>
+            <div
+              className={`flex justify-center mb-3 p-3 rounded border ${isDark ? 'bg-white border-gray-600' : 'bg-gray-50 border-slate-200'}`}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={constanciaData.signature_data_url} alt="Firma autógrafa digital" className="max-h-20 object-contain" />
+              <img
+                src={constanciaData.signature_data_url}
+                alt="Firma autógrafa digital"
+                className="max-h-20 object-contain"
+              />
             </div>
           )}
-          <CertKVTable isDark={isDark} rows={[
-            ['IMAGEN SHA-256', constanciaData?.image_sha256 || '—'],
-            ['VECTOR SHA-256', constanciaData?.strokes_sha256 || '—'],
-            ['HASH COMBINADO', constanciaData?.combined_sha256 || '—'],
-            ['TRAZOS', String(constanciaData?.total_strokes ?? '—')],
-            ['DURACIÓN', constanciaData?.total_duration_ms ? `${(constanciaData.total_duration_ms / 1000).toFixed(2)} segundos` : '—'],
-            ['SCORE HUMANIDAD', constanciaData?.human_score != null ? `${constanciaData.human_score.toFixed(2)} / 1.00` : '—'],
-            ['FLAGS ANOMALÍA', constanciaData?.anomaly_flags?.length ? constanciaData.anomaly_flags.join(', ') : 'Ninguno'],
-            ['PRESIÓN PROM.', constanciaData?.avg_pressure != null ? String(constanciaData.avg_pressure) : '—'],
-          ]} mono />
-          <p className={`mt-2 text-[10px] leading-relaxed ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
-            La firma autógrafa fue capturada con mecanismos de detección de comportamiento humano conforme al Art. 97 del Código de Comercio de México. El vector de trazos y la imagen se encuentran cifrados con AES-256 en custodia segura.
+          <CertKVTable
+            isDark={isDark}
+            rows={[
+              ['IMAGEN SHA-256', constanciaData?.image_sha256 || '—'],
+              ['VECTOR SHA-256', constanciaData?.strokes_sha256 || '—'],
+              ['HASH COMBINADO', constanciaData?.combined_sha256 || '—'],
+              ['TRAZOS', String(constanciaData?.total_strokes ?? '—')],
+              [
+                'DURACIÓN',
+                constanciaData?.total_duration_ms
+                  ? `${(constanciaData.total_duration_ms / 1000).toFixed(2)} segundos`
+                  : '—',
+              ],
+              [
+                'SCORE HUMANIDAD',
+                constanciaData?.human_score != null
+                  ? `${constanciaData.human_score.toFixed(2)} / 1.00`
+                  : '—',
+              ],
+              [
+                'FLAGS ANOMALÍA',
+                constanciaData?.anomaly_flags?.length
+                  ? constanciaData.anomaly_flags.join(', ')
+                  : 'Ninguno',
+              ],
+              [
+                'PRESIÓN PROM.',
+                constanciaData?.avg_pressure != null ? String(constanciaData.avg_pressure) : '—',
+              ],
+            ]}
+            mono
+          />
+          <p
+            className={`mt-2 text-[10px] leading-relaxed ${isDark ? 'text-gray-500' : 'text-slate-400'}`}
+          >
+            La firma autógrafa fue capturada con mecanismos de detección de comportamiento humano
+            conforme al Art. 97 del Código de Comercio de México. El vector de trazos y la imagen se
+            encuentran cifrados con AES-256 en custodia segura.
           </p>
         </CertSection>
 
         {/* ── INTEGRIDAD Y VERIFICACIÓN ── */}
         <CertSection title="INTEGRIDAD Y VERIFICACIÓN" isDark={isDark}>
-          <CertKVTable isDark={isDark} rows={[
-            ['HASH DE ESTA CONSTANCIA', constanciaData?.combined_sha256 || evidenceId || '—'],
-            ['ALGORITMO', 'SHA-256'],
-            ['URL DE VERIFICACIÓN', 'https://verificar.docubox.mx'],
-          ]} mono />
-          <p className={`mt-2 text-[10px] font-mono break-all ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+          <CertKVTable
+            isDark={isDark}
+            rows={[
+              ['HASH DE ESTA CONSTANCIA', constanciaData?.combined_sha256 || evidenceId || '—'],
+              ['ALGORITMO', 'SHA-256'],
+              ['URL DE VERIFICACIÓN', 'https://verificar.docubox.mx'],
+            ]}
+            mono
+          />
+          <p
+            className={`mt-2 text-[10px] font-mono break-all ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+          >
             {`https://verificar.docubox.mx?constancia=${folioId}&doc=${evidenceId || '—'}`}
           </p>
         </CertSection>
@@ -850,26 +1289,45 @@ function ConstanciaParticipacion({
         {/* ── FUNDAMENTO LEGAL ── */}
         <CertSection title="FUNDAMENTO LEGAL" isDark={isDark}>
           {[
-            ['Confidencialidad:', 'Este documento contiene datos personales protegidos por la LFPDPPP. Su divulgación a terceros no autorizados está prohibida.'],
-            ['Validez jurídica:', 'Certifica la participación y voluntad de firma conforme a los Arts. 89–97 del Código de Comercio, LFEA y NOM-151-SCFI-2016.'],
-            ['No repudio:', 'Los elementos registrados constituyen prueba de la libre y expresa manifestación de voluntad del firmante.'],
+            [
+              'Confidencialidad:',
+              'Este documento contiene datos personales protegidos por la LFPDPPP. Su divulgación a terceros no autorizados está prohibida.',
+            ],
+            [
+              'Validez jurídica:',
+              'Certifica la participación y voluntad de firma conforme a los Arts. 89–97 del Código de Comercio, LFEA y NOM-151-SCFI-2016.',
+            ],
+            [
+              'No repudio:',
+              'Los elementos registrados constituyen prueba de la libre y expresa manifestación de voluntad del firmante.',
+            ],
           ].map(([label, text]) => (
             <div key={label} className="mb-2">
-              <span className={`text-[10px] font-bold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>{label} </span>
-              <span className={`text-[10px] ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>{text}</span>
+              <span
+                className={`text-[10px] font-bold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}
+              >
+                {label}{' '}
+              </span>
+              <span className={`text-[10px] ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+                {text}
+              </span>
             </div>
           ))}
         </CertSection>
       </div>
 
       {/* ── Footer ── */}
-      <div className={`px-4 py-3 text-[10px] border-t ${isDark ? 'border-gray-700 bg-gray-900 text-gray-500' : 'border-slate-200 bg-slate-50 text-slate-400'}`}>
+      <div
+        className={`px-4 py-3 text-[10px] border-t ${isDark ? 'border-gray-700 bg-gray-900 text-gray-500' : 'border-slate-200 bg-slate-50 text-slate-400'}`}
+      >
         <p>Generado por: DOCUBOX · https://docubox.mx</p>
         <p>Generado automáticamente al momento de la firma · {capturedAt || '—'}</p>
       </div>
 
       {/* ── Actions ── */}
-      <div className={`px-5 py-4 border-t flex flex-col gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
+      <div
+        className={`px-5 py-4 border-t flex flex-col gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+      >
         <div className="flex gap-2">
           <button
             type="button"
@@ -877,7 +1335,11 @@ function ConstanciaParticipacion({
             disabled={pdfGenerating}
             className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium border rounded-xl transition-colors disabled:opacity-60 ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
           >
-            {pdfGenerating ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            {pdfGenerating ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Download size={14} />
+            )}
             {pdfGenerating ? 'Generando PDF…' : 'Descargar constancia (PDF)'}
           </button>
           <button
@@ -903,26 +1365,55 @@ function ConstanciaParticipacion({
 }
 
 // ─── Certificate sub-components ───────────────────────────────────────────────
-function CertSection({ title, isDark, children }: { title: string; isDark: boolean; children: React.ReactNode }) {
+function CertSection({
+  title,
+  isDark,
+  children,
+}: {
+  title: string;
+  isDark: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <div className={`${isDark ? 'bg-gray-900' : 'bg-white'}`}>
-      <div className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-800 text-white'}`}>
+      <div
+        className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-800 text-white'}`}
+      >
         {title}
       </div>
-      <div className="px-4 py-3">
-        {children}
-      </div>
+      <div className="px-4 py-3">{children}</div>
     </div>
   );
 }
 
-function CertKVTable({ rows, isDark, mono = false }: { rows: [string, string][]; isDark: boolean; mono?: boolean }) {
+function CertKVTable({
+  rows,
+  isDark,
+  mono = false,
+}: {
+  rows: [string, string][];
+  isDark: boolean;
+  mono?: boolean;
+}) {
   return (
-    <div className={`rounded border overflow-hidden text-[10px] ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
+    <div
+      className={`rounded border overflow-hidden text-[10px] ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+    >
       {rows.map(([label, value], i) => (
-        <div key={label} className={`flex border-b last:border-b-0 ${isDark ? 'border-gray-700 odd:bg-gray-800 even:bg-gray-900' : 'border-slate-100 odd:bg-white even:bg-slate-50'}`}>
-          <div className={`w-36 flex-shrink-0 px-2 py-1.5 font-bold ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>{label}</div>
-          <div className={`flex-1 px-2 py-1.5 break-all ${mono ? 'font-mono' : ''} ${isDark ? 'text-gray-200' : 'text-slate-700'}`}>{value || '—'}</div>
+        <div
+          key={label}
+          className={`flex border-b last:border-b-0 ${isDark ? 'border-gray-700 odd:bg-gray-800 even:bg-gray-900' : 'border-slate-100 odd:bg-white even:bg-slate-50'}`}
+        >
+          <div
+            className={`w-36 flex-shrink-0 px-2 py-1.5 font-bold ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+          >
+            {label}
+          </div>
+          <div
+            className={`flex-1 px-2 py-1.5 break-all ${mono ? 'font-mono' : ''} ${isDark ? 'text-gray-200' : 'text-slate-700'}`}
+          >
+            {value || '—'}
+          </div>
         </div>
       ))}
     </div>
@@ -1001,9 +1492,13 @@ function BiometricCheckModal({
 
   if (checkState === 'checking') {
     return (
-      <div className={`rounded-xl border p-5 flex flex-col items-center gap-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+      <div
+        className={`rounded-xl border p-5 flex flex-col items-center gap-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
         <Loader2 size={22} className="animate-spin text-primary" />
-        <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>Verificando identificación biométrica registrada…</p>
+        <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+          Verificando identificación biométrica registrada…
+        </p>
       </div>
     );
   }
@@ -1013,10 +1508,16 @@ function BiometricCheckModal({
 
   if (showDeviceChoice) {
     return (
-      <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
-        <div className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
+      <div
+        className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
+        <div
+          className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+        >
           <Camera size={15} className="text-primary" />
-          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>¿Cómo deseas tomar la prueba de vida?</p>
+          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
+            ¿Cómo deseas tomar la prueba de vida?
+          </p>
         </div>
         <div className="p-4 space-y-3">
           <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
@@ -1036,29 +1537,44 @@ function BiometricCheckModal({
             >
               <Monitor size={22} className="text-primary" />
               <span className="text-xs font-semibold">Este equipo</span>
-              <span className={`text-[10px] text-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Usar la cámara de este dispositivo</span>
+              <span
+                className={`text-[10px] text-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+              >
+                Usar la cámara de este dispositivo
+              </span>
             </button>
             <button
               type="button"
-              onClick={() => { setPcErrorVisible(false); onProceedWithBiometric('mobile', hasAnyStoredId); }}
+              onClick={() => {
+                setPcErrorVisible(false);
+                onProceedWithBiometric('mobile', hasAnyStoredId);
+              }}
               className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors ${isDark ? 'border-teal-500/50 bg-teal-900/20 hover:bg-teal-900/30 text-gray-200' : 'border-teal-300 bg-teal-50 hover:bg-teal-100 text-slate-700'}`}
             >
               <Smartphone size={22} className="text-teal-600" />
               <span className="text-xs font-semibold">Dispositivo móvil</span>
-              <span className={`text-[10px] text-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Escanear QR con tu celular</span>
+              <span
+                className={`text-[10px] text-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+              >
+                Escanear QR con tu celular
+              </span>
             </button>
           </div>
 
           {/* Error: no stored id + chose PC */}
           {pcErrorVisible && (
-            <div className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-red-900/20 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+            <div
+              className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-red-900/20 border border-red-700' : 'bg-red-50 border border-red-200'}`}
+            >
               <AlertTriangle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
               <div>
                 <p className={`text-xs font-semibold ${isDark ? 'text-red-400' : 'text-red-700'}`}>
                   Identificación requerida
                 </p>
                 <p className={`text-[11px] mt-0.5 ${isDark ? 'text-red-400/80' : 'text-red-600'}`}>
-                  Para realizar la prueba de vida en este equipo necesitas tener una identificación registrada. Deberás cargar tu identificación y realizar la prueba de vida desde tu teléfono móvil.
+                  Para realizar la prueba de vida en este equipo necesitas tener una identificación
+                  registrada. Deberás cargar tu identificación y realizar la prueba de vida desde tu
+                  teléfono móvil.
                 </p>
               </div>
             </div>
@@ -1077,25 +1593,37 @@ function BiometricCheckModal({
   }
 
   return (
-    <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+    <div
+      className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+    >
       <div className={`px-4 py-3 border-b ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-        <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>¿Deseas agregar prueba de vida?</p>
+        <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
+          ¿Deseas agregar prueba de vida?
+        </p>
       </div>
       <div className="p-4 space-y-3">
         <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
-          Vincular tu identidad visual al documento agrega valor probatorio adicional. ¿Deseas generar una prueba de vida al firmar?
+          Vincular tu identidad visual al documento agrega valor probatorio adicional. ¿Deseas
+          generar una prueba de vida al firmar?
         </p>
 
         {/* Enrollment / stored ID status */}
         {checkState === 'found' && enrollment?.hasEnrollment ? (
-          <div className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-green-900/20 border border-green-700' : 'bg-green-50 border border-green-200'}`}>
+          <div
+            className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-green-900/20 border border-green-700' : 'bg-green-50 border border-green-200'}`}
+          >
             <Shield size={15} className="text-green-600 flex-shrink-0 mt-0.5" />
             <div>
-              <p className={`text-xs font-semibold ${isDark ? 'text-green-400' : 'text-green-700'}`}>
+              <p
+                className={`text-xs font-semibold ${isDark ? 'text-green-400' : 'text-green-700'}`}
+              >
                 ✅ Identificación biométrica registrada
               </p>
-              <p className={`text-[11px] mt-0.5 ${isDark ? 'text-green-500/80' : 'text-green-600'}`}>
-                Cuenta con una identificación biométrica registrada. Se generará la toma de prueba de vida mediante selfie.
+              <p
+                className={`text-[11px] mt-0.5 ${isDark ? 'text-green-500/80' : 'text-green-600'}`}
+              >
+                Cuenta con una identificación biométrica registrada. Se generará la toma de prueba
+                de vida mediante selfie.
               </p>
               {enrollment.createdAt && (
                 <p className={`text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
@@ -1106,14 +1634,17 @@ function BiometricCheckModal({
             </div>
           </div>
         ) : hasStoredIdCapture ? (
-          <div className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'}`}>
+          <div
+            className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'}`}
+          >
             <Shield size={15} className="text-blue-600 flex-shrink-0 mt-0.5" />
             <div>
               <p className={`text-xs font-semibold ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>
                 ✅ Identificación precargada disponible
               </p>
               <p className={`text-[11px] mt-0.5 ${isDark ? 'text-blue-500/80' : 'text-blue-600'}`}>
-                Se encontró una identificación previamente registrada. Solo necesitarás tomar una selfie para la prueba de vida.
+                Se encontró una identificación previamente registrada. Solo necesitarás tomar una
+                selfie para la prueba de vida.
               </p>
               {storedIdCaptureDate && (
                 <p className={`text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
@@ -1123,14 +1654,21 @@ function BiometricCheckModal({
             </div>
           </div>
         ) : (
-          <div className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-amber-900/20 border border-amber-700' : 'bg-amber-50 border border-amber-200'}`}>
+          <div
+            className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-amber-900/20 border border-amber-700' : 'bg-amber-50 border border-amber-200'}`}
+          >
             <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className={`text-xs font-semibold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
+              <p
+                className={`text-xs font-semibold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}
+              >
                 Sin identificación registrada
               </p>
-              <p className={`text-[11px] mt-0.5 ${isDark ? 'text-amber-500/80' : 'text-amber-600'}`}>
-                No se encontró una identificación registrada. Puedes agregarla junto con la prueba de vida o continuar sin prueba de vida.
+              <p
+                className={`text-[11px] mt-0.5 ${isDark ? 'text-amber-500/80' : 'text-amber-600'}`}
+              >
+                No se encontró una identificación registrada. Puedes agregarla junto con la prueba
+                de vida o continuar sin prueba de vida.
               </p>
             </div>
           </div>
@@ -1180,8 +1718,13 @@ function QRMobileBiometricModal({
 }) {
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [status, setStatus] = useState<'generating' | 'waiting' | 'completed' | 'result' | 'error'>('generating');
-  const realtimeChannelRef = useRef<ReturnType<typeof createClient> extends { channel: (...args: any[]) => infer R } ? R : any>(null);
+  const [status, setStatus] = useState<'generating' | 'waiting' | 'completed' | 'result' | 'error'>(
+    'generating'
+  );
+  const realtimeChannelRef =
+    useRef<
+      ReturnType<typeof createClient> extends { channel: (...args: any[]) => infer R } ? R : any
+    >(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   // Countdown timer: session expires in 10 minutes
@@ -1203,7 +1746,9 @@ function QRMobileBiometricModal({
   } | null>(null);
   // Keep a stable ref to onComplete so the realtime handler never needs to restart
   const onCompleteRef = useRef(onComplete);
-  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   // ── Helper: process a completed session row ──────────────────────────────
   const processCompletedSession = useCallback(async (data: { status: string }, token: string) => {
@@ -1219,15 +1764,20 @@ function QRMobileBiometricModal({
     if (timerRef.current) clearInterval(timerRef.current);
 
     const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session?.access_token) {
       setStatus('error');
       return;
     }
-    const response = await fetch(`/api/mobile-upload/session-result?token=${encodeURIComponent(token)}`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-      cache: 'no-store',
-    });
+    const response = await fetch(
+      `/api/mobile-upload/session-result?token=${encodeURIComponent(token)}`,
+      {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: 'no-store',
+      }
+    );
     if (!response.ok) {
       setStatus('error');
       return;
@@ -1240,7 +1790,8 @@ function QRMobileBiometricModal({
     const curpExtracted: string | null = meta?.curp_extracted ?? null;
     const curpProfile: string | null = meta?.user_profile_compared?.curp ?? null;
     const nubariumAprobado: boolean | null = meta?.nubarium_aprobado ?? null;
-    const nubariumSimilitud: number | null = typeof meta?.nubarium_similitud === 'number' ? meta.nubarium_similitud : null;
+    const nubariumSimilitud: number | null =
+      typeof meta?.nubarium_similitud === 'number' ? meta.nubarium_similitud : null;
     const identityMatch: boolean | null = meta?.identity_match ?? null;
     const identityFailed = sessionStatus === 'identity_failed';
 
@@ -1263,7 +1814,9 @@ function QRMobileBiometricModal({
     const createSession = async () => {
       try {
         const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('La sesion no es valida.');
         const res = await fetch('/api/mobile-upload/create-id-capture-session', {
           method: 'POST',
@@ -1287,7 +1840,9 @@ function QRMobileBiometricModal({
           setQrUrl(url);
           setStatus('waiting');
           // Set expiry time (15 minutes from now)
-          const expiry = data.expiresAt ? new Date(data.expiresAt) : new Date(Date.now() + 15 * 60 * 1000);
+          const expiry = data.expiresAt
+            ? new Date(data.expiresAt)
+            : new Date(Date.now() + 15 * 60 * 1000);
           expiresAtRef.current = expiry;
           const initialLeft = Math.max(0, Math.floor((expiry.getTime() - Date.now()) / 1000));
           setTimeLeft(initialLeft);
@@ -1321,15 +1876,17 @@ function QRMobileBiometricModal({
         dark: '#000000',
         light: '#ffffff',
       },
-    }).then((dataUrl) => {
-      setQrDataUrl(dataUrl);
-    }).catch((err) => {
-      console.error('[QR] toDataURL error:', err);
-      // Fallback: try canvas
-      if (canvasRef.current) {
-        QRCode.toCanvas(canvasRef.current, qrUrl, { width: 200, margin: 2 }).catch(() => {});
-      }
-    });
+    })
+      .then((dataUrl) => {
+        setQrDataUrl(dataUrl);
+      })
+      .catch((err) => {
+        console.error('[QR] toDataURL error:', err);
+        // Fallback: try canvas
+        if (canvasRef.current) {
+          QRCode.toCanvas(canvasRef.current, qrUrl, { width: 200, margin: 2 }).catch(() => {});
+        }
+      });
   }, [status, qrUrl]);
 
   // ── Realtime subscription: react instantly when mobile session completes ──
@@ -1384,8 +1941,8 @@ function QRMobileBiometricModal({
       supabase.removeChannel(channel);
       realtimeChannelRef.current = null;
     };
-  // processCompletedSession is stable (useCallback with no deps)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // processCompletedSession is stable (useCallback with no deps)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, sessionToken]);
 
   // Countdown timer
@@ -1399,14 +1956,16 @@ function QRMobileBiometricModal({
           clearInterval(timerRef.current!);
         }
       } else {
-        setTimeLeft(prev => {
+        setTimeLeft((prev) => {
           const next = Math.max(0, prev - 1);
           if (next === 0) clearInterval(timerRef.current!);
           return next;
         });
       }
     }, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [status]);
 
   const formatTime = (seconds: number) => {
@@ -1441,7 +2000,9 @@ function QRMobileBiometricModal({
     // Create a new session
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('La sesion no es valida.');
       const res = await fetch('/api/mobile-upload/create-id-capture-session', {
         method: 'POST',
@@ -1462,7 +2023,9 @@ function QRMobileBiometricModal({
         const url = `${siteUrl}/captura-id-movil/${data.token}`;
         setQrUrl(url);
         setStatus('waiting');
-        const expiry = data.expiresAt ? new Date(data.expiresAt) : new Date(Date.now() + 15 * 60 * 1000);
+        const expiry = data.expiresAt
+          ? new Date(data.expiresAt)
+          : new Date(Date.now() + 15 * 60 * 1000);
         expiresAtRef.current = expiry;
         const initialLeft = Math.max(0, Math.floor((expiry.getTime() - Date.now()) / 1000));
         setTimeLeft(initialLeft);
@@ -1475,23 +2038,32 @@ function QRMobileBiometricModal({
   };
 
   return (
-    <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
-      <div className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
+    <div
+      className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+    >
+      <div
+        className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+      >
         <QrCode size={15} className="text-teal-600" />
-        <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>Captura de identificación y prueba de vida — Móvil</p>
+        <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
+          Captura de identificación y prueba de vida — Móvil
+        </p>
       </div>
       <div className="p-4 space-y-3">
         {status === 'generating' && (
           <div className="flex flex-col items-center gap-2 py-4">
             <Loader2 size={22} className="animate-spin text-primary" />
-            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Generando código QR…</p>
+            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+              Generando código QR…
+            </p>
           </div>
         )}
         {status === 'waiting' && qrUrl && (
           <>
             <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
               {hasEnrollment
-                ? 'Escanea el código QR con tu dispositivo móvil para capturar tu selfie de prueba de vida.' :'Escanea el código QR con tu dispositivo móvil para capturar el anverso y reverso de tu identificación y tu selfie de prueba de vida.'}
+                ? 'Escanea el código QR con tu dispositivo móvil para capturar tu selfie de prueba de vida.'
+                : 'Escanea el código QR con tu dispositivo móvil para capturar el anverso y reverso de tu identificación y tu selfie de prueba de vida.'}
             </p>
             <div className="flex justify-center">
               {qrDataUrl ? (
@@ -1511,7 +2083,9 @@ function QRMobileBiometricModal({
               )}
             </div>
             {/* Countdown timer */}
-            <div className={`flex items-center justify-center gap-2 text-xs rounded-lg px-3 py-2 ${isExpired ? (isDark ? 'bg-red-900/20 text-red-400' : 'bg-red-50 text-red-600') : timeLeft < 120 ? (isDark ? 'bg-amber-900/20 text-amber-400' : 'bg-amber-50 text-amber-600') : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-slate-50 text-slate-500')}`}>
+            <div
+              className={`flex items-center justify-center gap-2 text-xs rounded-lg px-3 py-2 ${isExpired ? (isDark ? 'bg-red-900/20 text-red-400' : 'bg-red-50 text-red-600') : timeLeft < 120 ? (isDark ? 'bg-amber-900/20 text-amber-400' : 'bg-amber-50 text-amber-600') : isDark ? 'bg-gray-700 text-gray-400' : 'bg-slate-50 text-slate-500'}`}
+            >
               <Clock size={12} />
               {isExpired
                 ? 'El código QR ha expirado. Omite o genera uno nuevo.'
@@ -1529,12 +2103,18 @@ function QRMobileBiometricModal({
               </div>
             )}
             {!isExpired && (
-              <div className={`flex items-center gap-2 text-xs justify-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+              <div
+                className={`flex items-center gap-2 text-xs justify-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+              >
                 <RefreshCw size={11} className="animate-spin" />
                 Esperando captura en tiempo real…
               </div>
             )}
-            <p className={`text-[10px] text-center break-all ${isDark ? 'text-gray-600' : 'text-slate-300'}`}>{qrUrl}</p>
+            <p
+              className={`text-[10px] text-center break-all ${isDark ? 'text-gray-600' : 'text-slate-300'}`}
+            >
+              {qrUrl}
+            </p>
           </>
         )}
 
@@ -1542,101 +2122,166 @@ function QRMobileBiometricModal({
         {status === 'result' && sessionResult && (
           <div className="space-y-3">
             {/* Biometric result */}
-            <div className={`rounded-xl border p-3 space-y-2 ${
-              sessionResult.identityFailed
-                ? (isDark ? 'border-red-700 bg-red-900/20' : 'border-red-200 bg-red-50')
-                : sessionResult.nubariumAprobado
-                ? (isDark ? 'border-green-700 bg-green-900/20' : 'border-green-200 bg-green-50')
-                : (isDark ? 'border-amber-700 bg-amber-900/20' : 'border-amber-200 bg-amber-50')
-            }`}>
+            <div
+              className={`rounded-xl border p-3 space-y-2 ${
+                sessionResult.identityFailed
+                  ? isDark
+                    ? 'border-red-700 bg-red-900/20'
+                    : 'border-red-200 bg-red-50'
+                  : sessionResult.nubariumAprobado
+                    ? isDark
+                      ? 'border-green-700 bg-green-900/20'
+                      : 'border-green-200 bg-green-50'
+                    : isDark
+                      ? 'border-amber-700 bg-amber-900/20'
+                      : 'border-amber-200 bg-amber-50'
+              }`}
+            >
               <div className="flex items-center gap-2">
                 {sessionResult.identityFailed || sessionResult.nubariumAprobado === false ? (
                   <AlertTriangle size={16} className={isDark ? 'text-red-400' : 'text-red-500'} />
                 ) : sessionResult.nubariumAprobado ? (
-                  <CheckCircle2 size={16} className={isDark ? 'text-green-400' : 'text-green-600'} />
+                  <CheckCircle2
+                    size={16}
+                    className={isDark ? 'text-green-400' : 'text-green-600'}
+                  />
                 ) : (
                   <Shield size={16} className={isDark ? 'text-amber-400' : 'text-amber-500'} />
                 )}
-                <p className={`text-xs font-semibold ${
-                  sessionResult.identityFailed || sessionResult.nubariumAprobado === false
-                    ? (isDark ? 'text-red-300' : 'text-red-700')
-                    : sessionResult.nubariumAprobado
-                    ? (isDark ? 'text-green-300' : 'text-green-700')
-                    : (isDark ? 'text-amber-300' : 'text-amber-700')
-                }`}>
+                <p
+                  className={`text-xs font-semibold ${
+                    sessionResult.identityFailed || sessionResult.nubariumAprobado === false
+                      ? isDark
+                        ? 'text-red-300'
+                        : 'text-red-700'
+                      : sessionResult.nubariumAprobado
+                        ? isDark
+                          ? 'text-green-300'
+                          : 'text-green-700'
+                        : isDark
+                          ? 'text-amber-300'
+                          : 'text-amber-700'
+                  }`}
+                >
                   {sessionResult.identityFailed
                     ? 'Prueba de vida — Identidad no coincidente'
                     : sessionResult.nubariumAprobado
-                    ? 'Prueba de vida — Identidad verificada'
-                    : sessionResult.nubariumAprobado === false
-                    ? 'Prueba de vida — No verificada'
-                    : 'Prueba de vida — Procesada'}
+                      ? 'Prueba de vida — Identidad verificada'
+                      : sessionResult.nubariumAprobado === false
+                        ? 'Prueba de vida — No verificada'
+                        : 'Prueba de vida — Procesada'}
                 </p>
               </div>
               {sessionResult.nubariumSimilitud !== null && (
-                <div className={`flex justify-between text-xs border-t pt-1.5 ${
-                  sessionResult.identityFailed || sessionResult.nubariumAprobado === false
-                    ? (isDark ? 'border-red-700 text-red-400' : 'border-red-200 text-red-600')
-                    : sessionResult.nubariumAprobado
-                    ? (isDark ? 'border-green-700 text-green-400' : 'border-green-200 text-green-600')
-                    : (isDark ? 'border-amber-700 text-amber-400' : 'border-amber-200 text-amber-600')
-                }`}>
+                <div
+                  className={`flex justify-between text-xs border-t pt-1.5 ${
+                    sessionResult.identityFailed || sessionResult.nubariumAprobado === false
+                      ? isDark
+                        ? 'border-red-700 text-red-400'
+                        : 'border-red-200 text-red-600'
+                      : sessionResult.nubariumAprobado
+                        ? isDark
+                          ? 'border-green-700 text-green-400'
+                          : 'border-green-200 text-green-600'
+                        : isDark
+                          ? 'border-amber-700 text-amber-400'
+                          : 'border-amber-200 text-amber-600'
+                  }`}
+                >
                   <span>Similitud facial</span>
-                  <span className="font-semibold">{sessionResult.nubariumSimilitud.toFixed(2)}%</span>
+                  <span className="font-semibold">
+                    {sessionResult.nubariumSimilitud.toFixed(2)}%
+                  </span>
                 </div>
               )}
             </div>
 
             {/* CURP match result */}
             {(sessionResult.curpMatch !== null || sessionResult.curpExtracted) && (
-              <div className={`rounded-xl border p-3 space-y-2 ${
-                sessionResult.curpMatch === true
-                  ? (isDark ? 'border-green-700 bg-green-900/20' : 'border-green-200 bg-green-50')
-                  : sessionResult.curpMatch === false
-                  ? (isDark ? 'border-red-700 bg-red-900/20' : 'border-red-200 bg-red-50')
-                  : (isDark ? 'border-amber-700 bg-amber-900/20' : 'border-amber-200 bg-amber-50')
-              }`}>
+              <div
+                className={`rounded-xl border p-3 space-y-2 ${
+                  sessionResult.curpMatch === true
+                    ? isDark
+                      ? 'border-green-700 bg-green-900/20'
+                      : 'border-green-200 bg-green-50'
+                    : sessionResult.curpMatch === false
+                      ? isDark
+                        ? 'border-red-700 bg-red-900/20'
+                        : 'border-red-200 bg-red-50'
+                      : isDark
+                        ? 'border-amber-700 bg-amber-900/20'
+                        : 'border-amber-200 bg-amber-50'
+                }`}
+              >
                 <div className="flex items-center gap-2">
                   {sessionResult.curpMatch === true ? (
-                    <CheckCircle2 size={16} className={isDark ? 'text-green-400' : 'text-green-600'} />
+                    <CheckCircle2
+                      size={16}
+                      className={isDark ? 'text-green-400' : 'text-green-600'}
+                    />
                   ) : sessionResult.curpMatch === false ? (
                     <AlertTriangle size={16} className={isDark ? 'text-red-400' : 'text-red-500'} />
                   ) : (
                     <Shield size={16} className={isDark ? 'text-amber-400' : 'text-amber-500'} />
                   )}
-                  <p className={`text-xs font-semibold ${
-                    sessionResult.curpMatch === true
-                      ? (isDark ? 'text-green-300' : 'text-green-700')
-                      : sessionResult.curpMatch === false
-                      ? (isDark ? 'text-red-300' : 'text-red-700')
-                      : (isDark ? 'text-amber-300' : 'text-amber-700')
-                  }`}>
+                  <p
+                    className={`text-xs font-semibold ${
+                      sessionResult.curpMatch === true
+                        ? isDark
+                          ? 'text-green-300'
+                          : 'text-green-700'
+                        : sessionResult.curpMatch === false
+                          ? isDark
+                            ? 'text-red-300'
+                            : 'text-red-700'
+                          : isDark
+                            ? 'text-amber-300'
+                            : 'text-amber-700'
+                    }`}
+                  >
                     {sessionResult.curpMatch === true
                       ? '✅ Identidad confirmada — CURP coincide'
                       : sessionResult.curpMatch === false
-                      ? '❌ Advertencia — CURP no coincide' :'⚠️ CURP extraída — Sin perfil para comparar'}
+                        ? '❌ Advertencia — CURP no coincide'
+                        : '⚠️ CURP extraída — Sin perfil para comparar'}
                   </p>
                 </div>
                 {sessionResult.curpExtracted && (
-                  <div className={`flex justify-between text-xs border-t pt-1.5 ${
-                    sessionResult.curpMatch === true
-                      ? (isDark ? 'border-green-700 text-green-400' : 'border-green-200 text-green-600')
-                      : sessionResult.curpMatch === false
-                      ? (isDark ? 'border-red-700 text-red-400' : 'border-red-200 text-red-600')
-                      : (isDark ? 'border-amber-700 text-amber-400' : 'border-amber-200 text-amber-600')
-                  }`}>
+                  <div
+                    className={`flex justify-between text-xs border-t pt-1.5 ${
+                      sessionResult.curpMatch === true
+                        ? isDark
+                          ? 'border-green-700 text-green-400'
+                          : 'border-green-200 text-green-600'
+                        : sessionResult.curpMatch === false
+                          ? isDark
+                            ? 'border-red-700 text-red-400'
+                            : 'border-red-200 text-red-600'
+                          : isDark
+                            ? 'border-amber-700 text-amber-400'
+                            : 'border-amber-200 text-amber-600'
+                    }`}
+                  >
                     <span>CURP en identificación</span>
                     <span className="font-mono font-semibold">{sessionResult.curpExtracted}</span>
                   </div>
                 )}
                 {sessionResult.curpProfile && (
-                  <div className={`flex justify-between text-xs border-t pt-1.5 ${
-                    sessionResult.curpMatch === true
-                      ? (isDark ? 'border-green-700 text-green-400' : 'border-green-200 text-green-600')
-                      : sessionResult.curpMatch === false
-                      ? (isDark ? 'border-red-700 text-red-400' : 'border-red-200 text-red-600')
-                      : (isDark ? 'border-amber-700 text-amber-400' : 'border-amber-200 text-amber-600')
-                  }`}>
+                  <div
+                    className={`flex justify-between text-xs border-t pt-1.5 ${
+                      sessionResult.curpMatch === true
+                        ? isDark
+                          ? 'border-green-700 text-green-400'
+                          : 'border-green-200 text-green-600'
+                        : sessionResult.curpMatch === false
+                          ? isDark
+                            ? 'border-red-700 text-red-400'
+                            : 'border-red-200 text-red-600'
+                          : isDark
+                            ? 'border-amber-700 text-amber-400'
+                            : 'border-amber-200 text-amber-600'
+                    }`}
+                  >
                     <span>CURP en perfil</span>
                     <span className="font-mono font-semibold">{sessionResult.curpProfile}</span>
                   </div>
@@ -1655,7 +2300,8 @@ function QRMobileBiometricModal({
               className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-xl transition-colors ${
                 sessionResult.identityFailed ||
                 (sessionResult.nubariumSimilitud !== null && sessionResult.nubariumSimilitud < 99)
-                  ? 'bg-primary/40 cursor-not-allowed' :'bg-primary hover:bg-primary/90'
+                  ? 'bg-primary/40 cursor-not-allowed'
+                  : 'bg-primary hover:bg-primary/90'
               }`}
             >
               <ChevronRight size={15} />
@@ -1667,13 +2313,17 @@ function QRMobileBiometricModal({
         {status === 'completed' && (
           <div className="flex flex-col items-center gap-2 py-4">
             <CheckCircle2 size={24} className="text-green-500" />
-            <p className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-slate-700'}`}>Identificación y selfie recibidas correctamente</p>
+            <p className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-slate-700'}`}>
+              Identificación y selfie recibidas correctamente
+            </p>
           </div>
         )}
         {status === 'error' && (
           <div className="flex flex-col items-center gap-2 py-4">
             <AlertTriangle size={22} className="text-amber-500" />
-            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>No se pudo generar el QR. Continúa sin prueba de vida.</p>
+            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+              No se pudo generar el QR. Continúa sin prueba de vida.
+            </p>
           </div>
         )}
         {status !== 'result' && (
@@ -1724,7 +2374,7 @@ function CameraBiometricModal({
   } | null>(null);
 
   const stopStream = () => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     setCameraReady(false);
   };
@@ -1743,17 +2393,24 @@ function CameraBiometricModal({
         videoRef.current.onloadedmetadata = () => setCameraReady(true);
       }
     } catch (err: any) {
-      if (err.name === 'NotAllowedError') setCameraError('Permiso denegado. Continúa sin prueba de vida.');
-      else if (err.name === 'NotFoundError') setCameraError('No se detectó cámara. Continúa sin prueba de vida.');
+      if (err.name === 'NotAllowedError')
+        setCameraError('Permiso denegado. Continúa sin prueba de vida.');
+      else if (err.name === 'NotFoundError')
+        setCameraError('No se detectó cámara. Continúa sin prueba de vida.');
       else setCameraError('Cámara en uso. Continúa sin prueba de vida.');
     }
   };
 
   useEffect(() => {
-    if (step === 'selfie') startCamera('user');
-    if (step === 'ine') startCamera('environment');
-    return stopStream;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const cameraFrame = window.requestAnimationFrame(() => {
+      if (step === 'selfie') void startCamera('user');
+      if (step === 'ine') void startCamera('environment');
+    });
+    return () => {
+      window.cancelAnimationFrame(cameraFrame);
+      stopStream();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   const capturePhotoFromVideo = (): string | null => {
@@ -1845,7 +2502,7 @@ function CameraBiometricModal({
         });
         const data = await res.json();
         similitud = typeof data.similitud === 'number' ? data.similitud : null;
-        aprobado = data.aprobado === true && similitud !== null && similitud >= 99.50;
+        aprobado = data.aprobado === true && similitud !== null && similitud >= 99.5;
         if (!res.ok || data.error) {
           compError = data.error || 'Error al comparar rostros';
         }
@@ -1888,10 +2545,16 @@ function CameraBiometricModal({
 
   if (cameraError) {
     return (
-      <div className={`rounded-xl border p-5 text-center space-y-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+      <div
+        className={`rounded-xl border p-5 text-center space-y-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
         <AlertTriangle size={28} className="text-amber-500 mx-auto" />
         <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>{cameraError}</p>
-        <button type="button" onClick={onSkip} className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90">
+        <button
+          type="button"
+          onClick={onSkip}
+          className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90"
+        >
           Continuar sin prueba de vida
         </button>
       </div>
@@ -1901,10 +2564,16 @@ function CameraBiometricModal({
   // ── Comparing state ──────────────────────────────────────────────────────
   if (step === 'comparing') {
     return (
-      <div className={`rounded-xl border p-6 flex flex-col items-center gap-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+      <div
+        className={`rounded-xl border p-6 flex flex-col items-center gap-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
         <Loader2 size={28} className="animate-spin text-primary" />
-        <p className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>Comparando identidad facial…</p>
-        <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>Validando con Nubarium y verificando CURP</p>
+        <p className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+          Comparando identidad facial…
+        </p>
+        <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
+          Validando con Nubarium y verificando CURP
+        </p>
       </div>
     );
   }
@@ -1916,33 +2585,50 @@ function CameraBiometricModal({
     const belowThreshold = !hasError && !aprobado;
 
     return (
-      <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
-        <div className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
+      <div
+        className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
+        <div
+          className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+        >
           <Camera size={15} className="text-primary" />
-          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>Resultado de prueba de vida</p>
+          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
+            Resultado de prueba de vida
+          </p>
         </div>
         <div className="p-4 space-y-3">
           {/* Selfie preview */}
           {capturedSelfie && (
             <div className="flex justify-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={capturedSelfie} alt="Selfie capturada" className="w-24 h-24 rounded-full object-cover border-2 border-slate-200" />
+              <img
+                src={capturedSelfie}
+                alt="Selfie capturada"
+                className="w-24 h-24 rounded-full object-cover border-2 border-slate-200"
+              />
             </div>
           )}
 
           {/* Face match result */}
           {!hasError && (
-            <div className={`rounded-lg p-3 flex items-start gap-2 ${aprobado ? (isDark ? 'bg-green-900/20 border border-green-700' : 'bg-green-50 border border-green-200') : (isDark ? 'bg-amber-900/20 border border-amber-700' : 'bg-amber-50 border border-amber-200')}`}>
-              {aprobado
-                ? <CheckCircle2 size={15} className="text-green-600 flex-shrink-0 mt-0.5" />
-                : <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
-              }
+            <div
+              className={`rounded-lg p-3 flex items-start gap-2 ${aprobado ? (isDark ? 'bg-green-900/20 border border-green-700' : 'bg-green-50 border border-green-200') : isDark ? 'bg-amber-900/20 border border-amber-700' : 'bg-amber-50 border border-amber-200'}`}
+            >
+              {aprobado ? (
+                <CheckCircle2 size={15} className="text-green-600 flex-shrink-0 mt-0.5" />
+              ) : (
+                <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              )}
               <div>
-                <p className={`text-xs font-semibold ${aprobado ? (isDark ? 'text-green-400' : 'text-green-700') : (isDark ? 'text-amber-400' : 'text-amber-700')}`}>
+                <p
+                  className={`text-xs font-semibold ${aprobado ? (isDark ? 'text-green-400' : 'text-green-700') : isDark ? 'text-amber-400' : 'text-amber-700'}`}
+                >
                   {aprobado ? 'Identidad facial verificada' : 'Similitud facial insuficiente'}
                 </p>
                 {similitud !== null && (
-                  <p className={`text-[11px] mt-0.5 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+                  <p
+                    className={`text-[11px] mt-0.5 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+                  >
                     Similitud: <span className="font-semibold">{similitud.toFixed(1)}%</span>
                   </p>
                 )}
@@ -1952,17 +2638,22 @@ function CameraBiometricModal({
 
           {/* Below-threshold warning — must retry */}
           {belowThreshold && (
-            <div className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-red-900/20 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+            <div
+              className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-red-900/20 border border-red-700' : 'bg-red-50 border border-red-200'}`}
+            >
               <AlertTriangle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
               <p className={`text-xs ${isDark ? 'text-red-400' : 'text-red-700'}`}>
-                El porcentaje de similitud no alcanzó el mínimo requerido. Por favor repite la captura asegurándote de tener buena iluminación y el rostro bien centrado.
+                El porcentaje de similitud no alcanzó el mínimo requerido. Por favor repite la
+                captura asegurándote de tener buena iluminación y el rostro bien centrado.
               </p>
             </div>
           )}
 
           {/* Error state */}
           {hasError && (
-            <div className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-red-900/20 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+            <div
+              className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-red-900/20 border border-red-700' : 'bg-red-50 border border-red-200'}`}
+            >
               <AlertTriangle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
               <p className={`text-xs ${isDark ? 'text-red-400' : 'text-red-700'}`}>{error}</p>
             </div>
@@ -1970,31 +2661,49 @@ function CameraBiometricModal({
 
           {/* CURP comparison */}
           {(curpExtracted || curpProfile) && (
-            <div className={`rounded-lg border overflow-hidden text-xs ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-              <div className={`px-3 py-1.5 font-semibold uppercase tracking-wide text-[10px] ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-slate-100 text-slate-600'}`}>
+            <div
+              className={`rounded-lg border overflow-hidden text-xs ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+            >
+              <div
+                className={`px-3 py-1.5 font-semibold uppercase tracking-wide text-[10px] ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-slate-100 text-slate-600'}`}
+              >
                 Comparación de CURP
               </div>
               {curpExtracted && (
-                <div className={`flex justify-between items-center px-3 py-2 border-b ${isDark ? 'border-gray-700 text-gray-300' : 'border-slate-100 text-slate-600'}`}>
+                <div
+                  className={`flex justify-between items-center px-3 py-2 border-b ${isDark ? 'border-gray-700 text-gray-300' : 'border-slate-100 text-slate-600'}`}
+                >
                   <span>CURP en identificación</span>
                   <span className="font-mono font-semibold">{curpExtracted}</span>
                 </div>
               )}
               {curpProfile && (
-                <div className={`flex justify-between items-center px-3 py-2 ${
-                  curpMatch === true
-                    ? (isDark ? 'text-green-400' : 'text-green-700')
-                    : curpMatch === false
-                    ? (isDark ? 'text-red-400' : 'text-red-700')
-                    : (isDark ? 'text-gray-300' : 'text-slate-600')
-                }`}>
+                <div
+                  className={`flex justify-between items-center px-3 py-2 ${
+                    curpMatch === true
+                      ? isDark
+                        ? 'text-green-400'
+                        : 'text-green-700'
+                      : curpMatch === false
+                        ? isDark
+                          ? 'text-red-400'
+                          : 'text-red-700'
+                        : isDark
+                          ? 'text-gray-300'
+                          : 'text-slate-600'
+                  }`}
+                >
                   <span>CURP en perfil</span>
                   <span className="font-mono font-semibold">{curpProfile}</span>
                 </div>
               )}
               {curpMatch !== null && (
-                <div className={`px-3 py-1.5 text-[10px] font-semibold ${curpMatch ? (isDark ? 'bg-green-900/20 text-green-400' : 'bg-green-50 text-green-700') : (isDark ? 'bg-red-900/20 text-red-400' : 'bg-red-50 text-red-700')}`}>
-                  {curpMatch ? '✅ CURP coincide con el perfil registrado' : '⚠️ CURP no coincide con el perfil registrado'}
+                <div
+                  className={`px-3 py-1.5 text-[10px] font-semibold ${curpMatch ? (isDark ? 'bg-green-900/20 text-green-400' : 'bg-green-50 text-green-700') : isDark ? 'bg-red-900/20 text-red-400' : 'bg-red-50 text-red-700'}`}
+                >
+                  {curpMatch
+                    ? '✅ CURP coincide con el perfil registrado'
+                    : '⚠️ CURP no coincide con el perfil registrado'}
                 </div>
               )}
             </div>
@@ -2015,7 +2724,8 @@ function CameraBiometricModal({
               disabled={belowThreshold || hasError}
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-xl transition-colors ${
                 belowThreshold || hasError
-                  ? 'bg-primary/40 cursor-not-allowed' :'bg-primary hover:bg-primary/90'
+                  ? 'bg-primary/40 cursor-not-allowed'
+                  : 'bg-primary hover:bg-primary/90'
               }`}
             >
               <ChevronRight size={14} />
@@ -2037,17 +2747,28 @@ function CameraBiometricModal({
   // ── Selfie capture (hasStoredId mode — oval guide) ───────────────────────
   if (hasStoredId) {
     return (
-      <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+      <div
+        className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
         <div className={`px-4 py-3 border-b ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>📷 Captura tu selfie (prueba de vida)</p>
+          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
+            📷 Captura tu selfie (prueba de vida)
+          </p>
         </div>
         <div className="p-4 space-y-3">
           {capturedSelfie ? (
             // Preview captured selfie
             <div className="space-y-3">
-              <div className="relative rounded-lg overflow-hidden bg-black flex items-center justify-center" style={{ aspectRatio: '3/4', maxHeight: 420 }}>
+              <div
+                className="relative rounded-lg overflow-hidden bg-black flex items-center justify-center"
+                style={{ aspectRatio: '3/4', maxHeight: 420 }}
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={capturedSelfie} alt="Selfie capturada" className="w-full h-full object-cover" />
+                <img
+                  src={capturedSelfie}
+                  alt="Selfie capturada"
+                  className="w-full h-full object-cover"
+                />
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div
                     ref={ovalRef}
@@ -2078,9 +2799,19 @@ function CameraBiometricModal({
           ) : (
             // Live camera with oval guide
             <div className="space-y-3">
-              <div className="relative rounded-lg overflow-hidden bg-black" style={{ aspectRatio: '3/4', maxHeight: 420 }}>
+              <div
+                className="relative rounded-lg overflow-hidden bg-black"
+                style={{ aspectRatio: '3/4', maxHeight: 420 }}
+              >
                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
+                />
                 {/* Oval guide overlay */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div
@@ -2115,7 +2846,10 @@ function CameraBiometricModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => { stopStream(); onSkip(); }}
+                  onClick={() => {
+                    stopStream();
+                    onSkip();
+                  }}
                   className={`px-3 py-2.5 text-sm border rounded-xl transition-colors ${isDark ? 'border-gray-600 text-gray-400 hover:bg-gray-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}
                 >
                   Omitir
@@ -2130,7 +2864,9 @@ function CameraBiometricModal({
 
   // ── Legacy flow (no stored ID): selfie + INE ─────────────────────────────
   return (
-    <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+    <div
+      className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+    >
       <div className={`px-4 py-3 border-b ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
         <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
           {step === 'selfie' ? '📷 Captura tu selfie (prueba de vida)' : '🪪 Captura tu INE'}
@@ -2146,7 +2882,9 @@ function CameraBiometricModal({
             </div>
           ) : (
             <div className="absolute inset-4 border-2 border-white/60 rounded-lg flex items-end justify-center pb-2 pointer-events-none">
-              <span className="text-white text-xs bg-black/50 px-2 py-1 rounded">Coloca tu INE dentro del recuadro</span>
+              <span className="text-white text-xs bg-black/50 px-2 py-1 rounded">
+                Coloca tu INE dentro del recuadro
+              </span>
             </div>
           )}
         </div>
@@ -2172,7 +2910,10 @@ function CameraBiometricModal({
           </button>
           <button
             type="button"
-            onClick={() => { stopStream(); onSkip(); }}
+            onClick={() => {
+              stopStream();
+              onSkip();
+            }}
             className={`px-3 py-2.5 text-sm border rounded-xl transition-colors ${isDark ? 'border-gray-600 text-gray-400 hover:bg-gray-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}
           >
             Omitir
@@ -2195,13 +2936,23 @@ function MobileSignatureModal({
   userToken: string;
   isDark: boolean;
   onBack: () => void;
-  onSignatureCaptured: (capture: { signatureDataUrl: string; strokes: any[]; sessionEvidence?: SessionEvidence; deviceFingerprint?: DeviceFingerprint }) => void;
+  onSignatureCaptured: (capture: {
+    signatureDataUrl: string;
+    strokes: any[];
+    sessionEvidence?: SessionEvidence;
+    deviceFingerprint?: DeviceFingerprint;
+  }) => void;
 }) {
   const [token, setToken] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<'creating' | 'waiting' | 'received' | 'error'>('creating');
   const [error, setError] = useState<string | null>(null);
-  const [capture, setCapture] = useState<{ signatureDataUrl: string; strokes: any[]; sessionEvidence?: SessionEvidence; deviceFingerprint?: DeviceFingerprint } | null>(null);
+  const [capture, setCapture] = useState<{
+    signatureDataUrl: string;
+    strokes: any[];
+    sessionEvidence?: SessionEvidence;
+    deviceFingerprint?: DeviceFingerprint;
+  } | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(10 * 60);
 
   const createSession = useCallback(async () => {
@@ -2211,45 +2962,76 @@ function MobileSignatureModal({
     setQrDataUrl(null);
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const response = await fetch('/api/firma/mobile-signature/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || userToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || userToken}`,
+        },
         body: JSON.stringify({ documentId }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'No fue posible generar el enlace móvil.');
       const mobileUrl = `${window.location.origin}/firma-movil/${data.token}`;
       setToken(data.token);
-      setQrDataUrl(await QRCode.toDataURL(mobileUrl, { errorCorrectionLevel: 'M', margin: 1, width: 256 }));
-      setSecondsLeft(Math.max(0, Math.floor((new Date(data.expiresAt).getTime() - Date.now()) / 1000)));
+      setQrDataUrl(
+        await QRCode.toDataURL(mobileUrl, { errorCorrectionLevel: 'M', margin: 1, width: 256 })
+      );
+      setSecondsLeft(
+        Math.max(0, Math.floor((new Date(data.expiresAt).getTime() - Date.now()) / 1000))
+      );
       setStatus('waiting');
     } catch (sessionError) {
-      setError(sessionError instanceof Error ? sessionError.message : 'No fue posible generar el enlace móvil.');
+      setError(
+        sessionError instanceof Error
+          ? sessionError.message
+          : 'No fue posible generar el enlace móvil.'
+      );
       setStatus('error');
     }
   }, [documentId, userToken]);
 
-  useEffect(() => { createSession(); }, [createSession]);
+  useEffect(() => {
+    const sessionFrame = window.requestAnimationFrame(() => {
+      void createSession();
+    });
+    return () => window.cancelAnimationFrame(sessionFrame);
+  }, [createSession]);
 
   useEffect(() => {
     if (!token || status !== 'waiting') return;
-    const timer = window.setInterval(() => setSecondsLeft((current) => Math.max(0, current - 1)), 1000);
+    const timer = window.setInterval(
+      () => setSecondsLeft((current) => Math.max(0, current - 1)),
+      1000
+    );
     const poll = window.setInterval(async () => {
       try {
         const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        const response = await fetch(`/api/firma/mobile-signature/result?token=${encodeURIComponent(token)}`, {
-          headers: { Authorization: `Bearer ${session?.access_token || userToken}` },
-          cache: 'no-store',
-        });
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const response = await fetch(
+          `/api/firma/mobile-signature/result?token=${encodeURIComponent(token)}`,
+          {
+            headers: { Authorization: `Bearer ${session?.access_token || userToken}` },
+            cache: 'no-store',
+          }
+        );
         if (response.status === 404 || response.status === 410) {
           setError('El enlace móvil venció. Genera uno nuevo para continuar.');
           setStatus('error');
           return;
         }
         const data = await response.json();
-        if (response.ok && data.status === 'completed' && data.capture?.signatureDataUrl && Array.isArray(data.capture?.strokes)) {
+        if (
+          response.ok &&
+          data.status === 'completed' &&
+          data.capture?.signatureDataUrl &&
+          Array.isArray(data.capture?.strokes)
+        ) {
           setCapture(data.capture);
           setStatus('received');
         }
@@ -2257,34 +3039,111 @@ function MobileSignatureModal({
         // The QR remains valid; transient polling errors must not interrupt the signer.
       }
     }, 2500);
-    return () => { window.clearInterval(timer); window.clearInterval(poll); };
+    return () => {
+      window.clearInterval(timer);
+      window.clearInterval(poll);
+    };
   }, [status, token, userToken]);
 
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = secondsLeft % 60;
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-label="Firmar desde el móvil">
-      <div className={`w-full max-w-xl overflow-hidden rounded-xl border shadow-2xl ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Firmar desde el móvil"
+    >
+      <div
+        className={`w-full max-w-xl overflow-hidden rounded-xl border shadow-2xl ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
         <div className={`border-b px-5 py-4 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-          <div className="flex items-center gap-2"><Smartphone size={18} className="text-primary" /><h2 className="text-base font-semibold">Firmar desde el móvil</h2></div>
-          <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Escanea el código QR para dibujar tu firma en el teléfono.</p>
+          <div className="flex items-center gap-2">
+            <Smartphone size={18} className="text-primary" />
+            <h2 className="text-base font-semibold">Firmar desde el móvil</h2>
+          </div>
+          <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+            Escanea el código QR para dibujar tu firma en el teléfono.
+          </p>
         </div>
         <div className="p-5">
-          {status === 'creating' && <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="animate-spin" size={18} /> Generando enlace seguro…</div>}
-          {status === 'waiting' && qrDataUrl && <div className="grid gap-5 sm:grid-cols-[auto_1fr] sm:items-center">
-            <div className="mx-auto rounded-lg border border-slate-200 bg-white p-3"><img src={qrDataUrl} alt="Código QR para firmar desde el móvil" className="h-48 w-48" /></div>
-            <div className="space-y-3 text-sm text-slate-600">
-              <p>El enlace es temporal, exclusivo para esta firma y expira en <strong className="text-slate-900">{minutes}:{seconds.toString().padStart(2, '0')}</strong>.</p>
-              <p>Al terminar en el móvil, vuelve aquí para continuar con la validación.</p>
-              <button type="button" onClick={createSession} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><RefreshCw size={14} /> Generar un QR nuevo</button>
+          {status === 'creating' && (
+            <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-slate-500">
+              <Loader2 className="animate-spin" size={18} /> Generando enlace seguro…
             </div>
-          </div>}
-          {status === 'received' && <div className="py-5 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><Check size={23} /></div><p className="mt-3 font-semibold">Firma recibida</p><p className="mt-1 text-sm text-slate-500">El trazo se conservará para el cálculo de hash y la evidencia de firma.</p></div>}
-          {status === 'error' && <div className="py-5 text-center"><AlertTriangle className="mx-auto text-amber-500" size={26} /><p className="mt-3 text-sm text-slate-600">{error}</p><button type="button" onClick={createSession} className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><RefreshCw size={14} /> Generar un QR nuevo</button></div>}
+          )}
+          {status === 'waiting' && qrDataUrl && (
+            <div className="grid gap-5 sm:grid-cols-[auto_1fr] sm:items-center">
+              <div className="mx-auto rounded-lg border border-slate-200 bg-white p-3">
+                <img
+                  src={qrDataUrl}
+                  alt="Código QR para firmar desde el móvil"
+                  className="h-48 w-48"
+                />
+              </div>
+              <div className="space-y-3 text-sm text-slate-600">
+                <p>
+                  El enlace es temporal, exclusivo para esta firma y expira en{' '}
+                  <strong className="text-slate-900">
+                    {minutes}:{seconds.toString().padStart(2, '0')}
+                  </strong>
+                  .
+                </p>
+                <p>Al terminar en el móvil, vuelve aquí para continuar con la validación.</p>
+                <button
+                  type="button"
+                  onClick={createSession}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                >
+                  <RefreshCw size={14} /> Generar un QR nuevo
+                </button>
+              </div>
+            </div>
+          )}
+          {status === 'received' && (
+            <div className="py-5 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                <Check size={23} />
+              </div>
+              <p className="mt-3 font-semibold">Firma recibida</p>
+              <p className="mt-1 text-sm text-slate-500">
+                El trazo se conservará para el cálculo de hash y la evidencia de firma.
+              </p>
+            </div>
+          )}
+          {status === 'error' && (
+            <div className="py-5 text-center">
+              <AlertTriangle className="mx-auto text-amber-500" size={26} />
+              <p className="mt-3 text-sm text-slate-600">{error}</p>
+              <button
+                type="button"
+                onClick={createSession}
+                className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+              >
+                <RefreshCw size={14} /> Generar un QR nuevo
+              </button>
+            </div>
+          )}
         </div>
-        <div className={`flex justify-end gap-2 border-t px-5 py-4 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-          <button type="button" onClick={onBack} className={`rounded-lg border px-4 py-2 text-sm font-medium ${isDark ? 'border-gray-600 text-gray-300' : 'border-slate-200 text-slate-600'}`}>Volver</button>
-          {status === 'received' && <button type="button" onClick={() => capture && onSignatureCaptured(capture)} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">Continuar con validación</button>}
+        <div
+          className={`flex justify-end gap-2 border-t px-5 py-4 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+        >
+          <button
+            type="button"
+            onClick={onBack}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium ${isDark ? 'border-gray-600 text-gray-300' : 'border-slate-200 text-slate-600'}`}
+          >
+            Volver
+          </button>
+          {status === 'received' && (
+            <button
+              type="button"
+              onClick={() => capture && onSignatureCaptured(capture)}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white"
+            >
+              Continuar con validación
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -2292,9 +3151,29 @@ function MobileSignatureModal({
 }
 
 // ─── Main AutographSignatureFlow Component ────────────────────────────────────
-export default function AutographSignatureFlow({ documentId, userId, userToken, userEmail, userName, documentName, isDark, onComplete, onNoticeAccepted }: Props) {
+export default function AutographSignatureFlow({
+  documentId,
+  userId,
+  userToken,
+  userEmail,
+  userName,
+  documentName,
+  isDark,
+  onComplete,
+  onNoticeAccepted,
+}: Props) {
   // Flow steps: notice → pad → biometric → biometric_device → otp → sending → constancia
-  const [flowStep, setFlowStep] = useState<'notice' | 'signature_method' | 'pad' | 'mobile_signature' | 'biometric' | 'biometric_camera' | 'biometric_qr' | 'otp' | 'sending' | 'constancia'>('notice');
+  const [flowStep, setFlowStep] = useState<
+    | 'notice'
+    | 'pad'
+    | 'mobile_signature'
+    | 'biometric'
+    | 'biometric_camera'
+    | 'biometric_qr'
+    | 'otp'
+    | 'sending'
+    | 'constancia'
+  >('notice');
 
   // Evidence collection
   const [sessionEvidence, setSessionEvidence] = useState<SessionEvidence | null>(null);
@@ -2307,16 +3186,27 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
   const [padReady, setPadReady] = useState(false);
   const [penColor, setPenColor] = useState<string>('#0a0a0f');
   const [strokeSize, setStrokeSize] = useState<'thin' | 'medium' | 'thick'>('thin');
+  const [padExpanded, setPadExpanded] = useState(false);
 
   // ── Persisted signature data (survives pad unmount) ────────────────────────
   const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string | null>(null);
   const [savedSignatureStrokes, setSavedSignatureStrokes] = useState<any[] | null>(null);
 
   // Frames
-  const framesRef = useRef<{ frame1?: FrameCapture; frame2?: FrameCapture; frame3?: FrameCapture; strokeStartCaptured: boolean }>({ strokeStartCaptured: false });
+  const framesRef = useRef<{
+    frame1?: FrameCapture;
+    frame2?: FrameCapture;
+    frame3?: FrameCapture;
+    strokeStartCaptured: boolean;
+  }>({ strokeStartCaptured: false });
 
   // Biometric
-  const [biometricData, setBiometricData] = useState<{ selfieB64: string; ineB64: string | null; method: string; mobileMetadata?: any } | null>(null);
+  const [biometricData, setBiometricData] = useState<{
+    selfieB64: string;
+    ineB64: string | null;
+    method: string;
+    mobileMetadata?: any;
+  } | null>(null);
   const [enrollmentHasIne, setEnrollmentHasIne] = useState(false);
 
   // OTP
@@ -2342,10 +3232,24 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
   // ── Collect session evidence on mount ──────────────────────────────────────
   useEffect(() => {
     const collect = async () => {
-      const rawGeo = await new Promise<{ latitude: number; longitude: number; accuracy_meters: number; source: string } | null>((resolve) => {
-        if (!navigator.geolocation) { setGeoDenied(true); return resolve(null); }
+      const rawGeo = await new Promise<{
+        latitude: number;
+        longitude: number;
+        accuracy_meters: number;
+        source: string;
+      } | null>((resolve) => {
+        if (!navigator.geolocation) {
+          setGeoDenied(true);
+          return resolve(null);
+        }
         navigator.geolocation.getCurrentPosition(
-          (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy_meters: pos.coords.accuracy, source: 'browser_api' }),
+          (pos) =>
+            resolve({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy_meters: pos.coords.accuracy,
+              source: 'browser_api',
+            }),
           (err) => {
             if (err.code === 1 /* PERMISSION_DENIED */) setGeoDenied(true);
             resolve(null);
@@ -2359,9 +3263,12 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
       if (rawGeo) {
         try {
           const supabase = createClient();
-          const { data: locationData, error: locationError } = await supabase.functions.invoke('get-location', {
-            body: { lat: rawGeo.latitude, lon: rawGeo.longitude },
-          });
+          const { data: locationData, error: locationError } = await supabase.functions.invoke(
+            'get-location',
+            {
+              body: { lat: rawGeo.latitude, lon: rawGeo.longitude },
+            }
+          );
           if (!locationError && locationData) {
             geo = {
               ...rawGeo,
@@ -2408,7 +3315,9 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
         };
         const fingerprintId = await sha256(JSON.stringify(fpData));
         setDeviceFingerprint({ ...fpData, fingerprint_id: fingerprintId });
-      } catch { /* fingerprint optional */ }
+      } catch {
+        /* fingerprint optional */
+      }
     };
     collect();
   }, []);
@@ -2452,49 +3361,8 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
     requestAnimationFrame(resizeCanvas);
 
     return () => observer.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flowStep]);
-
-  // ── Init signature_pad ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (flowStep !== 'pad') return;
-    let pad: any = null;
-    const initPad = async () => {
-      const SignaturePad = (await import('signature_pad')).default;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const strokeMap = { thin: { minWidth: 0.4, maxWidth: 1.2 }, medium: { minWidth: 0.8, maxWidth: 2.8 }, thick: { minWidth: 2.0, maxWidth: 5.0 } };
-      const { minWidth: minW, maxWidth: maxW } = strokeMap[strokeSize];
-      pad = new SignaturePad(canvas, { minWidth: minW, maxWidth: maxW, penColor: penColor, throttle: 16 });
-      padRef.current = pad;
-      setPadReady(true);
-
-      pad.addEventListener('beginStroke', async () => {
-        setHasStrokes(true);
-        if (!framesRef.current.strokeStartCaptured) {
-          framesRef.current.strokeStartCaptured = true;
-          framesRef.current.frame1 = await captureFrame('stroke_start');
-        }
-      });
-
-      pad.addEventListener('endStroke', async () => {
-        framesRef.current.frame2 = await captureFrame('stroke_end');
-      });
-    };
-    initPad();
-    return () => { pad?.off(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowStep, penColor, strokeSize]);
-
-  // ── Update pad color/stroke when settings change ───────────────────────────
-  useEffect(() => {
-    if (!padRef.current || flowStep !== 'pad') return;
-    const strokeMap = { thin: { minWidth: 0.4, maxWidth: 1.2 }, medium: { minWidth: 0.8, maxWidth: 2.8 }, thick: { minWidth: 2.0, maxWidth: 5.0 } };
-    const { minWidth: minW, maxWidth: maxW } = strokeMap[strokeSize];
-    padRef.current.penColor = penColor;
-    padRef.current.minWidth = minW;
-    padRef.current.maxWidth = maxW;
-  }, [penColor, strokeSize, flowStep]);
 
   // ── Capture frame ──────────────────────────────────────────────────────────
   const captureFrame = useCallback(async (event: string): Promise<FrameCapture> => {
@@ -2502,8 +3370,12 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
       const html2canvas = (await import('html2canvas')).default;
       const element = document.getElementById('signing-container') || document.body;
       const canvas = await html2canvas(element, {
-        scale: 0.60, useCORS: true, backgroundColor: '#ffffff', logging: false,
-        ignoreElements: (el: Element) => el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'password',
+        scale: 0.6,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        ignoreElements: (el: Element) =>
+          el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'password',
       });
       const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
       const hashVal = await sha256(dataUrl);
@@ -2519,9 +3391,79 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
       };
     } catch {
       const fallback = `fallback-${event}-${Date.now()}`;
-      return { frame_id: crypto.randomUUID(), event, timestamp: new Date().toISOString(), sha256: await sha256(fallback), size_bytes: 0, width: 0, height: 0, dataUrl: '' };
+      return {
+        frame_id: crypto.randomUUID(),
+        event,
+        timestamp: new Date().toISOString(),
+        sha256: await sha256(fallback),
+        size_bytes: 0,
+        width: 0,
+        height: 0,
+        dataUrl: '',
+      };
     }
   }, []);
+
+  // ── Init signature_pad ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (flowStep !== 'pad') return;
+    let pad: any = null;
+    const initPad = async () => {
+      const SignaturePad = (await import('signature_pad')).default;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const strokeMap = {
+        thin: { minWidth: 0.4, maxWidth: 1.2 },
+        medium: { minWidth: 0.8, maxWidth: 2.8 },
+        thick: { minWidth: 2.0, maxWidth: 5.0 },
+      };
+      const { minWidth: minW, maxWidth: maxW } = strokeMap[strokeSize];
+      pad = new SignaturePad(canvas, {
+        minWidth: minW,
+        maxWidth: maxW,
+        penColor: penColor,
+        throttle: 16,
+      });
+      padRef.current = pad;
+      if (savedSignatureStrokes?.length) {
+        pad.fromData(savedSignatureStrokes);
+        setHasStrokes(true);
+      }
+      setPadReady(true);
+
+      pad.addEventListener('beginStroke', async () => {
+        setHasStrokes(true);
+        if (!framesRef.current.strokeStartCaptured) {
+          framesRef.current.strokeStartCaptured = true;
+          framesRef.current.frame1 = await captureFrame('stroke_start');
+        }
+      });
+
+      pad.addEventListener('endStroke', async () => {
+        framesRef.current.frame2 = await captureFrame('stroke_end');
+      });
+    };
+    initPad();
+    return () => {
+      pad?.off();
+    };
+    // Pen settings are updated by the effect below without recreating the pad.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flowStep]);
+
+  // ── Update pad color/stroke when settings change ───────────────────────────
+  useEffect(() => {
+    if (!padRef.current || flowStep !== 'pad') return;
+    const strokeMap = {
+      thin: { minWidth: 0.4, maxWidth: 1.2 },
+      medium: { minWidth: 0.8, maxWidth: 2.8 },
+      thick: { minWidth: 2.0, maxWidth: 5.0 },
+    };
+    const { minWidth: minW, maxWidth: maxW } = strokeMap[strokeSize];
+    padRef.current.penColor = penColor;
+    padRef.current.minWidth = minW;
+    padRef.current.maxWidth = maxW;
+  }, [penColor, strokeSize, flowStep]);
 
   // ── Handle pad confirm ─────────────────────────────────────────────────────
   const handlePadConfirm = () => {
@@ -2534,12 +3476,27 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
 
   const handlePadClear = () => {
     padRef.current?.clear();
+    setSavedSignatureDataUrl(null);
+    setSavedSignatureStrokes(null);
     setHasStrokes(false);
     framesRef.current = { strokeStartCaptured: false };
   };
 
+  const openMobileSignature = () => {
+    if (padRef.current && !padRef.current.isEmpty()) {
+      setSavedSignatureDataUrl(padRef.current.toDataURL('image/png'));
+      setSavedSignatureStrokes(padRef.current.toData());
+    }
+    setFlowStep('mobile_signature');
+  };
+
   // ── Handle biometric ───────────────────────────────────────────────────────
-  const handleBiometricCapture = async (selfieB64: string, ineB64: string | null, method: string, mobileMetadata?: any) => {
+  const handleBiometricCapture = async (
+    selfieB64: string,
+    ineB64: string | null,
+    method: string,
+    mobileMetadata?: any
+  ) => {
     const bioData = { selfieB64, ineB64, method, mobileMetadata: mobileMetadata ?? null };
     setBiometricData(bioData);
 
@@ -2591,12 +3548,14 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
     setOtpError(null);
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token || userToken;
 
       const res = await fetch('/api/firma/send-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           documentId,
           documentName: documentName || 'Documento',
@@ -2626,12 +3585,14 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
     // Validate against backend before proceeding
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token || userToken;
 
       const res = await fetch('/api/firma/send-otp', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ documentId, otpCode: otpCode.trim() }),
       });
       const data = await res.json();
@@ -2654,7 +3615,14 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
   };
 
   // ── Send all to backend ────────────────────────────────────────────────────
-  const sendAll = async (biometricOverride?: { selfieB64: string; ineB64: string | null; method: string; mobileMetadata?: any } | null) => {
+  const sendAll = async (
+    biometricOverride?: {
+      selfieB64: string;
+      ineB64: string | null;
+      method: string;
+      mobileMetadata?: any;
+    } | null
+  ) => {
     try {
       // Use live pad if available, otherwise fall back to saved data
       let imageDataUrl: string;
@@ -2672,33 +3640,51 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
 
       const enrichedStrokes = rawStrokes.map((stroke: any, strokeIdx: number) => ({
         stroke_index: strokeIdx,
-        duration_ms: stroke.points.length > 1 ? stroke.points[stroke.points.length - 1].time - stroke.points[0].time : 0,
+        duration_ms:
+          stroke.points.length > 1
+            ? stroke.points[stroke.points.length - 1].time - stroke.points[0].time
+            : 0,
         points: stroke.points.map((pt: any, i: number, arr: any[]) => {
           const prev = arr[i - 1] || pt;
           const dt = (pt.time - prev.time) / 1000 || 0.001;
-          return { x: pt.x, y: pt.y, t: pt.time - arr[0].time, pressure: pt.pressure || 1.0, vx: (pt.x - prev.x) / dt, vy: (pt.y - prev.y) / dt };
+          return {
+            x: pt.x,
+            y: pt.y,
+            t: pt.time - arr[0].time,
+            pressure: pt.pressure || 1.0,
+            vx: (pt.x - prev.x) / dt,
+            vy: (pt.y - prev.y) / dt,
+          };
         }),
       }));
 
       const behavior = analyzeHumanBehavior(enrichedStrokes);
 
-      const imageBytes = await fetch(imageDataUrl).then(r => r.arrayBuffer());
+      const imageBytes = await fetch(imageDataUrl).then((r) => r.arrayBuffer());
       const imageHash = await sha256Bytes(imageBytes);
       const strokesHash = await sha256(JSON.stringify(enrichedStrokes));
       const combinedHash = await sha256(imageHash + strokesHash);
 
-      const frames = [framesRef.current.frame1, framesRef.current.frame2, framesRef.current.frame3].filter(Boolean) as FrameCapture[];
-      const chainHash = frames.length === 3 ? await sha256(frames.map(f => f.sha256).join('|')) : '';
+      const frames = [
+        framesRef.current.frame1,
+        framesRef.current.frame2,
+        framesRef.current.frame3,
+      ].filter(Boolean) as FrameCapture[];
+      const chainHash =
+        frames.length === 3 ? await sha256(frames.map((f) => f.sha256).join('|')) : '';
 
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token || userToken;
-      const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
       // 1. capture-signature
       const sigRes = await fetch(`${supabaseUrl}/functions/v1/capture-signature`, {
-        method: 'POST', headers,
+        method: 'POST',
+        headers,
         body: JSON.stringify({
           document_id: documentId,
           image_b64: imageDataUrl,
@@ -2728,11 +3714,18 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
           document_id: documentId,
           total_frames: 3,
           chain_hash: chainHash,
-          frames: frames.map(f => ({ frame_id: f.frame_id, event: f.event, timestamp: f.timestamp, sha256: f.sha256, size_bytes: f.size_bytes })),
+          frames: frames.map((f) => ({
+            frame_id: f.frame_id,
+            event: f.event,
+            timestamp: f.timestamp,
+            sha256: f.sha256,
+            size_bytes: f.size_bytes,
+          })),
         };
-        const images = frames.map(f => ({ frame_id: f.frame_id, image_b64: f.dataUrl }));
+        const images = frames.map((f) => ({ frame_id: f.frame_id, image_b64: f.dataUrl }));
         await fetch(`${supabaseUrl}/functions/v1/upload-session-frames`, {
-          method: 'POST', headers,
+          method: 'POST',
+          headers,
           body: JSON.stringify({ manifest, images }),
         }).catch(() => {});
       }
@@ -2742,7 +3735,8 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
       const activeBiometric = biometricOverride !== undefined ? biometricOverride : biometricData;
       if (activeBiometric) {
         const bioRes = await fetch(`${supabaseUrl}/functions/v1/capture-biometric`, {
-          method: 'POST', headers,
+          method: 'POST',
+          headers,
           body: JSON.stringify({
             document_id: documentId,
             selfie_b64: activeBiometric.selfieB64,
@@ -2767,7 +3761,7 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
       // 4. Persist complete evidence to document via our API
       const persistRes = await fetch('/api/firma/persist-evidence', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           documentId,
           documentName: documentName || 'Documento',
@@ -2828,7 +3822,9 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
         chain_hash: chainHash,
         otp_verified: otpVerified,
         biometric: biometricResult,
-        geo: sessionEvidence?.geo ? { latitude: sessionEvidence.geo.latitude, longitude: sessionEvidence.geo.longitude } : null,
+        geo: sessionEvidence?.geo
+          ? { latitude: sessionEvidence.geo.latitude, longitude: sessionEvidence.geo.longitude }
+          : null,
         signature_data_url: imageDataUrl,
         device_type: parseUserAgent(navigator.userAgent).deviceType,
         browser_name: parseUserAgent(navigator.userAgent).browserName,
@@ -2848,22 +3844,67 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
   // Step: Notice
   if (flowStep === 'notice') {
     return (
-      <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
-        <div className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary flex-shrink-0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>Iniciar proceso de obtención de firma</p>
+      <div
+        className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
+        <div
+          className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-primary flex-shrink-0"
+          >
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
+            Iniciar proceso de obtención de firma
+          </p>
         </div>
         <div className="p-4 space-y-3">
           <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
-            Generamos automáticamente un registro del proceso para brindar plena validez legal a tu firma en el documento, por lo que se emitirá un registro de tiempo, dispositivo, ubicación y trazo de firma.
+            Generamos automáticamente un registro del proceso para brindar plena validez legal a tu
+            firma en el documento, por lo que se emitirá un registro de tiempo, dispositivo,
+            ubicación y trazo de firma.
           </p>
           {geoDenied && (
-            <div className={`flex items-start gap-3 p-3 rounded-lg border ${isDark ? 'bg-amber-900/20 border-amber-700/50' : 'bg-amber-50 border-amber-200'}`}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500 flex-shrink-0 mt-0.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <div
+              className={`flex items-start gap-3 p-3 rounded-lg border ${isDark ? 'bg-amber-900/20 border-amber-700/50' : 'bg-amber-50 border-amber-200'}`}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-amber-500 flex-shrink-0 mt-0.5"
+              >
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
               <div>
-                <p className={`text-xs font-semibold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>Acceso a ubicación bloqueado</p>
-                <p className={`text-xs mt-0.5 leading-relaxed ${isDark ? 'text-amber-300/80' : 'text-amber-600'}`}>
-                  Has bloqueado el acceso a tu ubicación. La firma se registrará sin coordenadas geográficas. Para incluir tu ubicación, activa el permiso en la configuración de tu navegador y recarga la página.
+                <p
+                  className={`text-xs font-semibold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}
+                >
+                  Acceso a ubicación bloqueado
+                </p>
+                <p
+                  className={`text-xs mt-0.5 leading-relaxed ${isDark ? 'text-amber-300/80' : 'text-amber-600'}`}
+                >
+                  Has bloqueado el acceso a tu ubicación. La firma se registrará sin coordenadas
+                  geográficas. Para incluir tu ubicación, activa el permiso en la configuración de
+                  tu navegador y recarga la página.
                 </p>
               </div>
             </div>
@@ -2872,7 +3913,7 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
             type="button"
             onClick={() => {
               onNoticeAccepted?.();
-              setFlowStep('signature_method');
+              setFlowStep('pad');
             }}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
           >
@@ -2884,146 +3925,200 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
     );
   }
 
-  // Step: choose where the autograph is drawn
-  if (flowStep === 'signature_method') {
-    return (
-      <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
-        <div className={`border-b px-4 py-3 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>¿Dónde deseas plasmar tu firma?</p>
-          <p className={`mt-1 text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Elige un equipo para capturar el mismo trazo y evidencia de firma.</p>
-        </div>
-        <div className="grid gap-3 p-4 sm:grid-cols-2">
-          <button type="button" onClick={() => setFlowStep('pad')} className={`group flex items-start gap-3 rounded-lg border p-4 text-left transition-colors ${isDark ? 'border-gray-600 hover:border-primary hover:bg-gray-750' : 'border-slate-200 hover:border-primary hover:bg-primary/[0.03]'}`}>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Monitor size={20} /></span>
-            <span><span className={`block text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>Firmar en este equipo</span><span className={`mt-1 block text-xs leading-5 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Abre un espacio amplio para dibujar con mouse, lápiz o pantalla táctil.</span></span>
-          </button>
-          <button type="button" onClick={() => setFlowStep('mobile_signature')} className={`group flex items-start gap-3 rounded-lg border p-4 text-left transition-colors ${isDark ? 'border-gray-600 hover:border-primary hover:bg-gray-750' : 'border-slate-200 hover:border-primary hover:bg-primary/[0.03]'}`}>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Smartphone size={20} /></span>
-            <span><span className={`block text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>Firmar desde el móvil</span><span className={`mt-1 block text-xs leading-5 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Escanea un QR temporal para dibujar la firma desde tu teléfono.</span></span>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // Step: Pad
   if (flowStep === 'pad') {
     return (
-      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-label="Dibujar firma">
-      <div className={`max-h-[calc(100dvh-2rem)] w-full max-w-5xl overflow-y-auto rounded-xl border shadow-2xl ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
-        <div className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'border-gray-700 bg-gray-750' : 'border-slate-200 bg-slate-50'}`}>
-          <div className="flex items-center gap-2">
-            <PenLine size={14} className="text-primary" />
-            <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>Firma autógrafa digital — Dibujar</p>
-          </div>
-          <div className="flex items-center gap-3"><button type="button" onClick={() => setFlowStep('signature_method')} className={`text-xs font-medium ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-slate-500 hover:text-slate-700'}`}>Cambiar método</button>{hasStrokes && <span className="text-xs text-green-600 font-medium">Trazo detectado</span>}</div>
-        </div>
-        <div className="p-4 space-y-3">
-          <div className="flex gap-3">
-            {/* Canvas */}
-            <div
-              className="relative border-2 border-dashed border-slate-300 rounded-xl bg-white overflow-hidden flex-1"
-              style={{ touchAction: 'none' }}
-            >
-              <canvas
-                ref={canvasRef}
-                className="w-full cursor-crosshair block"
-                style={{ height: 'min(52dvh, 420px)', touchAction: 'none' }}
-              />
-              {!hasStrokes && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="text-center">
-                    <PenLine size={28} className="text-slate-300 mx-auto mb-1" />
-                    <p className="text-xs text-slate-400">Dibuja tu firma aquí</p>
-                  </div>
-                </div>
+      <div
+        className={
+          padExpanded
+            ? 'fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4'
+            : ''
+        }
+        role={padExpanded ? 'dialog' : undefined}
+        aria-modal={padExpanded ? 'true' : undefined}
+        aria-label={padExpanded ? 'Dibujar firma en vista ampliada' : undefined}
+      >
+        <div
+          className={`${padExpanded ? 'max-h-[calc(100dvh-2rem)] w-full max-w-5xl overflow-y-auto shadow-2xl' : 'w-full overflow-hidden'} rounded-xl border ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+        >
+          <div
+            className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'border-gray-700 bg-gray-750' : 'border-slate-200 bg-slate-50'}`}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <PenLine size={14} className="text-primary" />
+              <p
+                className={`truncate text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-slate-700'}`}
+              >
+                Firma autógrafa digital — Dibujar
+              </p>
+            </div>
+            <div className="ml-2 flex shrink-0 items-center gap-1.5">
+              {hasStrokes && (
+                <span className="mr-1 hidden text-xs font-medium text-green-600 sm:inline">
+                  Trazo detectado
+                </span>
               )}
-              <div className="absolute bottom-10 left-8 right-8 border-b border-slate-200 pointer-events-none" />
-            </div>
-            {/* Side controls */}
-            <div className={`flex flex-col gap-3 py-1 px-2 rounded-xl border ${isDark ? 'border-gray-600 bg-gray-750' : 'border-slate-200 bg-slate-50'}`}>
-              {/* Stroke thickness */}
-              <div className="flex flex-col items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setStrokeSize('thin')}
-                  title="Delgado"
-                  className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${strokeSize === 'thin' ? 'bg-primary/10 border-2 border-primary' : isDark ? 'border border-gray-600 hover:bg-gray-700' : 'border border-slate-200 hover:bg-slate-100'}`}
-                >
-                  <svg width="22" height="22" viewBox="0 0 22 22"><line x1="3" y1="11" x2="19" y2="11" stroke={isDark ? '#e2e8f0' : '#475569'} strokeWidth="1" strokeLinecap="round"/></svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStrokeSize('medium')}
-                  title="Medio"
-                  className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${strokeSize === 'medium' ? 'bg-primary/10 border-2 border-primary' : isDark ? 'border border-gray-600 hover:bg-gray-700' : 'border border-slate-200 hover:bg-slate-100'}`}
-                >
-                  <svg width="22" height="22" viewBox="0 0 22 22"><line x1="3" y1="11" x2="19" y2="11" stroke={isDark ? '#e2e8f0' : '#475569'} strokeWidth="2.5" strokeLinecap="round"/></svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStrokeSize('thick')}
-                  title="Grueso"
-                  className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${strokeSize === 'thick' ? 'bg-primary/10 border-2 border-primary' : isDark ? 'border border-gray-600 hover:bg-gray-700' : 'border border-slate-200 hover:bg-slate-100'}`}
-                >
-                  <svg width="22" height="22" viewBox="0 0 22 22"><line x1="3" y1="11" x2="19" y2="11" stroke={isDark ? '#e2e8f0' : '#475569'} strokeWidth="5" strokeLinecap="round"/></svg>
-                </button>
-              </div>
-              {/* Divider */}
-              <div className={`w-full h-px ${isDark ? 'bg-gray-600' : 'bg-slate-200'}`} />
-              {/* Color selector */}
-              <div className="flex flex-col items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setPenColor('#0a0a0f')}
-                  title="Negro"
-                  className={`w-7 h-7 rounded-full transition-all ${penColor === '#0a0a0f' ? 'ring-2 ring-offset-2 ring-slate-500 scale-110' : 'hover:scale-105'}`}
-                  style={{ backgroundColor: '#0a0a0f' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setPenColor('#1d4ed8')}
-                  title="Azul"
-                  className={`w-7 h-7 rounded-full transition-all ${penColor === '#1d4ed8' ? 'ring-2 ring-offset-2 ring-blue-500 scale-110' : 'hover:scale-105'}`}
-                  style={{ backgroundColor: '#1d4ed8' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setPenColor('#dc2626')}
-                  title="Rojo"
-                  className={`w-7 h-7 rounded-full transition-all ${penColor === '#dc2626' ? 'ring-2 ring-offset-2 ring-red-500 scale-110' : 'hover:scale-105'}`}
-                  style={{ backgroundColor: '#dc2626' }}
-                />
-              </div>
+              <button
+                type="button"
+                onClick={openMobileSignature}
+                title="Firmar desde el móvil"
+                aria-label="Firmar desde el móvil"
+                className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+              >
+                <Smartphone size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setPadExpanded((expanded) => !expanded)}
+                title={padExpanded ? 'Reducir firma' : 'Expandir firma'}
+                aria-label={padExpanded ? 'Reducir firma' : 'Expandir firma'}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+              >
+                {padExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+              </button>
             </div>
           </div>
-          {!padReady && (
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <Loader2 size={12} className="animate-spin" />
-              Cargando pad de firma…
+          <div className="p-4 space-y-3">
+            <div className="flex gap-3">
+              {/* Canvas */}
+              <div
+                className="relative border-2 border-dashed border-slate-300 rounded-xl bg-white overflow-hidden flex-1"
+                style={{ touchAction: 'none' }}
+              >
+                <canvas
+                  ref={canvasRef}
+                  className="w-full cursor-crosshair block"
+                  style={{
+                    height: padExpanded ? 'min(52dvh, 420px)' : '200px',
+                    touchAction: 'none',
+                  }}
+                />
+                {!hasStrokes && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="text-center">
+                      <PenLine size={28} className="text-slate-300 mx-auto mb-1" />
+                      <p className="text-xs text-slate-400">Dibuja tu firma aquí</p>
+                    </div>
+                  </div>
+                )}
+                <div className="absolute bottom-10 left-8 right-8 border-b border-slate-200 pointer-events-none" />
+              </div>
+              {/* Side controls */}
+              <div
+                className={`flex flex-col gap-3 py-1 px-2 rounded-xl border ${isDark ? 'border-gray-600 bg-gray-750' : 'border-slate-200 bg-slate-50'}`}
+              >
+                {/* Stroke thickness */}
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setStrokeSize('thin')}
+                    title="Delgado"
+                    className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${strokeSize === 'thin' ? 'bg-primary/10 border-2 border-primary' : isDark ? 'border border-gray-600 hover:bg-gray-700' : 'border border-slate-200 hover:bg-slate-100'}`}
+                  >
+                    <svg width="22" height="22" viewBox="0 0 22 22">
+                      <line
+                        x1="3"
+                        y1="11"
+                        x2="19"
+                        y2="11"
+                        stroke={isDark ? '#e2e8f0' : '#475569'}
+                        strokeWidth="1"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStrokeSize('medium')}
+                    title="Medio"
+                    className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${strokeSize === 'medium' ? 'bg-primary/10 border-2 border-primary' : isDark ? 'border border-gray-600 hover:bg-gray-700' : 'border border-slate-200 hover:bg-slate-100'}`}
+                  >
+                    <svg width="22" height="22" viewBox="0 0 22 22">
+                      <line
+                        x1="3"
+                        y1="11"
+                        x2="19"
+                        y2="11"
+                        stroke={isDark ? '#e2e8f0' : '#475569'}
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStrokeSize('thick')}
+                    title="Grueso"
+                    className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${strokeSize === 'thick' ? 'bg-primary/10 border-2 border-primary' : isDark ? 'border border-gray-600 hover:bg-gray-700' : 'border border-slate-200 hover:bg-slate-100'}`}
+                  >
+                    <svg width="22" height="22" viewBox="0 0 22 22">
+                      <line
+                        x1="3"
+                        y1="11"
+                        x2="19"
+                        y2="11"
+                        stroke={isDark ? '#e2e8f0' : '#475569'}
+                        strokeWidth="5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                {/* Divider */}
+                <div className={`w-full h-px ${isDark ? 'bg-gray-600' : 'bg-slate-200'}`} />
+                {/* Color selector */}
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPenColor('#0a0a0f')}
+                    title="Negro"
+                    className={`w-7 h-7 rounded-full transition-all ${penColor === '#0a0a0f' ? 'ring-2 ring-offset-2 ring-slate-500 scale-110' : 'hover:scale-105'}`}
+                    style={{ backgroundColor: '#0a0a0f' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPenColor('#1d4ed8')}
+                    title="Azul"
+                    className={`w-7 h-7 rounded-full transition-all ${penColor === '#1d4ed8' ? 'ring-2 ring-offset-2 ring-blue-500 scale-110' : 'hover:scale-105'}`}
+                    style={{ backgroundColor: '#1d4ed8' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPenColor('#dc2626')}
+                    title="Rojo"
+                    className={`w-7 h-7 rounded-full transition-all ${penColor === '#dc2626' ? 'ring-2 ring-offset-2 ring-red-500 scale-110' : 'hover:scale-105'}`}
+                    style={{ backgroundColor: '#dc2626' }}
+                  />
+                </div>
+              </div>
             </div>
-          )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={handlePadClear}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-            >
-              <RotateCcw size={13} />
-              Limpiar
-            </button>
-            <button
-              type="button"
-              onClick={handlePadConfirm}
-              disabled={!hasStrokes}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Check size={13} />
-              Confirmar firma
-            </button>
+            {!padReady && (
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <Loader2 size={12} className="animate-spin" />
+                Cargando pad de firma…
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handlePadClear}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              >
+                <RotateCcw size={13} />
+                Limpiar
+              </button>
+              <button
+                type="button"
+                onClick={handlePadConfirm}
+                disabled={!hasStrokes}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Check size={13} />
+                Confirmar firma
+              </button>
+            </div>
           </div>
         </div>
-      </div>
       </div>
     );
   }
@@ -3034,7 +4129,7 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
         documentId={documentId}
         userToken={userToken}
         isDark={isDark}
-        onBack={() => setFlowStep('signature_method')}
+        onBack={() => setFlowStep('pad')}
         onSignatureCaptured={(capture) => {
           setSavedSignatureDataUrl(capture.signatureDataUrl);
           setSavedSignatureStrokes(capture.strokes);
@@ -3079,7 +4174,9 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
         documentId={documentId}
         userId={userId}
         hasEnrollment={enrollmentHasIne}
-        onComplete={(selfieB64, method, metadata) => handleBiometricCapture(selfieB64, null, method, metadata)}
+        onComplete={(selfieB64, method, metadata) =>
+          handleBiometricCapture(selfieB64, null, method, metadata)
+        }
         onSkip={handleBiometricSkip}
       />
     );
@@ -3090,9 +4187,13 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
     const minutes = Math.floor(otpTimeLeft / 60);
     const seconds = otpTimeLeft % 60;
     return (
-      <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+      <div
+        className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
         <div className={`px-4 py-3 border-b ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
-          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>Verificación OTP — Confirmación de firma</p>
+          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
+            Verificación OTP — Confirmación de firma
+          </p>
         </div>
         <div className="p-4 space-y-3">
           {otpSending && (
@@ -3102,14 +4203,18 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
             </div>
           )}
           {otpSent && !otpSending && (
-            <div className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'}`}>
+            <div
+              className={`rounded-lg p-3 flex items-start gap-2 ${isDark ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'}`}
+            >
               <Check size={14} className="text-blue-500 flex-shrink-0 mt-0.5" />
               <div>
                 <p className={`text-xs font-medium ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
                   Código enviado a {userEmail}
                 </p>
                 {otpTimeLeft > 0 && (
-                  <p className={`text-[11px] mt-0.5 flex items-center gap-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                  <p
+                    className={`text-[11px] mt-0.5 flex items-center gap-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+                  >
                     <Clock size={10} />
                     Válido por {minutes}:{seconds.toString().padStart(2, '0')} minutos
                   </p>
@@ -3180,10 +4285,16 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
   // Step: Sending
   if (flowStep === 'sending') {
     return (
-      <div className={`rounded-xl border p-6 flex flex-col items-center gap-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+      <div
+        className={`rounded-xl border p-6 flex flex-col items-center gap-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
         <Loader2 size={28} className="animate-spin text-primary" />
-        <p className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>Enviando evidencia de firma…</p>
-        <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>Esto puede tomar unos segundos</p>
+        <p className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+          Enviando evidencia de firma…
+        </p>
+        <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
+          Esto puede tomar unos segundos
+        </p>
       </div>
     );
   }

@@ -500,7 +500,9 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
       if (renderTaskRef.current) {
         try {
           renderTaskRef.current.cancel();
-        } catch (_) {}
+        } catch (_) {
+          /* Render was already settled. */
+        }
         renderTaskRef.current = null;
       }
 
@@ -534,12 +536,17 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
   }, [fileUrl, page, zoom, onTotalPages]);
 
   useEffect(() => {
-    renderPage();
+    const renderFrame = window.requestAnimationFrame(() => {
+      void renderPage();
+    });
     return () => {
+      window.cancelAnimationFrame(renderFrame);
       if (renderTaskRef.current) {
         try {
           renderTaskRef.current.cancel();
-        } catch (_) {}
+        } catch (_) {
+          /* Render was already settled. */
+        }
       }
     };
   }, [renderPage]);
@@ -596,10 +603,14 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
       )}
       {error && requiresAccessCode ? (
         <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 bg-slate-50 px-6 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary"><Lock size={22} /></div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Lock size={22} />
+          </div>
           <div>
             <p className="text-base font-700 text-slate-900">Documento protegido</p>
-            <p className="mt-1 text-sm text-slate-500">Introduce el código de acceso para visualizar este documento.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Introduce el código de acceso para visualizar este documento.
+            </p>
           </div>
           <div className="w-full max-w-sm space-y-2">
             <input
@@ -611,7 +622,12 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
             {accessCodeError && <p className="text-xs text-red-600">{accessCodeError}</p>}
-            <button type="button" onClick={() => void verifyAccessCode()} disabled={verifyingAccessCode || !accessCode} className="h-10 w-full rounded-lg bg-primary px-4 text-sm font-600 text-white disabled:opacity-60">
+            <button
+              type="button"
+              onClick={() => void verifyAccessCode()}
+              disabled={verifyingAccessCode || !accessCode}
+              className="h-10 w-full rounded-lg bg-primary px-4 text-sm font-600 text-white disabled:opacity-60"
+            >
               {verifyingAccessCode ? 'Verificando...' : 'Ver documento'}
             </button>
           </div>
@@ -866,29 +882,39 @@ export default function VisorDocumentoPage() {
     let active = true;
     const load = async () => {
       try {
-        const response = await fetch(`/api/documents/${docId}/blockchain-evidence`, { headers: await apiAuthHeaders(), cache: 'no-store' });
+        const response = await fetch(`/api/documents/${docId}/blockchain-evidence`, {
+          headers: await apiAuthHeaders(),
+          cache: 'no-store',
+        });
         if (response.ok && active) setBlockchainEvidence((await response.json()).evidence || null);
-      } catch { /* Optional evidence does not interrupt the document viewer. */ }
+      } catch {
+        /* Optional evidence does not interrupt the document viewer. */
+      }
     };
     load();
     const timer = window.setInterval(load, 60_000);
-    return () => { active = false; window.clearInterval(timer); };
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [docId, document?.estado]);
 
   useEffect(() => {
     if (!document?.id) return;
 
     const requestedArchivo = new URLSearchParams(window.location.search).get('archivo');
-    const requestedVariant = requestedArchivo === 'original' || !padesBtVerified
-      ? 'original'
-      : 'certified';
+    const requestedVariant =
+      requestedArchivo === 'original' || !padesBtVerified ? 'original' : 'certified';
     const nextFileUrl = `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=${requestedVariant}`;
 
-    setDocument((current) =>
-      current && current.file_url !== nextFileUrl
-        ? { ...current, file_url: nextFileUrl }
-        : current
-    );
+    const variantFrame = window.requestAnimationFrame(() => {
+      setDocument((current) =>
+        current && current.file_url !== nextFileUrl
+          ? { ...current, file_url: nextFileUrl }
+          : current
+      );
+    });
+    return () => window.cancelAnimationFrame(variantFrame);
   }, [document?.id, padesBtVerified]);
 
   // ── Signed PDF state ───────────────────────────────────────────────────────
@@ -913,19 +939,24 @@ export default function VisorDocumentoPage() {
   const signatureStampGenerationRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    setPublicVerificationOrigin(window.location.origin);
+    const originFrame = window.requestAnimationFrame(() => {
+      setPublicVerificationOrigin(window.location.origin);
+    });
+    return () => window.cancelAnimationFrame(originFrame);
   }, []);
 
   useEffect(() => {
     if (!document?.id || document.estado !== 'completado' || !document.es_publico) {
-      setPublicVerificationPath('');
-      return;
+      const clearFrame = window.requestAnimationFrame(() => setPublicVerificationPath(''));
+      return () => window.cancelAnimationFrame(clearFrame);
     }
     const storageKey = `docubox-public-verification:${document.id}`;
     const storedPath = window.localStorage.getItem(storageKey);
     if (storedPath?.startsWith('/v/')) {
-      setPublicVerificationPath(storedPath);
-      return;
+      const restoreFrame = window.requestAnimationFrame(() =>
+        setPublicVerificationPath(storedPath)
+      );
+      return () => window.cancelAnimationFrame(restoreFrame);
     }
     let active = true;
     const issueLink = async () => {
@@ -1035,7 +1066,10 @@ export default function VisorDocumentoPage() {
   }, [docId, document?.estado]);
 
   useEffect(() => {
-    loadCryptographicCertification();
+    const certificationFrame = window.requestAnimationFrame(() => {
+      void loadCryptographicCertification();
+    });
+    return () => window.cancelAnimationFrame(certificationFrame);
   }, [loadCryptographicCertification]);
 
   const generateCryptographicCertification = useCallback(async () => {
@@ -1145,7 +1179,7 @@ export default function VisorDocumentoPage() {
         setCertificationDownload(null);
       }
     },
-    [cryptographicCertification?.certificationUuid, docId, document?.documento_id, logActivity]
+    [cryptographicCertification, docId, document, logActivity]
   );
 
   // ── NOM-151 polling (only when completado) ─────────────────────────────────
@@ -1155,7 +1189,9 @@ export default function VisorDocumentoPage() {
     let pollTimeout: ReturnType<typeof setTimeout> | null = null;
     let pollAttempts = 0;
     const maxPollAttempts = 24;
-    setNom151LookupComplete(false);
+    const lookupFrame = window.requestAnimationFrame(() => {
+      if (!cancelled) setNom151LookupComplete(false);
+    });
 
     const fetchNom151 = async (): Promise<boolean> => {
       try {
@@ -1211,6 +1247,7 @@ export default function VisorDocumentoPage() {
 
     return () => {
       cancelled = true;
+      window.cancelAnimationFrame(lookupFrame);
       if (pollTimeout) clearTimeout(pollTimeout);
     };
   }, [apiAuthHeaders, docId, document?.estado]);
@@ -1314,13 +1351,19 @@ export default function VisorDocumentoPage() {
 
     // Also check if document already has xml_evidencia_path loaded
     if (document?.xml_evidencia_path) {
-      setXmlEvidenceData({
-        xml_evidencia_path: document.xml_evidencia_path,
-        xml_hash_sha256: document.xml_hash_sha256 || '',
-        xml_generated_at: document.xml_generated_at || '',
+      const restoreFrame = window.requestAnimationFrame(() => {
+        if (cancelled) return;
+        setXmlEvidenceData({
+          xml_evidencia_path: document.xml_evidencia_path || '',
+          xml_hash_sha256: document.xml_hash_sha256 || '',
+          xml_generated_at: document.xml_generated_at || '',
+        });
+        setXmlPolling(false);
       });
-      setXmlPolling(false);
-      return;
+      return () => {
+        cancelled = true;
+        window.cancelAnimationFrame(restoreFrame);
+      };
     }
 
     fetchXmlEvidence();
@@ -1369,7 +1412,7 @@ export default function VisorDocumentoPage() {
     } finally {
       setDownloadingXml(false);
     }
-  }, [xmlEvidenceData?.xml_evidencia_path, docId, document?.documento_id]);
+  }, [xmlEvidenceData, docId, document]);
 
   // ── Download signed PDF (with certification elements, readable in Acrobat) ─
   const downloadSignedPdf = useCallback(async () => {
@@ -1477,7 +1520,7 @@ export default function VisorDocumentoPage() {
         setXmlGenerating(false);
       }
     },
-    [docId, xmlGenerating, user?.id]
+    [docId, user, xmlGenerating]
   );
 
   // ── Generate NOM-151 constancia via Nubarium ───────────────────────────────
@@ -1523,7 +1566,7 @@ export default function VisorDocumentoPage() {
         setNom151Generating(false);
       }
     },
-    [docId, nom151Generating, user?.id]
+    [docId, nom151Generating, user]
   );
 
   const ensureFinalSignedPdf = useCallback(async () => {
@@ -2188,8 +2231,8 @@ export default function VisorDocumentoPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!docId || !user) {
-      setLoading(false);
-      return;
+      const loadingFrame = window.requestAnimationFrame(() => setLoading(false));
+      return () => window.cancelAnimationFrame(loadingFrame);
     }
     const supabase = createClient();
 
@@ -4446,43 +4489,38 @@ export default function VisorDocumentoPage() {
     undefined
   );
 
-  // Initialize edit state from loaded document
-  useEffect(() => {
-    if (!document) return;
-    setEditDocConfig({
-      nombre: document.nombre || '',
-      descripcion: '',
-      numeroOficio: '',
-      grupotipoId: '',
-      tipoDocumentoId: '',
-      otroTipoDocumento: '',
-      ruta: 'raiz',
-      etiquetasIds: [],
-      additionalMetadata: [],
-    });
-  }, [document]);
-
-  // Initialize edit participants from loaded participantes
-  useEffect(() => {
-    if (participantes.length === 0) return;
-    const mapped: Participant[] = participantes.map((p) => ({
-      id: p.id,
-      name: p.nombre,
-      email: p.email,
-      role: (p.acto?.toLowerCase() === 'firmante'
-        ? 'firmante'
-        : p.acto?.toLowerCase() === 'aprobador'
-          ? 'aprobador'
-          : 'observador') as 'firmante' | 'aprobador' | 'observador',
-      configured: true,
-      acto: p.acto,
-      rolDocumento: p.rolDocumento,
-      tipoFirma: p.metodo_firma ? [p.metodo_firma] : ['autografa'],
-    }));
-    setEditParticipants(mapped);
-  }, [participantes]);
-
   const handleOpenEditModal = (modal: 'datos' | 'archivo' | 'participantes' | 'ajustes') => {
+    if (modal === 'datos' && document) {
+      setEditDocConfig({
+        nombre: document.nombre || '',
+        descripcion: '',
+        numeroOficio: '',
+        grupotipoId: '',
+        tipoDocumentoId: '',
+        otroTipoDocumento: '',
+        ruta: 'raiz',
+        etiquetasIds: [],
+        additionalMetadata: [],
+      });
+    }
+    if (modal === 'participantes') {
+      setEditParticipants(
+        participantes.map((p) => ({
+          id: p.id,
+          name: p.nombre,
+          email: p.email,
+          role: (p.acto?.toLowerCase() === 'firmante'
+            ? 'firmante'
+            : p.acto?.toLowerCase() === 'aprobador'
+              ? 'aprobador'
+              : 'observador') as 'firmante' | 'aprobador' | 'observador',
+          configured: true,
+          acto: p.acto,
+          rolDocumento: p.rolDocumento,
+          tipoFirma: p.metodo_firma ? [p.metodo_firma] : ['autografa'],
+        }))
+      );
+    }
     setEditModal(modal);
     setEditSaved(null);
   };
@@ -4843,7 +4881,7 @@ export default function VisorDocumentoPage() {
     document.workspace_id === activeWorkspace.id
   );
 
-  const PaginationBar = ({ modal = false }: { modal?: boolean }) => (
+  const renderPaginationBar = (modal = false) => (
     <div
       className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
     >
@@ -5103,7 +5141,7 @@ export default function VisorDocumentoPage() {
                 </div>
               )}
             </div>
-            <PaginationBar />
+            {renderPaginationBar()}
           </div>
 
           {/* Right side: icon tab strip + panel content */}
@@ -7408,7 +7446,8 @@ export default function VisorDocumentoPage() {
                                         PSC
                                       </span>
                                       <span className="max-w-[190px] text-right text-xs text-foreground">
-                                        {nom151Data.psc_name || 'Proveedor de Servicios de Certificación'}
+                                        {nom151Data.psc_name ||
+                                          'Proveedor de Servicios de Certificación'}
                                       </span>
                                     </div>
                                     <div className="flex items-center justify-between gap-2">
@@ -7519,24 +7558,114 @@ export default function VisorDocumentoPage() {
                                 <span className="text-xs font-bold uppercase tracking-wide text-foreground">
                                   Evidencia Blockchain
                                 </span>
-                                <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${blockchainEvidence.status === 'VERIFIED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'INVALID_PROOF', 'STORAGE_ERROR'].includes(blockchainEvidence.status) ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                  {blockchainEvidence.status === 'VERIFIED' ? 'Verificado' : 'Pendiente'}
+                                <span
+                                  className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${blockchainEvidence.status === 'VERIFIED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'INVALID_PROOF', 'STORAGE_ERROR'].includes(blockchainEvidence.status) ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
+                                >
+                                  {blockchainEvidence.status === 'VERIFIED'
+                                    ? 'Verificado'
+                                    : 'Pendiente'}
                                 </span>
                               </div>
                               <div className="space-y-3 p-4">
                                 <div className="flex items-start gap-2">
-                                  {blockchainEvidence.status === 'VERIFIED' ? <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" /> : ['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'INVALID_PROOF', 'STORAGE_ERROR'].includes(blockchainEvidence.status) ? <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-600" /> : <Clock size={18} className="mt-0.5 shrink-0 text-amber-600" />}
+                                  {blockchainEvidence.status === 'VERIFIED' ? (
+                                    <CheckCircle2
+                                      size={18}
+                                      className="mt-0.5 shrink-0 text-emerald-600"
+                                    />
+                                  ) : [
+                                      'SUBMISSION_FAILED',
+                                      'UPGRADE_FAILED',
+                                      'VERIFICATION_FAILED',
+                                      'INVALID_PROOF',
+                                      'STORAGE_ERROR',
+                                    ].includes(blockchainEvidence.status) ? (
+                                    <AlertTriangle
+                                      size={18}
+                                      className="mt-0.5 shrink-0 text-red-600"
+                                    />
+                                  ) : (
+                                    <Clock size={18} className="mt-0.5 shrink-0 text-amber-600" />
+                                  )}
                                   <div>
-                                    <p className="text-sm font-semibold text-foreground">{blockchainEvidence.status === 'VERIFIED' ? 'Anclaje Bitcoin verificado' : ['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'INVALID_PROOF', 'STORAGE_ERROR'].includes(blockchainEvidence.status) ? 'No fue posible completar el anclaje' : 'Esperando anclaje Bitcoin'}</p>
-                                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">La prueba OpenTimestamps se procesa sin publicar el documento ni datos personales en blockchain.</p>
+                                    <p className="text-sm font-semibold text-foreground">
+                                      {blockchainEvidence.status === 'VERIFIED'
+                                        ? 'Anclaje Bitcoin verificado'
+                                        : [
+                                              'SUBMISSION_FAILED',
+                                              'UPGRADE_FAILED',
+                                              'VERIFICATION_FAILED',
+                                              'INVALID_PROOF',
+                                              'STORAGE_ERROR',
+                                            ].includes(blockchainEvidence.status)
+                                          ? 'No fue posible completar el anclaje'
+                                          : 'Esperando anclaje Bitcoin'}
+                                    </p>
+                                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                                      La prueba OpenTimestamps se procesa sin publicar el documento
+                                      ni datos personales en blockchain.
+                                    </p>
                                   </div>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
-                                  <a href={`/verify/blockchain/${blockchainEvidence.public_token}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"><Shield size={14} />Verificar</a>
-                                  {blockchainEvidence.proof_sha256 && <a href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/proof`} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"><Download size={14} />Descargar .ots</a>}
-                                  {blockchainEvidence.status === 'VERIFIED' && <a href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/certificate`} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:opacity-90"><Download size={14} />Ver constancia</a>}
-                                  {blockchainEvidence.status === 'VERIFIED' && <a href={`/api/documents/${docId}/blockchain-evidence/package`} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"><Download size={14} />Paquete de evidencia</a>}
-                                  {['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'STORAGE_ERROR'].includes(blockchainEvidence.status) && <button type="button" onClick={async () => { const response = await fetch(`/api/documents/${docId}/blockchain-evidence`, { method: 'POST', headers: await apiAuthHeaders() }); if (response.ok) setBlockchainEvidence((await response.json()).evidence); }} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"><RefreshCw size={14} />Reintentar</button>}
+                                  <a
+                                    href={`/verify/blockchain/${blockchainEvidence.public_token}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"
+                                  >
+                                    <Shield size={14} />
+                                    Verificar
+                                  </a>
+                                  {blockchainEvidence.proof_sha256 && (
+                                    <a
+                                      href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/proof`}
+                                      className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"
+                                    >
+                                      <Download size={14} />
+                                      Descargar .ots
+                                    </a>
+                                  )}
+                                  {blockchainEvidence.status === 'VERIFIED' && (
+                                    <a
+                                      href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/certificate`}
+                                      className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
+                                    >
+                                      <Download size={14} />
+                                      Ver constancia
+                                    </a>
+                                  )}
+                                  {blockchainEvidence.status === 'VERIFIED' && (
+                                    <a
+                                      href={`/api/documents/${docId}/blockchain-evidence/package`}
+                                      className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"
+                                    >
+                                      <Download size={14} />
+                                      Paquete de evidencia
+                                    </a>
+                                  )}
+                                  {[
+                                    'SUBMISSION_FAILED',
+                                    'UPGRADE_FAILED',
+                                    'VERIFICATION_FAILED',
+                                    'STORAGE_ERROR',
+                                  ].includes(blockchainEvidence.status) && (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        const response = await fetch(
+                                          `/api/documents/${docId}/blockchain-evidence`,
+                                          { method: 'POST', headers: await apiAuthHeaders() }
+                                        );
+                                        if (response.ok)
+                                          setBlockchainEvidence((await response.json()).evidence);
+                                      }}
+                                      className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"
+                                    >
+                                      <RefreshCw size={14} />
+                                      Reintentar
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -7962,7 +8091,7 @@ export default function VisorDocumentoPage() {
                   </div>
                 )}
               </div>
-              <PaginationBar modal />
+              {renderPaginationBar(true)}
             </div>
           </div>
         )}

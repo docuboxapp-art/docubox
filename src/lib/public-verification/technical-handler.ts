@@ -17,8 +17,15 @@ export async function handleTechnicalValidation(
     acceptedExtensions: string[];
   }
 ) {
-  if (!enforcePublicRateLimit(request, config.method, 12))
-    return response({ error: 'Demasiadas consultas. Intenta mas tarde.' }, 429);
+  try {
+    if (!(await enforcePublicRateLimit(request, config.method, 12)))
+      return response({ error: 'Demasiadas consultas. Intenta mas tarde.' }, 429);
+  } catch {
+    return response(
+      { error: 'El servicio de verificacion no esta disponible temporalmente.' },
+      503
+    );
+  }
   try {
     const body = await request.json();
     const hash = String(body.hash || '')

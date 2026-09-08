@@ -4,20 +4,35 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LocatedVerificationDocument, PublicVerificationResult } from './types';
 import { VERIFIER_VERSION } from './types';
 import { documentEncryptionPolicy } from '@/lib/crypto/document-encryption';
+import { createServiceClient } from '@/lib/supabase/server';
 
-const attempts = new Map<string, { count: number; expiresAt: number }>();
-
-export function enforcePublicRateLimit(request: NextRequest, scope: string, limit = 30) {
-  const now = Date.now();
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-  const key = createHash('sha256').update(`${scope}:${ip}`).digest('hex');
-  const current = attempts.get(key);
-  if (!current || current.expiresAt <= now) {
-    attempts.set(key, { count: 1, expiresAt: now + 60_000 });
-    return true;
+export class PublicRateLimitUnavailableError extends Error {
+  constructor() {
+    super('PUBLIC_RATE_LIMIT_UNAVAILABLE');
+    this.name = 'PublicRateLimitUnavailableError';
   }
-  current.count += 1;
-  return current.count <= limit;
+}
+
+export async function enforcePublicRateLimit(request: NextRequest, scope: string, limit = 30) {
+  const ip =
+    request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    'unknown';
+  const key = createHash('sha256').update(`public-verification:${scope}:${ip}`).digest('hex');
+  const { data, error } = await createServiceClient().rpc('consume_server_rate_limit', {
+    p_key_hash: key,
+    p_limit: limit,
+    p_window_seconds: 60,
+  });
+  if (error) {
+    console.error('[public-verification] Distributed rate limit unavailable', {
+      scope,
+      code: error.code || null,
+    });
+    throw new PublicRateLimitUnavailableError();
+  }
+  return data === true;
 }
 
 export async function logVerificationRun(input: {
@@ -30,7 +45,8 @@ export async function logVerificationRun(input: {
 }) {
   const ip = input.request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   const userAgent = input.request.headers.get('user-agent') || 'unknown';
-  const secret = process.env.VERIFICATION_LOG_HASH_SECRET || process.env.DOCUBOX_INTERNAL_SIGNING_KEY;
+  const secret =
+    process.env.VERIFICATION_LOG_HASH_SECRET || process.env.DOCUBOX_INTERNAL_SIGNING_KEY;
   if (!secret || secret.length < 32) {
     throw new Error('VERIFICATION_LOG_HASH_SECRET_NOT_CONFIGURED');
   }

@@ -817,11 +817,7 @@ export async function POST(req: NextRequest) {
       if (documentFileUpdate.error) throw documentFileUpdate.error;
     } else if (resolvedInternalSource) {
       uploadedStoragePath = resolvedInternalSource.storagePath;
-      const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin.storage
-        .from('documents')
-        .createSignedUrl(resolvedInternalSource.storagePath, 60 * 60 * 24 * 365);
-      if (signedUrlError) throw signedUrlError;
-      uploadedFileUrl = signedUrlData?.signedUrl || resolvedInternalSource.storagePath;
+      uploadedFileUrl = `/api/documentos/${dbDocumentId}/viewer-file`;
       const reusedFileUpdate = await supabaseAdmin
         .from('documentos')
         .update({ file_url: uploadedFileUrl, storage_path: resolvedInternalSource.storagePath })
@@ -854,12 +850,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Save the storage path as file_url so mis-documentos can display/download it
-      const { data: signedUrlData } = await supabaseAdmin.storage
-        .from('documents')
-        .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1 year
-
-      uploadedFileUrl = signedUrlData?.signedUrl || storagePath;
+      uploadedFileUrl = `/api/documentos/${dbDocumentId}/viewer-file`;
 
       const documentFileUpdate = await supabaseAdmin
         .from('documentos')
@@ -1163,6 +1154,7 @@ export async function POST(req: NextRequest) {
 
         const delivery = await sendParticipantInvitationEmails({
           participants: participantsWithPortalUrl,
+          documentId: dbDocumentId,
           documentName: nombre || fileName,
           documentDescription: descripcion || undefined,
           senderName,

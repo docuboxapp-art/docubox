@@ -2,7 +2,45 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, X, PenLine, RotateCcw, Save, FileText, User, Shield, ShieldCheck, AlertTriangle, ChevronDown, Loader2, Check, Eye, Plus, Trash2, Type, Hash, Calendar, ToggleLeft, List, Circle, Maximize2, Minimize2, Mail, Phone, UserCheck, MapPin, Tag, Settings, Clock, DollarSign, Image as ImageIcon, CheckSquare, Download, EyeOff } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  X,
+  PenLine,
+  RotateCcw,
+  Save,
+  FileText,
+  User,
+  Shield,
+  ShieldCheck,
+  AlertTriangle,
+  ChevronDown,
+  Loader2,
+  Check,
+  Eye,
+  Plus,
+  Trash2,
+  Type,
+  Hash,
+  Calendar,
+  ToggleLeft,
+  List,
+  Circle,
+  Maximize2,
+  Minimize2,
+  Mail,
+  Phone,
+  UserCheck,
+  MapPin,
+  Tag,
+  Settings,
+  Clock,
+  DollarSign,
+  Image as ImageIcon,
+  CheckSquare,
+  Download,
+  EyeOff,
+} from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -60,7 +98,23 @@ interface CampoCompletado {
 interface CampoPersonalizado {
   id: string;
   label: string;
-  tipo: 'texto' | 'numero' | 'fecha' | 'checkbox' | 'dropdown' | 'firma' | 'nombre_completo' | 'rfc' | 'curp' | 'correo' | 'telefono' | 'hora' | 'imagen' | 'moneda' | 'radio' | 'direccion';
+  tipo:
+    | 'texto'
+    | 'numero'
+    | 'fecha'
+    | 'checkbox'
+    | 'dropdown'
+    | 'firma'
+    | 'nombre_completo'
+    | 'rfc'
+    | 'curp'
+    | 'correo'
+    | 'telefono'
+    | 'hora'
+    | 'imagen'
+    | 'moneda'
+    | 'radio'
+    | 'direccion';
   value: string;
 }
 
@@ -104,22 +158,22 @@ interface DocumentData {
 // ─── Helper: derive tipo from label (fallback for legacy docs) ────────────────
 function deriveTipoFromLabel(label: string): CampoPersonalizado['tipo'] {
   const map: Record<string, CampoPersonalizado['tipo']> = {
-    'Firma': 'firma',
+    Firma: 'firma',
     'Nombre Completo': 'nombre_completo',
-    'RFC': 'rfc',
-    'CURP': 'curp',
+    RFC: 'rfc',
+    CURP: 'curp',
     'Correo Electrónico': 'correo',
     'Número Telefónico': 'telefono',
-    'Dirección': 'direccion',
-    'Texto': 'texto',
-    'Fecha': 'fecha',
-    'Hora': 'hora',
-    'Número': 'numero',
-    'Moneda': 'moneda',
-    'Casilla': 'checkbox',
-    'Imagen': 'imagen',
+    Dirección: 'direccion',
+    Texto: 'texto',
+    Fecha: 'fecha',
+    Hora: 'hora',
+    Número: 'numero',
+    Moneda: 'moneda',
+    Casilla: 'checkbox',
+    Imagen: 'imagen',
     'Botones de opción': 'radio',
-    'Desplegable': 'dropdown',
+    Desplegable: 'dropdown',
   };
   return map[label] || 'texto';
 }
@@ -185,7 +239,10 @@ function extractDNStringFirmar(bytes: Uint8Array): string {
 
   while (i < bytes.length) {
     // SET
-    if (bytes[i] !== 0x31) { i++; continue; }
+    if (bytes[i] !== 0x31) {
+      i++;
+      continue;
+    }
     i++;
     const setLen = derReadLen(bytes, i);
     i += derLenSize(bytes, i) + 1;
@@ -227,7 +284,9 @@ function extractDNStringFirmar(bytes: Uint8Array): string {
 
 function parseAsn1TimeFirmar(value: Uint8Array): string {
   try {
-    const str = Array.from(value).map(b => String.fromCharCode(b)).join('');
+    const str = Array.from(value)
+      .map((b) => String.fromCharCode(b))
+      .join('');
     if (str.length === 13) {
       const yy = parseInt(str.slice(0, 2));
       const year = yy >= 50 ? 1900 + yy : 2000 + yy;
@@ -236,12 +295,19 @@ function parseAsn1TimeFirmar(value: Uint8Array): string {
       return `${str.slice(0, 4)}-${str.slice(4, 6)}-${str.slice(6, 8)} ${str.slice(8, 10)}:${str.slice(10, 12)}:${str.slice(12, 14)}`;
     }
     return str;
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
 }
 
 async function parseCerFileFirmar(file: File): Promise<{
-  rfc: string; curp: string; serial: string; subject: string;
-  notBefore: string; notAfter: string; base64: string;
+  rfc: string;
+  curp: string;
+  serial: string;
+  subject: string;
+  notBefore: string;
+  notAfter: string;
+  base64: string;
 } | null> {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -304,7 +370,7 @@ async function parseCerFileFirmar(file: File): Promise<{
 
         // Convert serial bytes to hex string
         const serialHex = Array.from(serialBytes)
-          .map(b => b.toString(16).padStart(2, '0'))
+          .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
 
         // Convert hex → ASCII (each pair of hex digits = one ASCII char)
@@ -319,7 +385,12 @@ async function parseCerFileFirmar(file: File): Promise<{
         // Clean and validate: must be exactly 20 numeric characters
         noCertificado = noCertificado.replace(/\s/g, '');
         if (!/^\d{20}$/.test(noCertificado)) {
-          console.warn('[parseCerFileFirmar] noCertificado no cumple 20 dígitos numéricos:', noCertificado, '| serialHex:', serialHex);
+          console.warn(
+            '[parseCerFileFirmar] noCertificado no cumple 20 dígitos numéricos:',
+            noCertificado,
+            '| serialHex:',
+            serialHex
+          );
           // Fallback: try raw hex as-is if it looks numeric and is 20 chars
           if (/^\d{20}$/.test(serialHex)) {
             noCertificado = serialHex;
@@ -399,7 +470,13 @@ function EfirmaFirmarFlow({
   profileEfirma: EfirmaProfileData | null;
   isDark: boolean;
   geoDenied: boolean;
-  onValidated: (certInfo?: any, cerB64?: string, keyB64?: string, password?: string, nubariumResult?: NubariumValidationResult) => void;
+  onValidated: (
+    certInfo?: any,
+    cerB64?: string,
+    keyB64?: string,
+    password?: string,
+    nubariumResult?: NubariumValidationResult
+  ) => void;
   documentId?: string;
   supabaseAccessToken?: string;
 }) {
@@ -421,7 +498,11 @@ function EfirmaFirmarFlow({
   const [validated, setValidated] = useState(false);
 
   // User profile data for CURP/RFC cross-validation
-  const [userProfileData, setUserProfileData] = useState<{ curp: string; rfc: string; personalidad_juridica: string } | null>(null);
+  const [userProfileData, setUserProfileData] = useState<{
+    curp: string;
+    rfc: string;
+    personalidad_juridica: string;
+  } | null>(null);
 
   // Evidence capture
   const { captureFrame, collectAllEvidence } = useEfirmaEvidence(documentId || '');
@@ -482,8 +563,10 @@ function EfirmaFirmarFlow({
       const isValid =
         data._es_valido === true ||
         data.clave_mensaje === 0 ||
-        data.estado === 'Vigente' || data.estatus === 'Vigente' ||
-        data.estado === 'Activo' || data.estatus === 'Activo';
+        data.estado === 'Vigente' ||
+        data.estatus === 'Vigente' ||
+        data.estado === 'Activo' ||
+        data.estatus === 'Activo';
       if (isValid) {
         setValidated(true);
         const nubariumResult: NubariumValidationResult = {
@@ -494,17 +577,18 @@ function EfirmaFirmarFlow({
         onValidated(undefined, undefined, undefined, undefined, nubariumResult);
       } else {
         const cm = data.clave_mensaje || data._clave_mensaje_detectada || 0;
-        const msg = cm === 2
-          ? 'La e.firma está revocada.'
-          : cm === 3
-          ? 'La e.firma está suspendida.'
-          : cm === 4
-          ? 'La e.firma ha expirado.'
-          : data.error
-          ? data.error?.includes('RFC') || data.error?.includes('serial')
-            ? 'No se pudo extraer el RFC o número de serie del certificado registrado en tu perfil. Vuelve a vincular tu e.firma en Mi Perfil.'
-            : `Error del servicio SAT: ${data.error}`
-          : `La e.firma no está vigente (${data._estado_normalizado || data.estado || data.estatus || 'sin estado'}).`;
+        const msg =
+          cm === 2
+            ? 'La e.firma está revocada.'
+            : cm === 3
+              ? 'La e.firma está suspendida.'
+              : cm === 4
+                ? 'La e.firma ha expirado.'
+                : data.error
+                  ? data.error?.includes('RFC') || data.error?.includes('serial')
+                    ? 'No se pudo extraer el RFC o número de serie del certificado registrado en tu perfil. Vuelve a vincular tu e.firma en Mi Perfil.'
+                    : `Error del servicio SAT: ${data.error}`
+                  : `La e.firma no está vigente (${data._estado_normalizado || data.estado || data.estatus || 'sin estado'}).`;
         setValidationError(msg);
       }
     } catch {
@@ -522,23 +606,37 @@ function EfirmaFirmarFlow({
       // ── PASO 1: Parsear .cer para validaciones previas ──────────────────
       const parsed = await parseCerFileFirmar(cerFile);
       if (!parsed || !parsed.serial) {
-        setValidationError('No se pudo extraer el número de serie del certificado. Verifica el archivo .cer.');
+        setValidationError(
+          'No se pudo extraer el número de serie del certificado. Verifica el archivo .cer.'
+        );
         setValidating(false);
         return;
       }
 
       // ── PASO 2: Verificar vigencia del certificado ──────────────────────
       const now = new Date();
-      const notAfterDate = parsed.notAfter ? new Date(parsed.notAfter.replace(' ', 'T') + (parsed.notAfter.includes('Z') ? '' : 'Z')) : null;
-      const notBeforeDate = parsed.notBefore ? new Date(parsed.notBefore.replace(' ', 'T') + (parsed.notBefore.includes('Z') ? '' : 'Z')) : null;
+      const notAfterDate = parsed.notAfter
+        ? new Date(parsed.notAfter.replace(' ', 'T') + (parsed.notAfter.includes('Z') ? '' : 'Z'))
+        : null;
+      const notBeforeDate = parsed.notBefore
+        ? new Date(parsed.notBefore.replace(' ', 'T') + (parsed.notBefore.includes('Z') ? '' : 'Z'))
+        : null;
       if (notAfterDate && now > notAfterDate) {
-        const fechaVencimiento = notAfterDate.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
-        setValidationError(`El certificado está vencido. Venció el ${fechaVencimiento}. Renueva tu e.firma ante el SAT para continuar.`);
+        const fechaVencimiento = notAfterDate.toLocaleDateString('es-MX', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+        setValidationError(
+          `El certificado está vencido. Venció el ${fechaVencimiento}. Renueva tu e.firma ante el SAT para continuar.`
+        );
         setValidating(false);
         return;
       }
       if (notBeforeDate && now < notBeforeDate) {
-        setValidationError('El certificado aún no es vigente. Verifica la fecha de inicio de vigencia.');
+        setValidationError(
+          'El certificado aún no es vigente. Verifica la fecha de inicio de vigencia.'
+        );
         setValidating(false);
         return;
       }
@@ -548,7 +646,9 @@ function EfirmaFirmarFlow({
         const certCurp = parsed.curp.trim().toUpperCase();
         const profileCurp = userProfileData.curp;
         if (profileCurp && certCurp && certCurp !== profileCurp) {
-          setValidationError(`La CURP del certificado (${certCurp}) no coincide con la CURP registrada en tu perfil (${profileCurp}). Verifica que estés usando el certificado correcto.`);
+          setValidationError(
+            `La CURP del certificado (${certCurp}) no coincide con la CURP registrada en tu perfil (${profileCurp}). Verifica que estés usando el certificado correcto.`
+          );
           setValidating(false);
           return;
         }
@@ -559,7 +659,9 @@ function EfirmaFirmarFlow({
         const certRfc = parsed.rfc.trim().toUpperCase();
         const profileRfc = userProfileData.rfc;
         if (profileRfc && certRfc && certRfc !== profileRfc) {
-          setValidationError(`El RFC del certificado (${certRfc}) no coincide con el RFC registrado en tu perfil (${profileRfc}). Verifica que estés usando el certificado de tu empresa.`);
+          setValidationError(
+            `El RFC del certificado (${certRfc}) no coincide con el RFC registrado en tu perfil (${profileRfc}). Verifica que estés usando el certificado de tu empresa.`
+          );
           setValidating(false);
           return;
         }
@@ -579,7 +681,7 @@ function EfirmaFirmarFlow({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseAccessToken}`,
+            Authorization: `Bearer ${supabaseAccessToken}`,
           },
           body: JSON.stringify({
             document_id: documentId,
@@ -601,7 +703,9 @@ function EfirmaFirmarFlow({
             const certCurpFallback = (parsed.curp || edgeData.cert_curp || '').trim();
             const certSerial = (parsed.serial || edgeData.cert_serial || '').trim();
             if (!certRfc && !certCurpFallback) {
-              setValidationError('No se pudo extraer el RFC o CURP del certificado. Verifica que el archivo .cer sea válido y pertenezca a tu e.firma.');
+              setValidationError(
+                'No se pudo extraer el RFC o CURP del certificado. Verifica que el archivo .cer sea válido y pertenezca a tu e.firma.'
+              );
               setValidating(false);
               return;
             }
@@ -623,40 +727,51 @@ function EfirmaFirmarFlow({
                 const nubariumData = await nubariumRes.json();
                 // Check for connection/auth errors returned as success:false
                 if (nubariumData.success === false && nubariumData.fetch_error) {
-                  nubariumError = 'No se pudo conectar con el servicio de validación del SAT. Intenta nuevamente.';
+                  nubariumError =
+                    'No se pudo conectar con el servicio de validación del SAT. Intenta nuevamente.';
                 } else if (nubariumData.success === false && nubariumData.error) {
-                  nubariumError = nubariumData.error?.includes('RFC') || nubariumData.error?.includes('serial')
-                    ? 'No se pudo extraer el RFC o número de serie del certificado. Verifica que el archivo .cer sea válido.'
-                    : `Error del servicio SAT: ${nubariumData.error}`;
+                  nubariumError =
+                    nubariumData.error?.includes('RFC') || nubariumData.error?.includes('serial')
+                      ? 'No se pudo extraer el RFC o número de serie del certificado. Verifica que el archivo .cer sea válido.'
+                      : `Error del servicio SAT: ${nubariumData.error}`;
                 } else {
                   // Use server-computed _es_valido or fall back to legacy field checks
                   const nubariumIsValid =
                     nubariumData._es_valido === true ||
                     nubariumData.clave_mensaje === 0 ||
-                    nubariumData.estado === 'Vigente' || nubariumData.estatus === 'Vigente' ||
-                    nubariumData.estado === 'Activo' || nubariumData.estatus === 'Activo';
+                    nubariumData.estado === 'Vigente' ||
+                    nubariumData.estatus === 'Vigente' ||
+                    nubariumData.estado === 'Activo' ||
+                    nubariumData.estatus === 'Activo';
                   if (nubariumIsValid) {
                     nubariumOk = true;
                     capturedNubariumResult = {
-                      estado: nubariumData._estado_normalizado || nubariumData.estado || nubariumData.estatus || 'Vigente',
+                      estado:
+                        nubariumData._estado_normalizado ||
+                        nubariumData.estado ||
+                        nubariumData.estatus ||
+                        'Vigente',
                       fechaConsulta: new Date().toISOString(),
                       codigoValidacion: nubariumData.codigo_validacion || null,
                     };
                   } else {
-                    const cm = nubariumData.clave_mensaje || nubariumData._clave_mensaje_detectada || 0;
-                    nubariumError = cm === 2
-                      ? 'La e.firma está revocada ante el SAT.'
-                      : cm === 3
-                      ? 'La e.firma está suspendida ante el SAT.'
-                      : cm === 4
-                      ? 'La e.firma ha expirado ante el SAT.'
-                      : nubariumData.error
-                      ? `Error del servicio SAT: ${nubariumData.error}`
-                      : `La e.firma no está vigente ante el SAT (${nubariumData._estado_normalizado || nubariumData.estado || nubariumData.estatus || 'sin estado'}).`;
+                    const cm =
+                      nubariumData.clave_mensaje || nubariumData._clave_mensaje_detectada || 0;
+                    nubariumError =
+                      cm === 2
+                        ? 'La e.firma está revocada ante el SAT.'
+                        : cm === 3
+                          ? 'La e.firma está suspendida ante el SAT.'
+                          : cm === 4
+                            ? 'La e.firma ha expirado ante el SAT.'
+                            : nubariumData.error
+                              ? `Error del servicio SAT: ${nubariumData.error}`
+                              : `La e.firma no está vigente ante el SAT (${nubariumData._estado_normalizado || nubariumData.estado || nubariumData.estatus || 'sin estado'}).`;
                   }
                 }
               } catch {
-                nubariumError = 'No se pudo conectar con el servicio de validación del SAT. Verifica tu conexión e intenta nuevamente.';
+                nubariumError =
+                  'No se pudo conectar con el servicio de validación del SAT. Verifica tu conexión e intenta nuevamente.';
               }
 
               if (!nubariumOk) {
@@ -672,7 +787,9 @@ function EfirmaFirmarFlow({
               if (userProfileData && edgeCurp) {
                 const profileCurp = userProfileData.curp;
                 if (profileCurp && edgeCurp !== profileCurp) {
-                  setValidationError(`La CURP del certificado (${edgeCurp}) no coincide con la CURP registrada en tu perfil (${profileCurp}). Verifica que estés usando el certificado correcto.`);
+                  setValidationError(
+                    `La CURP del certificado (${edgeCurp}) no coincide con la CURP registrada en tu perfil (${profileCurp}). Verifica que estés usando el certificado correcto.`
+                  );
                   setValidating(false);
                   return;
                 }
@@ -681,7 +798,9 @@ function EfirmaFirmarFlow({
               if (userProfileData && userProfileData.personalidad_juridica === 'moral' && edgeRfc) {
                 const profileRfc = userProfileData.rfc;
                 if (profileRfc && edgeRfc !== profileRfc) {
-                  setValidationError(`El RFC del certificado (${edgeRfc}) no coincide con el RFC registrado en tu perfil (${profileRfc}). Verifica que estés usando el certificado de tu empresa.`);
+                  setValidationError(
+                    `El RFC del certificado (${edgeRfc}) no coincide con el RFC registrado en tu perfil (${profileRfc}). Verifica que estés usando el certificado de tu empresa.`
+                  );
                   setValidating(false);
                   return;
                 }
@@ -697,13 +816,23 @@ function EfirmaFirmarFlow({
             // Edge Function returned explicit error (e.g. expired cert, wrong password)
             const errMsg = edgeData.error || 'La e.firma no es válida.';
             // Improve expiry error message
-            if (errMsg.toLowerCase().includes('expirado') || errMsg.toLowerCase().includes('vigente') || errMsg.toLowerCase().includes('expired')) {
+            if (
+              errMsg.toLowerCase().includes('expirado') ||
+              errMsg.toLowerCase().includes('vigente') ||
+              errMsg.toLowerCase().includes('expired')
+            ) {
               const fechaVenc = edgeData.cert_not_after
-                ? new Date(edgeData.cert_not_after).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+                ? new Date(edgeData.cert_not_after).toLocaleDateString('es-MX', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })
                 : null;
-              setValidationError(fechaVenc
-                ? `El certificado está vencido. Venció el ${fechaVenc}. Renueva tu e.firma ante el SAT para continuar.`
-                : 'El certificado está vencido. Renueva tu e.firma ante el SAT para continuar.');
+              setValidationError(
+                fechaVenc
+                  ? `El certificado está vencido. Venció el ${fechaVenc}. Renueva tu e.firma ante el SAT para continuar.`
+                  : 'El certificado está vencido. Renueva tu e.firma ante el SAT para continuar.'
+              );
             } else {
               setValidationError(errMsg);
             }
@@ -727,7 +856,9 @@ function EfirmaFirmarFlow({
       }
       // Validate serial with Nubarium (legacy path)
       if ((!parsed.rfc || !parsed.rfc.trim()) && (!parsed.curp || !parsed.curp.trim())) {
-        setValidationError('No se pudo extraer el RFC o CURP del certificado. Verifica que el archivo .cer sea válido y pertenezca a tu e.firma.');
+        setValidationError(
+          'No se pudo extraer el RFC o CURP del certificado. Verifica que el archivo .cer sea válido y pertenezca a tu e.firma.'
+        );
         setValidating(false);
         return;
       }
@@ -746,8 +877,8 @@ function EfirmaFirmarFlow({
         const errMsg = nubariumData.fetch_error
           ? 'No se pudo conectar con el servicio de validación del SAT. Intenta nuevamente.'
           : nubariumData.error?.includes('RFC') || nubariumData.error?.includes('serial')
-          ? 'No se pudo extraer el RFC o número de serie del certificado. Verifica que el archivo .cer sea válido.'
-          : `Error del servicio SAT: ${nubariumData.error}`;
+            ? 'No se pudo extraer el RFC o número de serie del certificado. Verifica que el archivo .cer sea válido.'
+            : `Error del servicio SAT: ${nubariumData.error}`;
         setValidationError(errMsg);
         setValidating(false);
         return;
@@ -756,29 +887,42 @@ function EfirmaFirmarFlow({
       const legacyIsValid =
         nubariumData._es_valido === true ||
         nubariumData.clave_mensaje === 0 ||
-        nubariumData.estado === 'Vigente' || nubariumData.estatus === 'Vigente' ||
-        nubariumData.estado === 'Activo' || nubariumData.estatus === 'Activo';
+        nubariumData.estado === 'Vigente' ||
+        nubariumData.estatus === 'Vigente' ||
+        nubariumData.estado === 'Activo' ||
+        nubariumData.estatus === 'Activo';
       if (legacyIsValid) {
         // Frame 2 — validación exitosa (legacy path)
         await captureFrame('efirma_validated').catch(() => {});
         setValidated(true);
         const legacyNubariumResult: NubariumValidationResult = {
-          estado: nubariumData._estado_normalizado || nubariumData.estado || nubariumData.estatus || 'Vigente',
+          estado:
+            nubariumData._estado_normalizado ||
+            nubariumData.estado ||
+            nubariumData.estatus ||
+            'Vigente',
           fechaConsulta: new Date().toISOString(),
           codigoValidacion: nubariumData.codigo_validacion || null,
         };
-        onValidated({ cert_serial: parsed.serial, cert_rfc: parsed.rfc, cert_subject: parsed.subject }, cerB64, keyB64, password, legacyNubariumResult);
+        onValidated(
+          { cert_serial: parsed.serial, cert_rfc: parsed.rfc, cert_subject: parsed.subject },
+          cerB64,
+          keyB64,
+          password,
+          legacyNubariumResult
+        );
       } else {
         const cm = nubariumData.clave_mensaje || nubariumData._clave_mensaje_detectada || 0;
-        const msg = cm === 2
-          ? 'La e.firma está revocada ante el SAT.'
-          : cm === 3
-          ? 'La e.firma está suspendida ante el SAT.'
-          : cm === 4
-          ? 'La e.firma ha expirado ante el SAT.'
-          : nubariumData.error
-          ? `Error del servicio SAT: ${nubariumData.error}`
-          : `La e.firma no está vigente ante el SAT (${nubariumData._estado_normalizado || nubariumData.estado || nubariumData.estatus || 'sin estado'}).`;
+        const msg =
+          cm === 2
+            ? 'La e.firma está revocada ante el SAT.'
+            : cm === 3
+              ? 'La e.firma está suspendida ante el SAT.'
+              : cm === 4
+                ? 'La e.firma ha expirado ante el SAT.'
+                : nubariumData.error
+                  ? `Error del servicio SAT: ${nubariumData.error}`
+                  : `La e.firma no está vigente ante el SAT (${nubariumData._estado_normalizado || nubariumData.estado || nubariumData.estatus || 'sin estado'}).`;
         setValidationError(msg);
       }
     } catch {
@@ -791,12 +935,20 @@ function EfirmaFirmarFlow({
   // ── Validated success state ──────────────────────────────────────────────
   if (validated) {
     return (
-      <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-green-700' : 'border-green-200'}`}>
-        <div className={`px-4 py-3 flex items-center gap-2 ${isDark ? 'bg-green-900/20' : 'bg-green-50'}`}>
+      <div
+        className={`border rounded-xl overflow-hidden ${isDark ? 'border-green-700' : 'border-green-200'}`}
+      >
+        <div
+          className={`px-4 py-3 flex items-center gap-2 ${isDark ? 'bg-green-900/20' : 'bg-green-50'}`}
+        >
           <CheckCircle2 size={16} className="text-green-600 shrink-0" />
           <div>
-            <p className={`text-sm font-semibold ${isDark ? 'text-green-400' : 'text-green-700'}`}>e.firma SAT validada y vigente</p>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-green-500' : 'text-green-600'}`}>La validación ante el SAT fue exitosa. Puedes enviar tu firma.</p>
+            <p className={`text-sm font-semibold ${isDark ? 'text-green-400' : 'text-green-700'}`}>
+              e.firma SAT validada y vigente
+            </p>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-green-500' : 'text-green-600'}`}>
+              La validación ante el SAT fue exitosa. Puedes enviar tu firma.
+            </p>
           </div>
         </div>
       </div>
@@ -805,13 +957,17 @@ function EfirmaFirmarFlow({
 
   return (
     <div className="space-y-4">
-
       {/* ── STEP 1: Ask if user wants to use preloaded e.firma ─────────────── */}
       {hasProfileEfirma && !profileIsExpired && usePreloaded === null && (
-        <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}>
+        <div
+          className={`border rounded-xl overflow-hidden ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}
+        >
           <div className="p-4 space-y-3">
             <div className="flex items-start gap-2">
-              <ShieldCheck size={16} className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+              <ShieldCheck
+                size={16}
+                className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+              />
               <p className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
                 Existe una e.firma registrada en tu perfil, ¿deseas utilizarla?
               </p>
@@ -839,26 +995,43 @@ function EfirmaFirmarFlow({
 
       {/* Expired warning — show directly if expired */}
       {hasProfileEfirma && profileIsExpired && usePreloaded === null && (
-        <div className={`flex items-start gap-2 rounded-lg p-3 border ${isDark ? 'bg-amber-900/20 border-amber-700' : 'bg-amber-50 border-amber-200'}`}>
+        <div
+          className={`flex items-start gap-2 rounded-lg p-3 border ${isDark ? 'bg-amber-900/20 border-amber-700' : 'bg-amber-50 border-amber-200'}`}
+        >
           <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
           <div>
-            <p className={`text-xs font-medium ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>La e.firma registrada en tu perfil está vencida.</p>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>Carga una nueva e.firma vigente para continuar.</p>
+            <p className={`text-xs font-medium ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+              La e.firma registrada en tu perfil está vencida.
+            </p>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+              Carga una nueva e.firma vigente para continuar.
+            </p>
           </div>
         </div>
       )}
 
       {/* ── STEP 2A: Using preloaded e.firma — show data card ──────────────── */}
       {usePreloaded === true && hasProfileEfirma && (
-        <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}>
-          <div className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}>
+        <div
+          className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
+        >
+          <div
+            className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}
+          >
             <div className="flex items-center gap-2">
               <Shield size={13} className="text-primary" />
-              <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}>E.FIRMA REGISTRADA EN PERFIL</p>
+              <p
+                className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+              >
+                E.FIRMA REGISTRADA EN PERFIL
+              </p>
             </div>
             <button
               type="button"
-              onClick={() => { setUsePreloaded(null); setValidationError(''); }}
+              onClick={() => {
+                setUsePreloaded(null);
+                setValidationError('');
+              }}
               className={`text-xs underline ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-muted-foreground hover:text-foreground'}`}
             >
               Cambiar
@@ -867,24 +1040,54 @@ function EfirmaFirmarFlow({
           <div className={`p-4 space-y-3 ${isDark ? 'bg-gray-800' : ''}`}>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <p className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>RFC</p>
-                <p className={`text-sm font-mono font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{profileEfirma?.rfc || '—'}</p>
+                <p
+                  className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                >
+                  RFC
+                </p>
+                <p
+                  className={`text-sm font-mono font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                >
+                  {profileEfirma?.rfc || '—'}
+                </p>
               </div>
               <div>
-                <p className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>NO. DE SERIE</p>
-                <p className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-slate-600'} truncate`}>{profileEfirma?.serial || '—'}</p>
+                <p
+                  className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                >
+                  NO. DE SERIE
+                </p>
+                <p
+                  className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-slate-600'} truncate`}
+                >
+                  {profileEfirma?.serial || '—'}
+                </p>
               </div>
               {profileEfirma?.nombre && (
                 <div className="col-span-2">
-                  <p className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>TITULAR</p>
-                  <p className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{profileEfirma.nombre}</p>
+                  <p
+                    className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                  >
+                    TITULAR
+                  </p>
+                  <p className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
+                    {profileEfirma.nombre}
+                  </p>
                 </div>
               )}
               {profileEfirma?.vigenciaFin && (
                 <div className="col-span-2">
-                  <p className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>VIGENCIA</p>
+                  <p
+                    className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                  >
+                    VIGENCIA
+                  </p>
                   <p className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
-                    {new Date(profileEfirma.vigenciaFin).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    {new Date(profileEfirma.vigenciaFin).toLocaleDateString('es-MX', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })}
                   </p>
                 </div>
               )}
@@ -902,9 +1105,13 @@ function EfirmaFirmarFlow({
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {validating ? (
-                <><Loader2 size={14} className="animate-spin" /> Validando ante SAT...</>
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Validando ante SAT...
+                </>
               ) : (
-                <><Shield size={14} /> Validar e.firma y firmar</>
+                <>
+                  <Shield size={14} /> Validar e.firma y firmar
+                </>
               )}
             </button>
           </div>
@@ -912,23 +1119,44 @@ function EfirmaFirmarFlow({
       )}
 
       {/* ── STEP 2B: User rejected preloaded — show info notice ────────────── */}
-      {(usePreloaded === false || (!hasProfileEfirma) || profileIsExpired) && !noticeAccepted && (
-        <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}>
-          <div className={`px-4 py-3 flex items-center gap-2 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}>
+      {(usePreloaded === false || !hasProfileEfirma || profileIsExpired) && !noticeAccepted && (
+        <div
+          className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
+        >
+          <div
+            className={`px-4 py-3 flex items-center gap-2 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}
+          >
             <Shield size={15} className="text-primary" />
-            <p className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Iniciar proceso de obtención de firma</p>
+            <p className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
+              Iniciar proceso de obtención de firma
+            </p>
           </div>
           <div className={`p-4 space-y-4 ${isDark ? 'bg-gray-800' : ''}`}>
             <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
-              Generamos automáticamente un registro del proceso para brindar plena validez legal a tu firma en el documento, por lo que se emitirá un registro de tiempo, dispositivo, ubicación y trazo de firma.
+              Generamos automáticamente un registro del proceso para brindar plena validez legal a
+              tu firma en el documento, por lo que se emitirá un registro de tiempo, dispositivo,
+              ubicación y trazo de firma.
             </p>
             {geoDenied && (
-              <div className={`flex items-start gap-3 p-3 rounded-lg border ${isDark ? 'bg-red-900/20 border-red-700/50' : 'bg-red-50 border-red-300'}`}>
-                <MapPin size={16} className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`} />
+              <div
+                className={`flex items-start gap-3 p-3 rounded-lg border ${isDark ? 'bg-red-900/20 border-red-700/50' : 'bg-red-50 border-red-300'}`}
+              >
+                <MapPin
+                  size={16}
+                  className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`}
+                />
                 <div>
-                  <p className={`text-xs font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}>Ubicación requerida para firmar</p>
-                  <p className={`text-xs mt-0.5 leading-relaxed ${isDark ? 'text-red-400/80' : 'text-red-600'}`}>
-                    Has bloqueado el acceso a tu ubicación. La ubicación es obligatoria para completar el proceso de firmado. Activa el permiso en la configuración de tu navegador y recarga la página para continuar.
+                  <p
+                    className={`text-xs font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}
+                  >
+                    Ubicación requerida para firmar
+                  </p>
+                  <p
+                    className={`text-xs mt-0.5 leading-relaxed ${isDark ? 'text-red-400/80' : 'text-red-600'}`}
+                  >
+                    Has bloqueado el acceso a tu ubicación. La ubicación es obligatoria para
+                    completar el proceso de firmado. Activa el permiso en la configuración de tu
+                    navegador y recarga la página para continuar.
                   </p>
                 </div>
               </div>
@@ -946,32 +1174,68 @@ function EfirmaFirmarFlow({
       )}
 
       {/* ── STEP 3: Upload form — shown after notice accepted ──────────────── */}
-      {(usePreloaded === false || (!hasProfileEfirma) || profileIsExpired) && noticeAccepted && (
-        <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}>
-          <div className={`px-4 py-2.5 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}>
-            <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Cargar archivos de e.firma</p>
+      {(usePreloaded === false || !hasProfileEfirma || profileIsExpired) && noticeAccepted && (
+        <div
+          className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
+        >
+          <div
+            className={`px-4 py-2.5 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}
+          >
+            <p
+              className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+            >
+              Cargar archivos de e.firma
+            </p>
           </div>
           <div className={`p-4 space-y-4 ${isDark ? 'bg-gray-800' : ''}`}>
             {/* .cer file */}
             <div>
-              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}>
+              <label
+                className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+              >
                 Certificado (.cer) <span className="text-red-500">*</span>
               </label>
-              <div className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${cerFile ? (isDark ? 'border-green-600 bg-green-900/20' : 'border-green-300 bg-green-50') : (isDark ? 'border-gray-600' : 'border-border')}`}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={cerFile ? 'text-green-500' : 'text-slate-400'}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <div
+                className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${cerFile ? (isDark ? 'border-green-600 bg-green-900/20' : 'border-green-300 bg-green-50') : isDark ? 'border-gray-600' : 'border-border'}`}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={cerFile ? 'text-green-500' : 'text-slate-400'}
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
                 <label className="flex-1 cursor-pointer">
-                  <span className={`text-xs ${cerFile ? (isDark ? 'text-green-400' : 'text-green-700') : (isDark ? 'text-gray-400' : 'text-muted-foreground')}`}>
+                  <span
+                    className={`text-xs ${cerFile ? (isDark ? 'text-green-400' : 'text-green-700') : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                  >
                     {cerFile ? cerFile.name : 'Seleccionar archivo .cer'}
                   </span>
                   <input
                     type="file"
                     accept=".cer"
                     className="hidden"
-                    onChange={(e) => { const f = e.target.files?.[0] || null; setCerFile(f); setCerLoaded(!!f); setValidationError(''); }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setCerFile(f);
+                      setCerLoaded(!!f);
+                      setValidationError('');
+                    }}
                   />
                 </label>
                 {cerFile && (
-                  <button type="button" onClick={() => setCerFile(null)} className="text-slate-400 hover:text-red-500 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setCerFile(null)}
+                    className="text-slate-400 hover:text-red-500 transition-colors"
+                  >
                     <X size={13} />
                   </button>
                 )}
@@ -979,24 +1243,51 @@ function EfirmaFirmarFlow({
             </div>
             {/* .key file */}
             <div>
-              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}>
+              <label
+                className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+              >
                 Llave privada (.key) <span className="text-red-500">*</span>
               </label>
-              <div className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${keyFile ? (isDark ? 'border-green-600 bg-green-900/20' : 'border-green-300 bg-green-50') : (isDark ? 'border-gray-600' : 'border-border')}`}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={keyFile ? 'text-green-500' : 'text-slate-400'}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+              <div
+                className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${keyFile ? (isDark ? 'border-green-600 bg-green-900/20' : 'border-green-300 bg-green-50') : isDark ? 'border-gray-600' : 'border-border'}`}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={keyFile ? 'text-green-500' : 'text-slate-400'}
+                >
+                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                </svg>
                 <label className="flex-1 cursor-pointer">
-                  <span className={`text-xs ${keyFile ? (isDark ? 'text-green-400' : 'text-green-700') : (isDark ? 'text-gray-400' : 'text-muted-foreground')}`}>
+                  <span
+                    className={`text-xs ${keyFile ? (isDark ? 'text-green-400' : 'text-green-700') : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                  >
                     {keyFile ? keyFile.name : 'Seleccionar archivo .key'}
                   </span>
                   <input
                     type="file"
                     accept=".key"
                     className="hidden"
-                    onChange={(e) => { const f = e.target.files?.[0] || null; setKeyFile(f); setKeyLoaded(!!f); setValidationError(''); }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setKeyFile(f);
+                      setKeyLoaded(!!f);
+                      setValidationError('');
+                    }}
                   />
                 </label>
                 {keyFile && (
-                  <button type="button" onClick={() => setKeyFile(null)} className="text-slate-400 hover:text-red-500 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setKeyFile(null)}
+                    className="text-slate-400 hover:text-red-500 transition-colors"
+                  >
                     <X size={13} />
                   </button>
                 )}
@@ -1004,20 +1295,25 @@ function EfirmaFirmarFlow({
             </div>
             {/* Password */}
             <div>
-              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}>
+              <label
+                className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+              >
                 Contraseña de la llave privada <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => { setPassword(e.target.value); setValidationError(''); }}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setValidationError('');
+                  }}
                   placeholder="Contraseña e.Firma"
                   className={`w-full pr-9 pl-3 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200 placeholder-gray-500' : 'bg-background border-border'}`}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(v => !v)}
+                  onClick={() => setShowPassword((v) => !v)}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
                   {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -1037,12 +1333,18 @@ function EfirmaFirmarFlow({
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {validating ? (
-                <><Loader2 size={14} className="animate-spin" /> Validando ante SAT...</>
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Validando ante SAT...
+                </>
               ) : (
-                <><Shield size={14} /> Validar e.firma y firmar</>
+                <>
+                  <Shield size={14} /> Validar e.firma y firmar
+                </>
               )}
             </button>
-            <p className={`text-[10px] text-center ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>
+            <p
+              className={`text-[10px] text-center ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+            >
               La contraseña se usa únicamente para descifrar la llave y no se almacena.
             </p>
           </div>
@@ -1055,11 +1357,21 @@ function EfirmaFirmarFlow({
 // ─── PDF Canvas ───────────────────────────────────────────────────────────────
 
 declare global {
-  interface Window { pdfjsLib: any; }
+  interface Window {
+    pdfjsLib: any;
+  }
 }
 
-function PdfCanvas({ fileUrl, page, zoom, onTotalPages }: {
-  fileUrl: string; page: number; zoom: number; onTotalPages: (n: number) => void;
+function PdfCanvas({
+  fileUrl,
+  page,
+  zoom,
+  onTotalPages,
+}: {
+  fileUrl: string;
+  page: number;
+  zoom: number;
+  onTotalPages: (n: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
@@ -1107,7 +1419,11 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages }: {
       const pageNum = Math.max(1, Math.min(page, pdfDoc.numPages));
       const pdfPage = await pdfDoc.getPage(pageNum);
       if (renderTaskRef.current) {
-        try { renderTaskRef.current.cancel(); } catch (_) {}
+        try {
+          renderTaskRef.current.cancel();
+        } catch (_) {
+          /* Render was already settled. */
+        }
         renderTaskRef.current = null;
       }
       const canvas = canvasRef.current;
@@ -1130,9 +1446,18 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages }: {
   }, [fileUrl, page, zoom, onTotalPages]);
 
   useEffect(() => {
-    renderPage();
+    const renderFrame = window.requestAnimationFrame(() => {
+      void renderPage();
+    });
     return () => {
-      if (renderTaskRef.current) { try { renderTaskRef.current.cancel(); } catch (_) {} }
+      window.cancelAnimationFrame(renderFrame);
+      if (renderTaskRef.current) {
+        try {
+          renderTaskRef.current.cancel();
+        } catch (_) {
+          /* Render was already settled. */
+        }
+      }
     };
   }, [renderPage]);
 
@@ -1157,7 +1482,11 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages }: {
 
 // ─── Signature Pad ────────────────────────────────────────────────────────────
 
-function SignaturePad({ onSave, onClear, existingSignature }: {
+function SignaturePad({
+  onSave,
+  onClear,
+  existingSignature,
+}: {
   onSave: (dataUrl: string) => void;
   onClear: () => void;
   existingSignature?: string;
@@ -1248,8 +1577,10 @@ function SignaturePad({ onSave, onClear, existingSignature }: {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="relative border-2 border-dashed border-slate-300 rounded-xl bg-white overflow-hidden"
-        style={{ touchAction: 'none' }}>
+      <div
+        className="relative border-2 border-dashed border-slate-300 rounded-xl bg-white overflow-hidden"
+        style={{ touchAction: 'none' }}
+      >
         <canvas
           ref={canvasRef}
           width={600}
@@ -1301,16 +1632,72 @@ function SignaturePad({ onSave, onClear, existingSignature }: {
 
 function CampoIcon({ tipo }: { tipo?: string }) {
   switch (tipo) {
-    case 'firma': return <PenLine size={13} className="text-slate-400" />;
-    case 'numero': return <Hash size={13} className="text-slate-400" />;
-    case 'fecha': return <Calendar size={13} className="text-slate-400" />;
-    case 'hora': return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
-    case 'moneda': return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>;
-    case 'imagen': return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>;
-    case 'checkbox': return <ToggleLeft size={13} className="text-slate-400" />;
-    case 'dropdown': return <List size={13} className="text-slate-400" />;
-    case 'radio': return <Circle size={13} className="text-slate-400" />;
-    default: return <Type size={13} className="text-slate-400" />;
+    case 'firma':
+      return <PenLine size={13} className="text-slate-400" />;
+    case 'numero':
+      return <Hash size={13} className="text-slate-400" />;
+    case 'fecha':
+      return <Calendar size={13} className="text-slate-400" />;
+    case 'hora':
+      return (
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-slate-400"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="12 6 12 12 16 14" />
+        </svg>
+      );
+    case 'moneda':
+      return (
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-slate-400"
+        >
+          <line x1="12" y1="1" x2="12" y2="23" />
+          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+        </svg>
+      );
+    case 'imagen':
+      return (
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-slate-400"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+      );
+    case 'checkbox':
+      return <ToggleLeft size={13} className="text-slate-400" />;
+    case 'dropdown':
+      return <List size={13} className="text-slate-400" />;
+    case 'radio':
+      return <Circle size={13} className="text-slate-400" />;
+    default:
+      return <Type size={13} className="text-slate-400" />;
   }
 }
 
@@ -1318,22 +1705,38 @@ function CampoIcon({ tipo }: { tipo?: string }) {
 
 function CampoPersonalizadoIcon({ tipo }: { tipo?: string }) {
   switch (tipo) {
-    case 'firma': return <PenLine size={13} className="text-slate-400" />;
-    case 'nombre_completo': return <User size={13} className="text-slate-400" />;
-    case 'rfc': return <FileText size={13} className="text-slate-400" />;
-    case 'curp': return <UserCheck size={13} className="text-slate-400" />;
-    case 'correo': return <Mail size={13} className="text-slate-400" />;
-    case 'telefono': return <Phone size={13} className="text-slate-400" />;
-    case 'direccion': return <MapPin size={13} className="text-slate-400" />;
-    case 'numero': return <Hash size={13} className="text-slate-400" />;
-    case 'moneda': return <DollarSign size={13} className="text-slate-400" />;
-    case 'fecha': return <Calendar size={13} className="text-slate-400" />;
-    case 'hora': return <Clock size={13} className="text-slate-400" />;
-    case 'checkbox': return <CheckSquare size={13} className="text-slate-400" />;
-    case 'dropdown': return <List size={13} className="text-slate-400" />;
-    case 'radio': return <Circle size={13} className="text-slate-400" />;
-    case 'imagen': return <ImageIcon size={13} className="text-slate-400" />;
-    default: return <Type size={13} className="text-slate-400" />;
+    case 'firma':
+      return <PenLine size={13} className="text-slate-400" />;
+    case 'nombre_completo':
+      return <User size={13} className="text-slate-400" />;
+    case 'rfc':
+      return <FileText size={13} className="text-slate-400" />;
+    case 'curp':
+      return <UserCheck size={13} className="text-slate-400" />;
+    case 'correo':
+      return <Mail size={13} className="text-slate-400" />;
+    case 'telefono':
+      return <Phone size={13} className="text-slate-400" />;
+    case 'direccion':
+      return <MapPin size={13} className="text-slate-400" />;
+    case 'numero':
+      return <Hash size={13} className="text-slate-400" />;
+    case 'moneda':
+      return <DollarSign size={13} className="text-slate-400" />;
+    case 'fecha':
+      return <Calendar size={13} className="text-slate-400" />;
+    case 'hora':
+      return <Clock size={13} className="text-slate-400" />;
+    case 'checkbox':
+      return <CheckSquare size={13} className="text-slate-400" />;
+    case 'dropdown':
+      return <List size={13} className="text-slate-400" />;
+    case 'radio':
+      return <Circle size={13} className="text-slate-400" />;
+    case 'imagen':
+      return <ImageIcon size={13} className="text-slate-400" />;
+    default:
+      return <Type size={13} className="text-slate-400" />;
   }
 }
 
@@ -1374,28 +1777,78 @@ function FieldLabelConfigModalFirmar({
   const [customName, setCustomName] = useState(fieldConfig?.customName ?? label);
   const [showLabel, setShowLabel] = useState(fieldConfig?.showLabelInDocument ?? false);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex items-start justify-between mb-1">
           <h3 className="text-lg font-bold text-gray-900">Configuración del Campo</h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"><X size={18} /></button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <p className="text-sm text-gray-500 mb-5">Personaliza el nombre y la visibilidad de la etiqueta para este campo.</p>
+        <p className="text-sm text-gray-500 mb-5">
+          Personaliza el nombre y la visibilidad de la etiqueta para este campo.
+        </p>
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Nombre del Campo <span className="text-red-500">*</span></label>
-          <input type="text" value={customName} onChange={(e) => setCustomName(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" placeholder={label} autoFocus />
-          <p className="mt-1.5 text-xs text-primary">Este nombre identificará el campo en los reportes y validaciones.</p>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Nombre del Campo <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            placeholder={label}
+            autoFocus
+          />
+          <p className="mt-1.5 text-xs text-primary">
+            Este nombre identificará el campo en los reportes y validaciones.
+          </p>
         </div>
         <label className="flex items-start gap-3 border border-gray-200 rounded-lg px-4 py-3.5 cursor-pointer hover:bg-gray-50 transition-colors mb-6">
-          <input type="checkbox" checked={showLabel} onChange={(e) => setShowLabel(e.target.checked)} className="w-4 h-4 rounded accent-primary cursor-pointer mt-0.5" />
+          <input
+            type="checkbox"
+            checked={showLabel}
+            onChange={(e) => setShowLabel(e.target.checked)}
+            className="w-4 h-4 rounded accent-primary cursor-pointer mt-0.5"
+          />
           <div>
             <p className="text-sm font-semibold text-gray-800">Mostrar etiqueta en el documento</p>
-            <p className="text-xs text-gray-500 mt-0.5">Si activas esta opción, el nombre del campo aparecerá visiblemente encima del elemento en el PDF final.</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Si activas esta opción, el nombre del campo aparecerá visiblemente encima del elemento
+              en el PDF final.
+            </p>
           </div>
         </label>
         <div className="flex items-center justify-end gap-3">
-          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Cancelar</button>
-          <button type="button" onClick={() => { onSave({ customName: customName.trim() || label, showLabelInDocument: showLabel }); onClose(); }} className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors">Guardar Cambios</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onSave({ customName: customName.trim() || label, showLabelInDocument: showLabel });
+              onClose();
+            }}
+            className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
+          >
+            Guardar Cambios
+          </button>
         </div>
       </div>
     </div>
@@ -1434,27 +1887,58 @@ function FieldTypeConfigModalFirmar({
   const handleSave = () => {
     const result: FieldTypeConfig = {};
     if (isImagen) result.imageType = imageType;
-    if (isNumero) { result.decimals = decimals; result.numberFormat = numberFormat; }
-    if (isMoneda) { result.currency = currency; result.currencySymbol = currencySymbol; }
+    if (isNumero) {
+      result.decimals = decimals;
+      result.numberFormat = numberFormat;
+    }
+    if (isMoneda) {
+      result.currency = currency;
+      result.currencySymbol = currencySymbol;
+    }
     if (isFecha) result.dateFormat = dateFormat;
-    if (isHora) { result.timeFormat = timeFormat; result.timeWithSeconds = timeWithSeconds; }
+    if (isHora) {
+      result.timeFormat = timeFormat;
+      result.timeWithSeconds = timeWithSeconds;
+    }
     onSave(result);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex items-start justify-between mb-1">
           <h3 className="text-lg font-bold text-gray-900">Configuración de {label}</h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"><X size={18} /></button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <p className="text-sm text-gray-500 mb-5">Configura las opciones específicas para este tipo de campo.</p>
+        <p className="text-sm text-gray-500 mb-5">
+          Configura las opciones específicas para este tipo de campo.
+        </p>
         <div className="space-y-4 mb-6">
           {isImagen && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Tipo de imagen</label>
-              <select value={imageType} onChange={(e) => setImageType(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Tipo de imagen
+              </label>
+              <select
+                value={imageType}
+                onChange={(e) => setImageType(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+              >
                 <option value="foto">Fotografía</option>
                 <option value="firma_imagen">Firma como imagen</option>
                 <option value="logo">Logotipo</option>
@@ -1466,8 +1950,14 @@ function FieldTypeConfigModalFirmar({
           {isNumero && (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Formato de número</label>
-                <select value={numberFormat} onChange={(e) => setNumberFormat(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Formato de número
+                </label>
+                <select
+                  value={numberFormat}
+                  onChange={(e) => setNumberFormat(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+                >
                   <option value="entero">Entero (sin decimales)</option>
                   <option value="decimal">Decimal</option>
                   <option value="porcentaje">Porcentaje (%)</option>
@@ -1475,9 +1965,19 @@ function FieldTypeConfigModalFirmar({
               </div>
               {numberFormat === 'decimal' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Decimales</label>
-                  <select value={decimals} onChange={(e) => setDecimals(Number(e.target.value))} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
-                    {[0, 1, 2, 3, 4].map((d) => <option key={d} value={d}>{d} decimal{d !== 1 ? 'es' : ''}</option>)}
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Decimales
+                  </label>
+                  <select
+                    value={decimals}
+                    onChange={(e) => setDecimals(Number(e.target.value))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+                  >
+                    {[0, 1, 2, 3, 4].map((d) => (
+                      <option key={d} value={d}>
+                        {d} decimal{d !== 1 ? 'es' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}
@@ -1486,12 +1986,25 @@ function FieldTypeConfigModalFirmar({
           {isMoneda && (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Tipo de moneda</label>
-                <select value={currency} onChange={(e) => {
-                  setCurrency(e.target.value);
-                  const symbols: Record<string, string> = { MXN: '$', USD: '$', EUR: '€', GBP: '£', CAD: 'CA$', otro: '' };
-                  setCurrencySymbol(symbols[e.target.value] ?? '');
-                }} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Tipo de moneda
+                </label>
+                <select
+                  value={currency}
+                  onChange={(e) => {
+                    setCurrency(e.target.value);
+                    const symbols: Record<string, string> = {
+                      MXN: '$',
+                      USD: '$',
+                      EUR: '€',
+                      GBP: '£',
+                      CAD: 'CA$',
+                      otro: '',
+                    };
+                    setCurrencySymbol(symbols[e.target.value] ?? '');
+                  }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+                >
                   <option value="MXN">MXN — Peso Mexicano</option>
                   <option value="USD">USD — Dólar Estadounidense</option>
                   <option value="EUR">EUR — Euro</option>
@@ -1501,15 +2014,30 @@ function FieldTypeConfigModalFirmar({
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Símbolo de moneda</label>
-                <input type="text" value={currencySymbol} onChange={(e) => setCurrencySymbol(e.target.value)} maxLength={5} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30" placeholder="$" />
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Símbolo de moneda
+                </label>
+                <input
+                  type="text"
+                  value={currencySymbol}
+                  onChange={(e) => setCurrencySymbol(e.target.value)}
+                  maxLength={5}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="$"
+                />
               </div>
             </>
           )}
           {isFecha && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Formato de fecha</label>
-              <select value={dateFormat} onChange={(e) => setDateFormat(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Formato de fecha
+              </label>
+              <select
+                value={dateFormat}
+                onChange={(e) => setDateFormat(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+              >
                 <option value="DD/MM/YYYY">DD/MM/YYYY (ej. 31/12/2025)</option>
                 <option value="MM/DD/YYYY">MM/DD/YYYY (ej. 12/31/2025)</option>
                 <option value="YYYY-MM-DD">YYYY-MM-DD (ej. 2025-12-31)</option>
@@ -1521,22 +2049,45 @@ function FieldTypeConfigModalFirmar({
           {isHora && (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Formato de hora</label>
-                <select value={timeFormat} onChange={(e) => setTimeFormat(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Formato de hora
+                </label>
+                <select
+                  value={timeFormat}
+                  onChange={(e) => setTimeFormat(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+                >
                   <option value="24h">24 horas (ej. 14:30)</option>
                   <option value="12h">12 horas AM/PM (ej. 2:30 PM)</option>
                 </select>
               </div>
               <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={timeWithSeconds} onChange={(e) => setTimeWithSeconds(e.target.checked)} className="w-4 h-4 rounded accent-primary cursor-pointer" />
+                <input
+                  type="checkbox"
+                  checked={timeWithSeconds}
+                  onChange={(e) => setTimeWithSeconds(e.target.checked)}
+                  className="w-4 h-4 rounded accent-primary cursor-pointer"
+                />
                 <span className="text-sm text-gray-700">Incluir segundos</span>
               </label>
             </>
           )}
         </div>
         <div className="flex items-center justify-end gap-3">
-          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Cancelar</button>
-          <button type="button" onClick={handleSave} className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors">Guardar Cambios</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
+          >
+            Guardar Cambios
+          </button>
         </div>
       </div>
     </div>
@@ -1544,8 +2095,20 @@ function FieldTypeConfigModalFirmar({
 }
 
 // ─── Dropdown Options Modal ───────────────────────────────────────────────────
-function DropdownOptionsModalFirmar({ fieldLabel, options, onSave, onClose }: { fieldLabel: string; options: string[]; onSave: (opts: string[]) => void; onClose: () => void }) {
-  const [localOptions, setLocalOptions] = useState<string[]>(options.length > 0 ? [...options] : ['Opción A', 'Opción B']);
+function DropdownOptionsModalFirmar({
+  fieldLabel,
+  options,
+  onSave,
+  onClose,
+}: {
+  fieldLabel: string;
+  options: string[];
+  onSave: (opts: string[]) => void;
+  onClose: () => void;
+}) {
+  const [localOptions, setLocalOptions] = useState<string[]>(
+    options.length > 0 ? [...options] : ['Opción A', 'Opción B']
+  );
   const [newOption, setNewOption] = useState('');
 
   const handleAdd = () => {
@@ -1556,7 +2119,10 @@ function DropdownOptionsModalFirmar({ fieldLabel, options, onSave, onClose }: { 
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { e.preventDefault(); handleAdd(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAdd();
+    }
   };
 
   const handleRemove = (idx: number) => {
@@ -1568,30 +2134,85 @@ function DropdownOptionsModalFirmar({ fieldLabel, options, onSave, onClose }: { 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-lg font-bold text-gray-900">Editar Opciones para &quot;{fieldLabel}&quot;</h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"><X size={18} /></button>
+          <h3 className="text-lg font-bold text-gray-900">
+            Editar Opciones para &quot;{fieldLabel}&quot;
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <p className="text-sm text-gray-500 mb-5">Define las opciones que el participante podrá seleccionar.</p>
+        <p className="text-sm text-gray-500 mb-5">
+          Define las opciones que el participante podrá seleccionar.
+        </p>
         <div className="space-y-2 mb-4">
           {localOptions.map((opt, idx) => (
             <div key={idx} className="flex items-center gap-2">
-              <input type="text" value={opt} onChange={(e) => handleChange(idx, e.target.value)} className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-              <button type="button" onClick={() => handleRemove(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><X size={16} /></button>
+              <input
+                type="text"
+                value={opt}
+                onChange={(e) => handleChange(idx, e.target.value)}
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={() => handleRemove(idx)}
+                className="text-gray-400 hover:text-red-500 transition-colors p-1"
+              >
+                <X size={16} />
+              </button>
             </div>
           ))}
         </div>
         <div className="flex items-center gap-2 mb-6">
-          <input type="text" value={newOption} onChange={(e) => setNewOption(e.target.value)} onKeyDown={handleKeyDown} placeholder="Nueva opción" className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-500 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-          <button type="button" onClick={handleAdd} className="w-10 h-10 flex items-center justify-center bg-primary hover:bg-primary/90 text-white rounded-lg transition-colors shrink-0">
+          <input
+            type="text"
+            value={newOption}
+            onChange={(e) => setNewOption(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Nueva opción"
+            className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-500 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+          />
+          <button
+            type="button"
+            onClick={handleAdd}
+            className="w-10 h-10 flex items-center justify-center bg-primary hover:bg-primary/90 text-white rounded-lg transition-colors shrink-0"
+          >
             <Plus size={18} />
           </button>
         </div>
         <div className="flex items-center justify-end gap-3">
-          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Cancelar</button>
-          <button type="button" onClick={() => { onSave(localOptions.filter((o) => o.trim() !== '')); onClose(); }} className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors">Guardar Cambios</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onSave(localOptions.filter((o) => o.trim() !== ''));
+              onClose();
+            }}
+            className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
+          >
+            Guardar Cambios
+          </button>
         </div>
       </div>
     </div>
@@ -1599,23 +2220,71 @@ function DropdownOptionsModalFirmar({ fieldLabel, options, onSave, onClose }: { 
 }
 
 // ─── Casilla Label Modal ──────────────────────────────────────────────────────
-function CasillaLabelModalFirmar({ currentLabel, onSave, onClose }: { currentLabel: string; onSave: (label: string) => void; onClose: () => void }) {
+function CasillaLabelModalFirmar({
+  currentLabel,
+  onSave,
+  onClose,
+}: {
+  currentLabel: string;
+  onSave: (label: string) => void;
+  onClose: () => void;
+}) {
   const [label, setLabel] = useState(currentLabel || 'Etiqueta de casilla');
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-lg font-bold text-gray-900">Editar Etiqueta para &quot;Casilla&quot;</h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"><X size={18} /></button>
+          <h3 className="text-lg font-bold text-gray-900">
+            Editar Etiqueta para &quot;Casilla&quot;
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <p className="text-sm text-gray-500 mb-5">Define la etiqueta que se mostrará junto a la casilla de verificación.</p>
+        <p className="text-sm text-gray-500 mb-5">
+          Define la etiqueta que se mostrará junto a la casilla de verificación.
+        </p>
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">Etiqueta</label>
-          <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" placeholder="Etiqueta de casilla" autoFocus />
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            placeholder="Etiqueta de casilla"
+            autoFocus
+          />
         </div>
         <div className="flex items-center justify-end gap-3">
-          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Cancelar</button>
-          <button type="button" onClick={() => { onSave(label.trim() || 'Casilla'); onClose(); }} className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors">Guardar Cambios</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onSave(label.trim() || 'Casilla');
+              onClose();
+            }}
+            className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
+          >
+            Guardar Cambios
+          </button>
         </div>
       </div>
     </div>
@@ -1663,15 +2332,21 @@ function PlacedFieldOverlay({
 
   // Sync font/style state when field.fieldTypeConfig changes (e.g. after DB load)
   useEffect(() => {
-    if (field.fieldTypeConfig?.fontFamily) setFontFamily(field.fieldTypeConfig.fontFamily);
-    if (field.fieldTypeConfig?.fontSize) setFontSize(field.fieldTypeConfig.fontSize);
-    if (field.fieldTypeConfig?.bold !== undefined) setBold(field.fieldTypeConfig.bold);
-    if (field.fieldTypeConfig?.italic !== undefined) setItalic(field.fieldTypeConfig.italic);
-    if (field.fieldTypeConfig?.underline !== undefined) setUnderline(field.fieldTypeConfig.underline);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const syncFrame = window.requestAnimationFrame(() => {
+      if (field.fieldTypeConfig?.fontFamily) setFontFamily(field.fieldTypeConfig.fontFamily);
+      if (field.fieldTypeConfig?.fontSize) setFontSize(field.fieldTypeConfig.fontSize);
+      if (field.fieldTypeConfig?.bold !== undefined) setBold(field.fieldTypeConfig.bold);
+      if (field.fieldTypeConfig?.italic !== undefined) setItalic(field.fieldTypeConfig.italic);
+      if (field.fieldTypeConfig?.underline !== undefined)
+        setUnderline(field.fieldTypeConfig.underline);
+    });
+    return () => window.cancelAnimationFrame(syncFrame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [field.id]);
 
-  const hasTypeConfigOption = ['Número', 'Moneda', 'Fecha', 'Hora'].includes(field.label) || ['numero', 'moneda', 'fecha', 'hora'].includes(field.tipo);
+  const hasTypeConfigOption =
+    ['Número', 'Moneda', 'Fecha', 'Hora'].includes(field.label) ||
+    ['numero', 'moneda', 'fecha', 'hora'].includes(field.tipo);
   const isDropdown = field.label === 'Desplegable' || field.tipo === 'dropdown';
   const isRadio = field.label === 'Botones de opción' || field.tipo === 'radio';
   const isCasilla = field.label === 'Casilla' || field.tipo === 'checkbox';
@@ -1680,8 +2355,14 @@ function PlacedFieldOverlay({
   const displayName = field.fieldConfig?.customName || field.label;
   const displayValue = field.value || displayName;
 
-  const dropdownOptions = field.dropdownOptions && field.dropdownOptions.length > 0 ? field.dropdownOptions : ['Opción A', 'Opción B'];
-  const radioOptions = field.radioOptions && field.radioOptions.length > 0 ? field.radioOptions : ['Opción 1', 'Opción 2'];
+  const dropdownOptions =
+    field.dropdownOptions && field.dropdownOptions.length > 0
+      ? field.dropdownOptions
+      : ['Opción A', 'Opción B'];
+  const radioOptions =
+    field.radioOptions && field.radioOptions.length > 0
+      ? field.radioOptions
+      : ['Opción 1', 'Opción 2'];
 
   // Load Google Fonts once
   useEffect(() => {
@@ -1690,13 +2371,102 @@ function PlacedFieldOverlay({
     const link = document.createElement('link');
     link.id = linkId;
     link.rel = 'stylesheet';
-    link.href = 'https://fonts.googleapis.com/css2?family=Roboto&family=Open+Sans&family=Lato&family=Montserrat&family=Raleway&family=Nunito&family=Poppins&family=Source+Sans+3&family=Merriweather&family=Playfair+Display&family=Oswald&family=PT+Sans&family=PT+Serif&family=Ubuntu&family=Noto+Sans&family=Libre+Baskerville&family=Crimson+Text&family=EB+Garamond&family=Josefin+Sans&family=Quicksand&family=Mulish&family=Barlow&family=Inter&family=DM+Sans&family=Fira+Sans&family=Cabin&family=Exo+2&family=Titillium+Web&family=Zilla+Slab&family=Spectral&family=Cormorant+Garamond&family=Alegreya&family=Lora&family=Arvo&family=Bitter&family=Karla&family=Rubik&family=Work+Sans&family=Manrope&family=Space+Grotesk&family=Plus+Jakarta+Sans&family=Sora&family=Outfit&family=Figtree&family=Lexend&family=Jost&family=Urbanist&family=Archivo&family=Asap&family=Heebo&family=Hind&family=Varela+Round&family=Comfortaa&family=Pacifico&family=Dancing+Script&family=Caveat&family=Sacramento&family=Great+Vibes&family=Satisfy&family=Kaushan+Script&family=Lobster&family=Righteous&family=Fredoka+One&family=Boogaloo&family=Indie+Flower&family=Patrick+Hand&family=Shadows+Into+Light&family=Amatic+SC&family=Permanent+Marker&family=Rock+Salt&family=Special+Elite&family=Courier+Prime&family=Source+Code+Pro&family=Fira+Code&family=Space+Mono&family=Inconsolata&family=Anonymous+Pro&family=Share+Tech+Mono&display=swap';
+    link.href =
+      'https://fonts.googleapis.com/css2?family=Roboto&family=Open+Sans&family=Lato&family=Montserrat&family=Raleway&family=Nunito&family=Poppins&family=Source+Sans+3&family=Merriweather&family=Playfair+Display&family=Oswald&family=PT+Sans&family=PT+Serif&family=Ubuntu&family=Noto+Sans&family=Libre+Baskerville&family=Crimson+Text&family=EB+Garamond&family=Josefin+Sans&family=Quicksand&family=Mulish&family=Barlow&family=Inter&family=DM+Sans&family=Fira+Sans&family=Cabin&family=Exo+2&family=Titillium+Web&family=Zilla+Slab&family=Spectral&family=Cormorant+Garamond&family=Alegreya&family=Lora&family=Arvo&family=Bitter&family=Karla&family=Rubik&family=Work+Sans&family=Manrope&family=Space+Grotesk&family=Plus+Jakarta+Sans&family=Sora&family=Outfit&family=Figtree&family=Lexend&family=Jost&family=Urbanist&family=Archivo&family=Asap&family=Heebo&family=Hind&family=Varela+Round&family=Comfortaa&family=Pacifico&family=Dancing+Script&family=Caveat&family=Sacramento&family=Great+Vibes&family=Satisfy&family=Kaushan+Script&family=Lobster&family=Righteous&family=Fredoka+One&family=Boogaloo&family=Indie+Flower&family=Patrick+Hand&family=Shadows+Into+Light&family=Amatic+SC&family=Permanent+Marker&family=Rock+Salt&family=Special+Elite&family=Courier+Prime&family=Source+Code+Pro&family=Fira+Code&family=Space+Mono&family=Inconsolata&family=Anonymous+Pro&family=Share+Tech+Mono&display=swap';
     document.head.appendChild(link);
   }, []);
 
   const fontFamilies = [
-    'Arial', 'Arial Black', 'Times New Roman', 'Georgia', 'Garamond', 'Courier New', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Impact', 'Helvetica', 'Palatino',
-    'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Raleway', 'Nunito', 'Poppins', 'Source Sans 3', 'Merriweather', 'Playfair Display', 'Oswald', 'PT Sans', 'PT Serif', 'Ubuntu', 'Noto Sans', 'Libre Baskerville', 'Crimson Text', 'EB Garamond', 'Josefin Sans', 'Quicksand', 'Mulish', 'Barlow', 'Inter', 'DM Sans', 'Fira Sans', 'Cabin', 'Exo 2', 'Titillium Web', 'Zilla Slab', 'Spectral', 'Cormorant Garamond', 'Alegreya', 'Lora', 'Arvo', 'Bitter', 'Karla', 'Rubik', 'Work Sans', 'Manrope', 'Space Grotesk', 'Plus Jakarta Sans', 'Sora', 'Outfit', 'Figtree', 'Lexend', 'Jost', 'Urbanist', 'Archivo', 'Asap', 'Heebo', 'Hind', 'Varela Round', 'Comfortaa', 'Pacifico', 'Dancing Script', 'Caveat', 'Sacramento', 'Great Vibes', 'Satisfy', 'Kaushan Script', 'Lobster', 'Righteous', 'Fredoka One', 'Boogaloo', 'Indie Flower', 'Patrick Hand', 'Shadows Into Light', 'Amatic SC', 'Permanent Marker', 'Rock Salt', 'Special Elite', 'Courier Prime', 'Source Code Pro', 'Fira Code', 'Space Mono', 'Inconsolata', 'Anonymous Pro', 'Share Tech Mono',
+    'Arial',
+    'Arial Black',
+    'Times New Roman',
+    'Georgia',
+    'Garamond',
+    'Courier New',
+    'Verdana',
+    'Tahoma',
+    'Trebuchet MS',
+    'Impact',
+    'Helvetica',
+    'Palatino',
+    'Roboto',
+    'Open Sans',
+    'Lato',
+    'Montserrat',
+    'Raleway',
+    'Nunito',
+    'Poppins',
+    'Source Sans 3',
+    'Merriweather',
+    'Playfair Display',
+    'Oswald',
+    'PT Sans',
+    'PT Serif',
+    'Ubuntu',
+    'Noto Sans',
+    'Libre Baskerville',
+    'Crimson Text',
+    'EB Garamond',
+    'Josefin Sans',
+    'Quicksand',
+    'Mulish',
+    'Barlow',
+    'Inter',
+    'DM Sans',
+    'Fira Sans',
+    'Cabin',
+    'Exo 2',
+    'Titillium Web',
+    'Zilla Slab',
+    'Spectral',
+    'Cormorant Garamond',
+    'Alegreya',
+    'Lora',
+    'Arvo',
+    'Bitter',
+    'Karla',
+    'Rubik',
+    'Work Sans',
+    'Manrope',
+    'Space Grotesk',
+    'Plus Jakarta Sans',
+    'Sora',
+    'Outfit',
+    'Figtree',
+    'Lexend',
+    'Jost',
+    'Urbanist',
+    'Archivo',
+    'Asap',
+    'Heebo',
+    'Hind',
+    'Varela Round',
+    'Comfortaa',
+    'Pacifico',
+    'Dancing Script',
+    'Caveat',
+    'Sacramento',
+    'Great Vibes',
+    'Satisfy',
+    'Kaushan Script',
+    'Lobster',
+    'Righteous',
+    'Fredoka One',
+    'Boogaloo',
+    'Indie Flower',
+    'Patrick Hand',
+    'Shadows Into Light',
+    'Amatic SC',
+    'Permanent Marker',
+    'Rock Salt',
+    'Special Elite',
+    'Courier Prime',
+    'Source Code Pro',
+    'Fira Code',
+    'Space Mono',
+    'Inconsolata',
+    'Anonymous Pro',
+    'Share Tech Mono',
   ];
 
   useEffect(() => {
@@ -1746,16 +2516,29 @@ function PlacedFieldOverlay({
     const container = getContainer(e.currentTarget as HTMLElement);
     if (!container) return;
     const rect = container.getBoundingClientRect();
-    const startX = e.clientX, startY = e.clientY;
-    const startW = field.width, startH = field.height, startFX = field.x, startFY = field.y;
+    const startX = e.clientX,
+      startY = e.clientY;
+    const startW = field.width,
+      startH = field.height,
+      startFX = field.x,
+      startFY = field.y;
     const onMouseMove = (ev: MouseEvent) => {
       const dx = ((ev.clientX - startX) / rect.width) * 100;
       const dy = ((ev.clientY - startY) / rect.height) * 100;
-      let newW = startW, newH = startH, newX = startFX, newY = startFY;
+      let newW = startW,
+        newH = startH,
+        newX = startFX,
+        newY = startFY;
       if (dir.includes('e')) newW = Math.max(5, startW + dx);
       if (dir.includes('s')) newH = Math.max(3, startH + dy);
-      if (dir.includes('w')) { newW = Math.max(5, startW - dx); newX = startFX + dx; }
-      if (dir.includes('n')) { newH = Math.max(3, startH - dy); newY = startFY + dy; }
+      if (dir.includes('w')) {
+        newW = Math.max(5, startW - dx);
+        newX = startFX + dx;
+      }
+      if (dir.includes('n')) {
+        newH = Math.max(3, startH - dy);
+        newY = startFY + dy;
+      }
       newX = Math.max(0, Math.min(100 - newW, newX));
       newY = Math.max(0, Math.min(100 - newH, newY));
       onResize(field.id, newW, newH, newX, newY);
@@ -1787,13 +2570,19 @@ function PlacedFieldOverlay({
       >
         {/* Label above field — always shown for readOnly prefixed fields */}
         {readOnly && (
-          <div className="absolute bottom-full left-0 mb-0.5 text-[8px] font-semibold px-1 py-0.5 rounded whitespace-nowrap pointer-events-none" style={{ color: colorHex, background: `${colorHex}18` }}>
+          <div
+            className="absolute bottom-full left-0 mb-0.5 text-[8px] font-semibold px-1 py-0.5 rounded whitespace-nowrap pointer-events-none"
+            style={{ color: colorHex, background: `${colorHex}18` }}
+          >
             {displayName}
           </div>
         )}
         {/* Custom name label above field */}
         {!readOnly && field.fieldConfig?.showLabelInDocument && (
-          <div className="absolute bottom-full left-0 mb-0.5 text-[8px] font-semibold px-1 py-0.5 rounded whitespace-nowrap pointer-events-none" style={{ color: colorHex, background: `${colorHex}18` }}>
+          <div
+            className="absolute bottom-full left-0 mb-0.5 text-[8px] font-semibold px-1 py-0.5 rounded whitespace-nowrap pointer-events-none"
+            style={{ color: colorHex, background: `${colorHex}18` }}
+          >
             {displayName}
           </div>
         )}
@@ -1809,12 +2598,20 @@ function PlacedFieldOverlay({
             {!isFirma && !isImagen && (
               <select
                 value={fontFamily}
-                onChange={(e) => { setFontFamily(e.target.value); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), fontFamily: e.target.value }); }}
+                onChange={(e) => {
+                  setFontFamily(e.target.value);
+                  onUpdateFieldTypeConfig?.(field.id, {
+                    ...(field.fieldTypeConfig || {}),
+                    fontFamily: e.target.value,
+                  });
+                }}
                 className="text-[10px] border border-gray-200 rounded px-1 py-0.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-teal-400 cursor-pointer"
                 style={{ maxWidth: '80px' }}
               >
                 {fontFamilies.map((f) => (
-                  <option key={f} value={f}>{f}</option>
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
                 ))}
               </select>
             )}
@@ -1823,11 +2620,19 @@ function PlacedFieldOverlay({
             {!isFirma && !isImagen && (
               <select
                 value={fontSize}
-                onChange={(e) => { setFontSize(Number(e.target.value)); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), fontSize: Number(e.target.value) }); }}
+                onChange={(e) => {
+                  setFontSize(Number(e.target.value));
+                  onUpdateFieldTypeConfig?.(field.id, {
+                    ...(field.fieldTypeConfig || {}),
+                    fontSize: Number(e.target.value),
+                  });
+                }}
                 className="text-[10px] border border-gray-200 rounded px-1 py-0.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-teal-400 cursor-pointer w-10"
               >
                 {[8, 9, 10, 11, 12, 14, 16, 18, 20, 24].map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             )}
@@ -1836,13 +2641,55 @@ function PlacedFieldOverlay({
 
             {/* Bold — hidden for Firma and Imagen */}
             {!isFirma && !isImagen && (
-              <button type="button" onClick={() => { const v = !bold; setBold(v); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), bold: v }); }} className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold transition-colors ${bold ? 'bg-teal-100 text-teal-700' : 'text-gray-600 hover:bg-gray-100'}`} title="Negrita">B</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const v = !bold;
+                  setBold(v);
+                  onUpdateFieldTypeConfig?.(field.id, {
+                    ...(field.fieldTypeConfig || {}),
+                    bold: v,
+                  });
+                }}
+                className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold transition-colors ${bold ? 'bg-teal-100 text-teal-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                title="Negrita"
+              >
+                B
+              </button>
             )}
             {!isFirma && !isImagen && (
-              <button type="button" onClick={() => { const v = !italic; setItalic(v); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), italic: v }); }} className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold italic transition-colors ${italic ? 'bg-teal-100 text-teal-700' : 'text-gray-600 hover:bg-gray-100'}`} title="Cursiva">I</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const v = !italic;
+                  setItalic(v);
+                  onUpdateFieldTypeConfig?.(field.id, {
+                    ...(field.fieldTypeConfig || {}),
+                    italic: v,
+                  });
+                }}
+                className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold italic transition-colors ${italic ? 'bg-teal-100 text-teal-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                title="Cursiva"
+              >
+                I
+              </button>
             )}
             {!isFirma && !isImagen && (
-              <button type="button" onClick={() => { const v = !underline; setUnderline(v); onUpdateFieldTypeConfig?.(field.id, { ...(field.fieldTypeConfig || {}), underline: v }); }} className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold underline transition-colors ${underline ? 'bg-teal-100 text-teal-700' : 'text-gray-600 hover:bg-gray-100'}`} title="Subrayado">U</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const v = !underline;
+                  setUnderline(v);
+                  onUpdateFieldTypeConfig?.(field.id, {
+                    ...(field.fieldTypeConfig || {}),
+                    underline: v,
+                  });
+                }}
+                className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold underline transition-colors ${underline ? 'bg-teal-100 text-teal-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                title="Subrayado"
+              >
+                U
+              </button>
             )}
 
             {!isFirma && !isImagen && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
@@ -1854,8 +2701,21 @@ function PlacedFieldOverlay({
               className="w-6 h-6 flex items-center justify-center rounded bg-red-500 hover:bg-red-600 text-white transition-colors"
               title="Eliminar campo"
             >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                <path d="M10 11v6" />
+                <path d="M14 11v6" />
+                <path d="M9 6V4h6v2" />
               </svg>
             </button>
 
@@ -1864,7 +2724,10 @@ function PlacedFieldOverlay({
             {/* Tag / Label config icon */}
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); setShowLabelModal(true); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowLabelModal(true);
+              }}
               className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:bg-gray-100 transition-colors"
               title="Configuración del campo"
             >
@@ -1882,7 +2745,13 @@ function PlacedFieldOverlay({
                   else if (hasTypeConfigOption) setShowTypeModal(true);
                 }}
                 className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:bg-gray-100 transition-colors"
-                title={isDropdown ? 'Configurar opciones del desplegable' : isRadio ? 'Configurar opciones de botones' : `Configuración de ${field.label}`}
+                title={
+                  isDropdown
+                    ? 'Configurar opciones del desplegable'
+                    : isRadio
+                      ? 'Configurar opciones de botones'
+                      : `Configuración de ${field.label}`
+                }
               >
                 <Settings size={12} />
               </button>
@@ -1892,7 +2761,10 @@ function PlacedFieldOverlay({
             {isCasilla && (
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); setShowCasillaModal(true); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCasillaModal(true);
+                }}
                 className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:bg-gray-100 transition-colors"
                 title="Editar etiqueta visible de la casilla"
               >
@@ -1906,24 +2778,54 @@ function PlacedFieldOverlay({
           <div
             onMouseDown={readOnly ? undefined : handleMoveMouseDown}
             className={`w-full h-full flex flex-col items-center justify-center select-none overflow-hidden relative ${readOnly ? 'cursor-default' : 'cursor-move'}`}
-            style={{ border: `1.5px dashed ${colorHex}`, borderRadius: '4px', background: `${colorHex}15` }}
+            style={{
+              border: `1.5px dashed ${colorHex}`,
+              borderRadius: '4px',
+              background: `${colorHex}15`,
+            }}
           >
             <PenLine size={12} style={{ color: colorHex }} className="mb-0.5 opacity-70" />
-            <span className="text-[9px] font-medium" style={{ color: colorHex }}>Firma</span>
+            <span className="text-[9px] font-medium" style={{ color: colorHex }}>
+              Firma
+            </span>
           </div>
         ) : isImagen ? (
           <div
             onMouseDown={readOnly ? undefined : handleMoveMouseDown}
             className={`w-full h-full flex flex-col items-center justify-center select-none overflow-hidden relative ${readOnly ? 'cursor-default' : 'cursor-move'}`}
-            style={{ border: `1.5px dashed ${colorHex}`, borderRadius: '4px', background: 'rgba(255,255,255,0.97)' }}
+            style={{
+              border: `1.5px dashed ${colorHex}`,
+              borderRadius: '4px',
+              background: 'rgba(255,255,255,0.97)',
+            }}
           >
             {field.value ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={field.value} alt="Imagen insertada" className="w-full h-full object-contain pointer-events-none" />
+              <img
+                src={field.value}
+                alt="Imagen insertada"
+                className="w-full h-full object-contain pointer-events-none"
+              />
             ) : (
               <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colorHex} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-0.5 opacity-70"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                <span className="text-[9px] font-medium" style={{ color: colorHex }}>Imagen</span>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colorHex}
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="mb-0.5 opacity-70"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+                <span className="text-[9px] font-medium" style={{ color: colorHex }}>
+                  Imagen
+                </span>
               </>
             )}
           </div>
@@ -1931,9 +2833,23 @@ function PlacedFieldOverlay({
           <div
             onMouseDown={readOnly ? undefined : handleMoveMouseDown}
             className={`w-full h-full flex items-center px-2 py-1 select-none overflow-hidden relative ${readOnly ? 'cursor-default' : 'cursor-move'}`}
-            style={{ border: `1.5px dashed ${colorHex}`, borderRadius: '4px', background: 'rgba(255,255,255,0.97)' }}
+            style={{
+              border: `1.5px dashed ${colorHex}`,
+              borderRadius: '4px',
+              background: 'rgba(255,255,255,0.97)',
+            }}
           >
-            <span className="flex-1 truncate" style={{ fontFamily, fontSize: `${Math.max(8, fontSize * 0.6)}px`, fontWeight: bold ? 'bold' : 'normal', fontStyle: italic ? 'italic' : 'normal', textDecoration: underline ? 'underline' : 'none', color: field.value ? '#374151' : '#9ca3af' }}>
+            <span
+              className="flex-1 truncate"
+              style={{
+                fontFamily,
+                fontSize: `${Math.max(8, fontSize * 0.6)}px`,
+                fontWeight: bold ? 'bold' : 'normal',
+                fontStyle: italic ? 'italic' : 'normal',
+                textDecoration: underline ? 'underline' : 'none',
+                color: field.value ? '#374151' : '#9ca3af',
+              }}
+            >
               {field.value || dropdownOptions[0]}
             </span>
             <ChevronDown size={10} className="text-gray-400 shrink-0 ml-1" />
@@ -1942,12 +2858,32 @@ function PlacedFieldOverlay({
           <div
             onMouseDown={readOnly ? undefined : handleMoveMouseDown}
             className={`w-full h-full flex flex-col justify-center px-2 py-1 select-none overflow-hidden relative ${readOnly ? 'cursor-default' : 'cursor-move'}`}
-            style={{ border: `1.5px dashed ${colorHex}`, borderRadius: '4px', background: 'rgba(255,255,255,0.97)' }}
+            style={{
+              border: `1.5px dashed ${colorHex}`,
+              borderRadius: '4px',
+              background: 'rgba(255,255,255,0.97)',
+            }}
           >
             {radioOptions.slice(0, 3).map((opt, i) => (
               <div key={i} className="flex items-center gap-1">
-                <Circle size={8} className={field.value === opt ? 'text-primary shrink-0' : 'text-gray-400 shrink-0'} style={field.value === opt ? { fill: 'currentColor' } : {}} />
-                <span className="truncate" style={{ fontFamily, fontSize: `${Math.max(7, fontSize * 0.55)}px`, color: field.value === opt ? '#0d9488' : '#374151', fontWeight: field.value === opt ? 'bold' : 'normal' }}>{opt}</span>
+                <Circle
+                  size={8}
+                  className={
+                    field.value === opt ? 'text-primary shrink-0' : 'text-gray-400 shrink-0'
+                  }
+                  style={field.value === opt ? { fill: 'currentColor' } : {}}
+                />
+                <span
+                  className="truncate"
+                  style={{
+                    fontFamily,
+                    fontSize: `${Math.max(7, fontSize * 0.55)}px`,
+                    color: field.value === opt ? '#0d9488' : '#374151',
+                    fontWeight: field.value === opt ? 'bold' : 'normal',
+                  }}
+                >
+                  {opt}
+                </span>
               </div>
             ))}
           </div>
@@ -1955,10 +2891,29 @@ function PlacedFieldOverlay({
           <div
             onMouseDown={readOnly ? undefined : handleMoveMouseDown}
             className={`w-full h-full flex items-center gap-1.5 px-2 py-1 select-none overflow-hidden relative ${readOnly ? 'cursor-default' : 'cursor-move'}`}
-            style={{ border: `1.5px dashed ${colorHex}`, borderRadius: '4px', background: 'rgba(255,255,255,0.97)' }}
+            style={{
+              border: `1.5px dashed ${colorHex}`,
+              borderRadius: '4px',
+              background: 'rgba(255,255,255,0.97)',
+            }}
           >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
-            <span className="truncate flex-1" style={{ fontFamily, fontSize: `${Math.max(8, fontSize * 0.6)}px`, color: '#374151' }}>
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#9ca3af"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+            </svg>
+            <span
+              className="truncate flex-1"
+              style={{ fontFamily, fontSize: `${Math.max(8, fontSize * 0.6)}px`, color: '#374151' }}
+            >
               {field.casillaLabel || 'Etiqueta de casilla'}
             </span>
           </div>
@@ -1966,7 +2921,11 @@ function PlacedFieldOverlay({
           <div
             onMouseDown={readOnly ? undefined : handleMoveMouseDown}
             className={`w-full h-full flex items-center px-2 py-1 select-none overflow-hidden relative ${readOnly ? 'cursor-default' : 'cursor-move'}`}
-            style={{ border: `1.5px dashed ${colorHex}`, borderRadius: '4px', background: field.value ? `${colorHex}10` : 'rgba(255,255,255,0.95)' }}
+            style={{
+              border: `1.5px dashed ${colorHex}`,
+              borderRadius: '4px',
+              background: field.value ? `${colorHex}10` : 'rgba(255,255,255,0.95)',
+            }}
           >
             <span
               className="truncate flex-1"
@@ -1985,23 +2944,59 @@ function PlacedFieldOverlay({
         )}
 
         {/* Resize handles — visible on hover or when selected — hidden for readOnly */}
-        {!readOnly && <>
-        <div onMouseDown={(e) => handleResizeMouseDown(e, 'nw')} className={`${handleStyleClass} -top-1.5 -left-1.5 cursor-nw-resize opacity-0 group-hover:opacity-100`} style={{ borderColor: colorHex }} />
-        <div onMouseDown={(e) => handleResizeMouseDown(e, 'ne')} className={`${handleStyleClass} -top-1.5 -right-1.5 cursor-ne-resize opacity-0 group-hover:opacity-100`} style={{ borderColor: colorHex }} />
-        <div onMouseDown={(e) => handleResizeMouseDown(e, 'sw')} className={`${handleStyleClass} -bottom-1.5 -left-1.5 cursor-sw-resize opacity-0 group-hover:opacity-100`} style={{ borderColor: colorHex }} />
-        <div onMouseDown={(e) => handleResizeMouseDown(e, 'se')} className={`${handleStyleClass} -bottom-1.5 -right-1.5 cursor-se-resize opacity-0 group-hover:opacity-100`} style={{ borderColor: colorHex }} />
-        <div onMouseDown={(e) => handleResizeMouseDown(e, 'n')} className={`${handleStyleClass} -top-1.5 left-1/2 -translate-x-1/2 cursor-n-resize opacity-0 group-hover:opacity-100`} style={{ borderColor: colorHex }} />
-        <div onMouseDown={(e) => handleResizeMouseDown(e, 's')} className={`${handleStyleClass} -bottom-1.5 left-1/2 -translate-x-1/2 cursor-s-resize opacity-0 group-hover:opacity-100`} style={{ borderColor: colorHex }} />
-        <div onMouseDown={(e) => handleResizeMouseDown(e, 'w')} className={`${handleStyleClass} top-1/2 -translate-y-1/2 -left-1.5 cursor-w-resize opacity-0 group-hover:opacity-100`} style={{ borderColor: colorHex }} />
-        <div onMouseDown={(e) => handleResizeMouseDown(e, 'e')} className={`${handleStyleClass} top-1/2 -translate-y-1/2 -right-1.5 cursor-e-resize opacity-0 group-hover:opacity-100`} style={{ borderColor: colorHex }} />
-        </>}
+        {!readOnly && (
+          <>
+            <div
+              onMouseDown={(e) => handleResizeMouseDown(e, 'nw')}
+              className={`${handleStyleClass} -top-1.5 -left-1.5 cursor-nw-resize opacity-0 group-hover:opacity-100`}
+              style={{ borderColor: colorHex }}
+            />
+            <div
+              onMouseDown={(e) => handleResizeMouseDown(e, 'ne')}
+              className={`${handleStyleClass} -top-1.5 -right-1.5 cursor-ne-resize opacity-0 group-hover:opacity-100`}
+              style={{ borderColor: colorHex }}
+            />
+            <div
+              onMouseDown={(e) => handleResizeMouseDown(e, 'sw')}
+              className={`${handleStyleClass} -bottom-1.5 -left-1.5 cursor-sw-resize opacity-0 group-hover:opacity-100`}
+              style={{ borderColor: colorHex }}
+            />
+            <div
+              onMouseDown={(e) => handleResizeMouseDown(e, 'se')}
+              className={`${handleStyleClass} -bottom-1.5 -right-1.5 cursor-se-resize opacity-0 group-hover:opacity-100`}
+              style={{ borderColor: colorHex }}
+            />
+            <div
+              onMouseDown={(e) => handleResizeMouseDown(e, 'n')}
+              className={`${handleStyleClass} -top-1.5 left-1/2 -translate-x-1/2 cursor-n-resize opacity-0 group-hover:opacity-100`}
+              style={{ borderColor: colorHex }}
+            />
+            <div
+              onMouseDown={(e) => handleResizeMouseDown(e, 's')}
+              className={`${handleStyleClass} -bottom-1.5 left-1/2 -translate-x-1/2 cursor-s-resize opacity-0 group-hover:opacity-100`}
+              style={{ borderColor: colorHex }}
+            />
+            <div
+              onMouseDown={(e) => handleResizeMouseDown(e, 'w')}
+              className={`${handleStyleClass} top-1/2 -translate-y-1/2 -left-1.5 cursor-w-resize opacity-0 group-hover:opacity-100`}
+              style={{ borderColor: colorHex }}
+            />
+            <div
+              onMouseDown={(e) => handleResizeMouseDown(e, 'e')}
+              className={`${handleStyleClass} top-1/2 -translate-y-1/2 -right-1.5 cursor-e-resize opacity-0 group-hover:opacity-100`}
+              style={{ borderColor: colorHex }}
+            />
+          </>
+        )}
       </div>
 
       {showLabelModal && (
         <FieldLabelConfigModalFirmar
           label={field.label}
           fieldConfig={field.fieldConfig}
-          onSave={(cfg) => { onUpdateFieldConfig?.(field.id, cfg); }}
+          onSave={(cfg) => {
+            onUpdateFieldConfig?.(field.id, cfg);
+          }}
           onClose={() => setShowLabelModal(false)}
         />
       )}
@@ -2010,7 +3005,9 @@ function PlacedFieldOverlay({
           label={field.label}
           tipo={field.tipo}
           fieldTypeConfig={field.fieldTypeConfig}
-          onSave={(cfg) => { onUpdateFieldTypeConfig?.(field.id, cfg); }}
+          onSave={(cfg) => {
+            onUpdateFieldTypeConfig?.(field.id, cfg);
+          }}
           onClose={() => setShowTypeModal(false)}
         />
       )}
@@ -2018,7 +3015,9 @@ function PlacedFieldOverlay({
         <DropdownOptionsModalFirmar
           fieldLabel={field.label}
           options={field.dropdownOptions ?? []}
-          onSave={(opts) => { onUpdateOptions?.(field.id, opts); }}
+          onSave={(opts) => {
+            onUpdateOptions?.(field.id, opts);
+          }}
           onClose={() => setShowOptionsModal(false)}
         />
       )}
@@ -2026,14 +3025,18 @@ function PlacedFieldOverlay({
         <DropdownOptionsModalFirmar
           fieldLabel="Botones de opción"
           options={field.radioOptions ?? []}
-          onSave={(opts) => { onUpdateRadioOptions?.(field.id, opts); }}
+          onSave={(opts) => {
+            onUpdateRadioOptions?.(field.id, opts);
+          }}
           onClose={() => setShowRadioModal(false)}
         />
       )}
       {showCasillaModal && (
         <CasillaLabelModalFirmar
           currentLabel={field.casillaLabel || ''}
-          onSave={(lbl) => { onUpdateCasillaLabel?.(field.id, lbl); }}
+          onSave={(lbl) => {
+            onUpdateCasillaLabel?.(field.id, lbl);
+          }}
           onClose={() => setShowCasillaModal(false)}
         />
       )}
@@ -2094,10 +3097,28 @@ function CompletedFieldStamp({
           <img
             src={sigSrc}
             alt="Firma estampada"
-            style={{ width: '100%', height: '100%', objectFit: 'contain', background: 'rgba(255,255,255,0.85)', borderRadius: '3px', border: `1.5px solid ${colorHex}` }}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              background: 'rgba(255,255,255,0.85)',
+              borderRadius: '3px',
+              border: `1.5px solid ${colorHex}`,
+            }}
           />
         ) : (
-          <div style={{ width: '100%', height: '100%', border: `1.5px solid ${colorHex}`, borderRadius: '3px', background: `${colorHex}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div
+            style={{
+              width: '100%',
+              height: '100%',
+              border: `1.5px solid ${colorHex}`,
+              borderRadius: '3px',
+              background: `${colorHex}15`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             <span style={{ fontSize: '8px', color: colorHex }}>Firma</span>
           </div>
         )}
@@ -2109,7 +3130,17 @@ function CompletedFieldStamp({
     return (
       <div style={style}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={displayValue} alt="Imagen insertada" style={{ width: '100%', height: '100%', objectFit: 'contain', background: 'rgba(255,255,255,0.9)', borderRadius: '3px' }} />
+        <img
+          src={displayValue}
+          alt="Imagen insertada"
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            background: 'rgba(255,255,255,0.9)',
+            borderRadius: '3px',
+          }}
+        />
       </div>
     );
   }
@@ -2117,16 +3148,58 @@ function CompletedFieldStamp({
   if (isCheckbox) {
     const checked = displayValue === 'true' || displayValue === '1' || displayValue === 'checked';
     const casillaFontFamily = field.fieldTypeConfig?.fontFamily || 'inherit';
-    const casillaFontSize = field.fieldTypeConfig?.fontSize ? `${field.fieldTypeConfig.fontSize}px` : '8px';
+    const casillaFontSize = field.fieldTypeConfig?.fontSize
+      ? `${field.fieldTypeConfig.fontSize}px`
+      : '8px';
     const casillaFontWeight = field.fieldTypeConfig?.bold ? 'bold' : 'normal';
     const casillaFontStyle = field.fieldTypeConfig?.italic ? 'italic' : 'normal';
     const casillaTextDecoration = field.fieldTypeConfig?.underline ? 'underline' : 'none';
     return (
-      <div style={{ ...style, display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255,255,255,0.9)', borderRadius: '3px', padding: '2px 4px' }}>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill={checked ? colorHex : 'none'} stroke={colorHex} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          {checked ? <><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="9 12 11 14 15 10"/></> : <rect x="3" y="3" width="18" height="18" rx="2"/>}
+      <div
+        style={{
+          ...style,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          background: 'rgba(255,255,255,0.9)',
+          borderRadius: '3px',
+          padding: '2px 4px',
+        }}
+      >
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 24 24"
+          fill={checked ? colorHex : 'none'}
+          stroke={colorHex}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {checked ? (
+            <>
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <polyline points="9 12 11 14 15 10" />
+            </>
+          ) : (
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+          )}
         </svg>
-        <span style={{ fontFamily: casillaFontFamily, fontSize: casillaFontSize, fontWeight: casillaFontWeight, fontStyle: casillaFontStyle, textDecoration: casillaTextDecoration, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{field.casillaLabel || field.label}</span>
+        <span
+          style={{
+            fontFamily: casillaFontFamily,
+            fontSize: casillaFontSize,
+            fontWeight: casillaFontWeight,
+            fontStyle: casillaFontStyle,
+            textDecoration: casillaTextDecoration,
+            color: '#374151',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {field.casillaLabel || field.label}
+        </span>
       </div>
     );
   }
@@ -2141,8 +3214,32 @@ function CompletedFieldStamp({
   const textDecoration = field.fieldTypeConfig?.underline ? 'underline' : 'none';
 
   return (
-    <div style={{ ...style, background: 'rgba(255,255,255,0.92)', borderRadius: '3px', border: `1px solid ${colorHex}40`, display: 'flex', alignItems: 'center', padding: '1px 4px', overflow: 'hidden' }}>
-      <span style={{ fontFamily, fontSize, fontWeight, fontStyle, textDecoration, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
+    <div
+      style={{
+        ...style,
+        background: 'rgba(255,255,255,0.92)',
+        borderRadius: '3px',
+        border: `1px solid ${colorHex}40`,
+        display: 'flex',
+        alignItems: 'center',
+        padding: '1px 4px',
+        overflow: 'hidden',
+      }}
+    >
+      <span
+        style={{
+          fontFamily,
+          fontSize,
+          fontWeight,
+          fontStyle,
+          textDecoration,
+          color: '#1e293b',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          width: '100%',
+        }}
+      >
         {displayValue}
       </span>
     </div>
@@ -2184,7 +3281,13 @@ function SidebarSettingsButton({
         type="button"
         onClick={handleClick}
         className="p-1 rounded hover:bg-slate-100 text-muted-foreground hover:text-primary transition-colors"
-        title={isDropdown ? 'Configurar opciones del desplegable' : isRadio ? 'Configurar opciones de botones' : `Configuración de ${campo.label}`}
+        title={
+          isDropdown
+            ? 'Configurar opciones del desplegable'
+            : isRadio
+              ? 'Configurar opciones de botones'
+              : `Configuración de ${campo.label}`
+        }
       >
         <Settings size={13} />
       </button>
@@ -2193,7 +3296,9 @@ function SidebarSettingsButton({
           label={campo.label}
           tipo={campo.tipo}
           fieldTypeConfig={placedField.fieldTypeConfig}
-          onSave={(cfg) => { onUpdateFieldTypeConfig(campo.id, cfg); }}
+          onSave={(cfg) => {
+            onUpdateFieldTypeConfig(campo.id, cfg);
+          }}
           onClose={() => setShowTypeModal(false)}
         />
       )}
@@ -2201,7 +3306,9 @@ function SidebarSettingsButton({
         <DropdownOptionsModalFirmar
           fieldLabel={campo.label}
           options={placedField.dropdownOptions ?? []}
-          onSave={(opts) => { onUpdateDropdownOptions(campo.id, opts); }}
+          onSave={(opts) => {
+            onUpdateDropdownOptions(campo.id, opts);
+          }}
           onClose={() => setShowOptionsModal(false)}
         />
       )}
@@ -2209,7 +3316,9 @@ function SidebarSettingsButton({
         <DropdownOptionsModalFirmar
           fieldLabel="Botones de opción"
           options={placedField.radioOptions ?? []}
-          onSave={(opts) => { onUpdateRadioOptions(campo.id, opts); }}
+          onSave={(opts) => {
+            onUpdateRadioOptions(campo.id, opts);
+          }}
           onClose={() => setShowRadioModal(false)}
         />
       )}
@@ -2241,7 +3350,9 @@ function SidebarCasillaSettingsButton({
       {showModal && (
         <CasillaLabelModalFirmar
           currentLabel={placedField.casillaLabel || campo.label}
-          onSave={(lbl) => { onUpdateCasillaLabel(campo.id, lbl); }}
+          onSave={(lbl) => {
+            onUpdateCasillaLabel(campo.id, lbl);
+          }}
           onClose={() => setShowModal(false)}
         />
       )}
@@ -2281,13 +3392,25 @@ function SignatureStampDisplay({
 }: StampDisplayProps) {
   const nombre = userName || 'Firmante';
   const rfc = userRfc || '—';
-  const hashShort = signatureHash ? signatureHash.slice(0, 16) + '...' + signatureHash.slice(-6) : '—';
+  const hashShort = signatureHash
+    ? signatureHash.slice(0, 16) + '...' + signatureHash.slice(-6)
+    : '—';
   const hashFull = signatureHash || '—';
   const signedDate = signedAt ? new Date(signedAt) : new Date();
-  const fecha = signedDate.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' CST';
+  const fecha =
+    signedDate.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+    ' CST';
   const ip = ipAddress && ipAddress !== '—' ? ipAddress : '—';
-  const geoloc = coordinates ? `${coordinates.lat.toFixed(2)}°N ${Math.abs(coordinates.lng).toFixed(2)}°W ±80m` : '—';
-  const vigencia = efirmaVigenciaFin ? new Date(efirmaVigenciaFin).toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '—';
+  const geoloc = coordinates
+    ? `${coordinates.lat.toFixed(2)}°N ${Math.abs(coordinates.lng).toFixed(2)}°W ±80m`
+    : '—';
+  const vigencia = efirmaVigenciaFin
+    ? new Date(efirmaVigenciaFin).toLocaleDateString('es-MX', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+    : '—';
   const serial = efirmaSerial ? efirmaSerial.slice(0, 20) : '—';
 
   const qrBlock = (
@@ -2309,17 +3432,29 @@ function SignatureStampDisplay({
 
   const fieldRow = (label: string, value: string) => (
     <div key={label}>
-      <p className="text-[7px] font-semibold text-gray-400 uppercase tracking-wide leading-none">{label}</p>
+      <p className="text-[7px] font-semibold text-gray-400 uppercase tracking-wide leading-none">
+        {label}
+      </p>
       <p className="text-[8px] text-gray-700 leading-tight mt-0.5">{value}</p>
     </div>
   );
 
   const hashBlock = (full = false) => (
-    <div className={`border rounded px-1.5 py-1 ${signatureType === 'efirma' ? 'bg-amber-50 border-amber-200' : signatureType === 'autografa' ? 'bg-amber-50 border-amber-200' : 'bg-gray-100 border-gray-200'}`}>
-      <p className={`text-[6px] font-semibold uppercase tracking-wide ${signatureType === 'efirma' ? 'text-amber-700' : signatureType === 'autografa' ? 'text-amber-700' : 'text-gray-500'}`}>
-        {signatureType === 'efirma' ? '🔑 HASH FIRMADO RSA / SHA-256' : signatureType === 'autografa' ? '🔑 HASH FIRMADO SHA-256' : '○ HASH ACEPTACIÓN SHA-256'}
+    <div
+      className={`border rounded px-1.5 py-1 ${signatureType === 'efirma' ? 'bg-amber-50 border-amber-200' : signatureType === 'autografa' ? 'bg-amber-50 border-amber-200' : 'bg-gray-100 border-gray-200'}`}
+    >
+      <p
+        className={`text-[6px] font-semibold uppercase tracking-wide ${signatureType === 'efirma' ? 'text-amber-700' : signatureType === 'autografa' ? 'text-amber-700' : 'text-gray-500'}`}
+      >
+        {signatureType === 'efirma'
+          ? '🔑 HASH FIRMADO RSA / SHA-256'
+          : signatureType === 'autografa'
+            ? '🔑 HASH FIRMADO SHA-256'
+            : '○ HASH ACEPTACIÓN SHA-256'}
       </p>
-      <p className="text-[7px] font-mono text-gray-700 break-all leading-tight mt-0.5">{full ? hashFull : hashShort}</p>
+      <p className="text-[7px] font-mono text-gray-700 break-all leading-tight mt-0.5">
+        {full ? hashFull : hashShort}
+      </p>
     </div>
   );
 
@@ -2327,10 +3462,20 @@ function SignatureStampDisplay({
     <div className="border border-gray-300 rounded bg-gray-50 flex items-center justify-center p-1 min-h-[32px]">
       {signatureUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={signatureUrl} alt="Firma autógrafa" className="max-h-10 max-w-full object-contain" />
+        <img
+          src={signatureUrl}
+          alt="Firma autógrafa"
+          className="max-h-10 max-w-full object-contain"
+        />
       ) : (
         <svg viewBox="0 0 120 30" width="100%" height="30" className="opacity-60">
-          <path d="M5,20 Q20,5 35,18 Q50,30 65,12 Q80,0 95,15 Q110,28 118,18" stroke="#374151" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+          <path
+            d="M5,20 Q20,5 35,18 Q50,30 65,12 Q80,0 95,15 Q110,28 118,18"
+            stroke="#374151"
+            strokeWidth="1.5"
+            fill="none"
+            strokeLinecap="round"
+          />
         </svg>
       )}
     </div>
@@ -2345,163 +3490,297 @@ function SignatureStampDisplay({
   );
 
   const urlLine = () => (
-    <p className="text-[7px] text-blue-600 leading-tight">verify.docubox.mx/{hashShort.slice(0, 8)}</p>
+    <p className="text-[7px] text-blue-600 leading-tight">
+      verify.docubox.mx/{hashShort.slice(0, 8)}
+    </p>
   );
 
   const avatarBlock = () => (
     <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[7px] font-bold text-gray-600 flex-shrink-0">
-      {nombre.split(' ').map((w: string) => w[0]).slice(0, 2).join('')}
+      {nombre
+        .split(' ')
+        .map((w: string) => w[0])
+        .slice(0, 2)
+        .join('')}
     </div>
   );
 
   const acceptBox = (short = true) => (
     <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1 flex items-start gap-1">
       <div className="w-3 h-3 rounded border border-gray-400 flex items-center justify-center flex-shrink-0 mt-0.5">
-        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <svg
+          width="8"
+          height="8"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
       </div>
       <p className="text-[7px] text-gray-700 leading-tight">
-        {short ? `Aceptó expresamente · clic confirmado` : `Aceptó expresamente el documento mediante clic confirmado + OTP ✓`}
+        {short
+          ? `Aceptó expresamente · clic confirmado`
+          : `Aceptó expresamente el documento mediante clic confirmado + OTP ✓`}
       </p>
     </div>
   );
 
   // ── e.Firma stamps ──────────────────────────────────────────────────────────
   if (signatureType === 'efirma') {
-    if (stampStyle === 'EC1') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-        <p className="text-[7px] text-gray-500">RFC: {rfc} · #1</p>
-        {certLine()}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('OCSP', 'Válido ✓')}
-          {fieldRow('FECHA/TZ', fecha)}
-        </div>
-        {urlLine()}
-      </div>
-    );
-    if (stampStyle === 'EC2') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-start justify-between gap-1">
-          <div className="flex items-center gap-1">
-            <div className="w-4 h-4 rounded border-2 border-blue-500 flex items-center justify-center flex-shrink-0">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            </div>
-            <div>
-              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc}</p>
-            </div>
-          </div>
-          <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">OCSP ✓</span>
-        </div>
-        {certLine(true)}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'EC3') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-        <div className="w-1.5 bg-blue-500 flex-shrink-0" />
-        <div className="flex-1 p-2 flex flex-col gap-1.5">
-          <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-          {certLine(true)}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP', ip)}
-          </div>
-          {urlLine()}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'EC4') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full items-center">
-        <p className="text-[9px] font-bold text-gray-800 leading-tight text-center">{nombre}</p>
-        <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-        {certLine(true)}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1 w-full">
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('IP', ip)}
-        </div>
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    if (stampStyle === 'EC5') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex w-full gap-2">
-        <div className="flex-1 flex flex-col gap-1.5">
+    if (stampStyle === 'EC1')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
           <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
           <p className="text-[7px] text-gray-500">RFC: {rfc} · #1</p>
           {certLine()}
           {hashBlock()}
           <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA/TZ', fecha)}
             {fieldRow('OCSP', 'Válido ✓')}
+            {fieldRow('FECHA/TZ', fecha)}
+          </div>
+          {urlLine()}
+        </div>
+      );
+    if (stampStyle === 'EC2')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-start justify-between gap-1">
+            <div className="flex items-center gap-1">
+              <div className="w-4 h-4 rounded border-2 border-blue-500 flex items-center justify-center flex-shrink-0">
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#3b82f6"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+                <p className="text-[7px] text-gray-500">{rfc}</p>
+              </div>
+            </div>
+            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
+              OCSP ✓
+            </span>
+          </div>
+          {certLine(true)}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA/TZ', fecha)}
+            {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
+          </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
           </div>
         </div>
-        {qrBlock}
-      </div>
-    );
-    // Medianas
-    if (stampStyle === 'EM1') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-start gap-1.5">
-          <div className="w-4 h-4 rounded border-2 border-blue-500 flex items-center justify-center flex-shrink-0">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      );
+    if (stampStyle === 'EC3')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
+          <div className="w-1.5 bg-blue-500 flex-shrink-0" />
+          <div className="flex-1 p-2 flex flex-col gap-1.5">
+            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+            {certLine(true)}
+            {hashBlock()}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+              {fieldRow('FECHA/TZ', fecha)}
+              {fieldRow('IP', ip)}
+            </div>
+            {urlLine()}
           </div>
-          <div className="flex-1">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+        </div>
+      );
+    if (stampStyle === 'EC4')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full items-center">
+          <p className="text-[9px] font-bold text-gray-800 leading-tight text-center">{nombre}</p>
+          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
+          {certLine(true)}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1 w-full">
+            {fieldRow('FECHA/TZ', fecha)}
+            {fieldRow('IP', ip)}
           </div>
-          <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">OCSP ✓</span>
+          <div className="flex justify-center mt-1">{qrBlock}</div>
         </div>
-        {certLine(true)}
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('OCSP', 'Válido ✓')}
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('DISPOSITIVO', 'Navegador Web')}
-          {fieldRow('SELLO RFC 3161', 'No configurado')}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
+      );
+    if (stampStyle === 'EC5')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex w-full gap-2">
+          <div className="flex-1 flex flex-col gap-1.5">
+            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+            <p className="text-[7px] text-gray-500">RFC: {rfc} · #1</p>
+            {certLine()}
+            {hashBlock()}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+              {fieldRow('FECHA/TZ', fecha)}
+              {fieldRow('OCSP', 'Válido ✓')}
+            </div>
+          </div>
           {qrBlock}
         </div>
-      </div>
-    );
-    if (stampStyle === 'EM2') return (
-      <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-        <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-        <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-        <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-        <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-        {certLine(true)}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('OCSP', 'Válido ✓')}
+      );
+    // Medianas
+    if (stampStyle === 'EM1')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-start gap-1.5">
+            <div className="w-4 h-4 rounded border-2 border-blue-500 flex items-center justify-center flex-shrink-0">
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+            </div>
+            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
+              OCSP ✓
+            </span>
+          </div>
+          {certLine(true)}
+          {hashBlock(true)}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('OCSP', 'Válido ✓')}
+            {fieldRow('FECHA', fecha)}
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+            {fieldRow('DISPOSITIVO', 'Navegador Web')}
+            {fieldRow('SELLO RFC 3161', 'No configurado')}
+          </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
+          </div>
         </div>
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    if (stampStyle === 'EM3') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-        <div className="w-1.5 bg-blue-500 flex-shrink-0" />
-        <div className="flex-1 p-2 flex flex-col gap-1.5">
-          <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+      );
+    if (stampStyle === 'EM2')
+      return (
+        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
+          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
+          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
+          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
+          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
+          {certLine(true)}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA', fecha)}
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+            {fieldRow('OCSP', 'Válido ✓')}
+          </div>
+          <div className="flex justify-center mt-1">{qrBlock}</div>
+        </div>
+      );
+    if (stampStyle === 'EM3')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
+          <div className="w-1.5 bg-blue-500 flex-shrink-0" />
+          <div className="flex-1 p-2 flex flex-col gap-1.5">
+            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+            {certLine(true)}
+            {hashBlock(true)}
+            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
+              {fieldRow('FECHA', fecha)}
+              {fieldRow('IP', ip)}
+              {fieldRow('GEOLOC', geoloc)}
+              {fieldRow('OCSP', 'Válido ✓')}
+              {fieldRow('DISPOSITIVO', 'Web')}
+              {fieldRow('SELLO', 'No configurado')}
+            </div>
+            {urlLine()}
+          </div>
+        </div>
+      );
+    if (stampStyle === 'EM4')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex flex-col w-full overflow-hidden">
+          <div className="bg-gray-800 px-2 py-1.5 flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <p className="text-[8px] font-bold text-white">{nombre}</p>
+            </div>
+            <span className="text-[6px] text-gray-300 font-semibold border border-gray-500 rounded px-1">
+              Avanzada
+            </span>
+          </div>
+          <div className="p-2 flex flex-col gap-1.5">
+            <p className="text-[7px] text-gray-500">{rfc}</p>
+            {certLine(true)}
+            {hashBlock(true)}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+              {fieldRow('FECHA', fecha)}
+              {fieldRow('IP', ip)}
+              {fieldRow('GEOLOC', geoloc)}
+              {fieldRow('OCSP', 'Válido ✓')}
+            </div>
+            <div className="flex items-end justify-between gap-2">
+              <div className="flex-1">{urlLine()}</div>
+              {qrBlock}
+            </div>
+          </div>
+        </div>
+      );
+    if (stampStyle === 'EM5')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
+          {certLine()}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA', fecha)}
+            {fieldRow('IP', ip)}
+          </div>
+          <div className="flex justify-center mt-1">{qrBlock}</div>
+        </div>
+      );
+    // Largas — EL1-EL4
+    if (stampStyle === 'EL1')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-start gap-1.5">
+            <div className="flex-1">
+              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">{rfc}</p>
+            </div>
+            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
+              Avanzada
+            </span>
+          </div>
           {certLine(true)}
           {hashBlock(true)}
           <div className="grid grid-cols-3 gap-x-1 gap-y-1">
@@ -2510,23 +3789,83 @@ function SignatureStampDisplay({
             {fieldRow('GEOLOC', geoloc)}
             {fieldRow('OCSP', 'Válido ✓')}
             {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('SELLO', 'No configurado')}
+            {fieldRow('SELLO RFC 3161', 'No configurado')}
+            {fieldRow('NIVEL', 'Avanzada')}
+            {fieldRow('ORDEN', '#1')}
+            {fieldRow('VIGENCIA', vigencia)}
+            {fieldRow('CERT No.', serial)}
+            {fieldRow('ALGORITMO', 'RSA-2048/SHA-256')}
+            {fieldRow('XML EVIDENCE', 'Incluido ✓')}
+          </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
+          </div>
+        </div>
+      );
+    if (stampStyle === 'EL2')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FIRMANTE', nombre)}
+            {fieldRow('RFC', rfc)}
+            {fieldRow('CERT No.', serial)}
+            {fieldRow('ALGORITMO', 'RSA-2048/SHA-256')}
+            {fieldRow('OCSP', 'Válido ✓')}
+            {fieldRow('VIGENCIA', vigencia)}
+            {fieldRow('EMISOR', 'SAT México')}
+            {fieldRow('NIVEL', 'Avanzada')}
+            {fieldRow('CURP', '—')}
+            {fieldRow('SERIE', serial)}
+          </div>
+          {hashBlock(true)}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA', fecha)}
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+            {fieldRow('DISPOSITIVO', 'Web')}
+            {fieldRow('OTP CANAL', 'Correo ✓')}
+            {fieldRow('XML EVIDENCE', 'Incluido ✓')}
           </div>
           {urlLine()}
         </div>
-      </div>
-    );
-    if (stampStyle === 'EM4') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex flex-col w-full overflow-hidden">
-        <div className="bg-gray-800 px-2 py-1.5 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            <p className="text-[8px] font-bold text-white">{nombre}</p>
+      );
+    if (stampStyle === 'EL3')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
+          <div className="w-1.5 bg-blue-500 flex-shrink-0" />
+          <div className="flex-1 p-2 flex flex-col gap-1.5">
+            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+            {certLine(true)}
+            {hashBlock(true)}
+            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
+              {fieldRow('FECHA', fecha)}
+              {fieldRow('IP', ip)}
+              {fieldRow('GEOLOC', geoloc)}
+              {fieldRow('OCSP', 'Válido ✓')}
+              {fieldRow('DISPOSITIVO', 'Web')}
+              {fieldRow('SELLO', 'No configurado')}
+              {fieldRow('NIVEL', 'Avanzada')}
+              {fieldRow('ORDEN', '#1')}
+              {fieldRow('VIGENCIA', vigencia)}
+              {fieldRow('CERT No.', serial)}
+              {fieldRow('ALGORITMO', 'RSA-2048')}
+              {fieldRow('XML EVIDENCE', 'Incluido ✓')}
+            </div>
+            {urlLine()}
           </div>
-          <span className="text-[6px] text-gray-300 font-semibold border border-gray-500 rounded px-1">Avanzada</span>
         </div>
-        <div className="p-2 flex flex-col gap-1.5">
-          <p className="text-[7px] text-gray-500">{rfc}</p>
+      );
+    if (stampStyle === 'EL4')
+      return (
+        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
+          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
+          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
+          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
+          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
+          <div className="flex justify-center mb-1">{avatarBlock()}</div>
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
           {certLine(true)}
           {hashBlock(true)}
           <div className="grid grid-cols-2 gap-x-2 gap-y-1">
@@ -2534,303 +3873,128 @@ function SignatureStampDisplay({
             {fieldRow('IP', ip)}
             {fieldRow('GEOLOC', geoloc)}
             {fieldRow('OCSP', 'Válido ✓')}
+            {fieldRow('DISPOSITIVO', 'Web')}
+            {fieldRow('SELLO RFC 3161', 'No configurado')}
+            {fieldRow('NIVEL', 'Avanzada')}
+            {fieldRow('XML EVIDENCE', 'Incluido ✓')}
           </div>
           <div className="flex items-end justify-between gap-2">
             <div className="flex-1">{urlLine()}</div>
             {qrBlock}
           </div>
         </div>
-      </div>
-    );
-    if (stampStyle === 'EM5') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-        {certLine()}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-        </div>
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    // Largas — EL1-EL4
-    if (stampStyle === 'EL1') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-start gap-1.5">
-          <div className="flex-1">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            <p className="text-[7px] text-gray-500">{rfc}</p>
-          </div>
-          <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">Avanzada</span>
-        </div>
-        {certLine(true)}
-        {hashBlock(true)}
-        <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('OCSP', 'Válido ✓')}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('SELLO RFC 3161', 'No configurado')}
-          {fieldRow('NIVEL', 'Avanzada')}
-          {fieldRow('ORDEN', '#1')}
-          {fieldRow('VIGENCIA', vigencia)}
-          {fieldRow('CERT No.', serial)}
-          {fieldRow('ALGORITMO', 'RSA-2048/SHA-256')}
-          {fieldRow('XML EVIDENCE', 'Incluido ✓')}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'EL2') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FIRMANTE', nombre)}
-          {fieldRow('RFC', rfc)}
-          {fieldRow('CERT No.', serial)}
-          {fieldRow('ALGORITMO', 'RSA-2048/SHA-256')}
-          {fieldRow('OCSP', 'Válido ✓')}
-          {fieldRow('VIGENCIA', vigencia)}
-          {fieldRow('EMISOR', 'SAT México')}
-          {fieldRow('NIVEL', 'Avanzada')}
-          {fieldRow('CURP', '—')}
-          {fieldRow('SERIE', serial)}
-        </div>
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('OTP CANAL', 'Correo ✓')}
-          {fieldRow('XML EVIDENCE', 'Incluido ✓')}
-        </div>
-        {urlLine()}
-      </div>
-    );
-    if (stampStyle === 'EL3') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-        <div className="w-1.5 bg-blue-500 flex-shrink-0" />
-        <div className="flex-1 p-2 flex flex-col gap-1.5">
-          <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-          {certLine(true)}
-          {hashBlock(true)}
-          <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('OCSP', 'Válido ✓')}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('SELLO', 'No configurado')}
-            {fieldRow('NIVEL', 'Avanzada')}
-            {fieldRow('ORDEN', '#1')}
-            {fieldRow('VIGENCIA', vigencia)}
-            {fieldRow('CERT No.', serial)}
-            {fieldRow('ALGORITMO', 'RSA-2048')}
-            {fieldRow('XML EVIDENCE', 'Incluido ✓')}
-          </div>
-          {urlLine()}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'EL4') return (
-      <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-        <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-        <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-        <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-        <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-        <div className="flex justify-center mb-1">{avatarBlock()}</div>
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-        {certLine(true)}
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('OCSP', 'Válido ✓')}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('SELLO RFC 3161', 'No configurado')}
-          {fieldRow('NIVEL', 'Avanzada')}
-          {fieldRow('XML EVIDENCE', 'Incluido ✓')}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
+      );
   }
 
   // ── Autógrafa stamps ────────────────────────────────────────────────────────
   if (signatureType === 'autografa') {
-    if (stampStyle === 'AC0') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full items-center justify-center">
-        <div className="border border-gray-300 rounded bg-gray-50 flex items-center justify-center p-1.5 min-h-[36px] w-full">
-          {sigBox()}
-        </div>
-        {hashBlock()}
-      </div>
-    );
-    if (stampStyle === 'AC1') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-        <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
-        {sigBox()}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('IP', ip)}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'AC2') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-start gap-1.5">
-          {avatarBlock()}
-          <div className="flex-1">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+    if (stampStyle === 'AC0')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full items-center justify-center">
+          <div className="border border-gray-300 rounded bg-gray-50 flex items-center justify-center p-1.5 min-h-[36px] w-full">
+            {sigBox()}
           </div>
+          {hashBlock()}
         </div>
-        {sigBox()}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('RFC', rfc)}
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('OTP', 'Correo ✓')}
-          {fieldRow('GEOLOC', geoloc)}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'AC3') return (
-      <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-        <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-        <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-        <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-        <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        {sigBox()}
-        {hashBlock()}
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    if (stampStyle === 'AC4') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-        <div className="w-1.5 bg-green-500 flex-shrink-0" />
-        <div className="flex-1 p-2 flex flex-col gap-1.5">
+      );
+    if (stampStyle === 'AC1')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
           <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+          <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
           {sigBox()}
           {hashBlock()}
           <div className="grid grid-cols-2 gap-x-2 gap-y-1">
             {fieldRow('FECHA/TZ', fecha)}
             {fieldRow('IP', ip)}
           </div>
-          {urlLine()}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'AC5') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        {sigBox()}
-        {hashBlock()}
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    // Medianas
-    if (stampStyle === 'AM1') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-start gap-1.5">
-          {avatarBlock()}
-          <div className="flex-1">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
           </div>
-          <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">Simple</span>
         </div>
-        {sigBox()}
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('RFC', rfc)}
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('OTP', 'Correo ✓')}
-          {fieldRow('NIVEL', 'Simple')}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'AM2') return (
-      <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-        <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-        <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-        <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-        <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-        {sigBox()}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('OTP', 'Correo ✓')}
-          {fieldRow('NIVEL', 'Simple')}
-          {fieldRow('RFC', rfc)}
-        </div>
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    if (stampStyle === 'AM3') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-        <div className="w-1.5 bg-green-500 flex-shrink-0" />
-        <div className="flex-1 p-2 flex flex-col gap-1.5">
-          <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+      );
+    if (stampStyle === 'AC2')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-start gap-1.5">
+            {avatarBlock()}
+            <div className="flex-1">
+              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+            </div>
+          </div>
           {sigBox()}
-          {hashBlock(true)}
-          <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-            {fieldRow('FECHA', fecha)}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('RFC', rfc)}
+            {fieldRow('FECHA/TZ', fecha)}
             {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
             {fieldRow('OTP', 'Correo ✓')}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('NIVEL', 'Simple')}
+            {fieldRow('GEOLOC', geoloc)}
           </div>
-          {urlLine()}
         </div>
-      </div>
-    );
-    if (stampStyle === 'AM4') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex flex-col w-full overflow-hidden">
-        <div className="bg-gray-800 px-2 py-1.5 flex items-center gap-1.5">
-          {avatarBlock()}
-          <p className="text-[8px] font-bold text-white">{nombre}</p>
+      );
+    if (stampStyle === 'AC3')
+      return (
+        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
+          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
+          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
+          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
+          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          {sigBox()}
+          {hashBlock()}
+          <div className="flex justify-center mt-1">{qrBlock}</div>
         </div>
-        <div className="p-2 flex flex-col gap-1.5">
-          <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+      );
+    if (stampStyle === 'AC4')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
+          <div className="w-1.5 bg-green-500 flex-shrink-0" />
+          <div className="flex-1 p-2 flex flex-col gap-1.5">
+            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+            {sigBox()}
+            {hashBlock()}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+              {fieldRow('FECHA/TZ', fecha)}
+              {fieldRow('IP', ip)}
+            </div>
+            {urlLine()}
+          </div>
+        </div>
+      );
+    if (stampStyle === 'AC5')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          {sigBox()}
+          {hashBlock()}
+          <div className="flex justify-center mt-1">{qrBlock}</div>
+        </div>
+      );
+    // Medianas
+    if (stampStyle === 'AM1')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-start gap-1.5">
+            {avatarBlock()}
+            <div className="flex-1">
+              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+            </div>
+            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
+              Simple
+            </span>
+          </div>
           {sigBox()}
           {hashBlock(true)}
           <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA', fecha)}
+            {fieldRow('RFC', rfc)}
+            {fieldRow('FECHA/TZ', fecha)}
             {fieldRow('IP', ip)}
             {fieldRow('GEOLOC', geoloc)}
             {fieldRow('OTP', 'Correo ✓')}
-            {fieldRow('DISPOSITIVO', 'Web')}
             {fieldRow('NIVEL', 'Simple')}
           </div>
           <div className="flex items-end justify-between gap-2">
@@ -2838,92 +4002,108 @@ function SignatureStampDisplay({
             {qrBlock}
           </div>
         </div>
-      </div>
-    );
-    if (stampStyle === 'AM5') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-center gap-1.5">
-          {avatarBlock()}
-          <div>
+      );
+    if (stampStyle === 'AM2')
+      return (
+        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
+          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
+          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
+          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
+          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
+          {sigBox()}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA', fecha)}
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+            {fieldRow('OTP', 'Correo ✓')}
+            {fieldRow('NIVEL', 'Simple')}
+            {fieldRow('RFC', rfc)}
+          </div>
+          <div className="flex justify-center mt-1">{qrBlock}</div>
+        </div>
+      );
+    if (stampStyle === 'AM3')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
+          <div className="w-1.5 bg-green-500 flex-shrink-0" />
+          <div className="flex-1 p-2 flex flex-col gap-1.5">
             <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            <p className="text-[7px] text-gray-500">Firmante #1 · Simple</p>
+            {sigBox()}
+            {hashBlock(true)}
+            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
+              {fieldRow('FECHA', fecha)}
+              {fieldRow('IP', ip)}
+              {fieldRow('GEOLOC', geoloc)}
+              {fieldRow('OTP', 'Correo ✓')}
+              {fieldRow('DISPOSITIVO', 'Web')}
+              {fieldRow('NIVEL', 'Simple')}
+            </div>
+            {urlLine()}
           </div>
         </div>
-        {sigBox()}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-        </div>
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    // Largas
-    if (stampStyle === 'AL1') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-start gap-1.5">
-          {avatarBlock()}
-          <div className="flex-1">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+      );
+    if (stampStyle === 'AM4')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex flex-col w-full overflow-hidden">
+          <div className="bg-gray-800 px-2 py-1.5 flex items-center gap-1.5">
+            {avatarBlock()}
+            <p className="text-[8px] font-bold text-white">{nombre}</p>
+          </div>
+          <div className="p-2 flex flex-col gap-1.5">
             <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+            {sigBox()}
+            {hashBlock(true)}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+              {fieldRow('FECHA', fecha)}
+              {fieldRow('IP', ip)}
+              {fieldRow('GEOLOC', geoloc)}
+              {fieldRow('OTP', 'Correo ✓')}
+              {fieldRow('DISPOSITIVO', 'Web')}
+              {fieldRow('NIVEL', 'Simple')}
+            </div>
+            <div className="flex items-end justify-between gap-2">
+              <div className="flex-1">{urlLine()}</div>
+              {qrBlock}
+            </div>
           </div>
-          <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">Simple</span>
         </div>
-        {sigBox()}
-        {hashBlock(true)}
-        <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('OTP', 'Correo ✓')}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('NIVEL', 'Simple')}
-          {fieldRow('BIOMETRÍA', 'Presión · Vel.')}
-          {fieldRow('PRECISIÓN GPS', '±80m')}
-          {fieldRow('ORDEN', '#1')}
-          {fieldRow('CURP', '—')}
-          {fieldRow('RFC', rfc)}
-          {fieldRow('SELLO', 'No configurado')}
+      );
+    if (stampStyle === 'AM5')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-center gap-1.5">
+            {avatarBlock()}
+            <div>
+              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">Firmante #1 · Simple</p>
+            </div>
+          </div>
+          {sigBox()}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+          </div>
+          <div className="flex justify-center mt-1">{qrBlock}</div>
         </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'AL2') return (
-      <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-        <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-        <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-        <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-        <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-        <div className="flex justify-center mb-1">{avatarBlock()}</div>
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        {sigBox()}
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('OTP', 'Correo ✓')}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('NIVEL', 'Simple')}
-          {fieldRow('BIOMETRÍA', 'Presión · Vel.')}
-          {fieldRow('ORDEN', '#1')}
-          {fieldRow('CURP', '—')}
-          {fieldRow('RFC', rfc)}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'AL3') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-        <div className="w-1.5 bg-green-500 flex-shrink-0" />
-        <div className="flex-1 p-2 flex flex-col gap-1.5">
-          <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+      );
+    // Largas
+    if (stampStyle === 'AL1')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-start gap-1.5">
+            {avatarBlock()}
+            <div className="flex-1">
+              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+            </div>
+            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
+              Simple
+            </span>
+          </div>
           {sigBox()}
           {hashBlock(true)}
           <div className="grid grid-cols-3 gap-x-1 gap-y-1">
@@ -2940,364 +4120,478 @@ function SignatureStampDisplay({
             {fieldRow('RFC', rfc)}
             {fieldRow('SELLO', 'No configurado')}
           </div>
-          {urlLine()}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'AL4') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FIRMANTE', nombre)}
-          {fieldRow('RFC', rfc)}
-          {fieldRow('CURP', '—')}
-          {fieldRow('ROL', 'Firmante')}
-          {fieldRow('NIVEL', 'Firma Electrónica Simple')}
-          {fieldRow('ORDEN', '#1')}
-        </div>
-        {sigBox()}
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA / TZ', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('OTP CANAL', 'Correo ✓')}
-          {fieldRow('SELLO RFC 3161', 'No configurado')}
-          {fieldRow('BIOMETRÍA TRAZO', 'Presión · Velocidad')}
-          {fieldRow('NIVEL FIRMA', 'Simple')}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Click & Sign stamps ─────────────────────────────────────────────────────
-  if (signatureType === 'clicksign') {
-    if (stampStyle === 'CC1') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-        <p className="text-[7px] text-gray-500">RFC: {rfc} · #1</p>
-        {acceptBox()}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('IP', ip)}
-        </div>
-        {urlLine()}
-      </div>
-    );
-    if (stampStyle === 'CC2') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-start justify-between gap-1">
-          <div className="flex items-center gap-1">
-            <div className="w-5 h-5 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            </div>
-            <div>
-              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc} · #1</p>
-            </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
           </div>
-          <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">OTP ✓</span>
         </div>
-        {acceptBox(false)}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'CC3') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-        <div className="w-1.5 bg-gray-700 flex-shrink-0" />
-        <div className="flex-1 p-2 flex flex-col gap-1.5">
-          <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-          <p className="text-[7px] text-gray-500">{rfc}</p>
-          {acceptBox(false)}
-          {hashBlock()}
+      );
+    if (stampStyle === 'AL2')
+      return (
+        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
+          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
+          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
+          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
+          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
+          <div className="flex justify-center mb-1">{avatarBlock()}</div>
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          {sigBox()}
+          {hashBlock(true)}
           <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
-            {fieldRow('FECHA', fecha)}
-          </div>
-          {urlLine()}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'CC4') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-center gap-1.5">
-          <div className="w-6 h-6 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </div>
-          <div>
-            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-            <p className="text-[7px] text-gray-500">{rfc} · #1</p>
-          </div>
-        </div>
-        {acceptBox(false)}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('OTP', 'Correo ✓')}
-        </div>
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    if (stampStyle === 'CC5') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-        {acceptBox()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('Clic + OTP ✓', fecha)}
-          {fieldRow('IP', ip)}
-        </div>
-        {hashBlock()}
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    // Medianas
-    if (stampStyle === 'CM1') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-start gap-1.5">
-          {avatarBlock()}
-          <div className="flex-1">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
-          </div>
-          <span className="text-[6px] text-gray-600 font-semibold border border-gray-300 rounded px-1">Simple</span>
-        </div>
-        {acceptBox(false)}
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('RFC', rfc)}
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('OTP CANAL', 'Correo ✓')}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'CM2') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-        <div className="w-1.5 bg-gray-700 flex-shrink-0" />
-        <div className="flex-1 p-2 flex flex-col gap-1.5">
-          <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-          <p className="text-[7px] text-gray-500">{rfc} · #1</p>
-          {acceptBox(false)}
-          {hashBlock()}
-          <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-            {fieldRow('RFC', rfc)}
             {fieldRow('FECHA', fecha)}
             {fieldRow('IP', ip)}
             {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('DISPOSITIVO', 'Web')}
             {fieldRow('OTP', 'Correo ✓')}
-          </div>
-          {urlLine()}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'CM3') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex flex-col w-full overflow-hidden">
-        <div className="bg-gray-800 px-2 py-1.5 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            <p className="text-[8px] font-bold text-white">{nombre}</p>
-          </div>
-          <span className="text-[6px] text-gray-300 font-semibold border border-gray-500 rounded px-1">Simple</span>
-        </div>
-        <div className="p-2 flex flex-col gap-1.5">
-          <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
-          {acceptBox(false)}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
             {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('OTP', 'Correo ✓')}
+            {fieldRow('NIVEL', 'Simple')}
+            {fieldRow('BIOMETRÍA', 'Presión · Vel.')}
+            {fieldRow('ORDEN', '#1')}
+            {fieldRow('CURP', '—')}
+            {fieldRow('RFC', rfc)}
           </div>
           <div className="flex items-end justify-between gap-2">
             <div className="flex-1">{urlLine()}</div>
             {qrBlock}
           </div>
         </div>
-      </div>
-    );
-    if (stampStyle === 'CM4') return (
-      <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-        <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-        <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-        <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-        <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-        <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
-          <p className="text-[7px] text-gray-700 leading-tight">
-            Aceptó expresamente el documento mediante clic confirmado + OTP ✓ · {fecha}
-          </p>
-        </div>
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA/TZ', fecha)}
-          {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('OTP CANAL', 'Correo ✓')}
-        </div>
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    if (stampStyle === 'CM5') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-center gap-1.5">
-          {avatarBlock()}
-          <div>
+      );
+    if (stampStyle === 'AL3')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
+          <div className="w-1.5 bg-green-500 flex-shrink-0" />
+          <div className="flex-1 p-2 flex flex-col gap-1.5">
             <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            <p className="text-[7px] text-gray-500">Firmante #1 · Simple</p>
+            {sigBox()}
+            {hashBlock(true)}
+            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
+              {fieldRow('FECHA', fecha)}
+              {fieldRow('IP', ip)}
+              {fieldRow('GEOLOC', geoloc)}
+              {fieldRow('OTP', 'Correo ✓')}
+              {fieldRow('DISPOSITIVO', 'Web')}
+              {fieldRow('NIVEL', 'Simple')}
+              {fieldRow('BIOMETRÍA', 'Presión · Vel.')}
+              {fieldRow('PRECISIÓN GPS', '±80m')}
+              {fieldRow('ORDEN', '#1')}
+              {fieldRow('CURP', '—')}
+              {fieldRow('RFC', rfc)}
+              {fieldRow('SELLO', 'No configurado')}
+            </div>
+            {urlLine()}
           </div>
         </div>
-        {acceptBox(false)}
-        {hashBlock()}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-        </div>
-        <div className="flex justify-center mt-1">{qrBlock}</div>
-      </div>
-    );
-    // Largas
-    if (stampStyle === 'CL1') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="flex items-start gap-1.5">
-          {avatarBlock()}
-          <div className="flex-1">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+      );
+    if (stampStyle === 'AL4')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FIRMANTE', nombre)}
+            {fieldRow('RFC', rfc)}
+            {fieldRow('CURP', '—')}
+            {fieldRow('ROL', 'Firmante')}
+            {fieldRow('NIVEL', 'Firma Electrónica Simple')}
+            {fieldRow('ORDEN', '#1')}
           </div>
-          <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">OTP ✓</span>
+          {sigBox()}
+          {hashBlock(true)}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA / TZ', fecha)}
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+            {fieldRow('DISPOSITIVO', 'Web')}
+            {fieldRow('OTP CANAL', 'Correo ✓')}
+            {fieldRow('SELLO RFC 3161', 'No configurado')}
+            {fieldRow('BIOMETRÍA TRAZO', 'Presión · Velocidad')}
+            {fieldRow('NIVEL FIRMA', 'Simple')}
+          </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
+          </div>
         </div>
-        <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
-          <p className="text-[7px] text-gray-700 leading-tight">
-            El firmante aceptó expresamente el contenido del documento mediante clic confirmado y código OTP de un solo uso · {fecha}
-          </p>
+      );
+  }
+
+  // ── Click & Sign stamps ─────────────────────────────────────────────────────
+  if (signatureType === 'clicksign') {
+    if (stampStyle === 'CC1')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+          <p className="text-[7px] text-gray-500">RFC: {rfc} · #1</p>
+          {acceptBox()}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA/TZ', fecha)}
+            {fieldRow('IP', ip)}
+          </div>
+          {urlLine()}
         </div>
-        {hashBlock(true)}
-        <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-          {fieldRow('RFC', rfc)}
-          {fieldRow('CURP', '—')}
-          {fieldRow('ROL', 'Firmante')}
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('HORA/TZ', 'CST')}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('PRECISIÓN GPS', '±80m')}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('OTP CANAL', 'Correo ✓')}
-          {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
-          {fieldRow('ORDEN / TOTAL', '#1')}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
-    if (stampStyle === 'CL2') return (
-      <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FIRMANTE', nombre)}
-          {fieldRow('RFC', rfc)}
-          {fieldRow('CURP', '—')}
-          {fieldRow('ROL', 'Firmante')}
-          {fieldRow('NIVEL', 'Firma Electrónica Simple')}
-          {fieldRow('ORDEN', '#1')}
-        </div>
-        <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
-          <p className="text-[7px] text-gray-700 leading-tight">
-            Aceptó expresamente el documento mediante clic confirmado + OTP ✓ · {fecha}
-          </p>
-        </div>
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('OTP CANAL', 'Correo ✓')}
-          {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
-        </div>
-        {urlLine()}
-      </div>
-    );
-    if (stampStyle === 'CL3') return (
-      <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-        <div className="w-1.5 bg-gray-700 flex-shrink-0" />
-        <div className="flex-1 p-2 flex flex-col gap-1.5">
-          <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+      );
+    if (stampStyle === 'CC2')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-start justify-between gap-1">
+            <div className="flex items-center gap-1">
+              <div className="w-5 h-5 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0">
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#374151"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+                <p className="text-[7px] text-gray-500">{rfc} · #1</p>
+              </div>
+            </div>
+            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
+              OTP ✓
+            </span>
+          </div>
           {acceptBox(false)}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA/TZ', fecha)}
+            {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
+          </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
+          </div>
+        </div>
+      );
+    if (stampStyle === 'CC3')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
+          <div className="w-1.5 bg-gray-700 flex-shrink-0" />
+          <div className="flex-1 p-2 flex flex-col gap-1.5">
+            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+            <p className="text-[7px] text-gray-500">{rfc}</p>
+            {acceptBox(false)}
+            {hashBlock()}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+              {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
+              {fieldRow('FECHA', fecha)}
+            </div>
+            {urlLine()}
+          </div>
+        </div>
+      );
+    if (stampStyle === 'CC4')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#374151"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+              <p className="text-[7px] text-gray-500">{rfc} · #1</p>
+            </div>
+          </div>
+          {acceptBox(false)}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA/TZ', fecha)}
+            {fieldRow('OTP', 'Correo ✓')}
+          </div>
+          <div className="flex justify-center mt-1">{qrBlock}</div>
+        </div>
+      );
+    if (stampStyle === 'CC5')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
+          {acceptBox()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('Clic + OTP ✓', fecha)}
+            {fieldRow('IP', ip)}
+          </div>
+          {hashBlock()}
+          <div className="flex justify-center mt-1">{qrBlock}</div>
+        </div>
+      );
+    // Medianas
+    if (stampStyle === 'CM1')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-start gap-1.5">
+            {avatarBlock()}
+            <div className="flex-1">
+              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+            </div>
+            <span className="text-[6px] text-gray-600 font-semibold border border-gray-300 rounded px-1">
+              Simple
+            </span>
+          </div>
+          {acceptBox(false)}
+          {hashBlock(true)}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('RFC', rfc)}
+            {fieldRow('FECHA/TZ', fecha)}
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+            {fieldRow('DISPOSITIVO', 'Web')}
+            {fieldRow('OTP CANAL', 'Correo ✓')}
+          </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
+          </div>
+        </div>
+      );
+    if (stampStyle === 'CM2')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
+          <div className="w-1.5 bg-gray-700 flex-shrink-0" />
+          <div className="flex-1 p-2 flex flex-col gap-1.5">
+            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+            <p className="text-[7px] text-gray-500">{rfc} · #1</p>
+            {acceptBox(false)}
+            {hashBlock()}
+            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
+              {fieldRow('RFC', rfc)}
+              {fieldRow('FECHA', fecha)}
+              {fieldRow('IP', ip)}
+              {fieldRow('GEOLOC', geoloc)}
+              {fieldRow('DISPOSITIVO', 'Web')}
+              {fieldRow('OTP', 'Correo ✓')}
+            </div>
+            {urlLine()}
+          </div>
+        </div>
+      );
+    if (stampStyle === 'CM3')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex flex-col w-full overflow-hidden">
+          <div className="bg-gray-800 px-2 py-1.5 flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <p className="text-[8px] font-bold text-white">{nombre}</p>
+            </div>
+            <span className="text-[6px] text-gray-300 font-semibold border border-gray-500 rounded px-1">
+              Simple
+            </span>
+          </div>
+          <div className="p-2 flex flex-col gap-1.5">
+            <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+            {acceptBox(false)}
+            {hashBlock()}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+              {fieldRow('FECHA/TZ', fecha)}
+              {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
+              {fieldRow('DISPOSITIVO', 'Web')}
+              {fieldRow('OTP', 'Correo ✓')}
+            </div>
+            <div className="flex items-end justify-between gap-2">
+              <div className="flex-1">{urlLine()}</div>
+              {qrBlock}
+            </div>
+          </div>
+        </div>
+      );
+    if (stampStyle === 'CM4')
+      return (
+        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
+          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
+          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
+          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
+          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
+          <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
+            <p className="text-[7px] text-gray-700 leading-tight">
+              Aceptó expresamente el documento mediante clic confirmado + OTP ✓ · {fecha}
+            </p>
+          </div>
+          {hashBlock(true)}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA/TZ', fecha)}
+            {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
+            {fieldRow('DISPOSITIVO', 'Web')}
+            {fieldRow('OTP CANAL', 'Correo ✓')}
+          </div>
+          <div className="flex justify-center mt-1">{qrBlock}</div>
+        </div>
+      );
+    if (stampStyle === 'CM5')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-center gap-1.5">
+            {avatarBlock()}
+            <div>
+              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">Firmante #1 · Simple</p>
+            </div>
+          </div>
+          {acceptBox(false)}
+          {hashBlock()}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+          </div>
+          <div className="flex justify-center mt-1">{qrBlock}</div>
+        </div>
+      );
+    // Largas
+    if (stampStyle === 'CL1')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="flex items-start gap-1.5">
+            {avatarBlock()}
+            <div className="flex-1">
+              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+            </div>
+            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
+              OTP ✓
+            </span>
+          </div>
+          <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
+            <p className="text-[7px] text-gray-700 leading-tight">
+              El firmante aceptó expresamente el contenido del documento mediante clic confirmado y
+              código OTP de un solo uso · {fecha}
+            </p>
+          </div>
           {hashBlock(true)}
           <div className="grid grid-cols-3 gap-x-1 gap-y-1">
             {fieldRow('RFC', rfc)}
             {fieldRow('CURP', '—')}
             {fieldRow('ROL', 'Firmante')}
             {fieldRow('FECHA', fecha)}
+            {fieldRow('HORA/TZ', 'CST')}
             {fieldRow('IP', ip)}
             {fieldRow('GEOLOC', geoloc)}
             {fieldRow('PRECISIÓN GPS', '±80m')}
             {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('OTP', 'Correo ✓')}
+            {fieldRow('OTP CANAL', 'Correo ✓')}
+            {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
+            {fieldRow('ORDEN / TOTAL', '#1')}
+          </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
+          </div>
+        </div>
+      );
+    if (stampStyle === 'CL2')
+      return (
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FIRMANTE', nombre)}
+            {fieldRow('RFC', rfc)}
+            {fieldRow('CURP', '—')}
+            {fieldRow('ROL', 'Firmante')}
+            {fieldRow('NIVEL', 'Firma Electrónica Simple')}
+            {fieldRow('ORDEN', '#1')}
+          </div>
+          <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
+            <p className="text-[7px] text-gray-700 leading-tight">
+              Aceptó expresamente el documento mediante clic confirmado + OTP ✓ · {fecha}
+            </p>
+          </div>
+          {hashBlock(true)}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA', fecha)}
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+            {fieldRow('DISPOSITIVO', 'Web')}
+            {fieldRow('OTP CANAL', 'Correo ✓')}
+            {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
+          </div>
+          {urlLine()}
+        </div>
+      );
+    if (stampStyle === 'CL3')
+      return (
+        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
+          <div className="w-1.5 bg-gray-700 flex-shrink-0" />
+          <div className="flex-1 p-2 flex flex-col gap-1.5">
+            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
+            {acceptBox(false)}
+            {hashBlock(true)}
+            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
+              {fieldRow('RFC', rfc)}
+              {fieldRow('CURP', '—')}
+              {fieldRow('ROL', 'Firmante')}
+              {fieldRow('FECHA', fecha)}
+              {fieldRow('IP', ip)}
+              {fieldRow('GEOLOC', geoloc)}
+              {fieldRow('PRECISIÓN GPS', '±80m')}
+              {fieldRow('DISPOSITIVO', 'Web')}
+              {fieldRow('OTP', 'Correo ✓')}
+              {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
+              {fieldRow('NIVEL', 'Simple')}
+              {fieldRow('ORDEN', '#1')}
+            </div>
+            {urlLine()}
+          </div>
+        </div>
+      );
+    if (stampStyle === 'CL4')
+      return (
+        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
+          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
+          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
+          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
+          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
+          <div className="flex justify-center mb-1">{avatarBlock()}</div>
+          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
+          <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
+            <p className="text-[7px] text-gray-700 leading-tight">
+              Aceptó expresamente el documento mediante clic confirmado + OTP ✓ · {fecha}
+            </p>
+          </div>
+          {hashBlock(true)}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {fieldRow('FECHA', fecha)}
+            {fieldRow('IP', ip)}
+            {fieldRow('GEOLOC', geoloc)}
+            {fieldRow('DISPOSITIVO', 'Web')}
+            {fieldRow('OTP CANAL', 'Correo ✓')}
             {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
             {fieldRow('NIVEL', 'Simple')}
             {fieldRow('ORDEN', '#1')}
           </div>
-          {urlLine()}
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex-1">{urlLine()}</div>
+            {qrBlock}
+          </div>
         </div>
-      </div>
-    );
-    if (stampStyle === 'CL4') return (
-      <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-        <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-        <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-        <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-        <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-        <div className="flex justify-center mb-1">{avatarBlock()}</div>
-        <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-        <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-        <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
-          <p className="text-[7px] text-gray-700 leading-tight">
-            Aceptó expresamente el documento mediante clic confirmado + OTP ✓ · {fecha}
-          </p>
-        </div>
-        {hashBlock(true)}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {fieldRow('FECHA', fecha)}
-          {fieldRow('IP', ip)}
-          {fieldRow('GEOLOC', geoloc)}
-          {fieldRow('DISPOSITIVO', 'Web')}
-          {fieldRow('OTP CANAL', 'Correo ✓')}
-          {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
-          {fieldRow('NIVEL', 'Simple')}
-          {fieldRow('ORDEN', '#1')}
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <div className="flex-1">{urlLine()}</div>
-          {qrBlock}
-        </div>
-      </div>
-    );
+      );
   }
 
   // Fallback: show raw signature image
@@ -3306,17 +4600,44 @@ function SignatureStampDisplay({
     <img src={signatureUrl} alt="Estampa de firma" className="max-h-20 max-w-full object-contain" />
   ) : (
     <div className="flex flex-col items-center justify-center gap-1 py-2">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-slate-300"
+      >
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+      </svg>
       <p className="text-xs text-slate-400">Sin estampa visual</p>
     </div>
   );
 }
 
 // ─── Exit Confirm Modal ───────────────────────────────────────────────────────
-function ExitConfirmModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+function ExitConfirmModal({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
             <AlertTriangle size={20} className="text-red-500" />
@@ -3327,7 +4648,8 @@ function ExitConfirmModal({ onConfirm, onCancel }: { onConfirm: () => void; onCa
           </div>
         </div>
         <p className="text-sm text-gray-600 mb-6">
-          Si sales ahora, perderás los campos completados y tendrás que volver a iniciar el proceso de firma.
+          Si sales ahora, perderás los campos completados y tendrás que volver a iniciar el proceso
+          de firma.
         </p>
         <div className="flex items-center justify-end gap-3">
           <button
@@ -3351,24 +4673,45 @@ function ExitConfirmModal({ onConfirm, onCancel }: { onConfirm: () => void; onCa
 }
 
 // ─── No Firma Alert Modal ─────────────────────────────────────────────────────
-function NoFirmaAlertModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+function NoFirmaAlertModal({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
             <AlertTriangle size={20} className="text-amber-500" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-gray-900">Firma no insertada en el documento</h3>
+            <h3 className="text-base font-bold text-gray-900">
+              Firma no insertada en el documento
+            </h3>
           </div>
         </div>
         <p className="text-sm text-gray-600 mb-3">
-          No has insertado un campo de firma en el documento. Si continúas, tu firma será registrada en una <span className="font-semibold text-gray-800">hoja de certificación aparte</span> que indicará que firmaste el documento.
+          No has insertado un campo de firma en el documento. Si continúas, tu firma será registrada
+          en una <span className="font-semibold text-gray-800">hoja de certificación aparte</span>{' '}
+          que indicará que firmaste el documento.
         </p>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-5 flex items-start gap-2">
           <Shield size={15} className="text-amber-600 shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-700">La hoja de certificación tiene la misma validez legal que una firma insertada directamente en el documento.</p>
+          <p className="text-xs text-amber-700">
+            La hoja de certificación tiene la misma validez legal que una firma insertada
+            directamente en el documento.
+          </p>
         </div>
         <div className="flex items-center justify-end gap-3">
           <button
@@ -3415,8 +4758,8 @@ export default function FirmarDocumentoPage() {
   const [geoLoading, setGeoLoading] = useState(true);
   useEffect(() => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
-      setGeoLoading(false);
-      return;
+      const loadingFrame = window.requestAnimationFrame(() => setGeoLoading(false));
+      return () => window.cancelAnimationFrame(loadingFrame);
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -3441,25 +4784,41 @@ export default function FirmarDocumentoPage() {
     try {
       const raw = sessionStorage.getItem(sessionKey);
       return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }, [sessionKey]);
 
   // Helper: write persisted flow state (only after restore is complete)
-  const writePersistedFlow = useCallback((patch: Record<string, unknown>) => {
-    if (!sessionKey || typeof window === 'undefined') return;
-    if (!flowRestoredRef.current) return; // don't overwrite before restore
-    try {
-      const existing = (() => {
-        try { const r = sessionStorage.getItem(sessionKey); return r ? JSON.parse(r) : {}; } catch { return {}; }
-      })();
-      sessionStorage.setItem(sessionKey, JSON.stringify({ ...existing, ...patch }));
-    } catch { /* quota exceeded – ignore */ }
-  }, [sessionKey]);
+  const writePersistedFlow = useCallback(
+    (patch: Record<string, unknown>) => {
+      if (!sessionKey || typeof window === 'undefined') return;
+      if (!flowRestoredRef.current) return; // don't overwrite before restore
+      try {
+        const existing = (() => {
+          try {
+            const r = sessionStorage.getItem(sessionKey);
+            return r ? JSON.parse(r) : {};
+          } catch {
+            return {};
+          }
+        })();
+        sessionStorage.setItem(sessionKey, JSON.stringify({ ...existing, ...patch }));
+      } catch {
+        /* quota exceeded – ignore */
+      }
+    },
+    [sessionKey]
+  );
 
   // Helper: clear persisted flow state
   const clearPersistedFlow = useCallback(() => {
     if (!sessionKey || typeof window === 'undefined') return;
-    try { sessionStorage.removeItem(sessionKey); } catch { /* ignore */ }
+    try {
+      sessionStorage.removeItem(sessionKey);
+    } catch {
+      /* ignore */
+    }
   }, [sessionKey]);
 
   // Document state
@@ -3505,7 +4864,9 @@ export default function FirmarDocumentoPage() {
   const [proteccionTotpCode, setProteccionTotpCode] = useState('');
 
   // Step state
-  const [step, setStep] = useState<'terminos' | 'campos' | 'firma' | 'aprobacion' | 'completado'>('terminos');
+  const [step, setStep] = useState<'terminos' | 'campos' | 'firma' | 'aprobacion' | 'completado'>(
+    'terminos'
+  );
   const [terminosAceptados, setTerminosAceptados] = useState(false);
 
   // Campos prefijados (from document)
@@ -3526,11 +4887,21 @@ export default function FirmarDocumentoPage() {
 
   // ─── NEW: User profile data for auto-fill ─────────────────────────────────
   const [userProfile, setUserProfile] = useState<UserProfileData>({
-    nombre_completo: '',rfc: '',curp: '',email: '',telefono: '',direccion: '',
+    nombre_completo: '',
+    rfc: '',
+    curp: '',
+    email: '',
+    telefono: '',
+    direccion: '',
   });
   // Keep a ref so processDocData (called inside useEffect) can access latest profile
   const userProfileRef = useRef<UserProfileData>({
-    nombre_completo: '',rfc: '',curp: '',email: '',telefono: '',direccion: '',
+    nombre_completo: '',
+    rfc: '',
+    curp: '',
+    email: '',
+    telefono: '',
+    direccion: '',
   });
 
   // Firma
@@ -3538,7 +4909,9 @@ export default function FirmarDocumentoPage() {
   const [firmaConfirmada, setFirmaConfirmada] = useState(false);
   // Preloaded signature from profile
   const [savedSignature, setSavedSignature] = useState<string | null>(null);
-  const [savedSignatureType, setSavedSignatureType] = useState<'efirma' | 'firma_electronica' | 'autografa' | null>(null);
+  const [savedSignatureType, setSavedSignatureType] = useState<
+    'efirma' | 'firma_electronica' | 'autografa' | null
+  >(null);
   const [usePreloadedSignature, setUsePreloadedSignature] = useState<boolean | null>(null);
   // Autograph-specific dates
   const [autografaCreatedAt, setAutografaCreatedAt] = useState<string | null>(null);
@@ -3558,7 +4931,9 @@ export default function FirmarDocumentoPage() {
   // Signature mode / style
   const [signatureMode, setSignatureMode] = useState<'dibujar' | 'tipear' | 'cargar'>('dibujar');
   const [typedSignature, setTypedSignature] = useState('');
-  const [typedSignatureStyle, setTypedSignatureStyle] = useState<'cursive' | 'print' | 'formal'>('cursive');
+  const [typedSignatureStyle, setTypedSignatureStyle] = useState<'cursive' | 'print' | 'formal'>(
+    'cursive'
+  );
   // e.firma SAT profile data
   const [profileEfirma, setProfileEfirma] = useState<EfirmaProfileData | null>(null);
   const [efirmaValidated, setEfirmaValidated] = useState(false);
@@ -3568,7 +4943,8 @@ export default function FirmarDocumentoPage() {
   const [efirmaKeyB64, setEfirmaKeyB64] = useState<string | null>(null);
   const [efirmaPassword, setEfirmaPassword] = useState<string | null>(null);
   // Nubarium validation result (captured at validation time, used in constancia)
-  const [nubariumValidationResult, setNubariumValidationResult] = useState<NubariumValidationResult | null>(null);
+  const [nubariumValidationResult, setNubariumValidationResult] =
+    useState<NubariumValidationResult | null>(null);
 
   // Aprobador
   const [observaciones, setObservaciones] = useState('');
@@ -3580,7 +4956,9 @@ export default function FirmarDocumentoPage() {
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
   // ── Completado tab state ───────────────────────────────────────────────────
-  const [activeCompletadoTab, setActiveCompletadoTab] = useState<'resumen' | 'descargas'>('resumen');
+  const [activeCompletadoTab, setActiveCompletadoTab] = useState<'resumen' | 'descargas'>(
+    'resumen'
+  );
   const [downloadingOriginal, setDownloadingOriginal] = useState(false);
 
   // ── NOM-151 state ──────────────────────────────────────────────────────────
@@ -3591,7 +4969,7 @@ export default function FirmarDocumentoPage() {
     nubarium_hash: string;
     constancia_sha256: string;
     created_at: string;
-} | null>(null);
+  } | null>(null);
   const [nom151Polling, setNom151Polling] = useState(false);
 
   // ── XML Evidence state ─────────────────────────────────────────────────────
@@ -3627,7 +5005,8 @@ export default function FirmarDocumentoPage() {
     try {
       const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
 
-      const safe = (str: string | null | undefined) => (str || '-').replace(/[^\x20-\x7E\xA0-\xFF]/g, '?');
+      const safe = (str: string | null | undefined) =>
+        (str || '-').replace(/[^\x20-\x7E\xA0-\xFF]/g, '?');
 
       const pdfDoc = await PDFDocument.create();
       const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -3653,8 +5032,8 @@ export default function FirmarDocumentoPage() {
       const accentBlue = rgb(0.118, 0.42, 1); // #1E6BFF
       const accentBlueDark = rgb(0.118, 0.251, 0.569); // #1E4091
       const accentBlueLight = rgb(0.937, 0.961, 1); // #EFF5FF
-      const certSectionBg = rgb(0.973, 0.980, 0.988); // #F8FAFC
-      const certBorderBlue = rgb(0.118, 0.420, 1.0);  // #1E6BFF
+      const certSectionBg = rgb(0.973, 0.98, 0.988); // #F8FAFC
+      const certBorderBlue = rgb(0.118, 0.42, 1.0); // #1E6BFF
 
       const margin = 40;
       const pageW = 595;
@@ -3668,14 +5047,26 @@ export default function FirmarDocumentoPage() {
         if (brandLogo) {
           currentPage.drawImage(brandLogo, { x: margin, y: pageH - 43, width: 104, height: 21 });
         } else {
-          currentPage.drawText('Docubox', { x: margin, y: pageH - 37, size: 13, font: fontBold, color: darkGray });
+          currentPage.drawText('Docubox', {
+            x: margin,
+            y: pageH - 37,
+            size: 13,
+            font: fontBold,
+            color: darkGray,
+          });
         }
         currentPage.drawText('Constancia individual de participaci\u00f3n', {
-          x: pageW - margin - 170, y: pageH - 36, size: 7.5, font: fontRegular, color: midGray,
+          x: pageW - margin - 170,
+          y: pageH - 36,
+          size: 7.5,
+          font: fontRegular,
+          color: midGray,
         });
         currentPage.drawLine({
-          start: { x: margin, y: pageH - 52 }, end: { x: pageW - margin, y: pageH - 52 },
-          thickness: 1, color: lightGray,
+          start: { x: margin, y: pageH - 52 },
+          end: { x: pageW - margin, y: pageH - 52 },
+          thickness: 1,
+          color: lightGray,
         });
       };
 
@@ -3689,51 +5080,134 @@ export default function FirmarDocumentoPage() {
 
       const drawSectionHeading = (title: string) => {
         ensureSpace(30);
-        currentPage.drawRectangle({ x: margin, y: y - 20, width: contentW, height: 22, color: accentBlueLight, borderColor: lightGray, borderWidth: 0.4 });
-        currentPage.drawRectangle({ x: margin, y: y - 20, width: 3, height: 22, color: accentBlue });
-        currentPage.drawText(safe(title), { x: margin + 11, y: y - 13, size: 8, font: fontBold, color: accentBlueDark });
+        currentPage.drawRectangle({
+          x: margin,
+          y: y - 20,
+          width: contentW,
+          height: 22,
+          color: accentBlueLight,
+          borderColor: lightGray,
+          borderWidth: 0.4,
+        });
+        currentPage.drawRectangle({
+          x: margin,
+          y: y - 20,
+          width: 3,
+          height: 22,
+          color: accentBlue,
+        });
+        currentPage.drawText(safe(title), {
+          x: margin + 11,
+          y: y - 13,
+          size: 8,
+          font: fontBold,
+          color: accentBlueDark,
+        });
         y -= 28;
       };
 
       const drawKV = (label: string, value: string) => {
         ensureSpace(22);
         const rowH = 18;
-        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: white, borderColor: lightGray, borderWidth: 0.35 });
-        currentPage.drawText(safe(label), { x: margin + 8, y: y - 12, size: 7.2, font: fontBold, color: midGray });
+        currentPage.drawRectangle({
+          x: margin,
+          y: y - rowH,
+          width: contentW,
+          height: rowH,
+          color: white,
+          borderColor: lightGray,
+          borderWidth: 0.35,
+        });
+        currentPage.drawText(safe(label), {
+          x: margin + 8,
+          y: y - 12,
+          size: 7.2,
+          font: fontBold,
+          color: midGray,
+        });
         const valStr = safe(value);
         const displayVal = valStr.length > 72 ? valStr.slice(0, 72) + '...' : valStr;
-        currentPage.drawText(displayVal, { x: margin + 180, y: y - 12, size: 7.5, font: fontRegular, color: black });
+        currentPage.drawText(displayVal, {
+          x: margin + 180,
+          y: y - 12,
+          size: 7.5,
+          font: fontRegular,
+          color: black,
+        });
         y -= rowH;
       };
 
       const drawKVMono = (label: string, value: string) => {
         ensureSpace(22);
         const rowH = 18;
-        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: white, borderColor: lightGray, borderWidth: 0.35 });
-        currentPage.drawText(safe(label), { x: margin + 8, y: y - 12, size: 7.2, font: fontBold, color: midGray });
+        currentPage.drawRectangle({
+          x: margin,
+          y: y - rowH,
+          width: contentW,
+          height: rowH,
+          color: white,
+          borderColor: lightGray,
+          borderWidth: 0.35,
+        });
+        currentPage.drawText(safe(label), {
+          x: margin + 8,
+          y: y - 12,
+          size: 7.2,
+          font: fontBold,
+          color: midGray,
+        });
         const valStr = safe(value);
-        currentPage.drawText(valStr, { x: margin + 180, y: y - 12, size: 7, font: fontMono, color: black });
+        currentPage.drawText(valStr, {
+          x: margin + 180,
+          y: y - 12,
+          size: 7,
+          font: fontMono,
+          color: black,
+        });
         y -= rowH;
       };
 
       const drawCertKV = (label: string, value: string) => {
         ensureSpace(20);
         const rowH = 17;
-        currentPage.drawRectangle({ x: margin + 3, y: y - rowH, width: contentW - 3, height: rowH, color: certSectionBg });
-        currentPage.drawText(safe(label), { x: margin + 10, y: y - 11, size: 7.5, font: fontBold, color: darkGray });
-        currentPage.drawText(safe(value), { x: margin + 185, y: y - 11, size: 7.5, font: fontMono, color: black });
+        currentPage.drawRectangle({
+          x: margin + 3,
+          y: y - rowH,
+          width: contentW - 3,
+          height: rowH,
+          color: certSectionBg,
+        });
+        currentPage.drawText(safe(label), {
+          x: margin + 10,
+          y: y - 11,
+          size: 7.5,
+          font: fontBold,
+          color: darkGray,
+        });
+        currentPage.drawText(safe(value), {
+          x: margin + 185,
+          y: y - 11,
+          size: 7.5,
+          font: fontMono,
+          color: black,
+        });
         y -= rowH;
       };
 
       const ev = signatureEvidence;
-      const isEfirma = savedSignatureType === 'efirma' || ev?.signatureType?.includes('efirma') || ev?.signatureType?.includes('e.firma');
+      const isEfirma =
+        savedSignatureType === 'efirma' ||
+        ev?.signatureType?.includes('efirma') ||
+        ev?.signatureType?.includes('e.firma');
       const signedAt = ev?.signedAt || new Date().toISOString();
       const shortDocId = document?.id?.slice(0, 8) || 'doc';
       const folioPrefix = isEfirma ? 'EFI' : 'AUT';
       const folioId = `DBX-IND-${folioPrefix}-${new Date().getFullYear()}-${shortDocId.toUpperCase()}`;
       const userName = userProfile.nombre_completo || user?.user_metadata?.full_name || '—';
       const userEmail = userProfile.email || user?.email || '—';
-      const methodLabel = isEfirma ? 'FIRMA ELECTRONICA AVANZADA - E.FIRMA SAT' : 'FIRMA AUTOGRAFA DIGITALIZADA';
+      const methodLabel = isEfirma
+        ? 'FIRMA ELECTRONICA AVANZADA - E.FIRMA SAT'
+        : 'FIRMA AUTOGRAFA DIGITALIZADA';
 
       // ════════════════════════════════════════════════════════════════════════
       // HEADER
@@ -3741,34 +5215,75 @@ export default function FirmarDocumentoPage() {
       if (brandLogo) {
         currentPage.drawImage(brandLogo, { x: margin, y: pageH - 49, width: 128, height: 26 });
       } else {
-        currentPage.drawText('Docubox', { x: margin, y: pageH - 42, size: 16, font: fontBold, color: darkGray });
+        currentPage.drawText('Docubox', {
+          x: margin,
+          y: pageH - 42,
+          size: 16,
+          font: fontBold,
+          color: darkGray,
+        });
       }
       currentPage.drawRectangle({
-        x: pageW - margin - 96, y: pageH - 47, width: 96, height: 22,
-        color: accentBlueLight, borderColor: lightGray, borderWidth: 0.5,
+        x: pageW - margin - 96,
+        y: pageH - 47,
+        width: 96,
+        height: 22,
+        color: accentBlueLight,
+        borderColor: lightGray,
+        borderWidth: 0.5,
       });
       currentPage.drawText('CONSTANCIA LEGAL', {
-        x: pageW - margin - 83, y: pageH - 40, size: 7, font: fontBold, color: accentBlueDark,
+        x: pageW - margin - 83,
+        y: pageH - 40,
+        size: 7,
+        font: fontBold,
+        color: accentBlueDark,
       });
       currentPage.drawText('Constancia individual de participaci\u00f3n', {
-        x: margin, y: pageH - 78, size: 15, font: fontBold, color: black,
+        x: margin,
+        y: pageH - 78,
+        size: 15,
+        font: fontBold,
+        color: black,
       });
       currentPage.drawText('Evidencia individual del proceso de firma electr\u00f3nica', {
-        x: margin, y: pageH - 94, size: 8.5, font: fontRegular, color: midGray,
+        x: margin,
+        y: pageH - 94,
+        size: 8.5,
+        font: fontRegular,
+        color: midGray,
       });
       currentPage.drawLine({
-        start: { x: margin, y: pageH - 108 }, end: { x: pageW - margin, y: pageH - 108 },
-        thickness: 1.5, color: accentBlue,
+        start: { x: margin, y: pageH - 108 },
+        end: { x: pageW - margin, y: pageH - 108 },
+        thickness: 1.5,
+        color: accentBlue,
       });
       y = pageH - 120;
 
       // Confidential banner
-      currentPage.drawRectangle({ x: margin, y: y - 22, width: contentW, height: 22, color: accentBlueLight, borderColor: lightGray, borderWidth: 0.5 });
+      currentPage.drawRectangle({
+        x: margin,
+        y: y - 22,
+        width: contentW,
+        height: 22,
+        color: accentBlueLight,
+        borderColor: lightGray,
+        borderWidth: 0.5,
+      });
       currentPage.drawText('CONFIDENCIAL - SOLO PARA EL FIRMANTE', {
-        x: margin + 10, y: y - 14, size: 7.2, font: fontBold, color: accentBlueDark,
+        x: margin + 10,
+        y: y - 14,
+        size: 7.2,
+        font: fontBold,
+        color: accentBlueDark,
       });
       currentPage.drawText(`METODO: ${methodLabel}`, {
-        x: margin + 260, y: y - 14, size: 7.2, font: fontBold, color: accentBlue,
+        x: margin + 260,
+        y: y - 14,
+        size: 7.2,
+        font: fontBold,
+        color: accentBlue,
       });
       y -= 30;
 
@@ -3782,13 +5297,30 @@ export default function FirmarDocumentoPage() {
       summaryItems.forEach((item, index) => {
         const x = margin + index * (summaryW + summaryGap);
         currentPage.drawRectangle({
-          x, y: y - 42, width: summaryW, height: 42,
-          color: white, borderColor: lightGray, borderWidth: 0.6,
+          x,
+          y: y - 42,
+          width: summaryW,
+          height: 42,
+          color: white,
+          borderColor: lightGray,
+          borderWidth: 0.6,
         });
-        currentPage.drawText(item.label, { x: x + 9, y: y - 13, size: 6.5, font: fontBold, color: accentBlue });
+        currentPage.drawText(item.label, {
+          x: x + 9,
+          y: y - 13,
+          size: 6.5,
+          font: fontBold,
+          color: accentBlue,
+        });
         const value = safe(item.value);
         const displayValue = value.length > 29 ? `${value.slice(0, 29)}...` : value;
-        currentPage.drawText(displayValue, { x: x + 9, y: y - 29, size: 7.2, font: fontRegular, color: black });
+        currentPage.drawText(displayValue, {
+          x: x + 9,
+          y: y - 29,
+          size: 7.2,
+          font: fontRegular,
+          color: black,
+        });
       });
       y -= 52;
 
@@ -3796,7 +5328,10 @@ export default function FirmarDocumentoPage() {
       drawSectionHeading('DATOS DEL PARTICIPANTE');
       drawKV('NOMBRE COMPLETO', userName);
       drawKV('CORREO', userEmail);
-      drawKV('ROL', myRole === 'firmante' ? 'Firmante' : myRole === 'aprobador' ? 'Aprobador' : 'Observador');
+      drawKV(
+        'ROL',
+        myRole === 'firmante' ? 'Firmante' : myRole === 'aprobador' ? 'Aprobador' : 'Observador'
+      );
       if (userProfile.rfc) drawKV('RFC', userProfile.rfc);
       if (userProfile.curp) drawKV('CURP', userProfile.curp);
       y -= 8;
@@ -3806,11 +5341,37 @@ export default function FirmarDocumentoPage() {
       const certSectionH = certRows * 17 + 30;
       ensureSpace(certSectionH + 8);
       // Section background with left border accent
-      currentPage.drawRectangle({ x: margin, y: y - certSectionH, width: contentW, height: certSectionH, color: certSectionBg });
-      currentPage.drawRectangle({ x: margin, y: y - certSectionH, width: 3, height: certSectionH, color: certBorderBlue });
+      currentPage.drawRectangle({
+        x: margin,
+        y: y - certSectionH,
+        width: contentW,
+        height: certSectionH,
+        color: certSectionBg,
+      });
+      currentPage.drawRectangle({
+        x: margin,
+        y: y - certSectionH,
+        width: 3,
+        height: certSectionH,
+        color: certBorderBlue,
+      });
       // Section heading
-      currentPage.drawRectangle({ x: margin, y: y - 20, width: contentW, height: 20, color: accentBlueLight, borderColor: lightGray, borderWidth: 0.4 });
-      currentPage.drawText('ESTADO CRIPTOGRÁFICO', { x: margin + 10, y: y - 14, size: 8, font: fontBold, color: accentBlueDark });
+      currentPage.drawRectangle({
+        x: margin,
+        y: y - 20,
+        width: contentW,
+        height: 20,
+        color: accentBlueLight,
+        borderColor: lightGray,
+        borderWidth: 0.4,
+      });
+      currentPage.drawText('ESTADO CRIPTOGRÁFICO', {
+        x: margin + 10,
+        y: y - 14,
+        size: 8,
+        font: fontBold,
+        color: accentBlueDark,
+      });
       y -= 26;
       drawCertKV('Proveedor de certificado', 'No configurado');
       drawCertKV('Certificado institucional', 'No verificado');
@@ -3834,18 +5395,39 @@ export default function FirmarDocumentoPage() {
       drawSectionHeading('EVIDENCIA DE SESION - RECOLECCION AUTOMATICA');
 
       ensureSpace(16);
-      currentPage.drawText('Red e Identidad', { x: margin + 6, y: y - 10, size: 7.5, font: fontBold, color: accentBlue });
+      currentPage.drawText('Red e Identidad', {
+        x: margin + 6,
+        y: y - 10,
+        size: 7.5,
+        font: fontBold,
+        color: accentBlue,
+      });
       y -= 16;
       drawKV('IP DEL FIRMANTE', ev?.ipAddress || '—');
-      drawKV('COORDENADAS', ev?.coordinates ? `${ev.coordinates.lat.toFixed(6)}, ${ev.coordinates.lng.toFixed(6)}` : '—');
+      drawKV(
+        'COORDENADAS',
+        ev?.coordinates ? `${ev.coordinates.lat.toFixed(6)}, ${ev.coordinates.lng.toFixed(6)}` : '—'
+      );
 
       ensureSpace(16);
-      currentPage.drawText('Sellado de Tiempo', { x: margin + 6, y: y - 10, size: 7.5, font: fontBold, color: accentBlue });
+      currentPage.drawText('Sellado de Tiempo', {
+        x: margin + 6,
+        y: y - 10,
+        size: 7.5,
+        font: fontBold,
+        color: accentBlue,
+      });
       y -= 16;
       drawKV('TIMESTAMP UTC (SERVIDOR)', ev?.timestampSello || signedAt);
 
       ensureSpace(16);
-      currentPage.drawText('Dispositivo', { x: margin + 6, y: y - 10, size: 7.5, font: fontBold, color: accentBlue });
+      currentPage.drawText('Dispositivo', {
+        x: margin + 6,
+        y: y - 10,
+        size: 7.5,
+        font: fontBold,
+        color: accentBlue,
+      });
       y -= 16;
       drawKV('TIPO', 'DESKTOP');
       y -= 8;
@@ -3864,13 +5446,35 @@ export default function FirmarDocumentoPage() {
         y -= 6;
 
         ensureSpace(30);
-        currentPage.drawRectangle({ x: margin, y: y - 26, width: contentW, height: 26, color: rgb(0.97, 0.98, 1), borderColor: rgb(0.7, 0.8, 0.95), borderWidth: 0.5 });
-        currentPage.drawText('La clave privada (.key) fue procesada exclusivamente en memoria RAM del servidor y nunca fue persistida.', {
-          x: margin + 6, y: y - 12, size: 6.5, font: fontRegular, color: midGray,
+        currentPage.drawRectangle({
+          x: margin,
+          y: y - 26,
+          width: contentW,
+          height: 26,
+          color: rgb(0.97, 0.98, 1),
+          borderColor: rgb(0.7, 0.8, 0.95),
+          borderWidth: 0.5,
         });
-        currentPage.drawText('El certificado aportado por el participante se conserva como evidencia. Su vigencia y OCSP requieren verificación independiente.', {
-          x: margin + 6, y: y - 22, size: 6.5, font: fontRegular, color: midGray,
-        });
+        currentPage.drawText(
+          'La clave privada (.key) fue procesada exclusivamente en memoria RAM del servidor y nunca fue persistida.',
+          {
+            x: margin + 6,
+            y: y - 12,
+            size: 6.5,
+            font: fontRegular,
+            color: midGray,
+          }
+        );
+        currentPage.drawText(
+          'El certificado aportado por el participante se conserva como evidencia. Su vigencia y OCSP requieren verificación independiente.',
+          {
+            x: margin + 6,
+            y: y - 22,
+            size: 6.5,
+            font: fontRegular,
+            color: midGray,
+          }
+        );
         y -= 32;
 
         // ── VALIDACION NUBARIUM SAT ───────────────────────────────────────────
@@ -3880,28 +5484,71 @@ export default function FirmarDocumentoPage() {
 
         if (nubariumEstado || nubariumFecha || nubariumCodigo) {
           const nubariumColor = rgb(0.039, 0.439, 0.275); // #0A7046 green
-          const nubariumBg = rgb(0.941, 0.992, 0.969);    // #F0FEFA light green
+          const nubariumBg = rgb(0.941, 0.992, 0.969); // #F0FEFA light green
           const nubariumBorder = rgb(0.188, 0.706, 0.494); // #30B47E
 
           ensureSpace(90);
           const nubariumSectionH = 80;
-          currentPage.drawRectangle({ x: margin, y: y - nubariumSectionH, width: contentW, height: nubariumSectionH, color: nubariumBg });
-          currentPage.drawRectangle({ x: margin, y: y - nubariumSectionH, width: 3, height: nubariumSectionH, color: nubariumBorder });
+          currentPage.drawRectangle({
+            x: margin,
+            y: y - nubariumSectionH,
+            width: contentW,
+            height: nubariumSectionH,
+            color: nubariumBg,
+          });
+          currentPage.drawRectangle({
+            x: margin,
+            y: y - nubariumSectionH,
+            width: 3,
+            height: nubariumSectionH,
+            color: nubariumBorder,
+          });
 
           // Heading
-          currentPage.drawRectangle({ x: margin, y: y - 20, width: contentW, height: 20, color: nubariumColor });
-          currentPage.drawText('VALIDACION NUBARIUM - SAT (Servicio de Administracion Tributaria)', {
-            x: margin + 10, y: y - 14, size: 8, font: fontBold, color: white,
+          currentPage.drawRectangle({
+            x: margin,
+            y: y - 20,
+            width: contentW,
+            height: 20,
+            color: nubariumColor,
           });
+          currentPage.drawText(
+            'VALIDACION NUBARIUM - SAT (Servicio de Administracion Tributaria)',
+            {
+              x: margin + 10,
+              y: y - 14,
+              size: 8,
+              font: fontBold,
+              color: white,
+            }
+          );
           y -= 26;
 
           // Estado row
           ensureSpace(18);
           {
             const rowH = 17;
-            currentPage.drawRectangle({ x: margin + 3, y: y - rowH, width: contentW - 3, height: rowH, color: nubariumBg });
-            currentPage.drawText('ESTADO DEL CERTIFICADO', { x: margin + 10, y: y - 11, size: 7.5, font: fontBold, color: darkGray });
-            currentPage.drawText(safe(nubariumEstado || 'Vigente'), { x: margin + 185, y: y - 11, size: 7.5, font: fontBold, color: nubariumColor });
+            currentPage.drawRectangle({
+              x: margin + 3,
+              y: y - rowH,
+              width: contentW - 3,
+              height: rowH,
+              color: nubariumBg,
+            });
+            currentPage.drawText('ESTADO DEL CERTIFICADO', {
+              x: margin + 10,
+              y: y - 11,
+              size: 7.5,
+              font: fontBold,
+              color: darkGray,
+            });
+            currentPage.drawText(safe(nubariumEstado || 'Vigente'), {
+              x: margin + 185,
+              y: y - 11,
+              size: 7.5,
+              font: fontBold,
+              color: nubariumColor,
+            });
             y -= rowH;
           }
 
@@ -3914,11 +5561,31 @@ export default function FirmarDocumentoPage() {
                 const d = new Date(nubariumFecha);
                 const pad = (n: number) => String(n).padStart(2, '0');
                 return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} UTC`;
-              } catch { return nubariumFecha; }
+              } catch {
+                return nubariumFecha;
+              }
             })();
-            currentPage.drawRectangle({ x: margin + 3, y: y - rowH, width: contentW - 3, height: rowH, color: nubariumBg });
-            currentPage.drawText('FECHA DE CONSULTA', { x: margin + 10, y: y - 11, size: 7.5, font: fontBold, color: darkGray });
-            currentPage.drawText(safe(fechaDisplay), { x: margin + 185, y: y - 11, size: 7.5, font: fontMono, color: black });
+            currentPage.drawRectangle({
+              x: margin + 3,
+              y: y - rowH,
+              width: contentW - 3,
+              height: rowH,
+              color: nubariumBg,
+            });
+            currentPage.drawText('FECHA DE CONSULTA', {
+              x: margin + 10,
+              y: y - 11,
+              size: 7.5,
+              font: fontBold,
+              color: darkGray,
+            });
+            currentPage.drawText(safe(fechaDisplay), {
+              x: margin + 185,
+              y: y - 11,
+              size: 7.5,
+              font: fontMono,
+              color: black,
+            });
             y -= rowH;
           }
 
@@ -3926,9 +5593,27 @@ export default function FirmarDocumentoPage() {
           if (nubariumCodigo) {
             ensureSpace(18);
             const rowH = 17;
-            currentPage.drawRectangle({ x: margin + 3, y: y - rowH, width: contentW - 3, height: rowH, color: nubariumBg });
-            currentPage.drawText('CODIGO DE VALIDACION', { x: margin + 10, y: y - 11, size: 7.5, font: fontBold, color: darkGray });
-            currentPage.drawText(safe(nubariumCodigo), { x: margin + 185, y: y - 11, size: 7, font: fontMono, color: black });
+            currentPage.drawRectangle({
+              x: margin + 3,
+              y: y - rowH,
+              width: contentW - 3,
+              height: rowH,
+              color: nubariumBg,
+            });
+            currentPage.drawText('CODIGO DE VALIDACION', {
+              x: margin + 10,
+              y: y - 11,
+              size: 7.5,
+              font: fontBold,
+              color: darkGray,
+            });
+            currentPage.drawText(safe(nubariumCodigo), {
+              x: margin + 185,
+              y: y - 11,
+              size: 7,
+              font: fontMono,
+              color: black,
+            });
             y -= rowH;
           }
 
@@ -3953,10 +5638,25 @@ export default function FirmarDocumentoPage() {
               sigImg = await pdfDoc.embedJpg(bytes);
             }
             const sigDims = sigImg.scaleToFit(180, 70);
-            currentPage.drawRectangle({ x: margin + 6, y: y - sigDims.height - 6, width: sigDims.width + 4, height: sigDims.height + 4, color: white, borderColor: lightGray, borderWidth: 0.5 });
-            currentPage.drawImage(sigImg, { x: margin + 8, y: y - sigDims.height - 4, width: sigDims.width, height: sigDims.height });
+            currentPage.drawRectangle({
+              x: margin + 6,
+              y: y - sigDims.height - 6,
+              width: sigDims.width + 4,
+              height: sigDims.height + 4,
+              color: white,
+              borderColor: lightGray,
+              borderWidth: 0.5,
+            });
+            currentPage.drawImage(sigImg, {
+              x: margin + 8,
+              y: y - sigDims.height - 4,
+              width: sigDims.width,
+              height: sigDims.height,
+            });
             y -= sigDims.height + 14;
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         }
         drawKV('SHA-256', safe(ev?.signatureHash || '—'));
         drawKV('ALGORITMO', 'SHA-256');
@@ -3980,23 +5680,65 @@ export default function FirmarDocumentoPage() {
       // IP
       const ipDisplay = safe(ev?.ipAddress || '—');
       // Geolocation
-      const geoDisplay = ev?.coordinates ? `${ev.coordinates.lat.toFixed(6)}, ${ev.coordinates.lng.toFixed(6)}` : '—';
+      const geoDisplay = ev?.coordinates
+        ? `${ev.coordinates.lat.toFixed(6)}, ${ev.coordinates.lng.toFixed(6)}`
+        : '—';
 
       // Draw hash rows in mono font (full 64 chars)
       ensureSpace(22);
       {
         const rowH = 18;
-        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: white, borderColor: lightGray, borderWidth: 0.35 });
-        currentPage.drawText('HASH SHA-256 DOC. ORIGINAL', { x: margin + 8, y: y - 12, size: 7.2, font: fontBold, color: midGray });
-        currentPage.drawText(originalHash.length > 64 ? originalHash.slice(0, 64) : originalHash, { x: margin + 180, y: y - 12, size: 7, font: fontMono, color: black });
+        currentPage.drawRectangle({
+          x: margin,
+          y: y - rowH,
+          width: contentW,
+          height: rowH,
+          color: white,
+          borderColor: lightGray,
+          borderWidth: 0.35,
+        });
+        currentPage.drawText('HASH SHA-256 DOC. ORIGINAL', {
+          x: margin + 8,
+          y: y - 12,
+          size: 7.2,
+          font: fontBold,
+          color: midGray,
+        });
+        currentPage.drawText(originalHash.length > 64 ? originalHash.slice(0, 64) : originalHash, {
+          x: margin + 180,
+          y: y - 12,
+          size: 7,
+          font: fontMono,
+          color: black,
+        });
         y -= rowH;
       }
       ensureSpace(22);
       {
         const rowH = 18;
-        currentPage.drawRectangle({ x: margin, y: y - rowH, width: contentW, height: rowH, color: white, borderColor: lightGray, borderWidth: 0.35 });
-        currentPage.drawText('HASH SHA-256 DOC. FIRMADO', { x: margin + 8, y: y - 12, size: 7.2, font: fontBold, color: midGray });
-        currentPage.drawText(sealedHash.length > 64 ? sealedHash.slice(0, 64) : sealedHash, { x: margin + 180, y: y - 12, size: 7, font: fontMono, color: black });
+        currentPage.drawRectangle({
+          x: margin,
+          y: y - rowH,
+          width: contentW,
+          height: rowH,
+          color: white,
+          borderColor: lightGray,
+          borderWidth: 0.35,
+        });
+        currentPage.drawText('HASH SHA-256 DOC. FIRMADO', {
+          x: margin + 8,
+          y: y - 12,
+          size: 7.2,
+          font: fontBold,
+          color: midGray,
+        });
+        currentPage.drawText(sealedHash.length > 64 ? sealedHash.slice(0, 64) : sealedHash, {
+          x: margin + 180,
+          y: y - 12,
+          size: 7,
+          font: fontMono,
+          color: black,
+        });
         y -= rowH;
       }
       drawKV('FOLIO UNICO DOCUBOX', folioDisplay);
@@ -4007,22 +5749,50 @@ export default function FirmarDocumentoPage() {
       drawKV('URL DE VERIFICACION', 'https://verificar.docubox.mx');
       y -= 6;
       ensureSpace(16);
-      currentPage.drawText(`https://verificar.docubox.mx?constancia=${safe(folioId)}&doc=${safe(document?.id || '—')}`, {
-        x: margin + 6, y: y - 10, size: 7, font: fontRegular, color: accentBlue,
-      });
+      currentPage.drawText(
+        `https://verificar.docubox.mx?constancia=${safe(folioId)}&doc=${safe(document?.id || '—')}`,
+        {
+          x: margin + 6,
+          y: y - 10,
+          size: 7,
+          font: fontRegular,
+          color: accentBlue,
+        }
+      );
       y -= 20;
 
       // ── FUNDAMENTO LEGAL ──────────────────────────────────────────────────────
       drawSectionHeading('FUNDAMENTO LEGAL');
       const legalBlocks = [
-        ['Confidencialidad:', 'Este documento contiene datos personales protegidos por la LFPDPPP. Su divulgacion a terceros no autorizados esta prohibida.'],
-        ['Validez juridica:', 'Certifica la participacion y voluntad de firma conforme a los Arts. 89-97 del Codigo de Comercio, LFEA y NOM-151-SCFI-2016.'],
-        ['No repudio:', 'Los elementos registrados constituyen prueba de la libre y expresa manifestacion de voluntad del firmante.'],
+        [
+          'Confidencialidad:',
+          'Este documento contiene datos personales protegidos por la LFPDPPP. Su divulgacion a terceros no autorizados esta prohibida.',
+        ],
+        [
+          'Validez juridica:',
+          'Certifica la participacion y voluntad de firma conforme a los Arts. 89-97 del Codigo de Comercio, LFEA y NOM-151-SCFI-2016.',
+        ],
+        [
+          'No repudio:',
+          'Los elementos registrados constituyen prueba de la libre y expresa manifestacion de voluntad del firmante.',
+        ],
       ];
       for (const [label, text] of legalBlocks) {
         ensureSpace(24);
-        currentPage.drawText(safe(label), { x: margin + 6, y: y - 10, size: 7.5, font: fontBold, color: darkGray });
-        currentPage.drawText(safe(text), { x: margin + 6, y: y - 20, size: 7, font: fontRegular, color: midGray });
+        currentPage.drawText(safe(label), {
+          x: margin + 6,
+          y: y - 10,
+          size: 7.5,
+          font: fontBold,
+          color: darkGray,
+        });
+        currentPage.drawText(safe(text), {
+          x: margin + 6,
+          y: y - 20,
+          size: 7,
+          font: fontRegular,
+          color: midGray,
+        });
         y -= 28;
       }
 
@@ -4036,10 +5806,24 @@ export default function FirmarDocumentoPage() {
         'Una estampa RFC 3161 o certificado institucional solo se declara cuando sus artefactos se generan y verifican.',
         'Esta constancia no sustituye la verificación independiente de PAdES, X.509, OCSP o TSA.',
       ];
-      currentPage.drawRectangle({ x: margin, y: y - (legalParrafo.length * 12 + 10), width: contentW, height: legalParrafo.length * 12 + 10, color: rgb(0.97, 0.97, 0.98), borderColor: lightGray, borderWidth: 0.3 });
+      currentPage.drawRectangle({
+        x: margin,
+        y: y - (legalParrafo.length * 12 + 10),
+        width: contentW,
+        height: legalParrafo.length * 12 + 10,
+        color: rgb(0.97, 0.97, 0.98),
+        borderColor: lightGray,
+        borderWidth: 0.3,
+      });
       for (const line of legalParrafo) {
         ensureSpace(14);
-        currentPage.drawText(safe(line), { x: margin + 6, y: y - 10, size: 7.5, font: fontRegular, color: darkGray });
+        currentPage.drawText(safe(line), {
+          x: margin + 6,
+          y: y - 10,
+          size: 7.5,
+          font: fontRegular,
+          color: darkGray,
+        });
         y -= 12;
       }
       y -= 8;
@@ -4048,19 +5832,35 @@ export default function FirmarDocumentoPage() {
       const generatedPages = pdfDoc.getPages();
       generatedPages.forEach((pdfPage, index) => {
         pdfPage.drawLine({
-          start: { x: margin, y: 31 }, end: { x: pageW - margin, y: 31 },
-          thickness: 0.5, color: lightGray,
+          start: { x: margin, y: 31 },
+          end: { x: pageW - margin, y: 31 },
+          thickness: 0.5,
+          color: lightGray,
         });
         if (brandLogo) {
           pdfPage.drawImage(brandLogo, { x: margin, y: 12, width: 76, height: 15 });
         } else {
-          pdfPage.drawText('Docubox', { x: margin, y: 16, size: 8, font: fontBold, color: darkGray });
+          pdfPage.drawText('Docubox', {
+            x: margin,
+            y: 16,
+            size: 8,
+            font: fontBold,
+            color: darkGray,
+          });
         }
         pdfPage.drawText(`Generada autom\u00e1ticamente - ${safe(signedAt)}`, {
-          x: margin + 92, y: 17, size: 6.5, font: fontRegular, color: midGray,
+          x: margin + 92,
+          y: 17,
+          size: 6.5,
+          font: fontRegular,
+          color: midGray,
         });
         pdfPage.drawText(`P\u00e1gina ${index + 1} de ${generatedPages.length}`, {
-          x: pageW - margin - 55, y: 17, size: 6.5, font: fontRegular, color: midGray,
+          x: pageW - margin - 55,
+          y: 17,
+          size: 6.5,
+          font: fontRegular,
+          color: midGray,
         });
       });
 
@@ -4068,13 +5868,21 @@ export default function FirmarDocumentoPage() {
       const signerName = safe(userName);
       const docTitle = safe(document?.nombre || '—');
       const docFolio = safe(folioId);
-      const signMethod = isEfirma ? 'Firma Electronica Avanzada - e.firma SAT' : 'Firma Autografa Digitalizada';
+      const signMethod = isEfirma
+        ? 'Firma Electronica Avanzada - e.firma SAT'
+        : 'Firma Autografa Digitalizada';
       pdfDoc.setTitle(`Documento firmado - DOCUBOX - ${docFolio}`);
       pdfDoc.setAuthor('Docubox - MX');
       pdfDoc.setSubject(`Firma electronica - ${signerName} - ${signMethod}`);
       pdfDoc.setCreator('DOCUBOX - Plataforma de firma electronica');
       pdfDoc.setProducer('DOCUBOX v1.0 | Constancia visual');
-      pdfDoc.setKeywords(['firma electronica', 'DOCUBOX', 'SHA-256', 'Codigo de Comercio', 'Mexico']);
+      pdfDoc.setKeywords([
+        'firma electronica',
+        'DOCUBOX',
+        'SHA-256',
+        'Codigo de Comercio',
+        'Mexico',
+      ]);
 
       const pdfBytes = await pdfDoc.save();
       const downloadBytes = new Uint8Array(pdfBytes.byteLength);
@@ -4094,7 +5902,18 @@ export default function FirmarDocumentoPage() {
     } finally {
       setGeneratingPdf(false);
     }
-  }, [document?.id, document?.nombre, userProfile, user, myRole, savedSignatureType, savedSignature, firmaData, signatureEvidence, nubariumValidationResult]);
+  }, [
+    document?.id,
+    document?.nombre,
+    userProfile,
+    user,
+    myRole,
+    savedSignatureType,
+    savedSignature,
+    firmaData,
+    signatureEvidence,
+    nubariumValidationResult,
+  ]);
 
   const downloadParticipationCertificate = useCallback(async () => {
     if (!document?.id) return;
@@ -4102,12 +5921,15 @@ export default function FirmarDocumentoPage() {
     setSubmitError(null);
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('Tu sesión ya no está disponible. Inicia sesión nuevamente.');
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token)
+        throw new Error('Tu sesión ya no está disponible. Inicia sesión nuevamente.');
 
       const response = await fetch(
         `/api/documentos/${encodeURIComponent(document.id)}/mi-constancia`,
-        { headers: { Authorization: `Bearer ${session.access_token}` } },
+        { headers: { Authorization: `Bearer ${session.access_token}` } }
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -4127,7 +5949,10 @@ export default function FirmarDocumentoPage() {
       window.document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No fue posible descargar la constancia de participación.';
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'No fue posible descargar la constancia de participación.';
       setSubmitError(message);
       console.error('Error descargando constancia de participación:', error);
     } finally {
@@ -4169,7 +5994,9 @@ export default function FirmarDocumentoPage() {
         const supabase = createClient();
         const { data } = await supabase
           .from('nom151_constancias')
-          .select('id, status, nubarium_codigo_validacion, nubarium_hash, constancia_sha256, created_at')
+          .select(
+            'id, status, nubarium_codigo_validacion, nubarium_hash, constancia_sha256, created_at'
+          )
           .eq('document_id', document.id)
           .eq('status', 'issued')
           .maybeSingle();
@@ -4192,7 +6019,7 @@ export default function FirmarDocumentoPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [document?.id, document?.estado]);
 
   // ── XML Evidence polling ───────────────────────────────────────────────────
@@ -4210,7 +6037,13 @@ export default function FirmarDocumentoPage() {
           .not('xml_evidencia_path', 'is', null)
           .maybeSingle();
         if (!cancelled && data?.xml_evidencia_path) {
-          setXmlEvidenceData(data as { xml_evidencia_path: string; xml_hash_sha256: string; xml_generated_at: string });
+          setXmlEvidenceData(
+            data as {
+              xml_evidencia_path: string;
+              xml_hash_sha256: string;
+              xml_generated_at: string;
+            }
+          );
           setXmlPolling(false);
         } else if (!cancelled) {
           setXmlPolling(true);
@@ -4230,7 +6063,7 @@ export default function FirmarDocumentoPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [document?.id, document?.estado]);
 
   // ── Download XML evidence file ─────────────────────────────────────────────
@@ -4263,19 +6096,26 @@ export default function FirmarDocumentoPage() {
     const fetchProfile = async () => {
       const supabase = createClient();
       // Also fetch session token for Edge Function calls
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (session?.access_token) setSessionToken(session.access_token);
       const { data } = await supabase
         .from('user_profiles')
-        .select('nombre, apellido_paterno, apellido_materno, rfc, curp, email, telefono, calle, num_exterior, colonia, municipio, estado, codigo_postal, firma_autografa_url, metodo_firma, firma_autografa_created_at, firma_autografa_last_used, efirma_serial, efirma_rfc, efirma_nombre, efirma_vigencia_fin, efirma_stamp_style, autografa_stamp_style, click_sign_stamp_style')
+        .select(
+          'nombre, apellido_paterno, apellido_materno, rfc, curp, email, telefono, calle, num_exterior, colonia, municipio, estado, codigo_postal, firma_autografa_url, metodo_firma, firma_autografa_created_at, firma_autografa_last_used, efirma_serial, efirma_rfc, efirma_nombre, efirma_vigencia_fin, efirma_stamp_style, autografa_stamp_style, click_sign_stamp_style'
+        )
         .eq('id', user.id)
         .maybeSingle();
 
       if (data) {
-        const nombreCompleto = [data.nombre, data.apellido_paterno, data.apellido_materno]
-          .filter(Boolean)
-          .join(' ')
-          .trim() || user.user_metadata?.full_name || '';
+        const nombreCompleto =
+          [data.nombre, data.apellido_paterno, data.apellido_materno]
+            .filter(Boolean)
+            .join(' ')
+            .trim() ||
+          user.user_metadata?.full_name ||
+          '';
 
         const direccionParts = [
           data.calle,
@@ -4309,8 +6149,10 @@ export default function FirmarDocumentoPage() {
           setSavedSignature(data.firma_autografa_url);
           const metodo = data.metodo_firma as string | null;
           if (metodo === 'efirma') setSavedSignatureType('efirma');
-          else if (metodo === 'firma_electronica' || metodo === 'electronica') setSavedSignatureType('firma_electronica');
-          else if (metodo === 'autografa' || metodo === 'autografa_digital') setSavedSignatureType('autografa');
+          else if (metodo === 'firma_electronica' || metodo === 'electronica')
+            setSavedSignatureType('firma_electronica');
+          else if (metodo === 'autografa' || metodo === 'autografa_digital')
+            setSavedSignatureType('autografa');
           else setSavedSignatureType('autografa'); // default: firma_autografa_url present → treat as autógrafa
         }
         // Load e.firma profile data
@@ -4357,10 +6199,12 @@ export default function FirmarDocumentoPage() {
           .single();
 
         if (error || !data) {
-          const { data: { session } } = await supabase.auth.getSession();
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
           const accessToken = session?.access_token;
           const apiRes = await fetch(`/api/documentos/obtener?id=${docId}`, {
-            headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {},
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
           });
           if (!apiRes.ok) {
             setDocError('no_encontrado');
@@ -4400,10 +6244,8 @@ export default function FirmarDocumentoPage() {
       setDocument(data);
 
       const rawParts: any[] = data.participantes || [];
-      const myPart = rawParts.find((p: any) =>
-        p.email === user?.email ||
-        p.id === user?.id ||
-        p.user_id === user?.id
+      const myPart = rawParts.find(
+        (p: any) => p.email === user?.email || p.id === user?.id || p.user_id === user?.id
       );
 
       // ── Access control: only allow if participant sub_estado is 'en_revision'
@@ -4425,11 +6267,12 @@ export default function FirmarDocumentoPage() {
 
       const campos: CampoSolicitado[] = data.campos_solicitados || [];
       // Match campos assigned to this participant by: no participantId, or matches participant's internal id, or matches user's supabase id, or matches user's email
-      const myCampos = campos.filter((c: CampoSolicitado) =>
-        !c.participantId ||
-        c.participantId === myPart?.id ||
-        c.participantId === user?.id ||
-        (myPart?.email && c.participantId === myPart?.email)
+      const myCampos = campos.filter(
+        (c: CampoSolicitado) =>
+          !c.participantId ||
+          c.participantId === myPart?.id ||
+          c.participantId === user?.id ||
+          (myPart?.email && c.participantId === myPart?.email)
       );
       setCamposPrefijados(myCampos);
 
@@ -4479,7 +6322,8 @@ export default function FirmarDocumentoPage() {
         // Note: do NOT call setCamposValues(initValues) in the else branch —
         // mergedValues is already set above and must not be overwritten.
         if (persisted.terminosAceptados) setTerminosAceptados(persisted.terminosAceptados);
-        if (persisted.camposPersonalizados?.length > 0) setCamposPersonalizados(persisted.camposPersonalizados);
+        if (persisted.camposPersonalizados?.length > 0)
+          setCamposPersonalizados(persisted.camposPersonalizados);
         if (persisted.firmaData) {
           setFirmaData(persisted.firmaData);
           setFirmaConfirmada(true);
@@ -4492,53 +6336,59 @@ export default function FirmarDocumentoPage() {
     };
 
     loadDoc();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, docId, user?.id]);
 
   // ── Auto-fill placed fields when profile loads ─────────────────────────────
   useEffect(() => {
     if (!userProfile.nombre_completo && !userProfile.email) return;
-    setPlacedFields((prev) =>
-      prev.map((f) => {
-        const autoValue = getAutoFillValue(f.tipo, userProfile);
-        if (autoValue && !f.value) {
-          return { ...f, value: autoValue };
-        }
-        return f;
-      })
-    );
-    if (camposPrefijados.length > 0) {
-      setCamposValues((prev) => {
-        const updated = { ...prev };
-        camposPrefijados.forEach((c, idx) => {
-          const key = c.id || `prefijado-${idx}`;
-          const tipo = c.tipo as CampoPersonalizado['tipo'];
-          const autoValue = getAutoFillValue(tipo, userProfile);
-          if (autoValue && !updated[key]) {
-            updated[key] = autoValue;
+    const autofillFrame = window.requestAnimationFrame(() => {
+      setPlacedFields((prev) =>
+        prev.map((f) => {
+          const autoValue = getAutoFillValue(f.tipo, userProfile);
+          if (autoValue && !f.value) {
+            return { ...f, value: autoValue };
           }
+          return f;
+        })
+      );
+      if (camposPrefijados.length > 0) {
+        setCamposValues((prev) => {
+          const updated = { ...prev };
+          camposPrefijados.forEach((c, idx) => {
+            const key = c.id || `prefijado-${idx}`;
+            const tipo = c.tipo as CampoPersonalizado['tipo'];
+            const autoValue = getAutoFillValue(tipo, userProfile);
+            if (autoValue && !updated[key]) {
+              updated[key] = autoValue;
+            }
+          });
+          return updated;
         });
-        return updated;
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+      }
+    });
+    return () => window.cancelAnimationFrame(autofillFrame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userProfile, camposPrefijados]);
 
   // ── Sync camposValues to placedFields for prefixed campos ─────────────────
   useEffect(() => {
     if (Object.keys(camposValues).length === 0) return;
-    setPlacedFields((prev) =>
-      prev.map((f) => {
-        let val = camposValues[f.id];
-        // Only update if the value exists in camposValues AND is different from current
-        // Don't overwrite a non-empty auto-filled value with an empty string
-        if (val !== undefined && val !== f.value && (val !== '' || f.value === '')) {
-          return { ...f, value: val };
-        }
-        return f;
-      })
-    );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const syncFrame = window.requestAnimationFrame(() => {
+      setPlacedFields((prev) =>
+        prev.map((f) => {
+          const val = camposValues[f.id];
+          // Only update if the value exists in camposValues AND is different from current
+          // Don't overwrite a non-empty auto-filled value with an empty string
+          if (val !== undefined && val !== f.value && (val !== '' || f.value === '')) {
+            return { ...f, value: val };
+          }
+          return f;
+        })
+      );
+    });
+    return () => window.cancelAnimationFrame(syncFrame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camposValues]);
 
   // ── Derived state ──────────────────────────────────────────────────────────
@@ -4550,7 +6400,8 @@ export default function FirmarDocumentoPage() {
         if (resolvedTipo === 'firma') return true;
         const key = c.id || `prefijado-${idx}`;
         return (camposValues[key] || '').trim().length > 0;
-      }) && camposPersonalizados.every((c) => {
+      }) &&
+      camposPersonalizados.every((c) => {
         if (c.tipo === 'firma') return true;
         return c.value.trim().length > 0;
       })
@@ -4560,51 +6411,62 @@ export default function FirmarDocumentoPage() {
       });
 
   // Check if firma field is inserted in document
-  const hasFirmaInserted = camposPersonalizados.some((c) => c.tipo === 'firma') ||
+  const hasFirmaInserted =
+    camposPersonalizados.some((c) => c.tipo === 'firma') ||
     camposPrefijados.some((c) => c.tipo === 'firma') ||
     placedFields.some((f) => f.tipo === 'firma');
 
   // ── Auto-fill helper ───────────────────────────────────────────────────────
   function getAutoFillValue(tipo: CampoPersonalizado['tipo'], profile: UserProfileData): string {
     switch (tipo) {
-      case 'nombre_completo': return profile.nombre_completo;
-      case 'rfc': return profile.rfc;
-      case 'curp': return profile.curp;
-      case 'correo': return profile.email;
-      case 'telefono': return profile.telefono;
-      case 'direccion': return profile.direccion;
-      default: return '';
+      case 'nombre_completo':
+        return profile.nombre_completo;
+      case 'rfc':
+        return profile.rfc;
+      case 'curp':
+        return profile.curp;
+      case 'correo':
+        return profile.email;
+      case 'telefono':
+        return profile.telefono;
+      case 'direccion':
+        return profile.direccion;
+      default:
+        return '';
     }
   }
 
   // ── Place field on document ────────────────────────────────────────────────
-  const handlePlaceFieldOnDocument = useCallback((tipo: CampoPersonalizado['tipo'], label: string) => {
-    if (tipo === 'firma') {
-      const alreadyHasFirma = camposPersonalizados.some((c) => c.tipo === 'firma');
-      if (alreadyHasFirma) return;
-    }
-    const autoValue = getAutoFillValue(tipo, userProfile);
-    const newField: PlacedFieldFirmar = {
-      id: `placed-${Date.now()}-${tipo}`,
-      label,
-      tipo,
-      value: autoValue,
-      x: 42,
-      y: 45,
-      width: 16,
-      height: 4,
-      page: currentPage,
-    };
-    setPlacedFields((prev) => [...prev, newField]);
-    const newCampo: CampoPersonalizado = {
-      id: newField.id,
-      label,
-      tipo,
-      value: autoValue,
-    };
-    setCamposPersonalizados((prev) => [...prev, newCampo]);
-    setShowCampoSelector(false);
-  }, [userProfile, currentPage, camposPersonalizados]);
+  const handlePlaceFieldOnDocument = useCallback(
+    (tipo: CampoPersonalizado['tipo'], label: string) => {
+      if (tipo === 'firma') {
+        const alreadyHasFirma = camposPersonalizados.some((c) => c.tipo === 'firma');
+        if (alreadyHasFirma) return;
+      }
+      const autoValue = getAutoFillValue(tipo, userProfile);
+      const newField: PlacedFieldFirmar = {
+        id: `placed-${Date.now()}-${tipo}`,
+        label,
+        tipo,
+        value: autoValue,
+        x: 42,
+        y: 45,
+        width: 16,
+        height: 4,
+        page: currentPage,
+      };
+      setPlacedFields((prev) => [...prev, newField]);
+      const newCampo: CampoPersonalizado = {
+        id: newField.id,
+        label,
+        tipo,
+        value: autoValue,
+      };
+      setCamposPersonalizados((prev) => [...prev, newCampo]);
+      setShowCampoSelector(false);
+    },
+    [userProfile, currentPage, camposPersonalizados]
+  );
 
   // ── Drag & Drop on document ────────────────────────────────────────────────
   const handleDragOver = (e: React.DragEvent) => {
@@ -4666,52 +6528,56 @@ export default function FirmarDocumentoPage() {
 
   // ── Move placed field ──────────────────────────────────────────────────────
   const handleMovePlacedField = (id: string, x: number, y: number) => {
-    setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, x, y } : f));
+    setPlacedFields((prev) => prev.map((f) => (f.id === id ? { ...f, x, y } : f)));
   };
 
   // ── Resize placed field ────────────────────────────────────────────────────
-  const handleResizePlacedField = (id: string, width: number, height: number, x: number, y: number) => {
-    setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, width, height, x, y } : f));
+  const handleResizePlacedField = (
+    id: string,
+    width: number,
+    height: number,
+    x: number,
+    y: number
+  ) => {
+    setPlacedFields((prev) => prev.map((f) => (f.id === id ? { ...f, width, height, x, y } : f)));
   };
 
   // ── Update field label config ──────────────────────────────────────────────
   const handleUpdateFieldConfig = (id: string, cfg: FieldLabelConfig) => {
-    setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, fieldConfig: cfg } : f));
+    setPlacedFields((prev) => prev.map((f) => (f.id === id ? { ...f, fieldConfig: cfg } : f)));
     if (cfg.customName) {
       setCamposPersonalizados((prev) =>
-        prev.map((c) => c.id === id ? { ...c, label: cfg.customName! } : c)
+        prev.map((c) => (c.id === id ? { ...c, label: cfg.customName! } : c))
       );
     }
   };
 
   // ── Update field type config ───────────────────────────────────────────────
   const handleUpdateFieldTypeConfig = (id: string, cfg: FieldTypeConfig) => {
-    setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, fieldTypeConfig: cfg } : f));
+    setPlacedFields((prev) => prev.map((f) => (f.id === id ? { ...f, fieldTypeConfig: cfg } : f)));
   };
 
   // ── Update dropdown options ────────────────────────────────────────────────
   const handleUpdateDropdownOptions = (id: string, options: string[]) => {
-    setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, dropdownOptions: options } : f));
+    setPlacedFields((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, dropdownOptions: options } : f))
+    );
   };
 
   // ── Update radio options ───────────────────────────────────────────────────
   const handleUpdateRadioOptions = (id: string, options: string[]) => {
-    setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, radioOptions: options } : f));
+    setPlacedFields((prev) => prev.map((f) => (f.id === id ? { ...f, radioOptions: options } : f)));
   };
 
   // ── Update casilla label ───────────────────────────────────────────────────
   const handleUpdateCasillaLabel = (id: string, label: string) => {
-    setPlacedFields((prev) => prev.map((f) => f.id === id ? { ...f, casillaLabel: label } : f));
+    setPlacedFields((prev) => prev.map((f) => (f.id === id ? { ...f, casillaLabel: label } : f)));
   };
 
   // ── Update campo value in sidebar ─────────────────────────────────────────
   const handleUpdateCampoValue = (id: string, value: string) => {
-    setCamposPersonalizados((prev) =>
-      prev.map((c) => c.id === id ? { ...c, value } : c)
-    );
-    setPlacedFields((prev) =>
-      prev.map((f) => f.id === id ? { ...f, value } : f)
-    );
+    setCamposPersonalizados((prev) => prev.map((c) => (c.id === id ? { ...c, value } : c)));
+    setPlacedFields((prev) => prev.map((f) => (f.id === id ? { ...f, value } : f)));
   };
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -4770,12 +6636,18 @@ export default function FirmarDocumentoPage() {
     const metodo: string = myParticipantData?.metodo_firma || '';
     // Check array first (tipoFirma is the authoritative source from document creation)
     if (tipoFirmaArr.length > 0) {
-      return tipoFirmaArr.some((m: string) =>
-        m === 'efirma' || m === 'e.firma' || m === 'e.firma SAT' || m === 'efirma_sat'
+      return tipoFirmaArr.some(
+        (m: string) =>
+          m === 'efirma' || m === 'e.firma' || m === 'e.firma SAT' || m === 'efirma_sat'
       );
     }
     // Fallback to metodo_firma scalar field
-    return metodo === 'efirma' || metodo === 'e.firma' || metodo === 'e.firma SAT' || metodo === 'efirma_sat';
+    return (
+      metodo === 'efirma' ||
+      metodo === 'e.firma' ||
+      metodo === 'e.firma SAT' ||
+      metodo === 'efirma_sat'
+    );
   })();
 
   // Detect if participant's firma type is autógrafa digital
@@ -4787,77 +6659,93 @@ export default function FirmarDocumentoPage() {
     if (isEfirmaSAT) return false;
     // Check array first
     if (tipoFirmaArr.length > 0) {
-      return tipoFirmaArr.some((m: string) =>
-        m === 'autografa' || m === 'autografa_digital' || m === 'Firma Autógrafa Digital'
+      return tipoFirmaArr.some(
+        (m: string) =>
+          m === 'autografa' || m === 'autografa_digital' || m === 'Firma Autógrafa Digital'
       );
     }
     // Fallback to metodo_firma scalar field
-    return metodo === 'autografa' || metodo === 'autografa_digital' || metodo === 'Firma Autógrafa Digital';
+    return (
+      metodo === 'autografa' ||
+      metodo === 'autografa_digital' ||
+      metodo === 'Firma Autógrafa Digital'
+    );
   })();
 
-  const signatureTypeLabel = savedSignatureType === 'efirma' ? 'e.firma (SAT)'
-    : savedSignatureType === 'firma_electronica' ? 'Firma Electrónica Digital'
-    : savedSignatureType === 'autografa'? 'Firma Autógrafa Digital' :'Firma Electrónica';
+  const signatureTypeLabel =
+    savedSignatureType === 'efirma'
+      ? 'e.firma (SAT)'
+      : savedSignatureType === 'firma_electronica'
+        ? 'Firma Electrónica Digital'
+        : savedSignatureType === 'autografa'
+          ? 'Firma Autógrafa Digital'
+          : 'Firma Electrónica';
 
   // ── Generate typed signature as data URL ──────────────────────────────────
-  const generateTypedSignatureDataUrl = useCallback((text: string, style: 'cursive' | 'print' | 'formal'): string => {
-    const canvas = window.document.createElement('canvas');
-    canvas.width = 600;
-    canvas.height = 200;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return '';
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const fontMap = {
-      cursive: '48px "Dancing Script", cursive',
-      print: '36px "Roboto", sans-serif',
-      formal: '44px "Playfair Display", serif',
-    };
-    ctx.font = fontMap[style];
-    ctx.fillStyle = '#1e293b';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, 300, 100);
-    // Baseline
-    ctx.beginPath();
-    ctx.moveTo(50, 150);
-    ctx.lineTo(550, 150);
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    return canvas.toDataURL('image/png');
-  }, []);
+  const generateTypedSignatureDataUrl = useCallback(
+    (text: string, style: 'cursive' | 'print' | 'formal'): string => {
+      const canvas = window.document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 200;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return '';
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const fontMap = {
+        cursive: '48px "Dancing Script", cursive',
+        print: '36px "Roboto", sans-serif',
+        formal: '44px "Playfair Display", serif',
+      };
+      ctx.font = fontMap[style];
+      ctx.fillStyle = '#1e293b';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 300, 100);
+      // Baseline
+      ctx.beginPath();
+      ctx.moveTo(50, 150);
+      ctx.lineTo(550, 150);
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      return canvas.toDataURL('image/png');
+    },
+    []
+  );
 
-    // ── Persist flow state to sessionStorage on every relevant change ──────────
+  // ── Persist flow state to sessionStorage on every relevant change ──────────
   useEffect(() => {
-    if (step === 'completado') { clearPersistedFlow(); return; }
+    if (step === 'completado') {
+      clearPersistedFlow();
+      return;
+    }
     writePersistedFlow({ step });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   useEffect(() => {
     writePersistedFlow({ terminosAceptados });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminosAceptados]);
 
   useEffect(() => {
     if (Object.keys(camposValues).length > 0) {
       writePersistedFlow({ camposValues });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camposValues]);
 
   useEffect(() => {
     if (camposPersonalizados.length > 0) {
       writePersistedFlow({ camposPersonalizados });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camposPersonalizados]);
 
   useEffect(() => {
     if (firmaData) {
       writePersistedFlow({ firmaData });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firmaData]);
 
   // ── Save progress ─────────────────────────────────────────────────────────
@@ -4962,7 +6850,9 @@ export default function FirmarDocumentoPage() {
           const ipJson = await ipRes.json();
           ipAddress = ipJson.ip || '—';
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       // Get geolocation — use pre-fetched value from mount if available
       if (geoRef.current) {
@@ -4970,7 +6860,10 @@ export default function FirmarDocumentoPage() {
       } else {
         try {
           await new Promise<void>((resolve) => {
-            if (!navigator.geolocation) { resolve(); return; }
+            if (!navigator.geolocation) {
+              resolve();
+              return;
+            }
             navigator.geolocation.getCurrentPosition(
               (pos) => {
                 coordinates = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -4981,42 +6874,60 @@ export default function FirmarDocumentoPage() {
               { timeout: 10000, maximumAge: 60000, enableHighAccuracy: false }
             );
           });
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
 
       // Generate SHA-256 hash of firma data
       try {
         // For e.firma SAT, include serial + RFC in hash for stronger binding
-        const efirmaSerial = isEfirmaSAT ? (profileEfirma?.serial || '') : '';
-        const efirmaRfc = isEfirmaSAT ? (profileEfirma?.rfc || userProfile.rfc || '') : '';
-        const dataToHash = (finalFirmaData || '') + now + (user.id || '') + (document.id || '') + efirmaSerial + efirmaRfc;
+        const efirmaSerial = isEfirmaSAT ? profileEfirma?.serial || '' : '';
+        const efirmaRfc = isEfirmaSAT ? profileEfirma?.rfc || userProfile.rfc || '' : '';
+        const dataToHash =
+          (finalFirmaData || '') +
+          now +
+          (user.id || '') +
+          (document.id || '') +
+          efirmaSerial +
+          efirmaRfc;
         const encoder = new TextEncoder();
         const dataBuffer = encoder.encode(dataToHash);
         const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
         signatureHash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
-      const sigTypeLabel = isEfirmaSAT ? 'e.firma (SAT)'
-        : savedSignatureType === 'efirma' ? 'e.firma (SAT)'
-        : savedSignatureType === 'firma_electronica'? 'Firma Electrónica Digital' :'Firma Autógrafa Digital';
-      const selectedSignatureMethod = isEfirmaSAT || savedSignatureType === 'efirma'
-        ? 'efirma'
-        : savedSignatureType === 'autografa' || autographFlowDone
-          ? 'autografa'
-          : 'clicksign';
-      const selectedStampStyle = selectedSignatureMethod === 'efirma'
-        ? efirmaStampStyle
-        : selectedSignatureMethod === 'autografa'
-          ? autografaStampStyle
-          : clickSignStampStyle;
+      const sigTypeLabel = isEfirmaSAT
+        ? 'e.firma (SAT)'
+        : savedSignatureType === 'efirma'
+          ? 'e.firma (SAT)'
+          : savedSignatureType === 'firma_electronica'
+            ? 'Firma Electrónica Digital'
+            : 'Firma Autógrafa Digital';
+      const selectedSignatureMethod =
+        isEfirmaSAT || savedSignatureType === 'efirma'
+          ? 'efirma'
+          : savedSignatureType === 'autografa' || autographFlowDone
+            ? 'autografa'
+            : 'clicksign';
+      const selectedStampStyle =
+        selectedSignatureMethod === 'efirma'
+          ? efirmaStampStyle
+          : selectedSignatureMethod === 'autografa'
+            ? autografaStampStyle
+            : clickSignStampStyle;
 
       // Validate and persist the cryptographic signature before changing any
       // participant or document state. A provider failure must leave the
       // workflow pending instead of producing a false "signed" state.
       let serverEfirmaSignedAt: string | null = null;
       if (isEfirmaSAT && myRole === 'firmante') {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         const accessToken = session?.access_token;
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
         if (!accessToken || !supabaseUrl || !efirmaCerB64 || !efirmaKeyB64 || !efirmaPassword) {
@@ -5036,7 +6947,14 @@ export default function FirmarDocumentoPage() {
             session_evidence: {
               user_agent: navigator.userAgent,
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              geo: coordinates ? { latitude: coordinates.lat, longitude: coordinates.lng, accuracy_meters: 0, source: 'browser_api' } : null,
+              geo: coordinates
+                ? {
+                    latitude: coordinates.lat,
+                    longitude: coordinates.lng,
+                    accuracy_meters: 0,
+                    source: 'browser_api',
+                  }
+                : null,
             },
             device_fingerprint: { fingerprint_id: signatureHash },
           }),
@@ -5061,20 +6979,27 @@ export default function FirmarDocumentoPage() {
         terminos_aceptados_at: now,
         campos_completados: camposCompletados,
         firma_data: myRole === 'firmante' ? finalFirmaData : null,
-        firma_completada: myRole === 'firmante' ? (finalFirmaData !== null) : false,
+        firma_completada: myRole === 'firmante' ? finalFirmaData !== null : false,
         firma_completada_at: myRole === 'firmante' && finalFirmaData ? now : null,
         signature_method: myRole === 'firmante' ? selectedSignatureMethod : null,
         signature_stamp_style: myRole === 'firmante' ? selectedStampStyle : null,
         signature_hash: myRole === 'firmante' ? signatureHash || null : null,
         signature_ip: myRole === 'firmante' ? ipAddress : null,
-        signature_metadata: myRole === 'firmante' ? {
-          rfc: isEfirmaSAT ? (profileEfirma?.rfc || userProfile.rfc || null) : (userProfile.rfc || null),
-          certificate_serial: isEfirmaSAT ? (profileEfirma?.serial || null) : null,
-          certificate_algorithm: isEfirmaSAT ? 'RSA / SHA-256' : null,
-          certificate_valid_until: isEfirmaSAT ? (profileEfirma?.vigenciaFin || null) : null,
-          ocsp_status: isEfirmaSAT ? (nubariumValidationResult?.estado || 'No disponible') : null,
-          verification_url: `${getPublicAppUrl()}/verificar-documento?documento=${document.id}`,
-        } : {},
+        signature_metadata:
+          myRole === 'firmante'
+            ? {
+                rfc: isEfirmaSAT
+                  ? profileEfirma?.rfc || userProfile.rfc || null
+                  : userProfile.rfc || null,
+                certificate_serial: isEfirmaSAT ? profileEfirma?.serial || null : null,
+                certificate_algorithm: isEfirmaSAT ? 'RSA / SHA-256' : null,
+                certificate_valid_until: isEfirmaSAT ? profileEfirma?.vigenciaFin || null : null,
+                ocsp_status: isEfirmaSAT
+                  ? nubariumValidationResult?.estado || 'No disponible'
+                  : null,
+                verification_url: `${getPublicAppUrl()}/verificar-documento?documento=${document.id}`,
+              }
+            : {},
         aprobacion_completada: myRole === 'aprobador',
         aprobacion_completada_at: myRole === 'aprobador' ? now : null,
         observaciones: observaciones || null,
@@ -5101,7 +7026,16 @@ export default function FirmarDocumentoPage() {
       });
 
       // Check if ALL participants have completed and determine document estado
-      const TERMINAL_SUB_ESTADOS = ['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'];
+      const TERMINAL_SUB_ESTADOS = [
+        'firmo',
+        'firmado',
+        'aprobo',
+        'aprobado',
+        'rechazo',
+        'rechazado',
+        'cancelo',
+        'cancelado',
+      ];
       const { data: updatedDoc } = await supabase
         .from('documentos')
         .select('participantes, estado')
@@ -5162,18 +7096,22 @@ export default function FirmarDocumentoPage() {
             // ── Advance participation chain for sequential/mixed orders ────
             // Notify the next participant(s) in line based on participation_order
             try {
-              const { data: { session: currentSession } } = await supabase.auth.getSession();
+              const {
+                data: { session: currentSession },
+              } = await supabase.auth.getSession();
               if (currentSession?.access_token) {
                 await fetch('/api/documentos/advance-participation', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${currentSession.access_token}`,
+                    Authorization: `Bearer ${currentSession.access_token}`,
                   },
                   body: JSON.stringify({ documentoId: document.id }),
                 }).catch(() => {});
               }
-            } catch { /* non-critical */ }
+            } catch {
+              /* non-critical */
+            }
           }
         }
       } else if (!updatedDoc) {
@@ -5194,7 +7132,9 @@ export default function FirmarDocumentoPage() {
       // completion email ordering is enforced by seal-signatures.
       if (documentoEstado === 'completado') {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
           const authorizationHeaders: Record<string, string> = session?.access_token
             ? { Authorization: `Bearer ${session.access_token}` }
             : {};
@@ -5208,7 +7148,10 @@ export default function FirmarDocumentoPage() {
             throw new Error(payload?.error || `FINAL_CERTIFICATION_FAILED_${sealResponse.status}`);
           }
         } catch (artifactError) {
-          console.error('[firmar-documento] Error al generar los artefactos finales:', artifactError);
+          console.error(
+            '[firmar-documento] Error al generar los artefactos finales:',
+            artifactError
+          );
           throw artifactError;
         }
       }
@@ -5222,14 +7165,18 @@ export default function FirmarDocumentoPage() {
         timestampSello: now,
         signatureType: sigTypeLabel,
         documentoEstado,
-        efirmaSerial: isEfirmaSAT ? (profileEfirma?.serial || null) : null,
-        efirmaRfc: isEfirmaSAT ? (profileEfirma?.rfc || userProfile.rfc || null) : null,
-        efirmaNombre: isEfirmaSAT ? (profileEfirma?.nombre || userProfile.nombre_completo || null) : null,
-        efirmaVigenciaFin: isEfirmaSAT ? (profileEfirma?.vigenciaFin || null) : null,
+        efirmaSerial: isEfirmaSAT ? profileEfirma?.serial || null : null,
+        efirmaRfc: isEfirmaSAT ? profileEfirma?.rfc || userProfile.rfc || null : null,
+        efirmaNombre: isEfirmaSAT
+          ? profileEfirma?.nombre || userProfile.nombre_completo || null
+          : null,
+        efirmaVigenciaFin: isEfirmaSAT ? profileEfirma?.vigenciaFin || null : null,
         serverTimestamp: serverEfirmaSignedAt,
-        nubariumEstado: isEfirmaSAT ? (nubariumValidationResult?.estado || null) : null,
-        nubariumFechaConsulta: isEfirmaSAT ? (nubariumValidationResult?.fechaConsulta || null) : null,
-        nubariumCodigoValidacion: isEfirmaSAT ? (nubariumValidationResult?.codigoValidacion || null) : null,
+        nubariumEstado: isEfirmaSAT ? nubariumValidationResult?.estado || null : null,
+        nubariumFechaConsulta: isEfirmaSAT ? nubariumValidationResult?.fechaConsulta || null : null,
+        nubariumCodigoValidacion: isEfirmaSAT
+          ? nubariumValidationResult?.codigoValidacion || null
+          : null,
       });
 
       const actorNombre = user.user_metadata?.full_name || user.email || 'Usuario';
@@ -5240,17 +7187,29 @@ export default function FirmarDocumentoPage() {
         actor_email: user.email || '',
         action: myRole === 'firmante' ? 'firma_completada' : 'aprobacion_completada',
         category: 'firma',
-        details: { metodo: myRole, campos_completados: camposCompletados.length, ip: ipAddress, hash: signatureHash },
+        details: {
+          metodo: myRole,
+          campos_completados: camposCompletados.length,
+          ip: ipAddress,
+          hash: signatureHash,
+        },
       });
 
       if (document.owner_id && user.id !== document.owner_id) {
         await createNotification({
           userId: document.owner_id,
           type: 'document',
-          title: myRole === 'firmante' ? 'Participante firmó el documento' : 'Participante aprobó el documento',
+          title:
+            myRole === 'firmante'
+              ? 'Participante firmó el documento'
+              : 'Participante aprobó el documento',
           description: `${actorNombre} ha ${myRole === 'firmante' ? 'firmado' : 'aprobado'} "${document.nombre}".`,
           priority: 'media',
-          metadata: { documentoId: document.id, documentName: document.nombre, signerEmail: user.email },
+          metadata: {
+            documentoId: document.id,
+            documentName: document.nombre,
+            signerEmail: user.email,
+          },
         });
       }
 
@@ -5264,16 +7223,17 @@ export default function FirmarDocumentoPage() {
     }
   };
 
-  const steps = myRole === 'aprobador'
-    ? [
-        { id: 'terminos', label: 'Términos' },
-        { id: 'aprobacion', label: 'Aprobación' },
-      ]
-    : [
-        { id: 'terminos', label: 'Términos' },
-        { id: 'campos', label: 'Campos' },
-        { id: 'firma', label: 'Firma' },
-      ];
+  const steps =
+    myRole === 'aprobador'
+      ? [
+          { id: 'terminos', label: 'Términos' },
+          { id: 'aprobacion', label: 'Aprobación' },
+        ]
+      : [
+          { id: 'terminos', label: 'Términos' },
+          { id: 'campos', label: 'Campos' },
+          { id: 'firma', label: 'Firma' },
+        ];
 
   const currentStepIndex = steps.findIndex((s) => s.id === step);
   const signingStepIcons: Record<string, React.ElementType> = {
@@ -5284,13 +7244,17 @@ export default function FirmarDocumentoPage() {
   };
   const currentStepData = steps[currentStepIndex] || steps[0];
   const CurrentSigningStepIcon = signingStepIcons[currentStepData?.id || 'terminos'] || FileText;
-  const currentStepDescription = ({
-    terminos: 'Revisa las condiciones y confirma tu consentimiento para participar.',
-    campos: 'Completa la informacion solicitada y ubica los campos necesarios.',
-    firma: 'Selecciona tu metodo y confirma la firma del documento.',
-    aprobacion: 'Revisa la informacion y registra tu decision sobre el documento.',
-  } as Record<string, string>)[currentStepData?.id || 'terminos'];
-  const completionPercent = Math.round((Math.max(currentStepIndex, 0) / Math.max(steps.length - 1, 1)) * 100);
+  const currentStepDescription = (
+    {
+      terminos: 'Revisa las condiciones y confirma tu consentimiento para participar.',
+      campos: 'Completa la informacion solicitada y ubica los campos necesarios.',
+      firma: 'Selecciona tu metodo y confirma la firma del documento.',
+      aprobacion: 'Revisa la informacion y registra tu decision sobre el documento.',
+    } as Record<string, string>
+  )[currentStepData?.id || 'terminos'];
+  const completionPercent = Math.round(
+    (Math.max(currentStepIndex, 0) / Math.max(steps.length - 1, 1)) * 100
+  );
 
   // ── Fullscreen handler ─────────────────────────────────────────────────────
   const handleToggleFullscreen = useCallback(() => {
@@ -5304,12 +7268,24 @@ export default function FirmarDocumentoPage() {
       webkitRequestFullscreen?: () => Promise<void>;
       mozRequestFullScreen?: () => Promise<void>;
     };
-    const isCurrentlyFullscreen = !!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement);
+    const isCurrentlyFullscreen = !!(
+      doc.fullscreenElement ||
+      doc.webkitFullscreenElement ||
+      doc.mozFullScreenElement
+    );
     if (!isCurrentlyFullscreen) {
-      (el.requestFullscreen?.() || el.webkitRequestFullscreen?.() || el.mozRequestFullScreen?.())?.catch(() => {});
+      (
+        el.requestFullscreen?.() ||
+        el.webkitRequestFullscreen?.() ||
+        el.mozRequestFullScreen?.()
+      )?.catch(() => {});
       setIsFullscreen(true);
     } else {
-      (doc.exitFullscreen?.() || doc.webkitExitFullscreen?.() || doc.mozCancelFullScreen?.())?.catch(() => {});
+      (
+        doc.exitFullscreen?.() ||
+        doc.webkitExitFullscreen?.() ||
+        doc.mozCancelFullScreen?.()
+      )?.catch(() => {});
       setIsFullscreen(false);
     }
   }, []);
@@ -5320,7 +7296,9 @@ export default function FirmarDocumentoPage() {
         webkitFullscreenElement?: Element;
         mozFullScreenElement?: Element;
       };
-      setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement));
+      setIsFullscreen(
+        !!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement)
+      );
     };
     window.document.addEventListener('fullscreenchange', handleFullscreenChange);
     window.document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
@@ -5348,8 +7326,10 @@ export default function FirmarDocumentoPage() {
         <div className="text-center">
           <Shield size={40} className="text-slate-300 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">Debes iniciar sesión para participar.</p>
-          <button onClick={() => router.push('/login')}
-            className="mt-4 px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors">
+          <button
+            onClick={() => router.push('/login')}
+            className="mt-4 px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors"
+          >
             Iniciar sesión
           </button>
         </div>
@@ -5363,8 +7343,10 @@ export default function FirmarDocumentoPage() {
         <div className="text-center">
           <AlertTriangle size={40} className="text-amber-400 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">No se pudo cargar el documento.</p>
-          <button onClick={() => router.back()}
-            className="mt-4 px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors">
+          <button
+            onClick={() => router.back()}
+            className="mt-4 px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
+          >
             Volver
           </button>
         </div>
@@ -5378,8 +7360,11 @@ export default function FirmarDocumentoPage() {
       setProteccionSending(true);
       setProteccionError(null);
       try {
-        const { data: { session } } = await createClient().auth.getSession();
-        if (!session?.access_token || !user?.email) throw new Error('La sesion no es valida. Inicia sesion nuevamente.');
+        const {
+          data: { session },
+        } = await createClient().auth.getSession();
+        if (!session?.access_token || !user?.email)
+          throw new Error('La sesion no es valida. Inicia sesion nuevamente.');
         const res = await fetch('/api/firma/send-otp', {
           method: 'POST',
           headers: {
@@ -5416,8 +7401,11 @@ export default function FirmarDocumentoPage() {
           const json = await res.json();
           if (!res.ok || !json.valid) throw new Error('Código TOTP inválido.');
         } else {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session?.access_token) throw new Error('La sesion no es valida. Inicia sesion nuevamente.');
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (!session?.access_token)
+            throw new Error('La sesion no es valida. Inicia sesion nuevamente.');
           const res = await fetch('/api/firma/send-otp', {
             method: 'PUT',
             headers: {
@@ -5445,7 +7433,9 @@ export default function FirmarDocumentoPage() {
             <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center mb-4">
               <Shield size={28} className="text-primary" />
             </div>
-            <h2 className="text-xl font-bold text-gray-900 text-center">Verificación de identidad</h2>
+            <h2 className="text-xl font-bold text-gray-900 text-center">
+              Verificación de identidad
+            </h2>
             <p className="text-sm text-gray-500 text-center mt-2">
               Este documento requiere verificación adicional antes de participar.
             </p>
@@ -5455,73 +7445,192 @@ export default function FirmarDocumentoPage() {
             <div className="space-y-4">
               <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
                 <p className="text-sm text-blue-700 font-medium">Token móvil (TOTP)</p>
-                <p className="text-xs text-blue-600 mt-1">Ingresa el código de 6 dígitos de tu aplicación autenticadora.</p>
+                <p className="text-xs text-blue-600 mt-1">
+                  Ingresa el código de 6 dígitos de tu aplicación autenticadora.
+                </p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Código TOTP</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  Código TOTP
+                </label>
                 <input
                   type="text"
                   value={proteccionTotpCode}
-                  onChange={(e) => { setProteccionTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setProteccionError(null); }}
+                  onChange={(e) => {
+                    setProteccionTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                    setProteccionError(null);
+                  }}
                   placeholder="000000"
                   maxLength={6}
                   className="w-full border border-gray-200 rounded-lg px-4 py-3 text-center text-xl font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-primary/30"
                   autoFocus
                 />
               </div>
-              {proteccionError && <p className="text-xs text-red-500 flex items-center gap-1"><AlertTriangle size={11} />{proteccionError}</p>}
+              {proteccionError && (
+                <p className="text-xs text-red-500 flex items-center gap-1">
+                  <AlertTriangle size={11} />
+                  {proteccionError}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={handleVerifyOtp}
                 disabled={proteccionVerifying || proteccionTotpCode.length < 6}
                 className="w-full py-3 bg-primary text-white rounded-lg font-medium text-sm hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
               >
-                {proteccionVerifying ? <><svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Verificando...</> : 'Verificar y continuar'}
+                {proteccionVerifying ? (
+                  <>
+                    <svg
+                      className="animate-spin h-4 w-4"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    Verificando...
+                  </>
+                ) : (
+                  'Verificar y continuar'
+                )}
               </button>
             </div>
           ) : (
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
                 <p className="text-sm text-amber-700 font-medium">OTP por correo electrónico</p>
-                <p className="text-xs text-amber-600 mt-1">Se enviará un código de verificación a <span className="font-semibold">{user?.email}</span></p>
+                <p className="text-xs text-amber-600 mt-1">
+                  Se enviará un código de verificación a{' '}
+                  <span className="font-semibold">{user?.email}</span>
+                </p>
               </div>
 
               {!proteccionOtpSent ? (
                 <>
-                  {proteccionError && <p className="text-xs text-red-500 flex items-center gap-1"><AlertTriangle size={11} />{proteccionError}</p>}
+                  {proteccionError && (
+                    <p className="text-xs text-red-500 flex items-center gap-1">
+                      <AlertTriangle size={11} />
+                      {proteccionError}
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={handleSendOtp}
                     disabled={proteccionSending}
                     className="w-full py-3 bg-primary text-white rounded-lg font-medium text-sm hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                   >
-                    {proteccionSending ? <><svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Enviando...</> : <><Mail size={15} />Enviar código OTP</>}
+                    {proteccionSending ? (
+                      <>
+                        <svg
+                          className="animate-spin h-4 w-4"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        Enviando...
+                      </>
+                    ) : (
+                      <>
+                        <Mail size={15} />
+                        Enviar código OTP
+                      </>
+                    )}
                   </button>
                 </>
               ) : (
                 <>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Código OTP recibido</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                      Código OTP recibido
+                    </label>
                     <input
                       type="text"
                       value={proteccionOtp}
-                      onChange={(e) => { setProteccionOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); setProteccionError(null); }}
+                      onChange={(e) => {
+                        setProteccionOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                        setProteccionError(null);
+                      }}
                       placeholder="000000"
                       maxLength={6}
                       className="w-full border border-gray-200 rounded-lg px-4 py-3 text-center text-xl font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-primary/30"
                       autoFocus
                     />
                   </div>
-                  {proteccionError && <p className="text-xs text-red-500 flex items-center gap-1"><AlertTriangle size={11} />{proteccionError}</p>}
+                  {proteccionError && (
+                    <p className="text-xs text-red-500 flex items-center gap-1">
+                      <AlertTriangle size={11} />
+                      {proteccionError}
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={handleVerifyOtp}
                     disabled={proteccionVerifying || proteccionOtp.length < 4}
                     className="w-full py-3 bg-primary text-white rounded-lg font-medium text-sm hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                   >
-                    {proteccionVerifying ? <><svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Verificando...</> : 'Verificar y continuar'}
+                    {proteccionVerifying ? (
+                      <>
+                        <svg
+                          className="animate-spin h-4 w-4"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        Verificando...
+                      </>
+                    ) : (
+                      'Verificar y continuar'
+                    )}
                   </button>
-                  <button type="button" onClick={() => { setProteccionOtpSent(false); setProteccionOtp(''); setProteccionError(null); }} className="w-full text-xs text-gray-500 hover:text-gray-700 underline">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProteccionOtpSent(false);
+                      setProteccionOtp('');
+                      setProteccionError(null);
+                    }}
+                    className="w-full text-xs text-gray-500 hover:text-gray-700 underline"
+                  >
                     Reenviar código
                   </button>
                 </>
@@ -5529,7 +7638,10 @@ export default function FirmarDocumentoPage() {
             </div>
           )}
 
-          <button onClick={() => router.back()} className="mt-4 w-full text-xs text-gray-400 hover:text-gray-600 transition-colors">
+          <button
+            onClick={() => router.back()}
+            className="mt-4 w-full text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          >
             ← Volver
           </button>
         </div>
@@ -5542,16 +7654,21 @@ export default function FirmarDocumentoPage() {
     const ev = signatureEvidence;
     const signedDate = ev?.signedAt ? new Date(ev.signedAt) : new Date();
     const displayFirmaData = firmaData || savedSignature;
-    const completedSigType: 'efirma' | 'autografa' | 'clicksign' = isEfirmaSAT || ev?.signatureType === 'e.firma (SAT)'
-      ? 'efirma'
-      : isAutografaDigital || savedSignatureType === 'autografa' || autographFlowDone || ev?.signatureType === 'Firma Autógrafa Digital'
-        ? 'autografa'
-        : 'clicksign';
-    const completedStampStyle = completedSigType === 'efirma'
-      ? efirmaStampStyle
-      : completedSigType === 'autografa'
-        ? autografaStampStyle
-        : clickSignStampStyle;
+    const completedSigType: 'efirma' | 'autografa' | 'clicksign' =
+      isEfirmaSAT || ev?.signatureType === 'e.firma (SAT)'
+        ? 'efirma'
+        : isAutografaDigital ||
+            savedSignatureType === 'autografa' ||
+            autographFlowDone ||
+            ev?.signatureType === 'Firma Autógrafa Digital'
+          ? 'autografa'
+          : 'clicksign';
+    const completedStampStyle =
+      completedSigType === 'efirma'
+        ? efirmaStampStyle
+        : completedSigType === 'autografa'
+          ? autografaStampStyle
+          : clickSignStampStyle;
     const completedStampProps: StampDisplayProps = {
       stampStyle: completedStampStyle,
       signatureType: completedSigType,
@@ -5567,25 +7684,29 @@ export default function FirmarDocumentoPage() {
     };
 
     // Fields to stamp on the PDF (all placed fields for current page)
-    const stampFieldsForPage = (page: number) =>
-      placedFields.filter((f) => (f.page || 1) === page);
+    const stampFieldsForPage = (page: number) => placedFields.filter((f) => (f.page || 1) === page);
 
     return (
-      <div className={`min-h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-background'}`}>
+      <div
+        className={`min-h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-background'}`}
+      >
         {/* ── Top Bar — step nav hidden on completado ──────────────────────── */}
-        <header className={`h-16 border-b flex items-center px-6 shrink-0 z-10 transition-colors duration-300 ${isDark ? 'bg-gray-800 border-gray-700' : 'border-gray-100 bg-white'}`}>
+        <header
+          className={`h-16 border-b flex items-center px-6 shrink-0 z-10 transition-colors duration-300 ${isDark ? 'bg-gray-800 border-gray-700' : 'border-gray-100 bg-white'}`}
+        >
           <div className="flex-1">
             <AppLogo size={36} />
           </div>
           {/* Step bar intentionally hidden on success state */}
-          <div className="flex-1 flex items-center justify-end gap-1">
-          </div>
+          <div className="flex-1 flex items-center justify-end gap-1"></div>
         </header>
 
-      {/* ── Body ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
+        {/* ── Body ─────────────────────────────────────────────────────────── */}
+        <div className="flex flex-1 overflow-hidden">
           {/* PDF Viewer (left) */}
-          <div className={`hidden lg:flex flex-col border-r transition-all duration-300 w-[70%] ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-border'}`}>
+          <div
+            className={`hidden lg:flex flex-col border-r transition-all duration-300 w-[70%] ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-border'}`}
+          >
             {document.file_url ? (
               <div className="flex-1 relative overflow-hidden">
                 <div className="absolute inset-0 overflow-auto p-4 flex justify-center">
@@ -5598,7 +7719,10 @@ export default function FirmarDocumentoPage() {
                     />
                     {/* Stamp overlay: placed fields with filled values */}
                     {stampFieldsForPage(currentPage).length > 0 && (
-                      <div className="absolute inset-0" style={{ zIndex: 10, pointerEvents: 'none' }}>
+                      <div
+                        className="absolute inset-0"
+                        style={{ zIndex: 10, pointerEvents: 'none' }}
+                      >
                         {stampFieldsForPage(currentPage).map((field) => (
                           <CompletedFieldStamp
                             key={field.id}
@@ -5614,20 +7738,89 @@ export default function FirmarDocumentoPage() {
                 {/* Zoom + Pagination bar */}
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
                   <div className="flex items-center gap-1 bg-white/90 backdrop-blur-sm border border-border rounded-full px-3 py-1.5 shadow-md">
-                    <button onClick={() => setZoom((z) => Math.max(50, z - 10))} disabled={zoom <= 50} className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                    <button
+                      onClick={() => setZoom((z) => Math.max(50, z - 10))}
+                      disabled={zoom <= 50}
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        <line x1="8" y1="11" x2="14" y2="11" />
+                      </svg>
                     </button>
-                    <span className="text-sm text-slate-600 font-medium min-w-[44px] text-center select-none">{zoom}%</span>
-                    <button onClick={() => setZoom((z) => Math.min(200, z + 10))} disabled={zoom >= 200} className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                    <span className="text-sm text-slate-600 font-medium min-w-[44px] text-center select-none">
+                      {zoom}%
+                    </span>
+                    <button
+                      onClick={() => setZoom((z) => Math.min(200, z + 10))}
+                      disabled={zoom >= 200}
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        <line x1="11" y1="8" x2="11" y2="14" />
+                        <line x1="8" y1="11" x2="14" y2="11" />
+                      </svg>
                     </button>
                     <div className="w-px h-5 bg-slate-200 mx-1" />
-                    <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1} className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage <= 1}
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="15 18 9 12 15 6" />
+                      </svg>
                     </button>
-                    <span className="text-sm text-slate-600 font-medium min-w-[48px] text-center select-none">{currentPage} / {totalPages}</span>
-                    <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    <span className="text-sm text-slate-600 font-medium min-w-[48px] text-center select-none">
+                      {currentPage} / {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage >= totalPages}
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
                     </button>
                   </div>
                 </div>
@@ -5635,550 +7828,1048 @@ export default function FirmarDocumentoPage() {
             ) : (
               <div className="flex-1 flex items-center justify-center">
                 <div className="text-center">
-                  <FileText size={40} className={`mx-auto mb-2 ${isDark ? 'text-gray-600' : 'text-slate-300'}`} />
-                  <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>Sin vista previa disponible</p>
+                  <FileText
+                    size={40}
+                    className={`mx-auto mb-2 ${isDark ? 'text-gray-600' : 'text-slate-300'}`}
+                  />
+                  <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
+                    Sin vista previa disponible
+                  </p>
                 </div>
               </div>
             )}
           </div>
 
           {/* Right Panel — Success animation */}
-          <div className={`lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
+          <div
+            className={`lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-white'}`}
+          >
             <div className="flex-1 overflow-y-auto">
               {/* ── RESUMEN TAB ── */}
               {activeCompletadoTab === 'resumen' && (
-              <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
-
-                {/* Animated success icon */}
-                <div className="flex flex-col items-center text-center pt-4">
-                  <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all duration-700 ${showSuccessAnim ? 'bg-green-100 scale-110' : 'bg-gray-100'}`}>
-                    <CheckCircle2 size={40} className={`transition-all duration-700 ${showSuccessAnim ? 'text-green-500' : 'text-gray-300'}`} />
-                  </div>
-                  <h2 className={`text-xl font-bold mb-1 ${isDark ? 'text-gray-100' : 'text-foreground'}`}>
-                    {myRole === 'firmante' ? '¡Documento firmado!' : '¡Aprobación registrada!'}
-                  </h2>
-                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                    {myRole === 'firmante' ? 'Tu firma ha sido registrada exitosamente.' : 'Tu aprobación ha sido registrada exitosamente.'}
-                  </p>
-                </div>
-
-                {/* Animated progress bar */}
-                <div className={`rounded-xl p-4 border transition-all duration-700 ${showSuccessAnim ? (isDark ? 'bg-green-900/20 border-green-700' : 'bg-green-50 border-green-200') : (isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border')}`}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all duration-700 ${showSuccessAnim ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
-                      <Check size={12} />
-                    </div>
-                    <span className={`text-sm font-semibold transition-colors duration-700 ${showSuccessAnim ? (isDark ? 'text-green-400' : 'text-green-700') : (isDark ? 'text-gray-400' : 'text-muted-foreground')}`}>
-                      {myRole === 'firmante' ? '¡Firma completada!' : '¡Aprobación completada!'}
-                    </span>
-                  </div>
-                  {/* Progress bar */}
-                  <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+                  {/* Animated success icon */}
+                  <div className="flex flex-col items-center text-center pt-4">
                     <div
-                      className="h-full rounded-full bg-green-500 transition-all duration-700 ease-out"
-                      style={{ width: showSuccessAnim ? '100%' : '0%' }}
-                    />
-                  </div>
-                </div>
-
-                {/* Firma stamp — replaces "Documento" section */}
-                <div className={`rounded-xl p-4 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}>
-                  <p className={`text-xs mb-2 font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                    {ev?.signatureType === 'e.firma (SAT)' ? 'Estampa de e.firma' : isAutografaDigital ? 'Estampa de firma autógrafa' : 'Estampa de firma digital'}
-                  </p>
-                  {(() => {
-                    // Determine stamp type and style based on signing method
-                    const sigType: 'efirma' | 'autografa' | 'clicksign' = isEfirmaSAT || ev?.signatureType === 'e.firma (SAT)'
-                      ? 'efirma'
-                      : isAutografaDigital || savedSignatureType === 'autografa' || autographFlowDone || ev?.signatureType === 'Firma Autógrafa Digital' ? 'autografa' : 'clicksign';
-                    const stampStyle = sigType === 'efirma'
-                      ? efirmaStampStyle
-                      : sigType === 'autografa'
-                        ? autografaStampStyle
-                        : clickSignStampStyle;
-                    return (
-                      <div className={`rounded-lg border p-3 ${isDark ? 'bg-gray-900 border-gray-600' : 'bg-white border-gray-200'}`}>
-                        <SignatureStampDisplay
-                          stampStyle={stampStyle}
-                          signatureType={sigType}
-                          signatureUrl={displayFirmaData}
-                          userName={userProfile.nombre_completo}
-                          userRfc={userProfile.rfc}
-                          signatureHash={ev?.signatureHash || ''}
-                          signedAt={ev?.signedAt || new Date().toISOString()}
-                          ipAddress={ev?.ipAddress || '—'}
-                          coordinates={ev?.coordinates || null}
-                          efirmaSerial={ev?.efirmaSerial}
-                          efirmaVigenciaFin={ev?.efirmaVigenciaFin}
-                        />
-                      </div>
-                    );
-                  })()}
-                  <div className="mt-2 flex items-center gap-2">
-                    <Shield size={11} className="text-green-500 shrink-0" />
-                    <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>
-                      {ev?.signatureType || (savedSignatureType === 'efirma' ? 'e.firma (SAT)' : savedSignatureType === 'firma_electronica' ? 'Firma Electrónica Digital' : 'Firma Autógrafa Digital')}
+                      className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all duration-700 ${showSuccessAnim ? 'bg-green-100 scale-110' : 'bg-gray-100'}`}
+                    >
+                      <CheckCircle2
+                        size={40}
+                        className={`transition-all duration-700 ${showSuccessAnim ? 'text-green-500' : 'text-gray-300'}`}
+                      />
+                    </div>
+                    <h2
+                      className={`text-xl font-bold mb-1 ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                    >
+                      {myRole === 'firmante' ? '¡Documento firmado!' : '¡Aprobación registrada!'}
+                    </h2>
+                    <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
+                      {myRole === 'firmante'
+                        ? 'Tu firma ha sido registrada exitosamente.'
+                        : 'Tu aprobación ha sido registrada exitosamente.'}
                     </p>
-                    {ev?.documentoEstado && (
-                      <span className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full ${ev.documentoEstado === 'completado' ? 'bg-green-100 text-green-700' : ev.documentoEstado === 'firmado' ? 'bg-green-100 text-green-700' : 'bg-green-100 text-green-700'}`}>
-                        {ev.documentoEstado === 'completado' ? 'Completado' : ev.documentoEstado === 'firmado' ? 'Firmó' : 'Firmó'}
+                  </div>
+
+                  {/* Animated progress bar */}
+                  <div
+                    className={`rounded-xl p-4 border transition-all duration-700 ${showSuccessAnim ? (isDark ? 'bg-green-900/20 border-green-700' : 'bg-green-50 border-green-200') : isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <div
+                        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all duration-700 ${showSuccessAnim ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-400'}`}
+                      >
+                        <Check size={12} />
+                      </div>
+                      <span
+                        className={`text-sm font-semibold transition-colors duration-700 ${showSuccessAnim ? (isDark ? 'text-green-400' : 'text-green-700') : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                      >
+                        {myRole === 'firmante' ? '¡Firma completada!' : '¡Aprobación completada!'}
                       </span>
-                    )}
+                    </div>
+                    {/* Progress bar */}
+                    <div
+                      className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}
+                    >
+                      <div
+                        className="h-full rounded-full bg-green-500 transition-all duration-700 ease-out"
+                        style={{ width: showSuccessAnim ? '100%' : '0%' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Firma stamp — replaces "Documento" section */}
+                  <div
+                    className={`rounded-xl p-4 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}
+                  >
+                    <p
+                      className={`text-xs mb-2 font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                    >
+                      {ev?.signatureType === 'e.firma (SAT)'
+                        ? 'Estampa de e.firma'
+                        : isAutografaDigital
+                          ? 'Estampa de firma autógrafa'
+                          : 'Estampa de firma digital'}
+                    </p>
+                    {(() => {
+                      // Determine stamp type and style based on signing method
+                      const sigType: 'efirma' | 'autografa' | 'clicksign' =
+                        isEfirmaSAT || ev?.signatureType === 'e.firma (SAT)'
+                          ? 'efirma'
+                          : isAutografaDigital ||
+                              savedSignatureType === 'autografa' ||
+                              autographFlowDone ||
+                              ev?.signatureType === 'Firma Autógrafa Digital'
+                            ? 'autografa'
+                            : 'clicksign';
+                      const stampStyle =
+                        sigType === 'efirma'
+                          ? efirmaStampStyle
+                          : sigType === 'autografa'
+                            ? autografaStampStyle
+                            : clickSignStampStyle;
+                      return (
+                        <div
+                          className={`rounded-lg border p-3 ${isDark ? 'bg-gray-900 border-gray-600' : 'bg-white border-gray-200'}`}
+                        >
+                          <SignatureStampDisplay
+                            stampStyle={stampStyle}
+                            signatureType={sigType}
+                            signatureUrl={displayFirmaData}
+                            userName={userProfile.nombre_completo}
+                            userRfc={userProfile.rfc}
+                            signatureHash={ev?.signatureHash || ''}
+                            signedAt={ev?.signedAt || new Date().toISOString()}
+                            ipAddress={ev?.ipAddress || '—'}
+                            coordinates={ev?.coordinates || null}
+                            efirmaSerial={ev?.efirmaSerial}
+                            efirmaVigenciaFin={ev?.efirmaVigenciaFin}
+                          />
+                        </div>
+                      );
+                    })()}
+                    <div className="mt-2 flex items-center gap-2">
+                      <Shield size={11} className="text-green-500 shrink-0" />
+                      <p
+                        className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                      >
+                        {ev?.signatureType ||
+                          (savedSignatureType === 'efirma'
+                            ? 'e.firma (SAT)'
+                            : savedSignatureType === 'firma_electronica'
+                              ? 'Firma Electrónica Digital'
+                              : 'Firma Autógrafa Digital')}
+                      </p>
+                      {ev?.documentoEstado && (
+                        <span
+                          className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full ${ev.documentoEstado === 'completado' ? 'bg-green-100 text-green-700' : ev.documentoEstado === 'firmado' ? 'bg-green-100 text-green-700' : 'bg-green-100 text-green-700'}`}
+                        >
+                          {ev.documentoEstado === 'completado'
+                            ? 'Completado'
+                            : ev.documentoEstado === 'firmado'
+                              ? 'Firmó'
+                              : 'Firmó'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Datos de la firma — replaces "Participante" section */}
+                  <div
+                    className={`rounded-xl p-4 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}
+                  >
+                    <p
+                      className={`text-xs mb-3 font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                    >
+                      Datos de la firma
+                    </p>
+                    <div className="space-y-2">
+                      {/* Participant name */}
+                      {userProfile.nombre_completo && (
+                        <div className="flex items-start gap-2">
+                          <User
+                            size={12}
+                            className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          />
+                          <div className="min-w-0">
+                            <p
+                              className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                            >
+                              Firmante
+                            </p>
+                            <p
+                              className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                            >
+                              {userProfile.nombre_completo}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {/* Email */}
+                      {(userProfile.email || user?.email) && (
+                        <div className="flex items-start gap-2">
+                          <Mail
+                            size={12}
+                            className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          />
+                          <div className="min-w-0">
+                            <p
+                              className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                            >
+                              Correo
+                            </p>
+                            <p
+                              className={`text-xs truncate ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                            >
+                              {userProfile.email || user?.email}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {/* Acción */}
+                      <div className="flex items-start gap-2">
+                        <PenLine
+                          size={12}
+                          className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                        />
+                        <div className="min-w-0">
+                          <p
+                            className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            Acción
+                          </p>
+                          <p className={`text-xs font-semibold text-green-600`}>Firmado</p>
+                        </div>
+                      </div>
+                      {/* Fecha y hora */}
+                      <div className="flex items-start gap-2">
+                        <Calendar
+                          size={12}
+                          className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                        />
+                        <div className="min-w-0">
+                          <p
+                            className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            Fecha y hora de firma
+                          </p>
+                          <p
+                            className={`text-xs ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                          >
+                            {signedDate.toLocaleDateString('es-MX', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                            })}{' '}
+                            ·{' '}
+                            {signedDate.toLocaleTimeString('es-MX', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      {/* IP */}
+                      {ev?.ipAddress && ev.ipAddress !== '—' && (
+                        <div className="flex items-start gap-2">
+                          <Shield
+                            size={12}
+                            className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          />
+                          <div className="min-w-0">
+                            <p
+                              className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                            >
+                              Dirección IP
+                            </p>
+                            <p
+                              className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                            >
+                              {ev.ipAddress}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {/* Coordenadas */}
+                      <div className="flex items-start gap-2">
+                        <MapPin
+                          size={12}
+                          className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                        />
+                        <div className="min-w-0">
+                          <p
+                            className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            Lugar de firma (coordenadas)
+                          </p>
+                          <p
+                            className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                          >
+                            {ev?.coordinates
+                              ? `${ev.coordinates.lat.toFixed(6)}, ${ev.coordinates.lng.toFixed(6)}`
+                              : 'No disponible'}
+                          </p>
+                        </div>
+                      </div>
+                      {/* Estampa de tiempo */}
+                      <div className="flex items-start gap-2">
+                        <Clock
+                          size={12}
+                          className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                        />
+                        <div className="min-w-0">
+                          <p
+                            className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            Estampa de tiempo (ISO 8601)
+                          </p>
+                          <p
+                            className={`text-xs font-mono break-all ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                          >
+                            {ev?.timestampSello || signedDate.toISOString()}
+                          </p>
+                        </div>
+                      </div>
+                      {/* Hash */}
+                      {ev?.signatureHash && (
+                        <div className="flex items-start gap-2">
+                          <Hash
+                            size={12}
+                            className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          />
+                          <div className="min-w-0">
+                            <p
+                              className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                            >
+                              Hash de firma (SHA-256)
+                            </p>
+                            <p
+                              className={`text-[10px] font-mono break-all ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+                            >
+                              {ev.signatureHash}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {/* RFC / CURP */}
+                      {userProfile.rfc && (
+                        <div className="flex items-start gap-2">
+                          <FileText
+                            size={12}
+                            className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          />
+                          <div className="min-w-0">
+                            <p
+                              className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                            >
+                              RFC
+                            </p>
+                            <p
+                              className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                            >
+                              {userProfile.rfc}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {userProfile.curp && (
+                        <div className="flex items-start gap-2">
+                          <UserCheck
+                            size={12}
+                            className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          />
+                          <div className="min-w-0">
+                            <p
+                              className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                            >
+                              CURP
+                            </p>
+                            <p
+                              className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                            >
+                              {userProfile.curp}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {/* ── e.firma SAT specific evidence ── */}
+                      {(ev?.efirmaSerial || ev?.efirmaRfc) && (
+                        <>
+                          <div
+                            className={`my-1 border-t ${isDark ? 'border-gray-700' : 'border-border'}`}
+                          />
+                          {/* Validation badge */}
+                          <div
+                            className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 ${isDark ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'}`}
+                          >
+                            <Shield size={11} className="text-blue-500 shrink-0" />
+                            <p
+                              className={`text-[10px] font-semibold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}
+                            >
+                              e.firma SAT — Validada ante el SAT
+                            </p>
+                            <span
+                              className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${isDark ? 'bg-green-800 text-green-300' : 'bg-green-100 text-green-700'}`}
+                            >
+                              Vigente
+                            </span>
+                          </div>
+                          {/* Estampa de tiempo del servidor */}
+                          {ev?.serverTimestamp && (
+                            <div className="flex items-start gap-2">
+                              <Clock
+                                size={12}
+                                className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              />
+                              <div className="min-w-0">
+                                <p
+                                  className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                >
+                                  Estampa de tiempo del servidor (ISO 8601)
+                                </p>
+                                <p
+                                  className={`text-[10px] font-mono break-all ${isDark ? 'text-teal-300' : 'text-teal-700'}`}
+                                >
+                                  {ev.serverTimestamp}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          {/* Serial */}
+                          {ev.efirmaSerial && (
+                            <div className="flex items-start gap-2">
+                              <Hash
+                                size={12}
+                                className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              />
+                              <div className="min-w-0">
+                                <p
+                                  className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                >
+                                  No. de Serie (e.firma)
+                                </p>
+                                <p
+                                  className={`text-[10px] font-mono break-all ${isDark ? 'text-gray-300' : 'text-slate-600'}`}
+                                >
+                                  {ev.efirmaSerial}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          {/* RFC e.firma */}
+                          {ev.efirmaRfc && (
+                            <div className="flex items-start gap-2">
+                              <FileText
+                                size={12}
+                                className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              />
+                              <div className="min-w-0">
+                                <p
+                                  className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                >
+                                  RFC (e.firma)
+                                </p>
+                                <p
+                                  className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                                >
+                                  {ev.efirmaRfc}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          {/* Nombre titular */}
+                          {ev.efirmaNombre && (
+                            <div className="flex items-start gap-2">
+                              <User
+                                size={12}
+                                className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              />
+                              <div className="min-w-0">
+                                <p
+                                  className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                >
+                                  Titular del certificado
+                                </p>
+                                <p
+                                  className={`text-xs ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                                >
+                                  {ev.efirmaNombre}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          {/* Vigencia */}
+                          {ev.efirmaVigenciaFin && (
+                            <div className="flex items-start gap-2">
+                              <Calendar
+                                size={12}
+                                className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              />
+                              <div className="min-w-0">
+                                <p
+                                  className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                >
+                                  Vigencia del certificado
+                                </p>
+                                <p
+                                  className={`text-xs ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                                >
+                                  {new Date(ev.efirmaVigenciaFin).toLocaleDateString('es-MX', {
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric',
+                                  })}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-
-                {/* Datos de la firma — replaces "Participante" section */}
-                <div className={`rounded-xl p-4 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}>
-                  <p className={`text-xs mb-3 font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>Datos de la firma</p>
-                  <div className="space-y-2">
-                    {/* Participant name */}
-                    {userProfile.nombre_completo && (
-                      <div className="flex items-start gap-2">
-                        <User size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                        <div className="min-w-0">
-                          <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Firmante</p>
-                          <p className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{userProfile.nombre_completo}</p>
-                        </div>
-                      </div>
-                    )}
-                    {/* Email */}
-                    {(userProfile.email || user?.email) && (
-                      <div className="flex items-start gap-2">
-                        <Mail size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                        <div className="min-w-0">
-                          <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Correo</p>
-                          <p className={`text-xs truncate ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{userProfile.email || user?.email}</p>
-                        </div>
-                      </div>
-                    )}
-                    {/* Acción */}
-                    <div className="flex items-start gap-2">
-                      <PenLine size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                      <div className="min-w-0">
-                        <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Acción</p>
-                        <p className={`text-xs font-semibold text-green-600`}>Firmado</p>
-                      </div>
-                    </div>
-                    {/* Fecha y hora */}
-                    <div className="flex items-start gap-2">
-                      <Calendar size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                      <div className="min-w-0">
-                        <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Fecha y hora de firma</p>
-                        <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>
-                          {signedDate.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })} · {signedDate.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                        </p>
-                      </div>
-                    </div>
-                    {/* IP */}
-                    {ev?.ipAddress && ev.ipAddress !== '—' && (
-                      <div className="flex items-start gap-2">
-                        <Shield size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                        <div className="min-w-0">
-                          <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Dirección IP</p>
-                          <p className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{ev.ipAddress}</p>
-                        </div>
-                      </div>
-                    )}
-                    {/* Coordenadas */}
-                    <div className="flex items-start gap-2">
-                      <MapPin size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                      <div className="min-w-0">
-                        <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Lugar de firma (coordenadas)</p>
-                        <p className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>
-                          {ev?.coordinates ? `${ev.coordinates.lat.toFixed(6)}, ${ev.coordinates.lng.toFixed(6)}` : 'No disponible'}
-                        </p>
-                      </div>
-                    </div>
-                    {/* Estampa de tiempo */}
-                    <div className="flex items-start gap-2">
-                      <Clock size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                      <div className="min-w-0">
-                        <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Estampa de tiempo (ISO 8601)</p>
-                        <p className={`text-xs font-mono break-all ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{ev?.timestampSello || signedDate.toISOString()}</p>
-                      </div>
-                    </div>
-                    {/* Hash */}
-                    {ev?.signatureHash && (
-                      <div className="flex items-start gap-2">
-                        <Hash size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                        <div className="min-w-0">
-                          <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Hash de firma (SHA-256)</p>
-                          <p className={`text-[10px] font-mono break-all ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>{ev.signatureHash}</p>
-                        </div>
-                      </div>
-                    )}
-                    {/* RFC / CURP */}
-                    {userProfile.rfc && (
-                      <div className="flex items-start gap-2">
-                        <FileText size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                        <div className="min-w-0">
-                          <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>RFC</p>
-                          <p className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{userProfile.rfc}</p>
-                        </div>
-                      </div>
-                    )}
-                    {userProfile.curp && (
-                      <div className="flex items-start gap-2">
-                        <UserCheck size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                        <div className="min-w-0">
-                          <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>CURP</p>
-                          <p className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{userProfile.curp}</p>
-                        </div>
-                      </div>
-                    )}
-                    {/* ── e.firma SAT specific evidence ── */}
-                    {(ev?.efirmaSerial || ev?.efirmaRfc) && (
-                      <>
-                        <div className={`my-1 border-t ${isDark ? 'border-gray-700' : 'border-border'}`} />
-                        {/* Validation badge */}
-                        <div className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 ${isDark ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'}`}>
-                          <Shield size={11} className="text-blue-500 shrink-0" />
-                          <p className={`text-[10px] font-semibold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>e.firma SAT — Validada ante el SAT</p>
-                          <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${isDark ? 'bg-green-800 text-green-300' : 'bg-green-100 text-green-700'}`}>Vigente</span>
-                        </div>
-                        {/* Estampa de tiempo del servidor */}
-                        {ev?.serverTimestamp && (
-                          <div className="flex items-start gap-2">
-                            <Clock size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                            <div className="min-w-0">
-                              <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Estampa de tiempo del servidor (ISO 8601)</p>
-                              <p className={`text-[10px] font-mono break-all ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>{ev.serverTimestamp}</p>
-                            </div>
-                          </div>
-                        )}
-                        {/* Serial */}
-                        {ev.efirmaSerial && (
-                          <div className="flex items-start gap-2">
-                            <Hash size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                            <div className="min-w-0">
-                              <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>No. de Serie (e.firma)</p>
-                              <p className={`text-[10px] font-mono break-all ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>{ev.efirmaSerial}</p>
-                            </div>
-                          </div>
-                        )}
-                        {/* RFC e.firma */}
-                        {ev.efirmaRfc && (
-                          <div className="flex items-start gap-2">
-                            <FileText size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                            <div className="min-w-0">
-                              <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>RFC (e.firma)</p>
-                              <p className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{ev.efirmaRfc}</p>
-                            </div>
-                          </div>
-                        )}
-                        {/* Nombre titular */}
-                        {ev.efirmaNombre && (
-                          <div className="flex items-start gap-2">
-                            <User size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                            <div className="min-w-0">
-                              <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Titular del certificado</p>
-                              <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{ev.efirmaNombre}</p>
-                            </div>
-                          </div>
-                        )}
-                        {/* Vigencia */}
-                        {ev.efirmaVigenciaFin && (
-                          <div className="flex items-start gap-2">
-                            <Calendar size={12} className={`mt-0.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`} />
-                            <div className="min-w-0">
-                              <p className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Vigencia del certificado</p>
-                              <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>
-                                {new Date(ev.efirmaVigenciaFin).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-
-              </div>
               )}
 
               {/* ── DESCARGAS TAB ── */}
               {activeCompletadoTab === 'descargas' && (
-              <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-4">
-
-                {/* Header */}
-                <div className="flex flex-col gap-1">
-                  <h3 className={`text-base font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}>Documentos disponibles</h3>
-                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>Descarga el documento original y tu constancia de participación.</p>
-                </div>
-
-                {/* Documento original */}
-                <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}>
-                  <div className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'bg-gray-700/50 border-gray-700' : 'bg-muted/30 border-border'}`}>
-                    <FileText size={14} className={isDark ? 'text-gray-400' : 'text-muted-foreground'} />
-                    <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Documento Original</p>
+                <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+                  {/* Header */}
+                  <div className="flex flex-col gap-1">
+                    <h3
+                      className={`text-base font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                    >
+                      Documentos disponibles
+                    </h3>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
+                      Descarga el documento original y tu constancia de participación.
+                    </p>
                   </div>
-                  <div className="p-4 space-y-3">
-                    <div className="flex items-start gap-3">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-gray-700' : 'bg-slate-100'}`}>
-                        <FileText size={18} className={isDark ? 'text-gray-400' : 'text-slate-500'} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-semibold truncate ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{document.nombre || 'Documento'}</p>
-                        <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Archivo PDF original del documento</p>
-                      </div>
-                    </div>
-                    {document.file_url ? (
-                      <button
-                        onClick={downloadOriginalDocument}
-                        disabled={downloadingOriginal}
-                        className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${isDark ? 'border-gray-600 text-gray-200 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
+
+                  {/* Documento original */}
+                  <div
+                    className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}
+                  >
+                    <div
+                      className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'bg-gray-700/50 border-gray-700' : 'bg-muted/30 border-border'}`}
+                    >
+                      <FileText
+                        size={14}
+                        className={isDark ? 'text-gray-400' : 'text-muted-foreground'}
+                      />
+                      <p
+                        className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
                       >
-                        {downloadingOriginal ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                        Descargar documento original
-                      </button>
-                    ) : (
-                      <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${isDark ? 'bg-gray-700/50' : 'bg-muted/50'}`}>
-                        <AlertTriangle size={13} className="text-amber-500 shrink-0" />
-                        <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>El documento original no está disponible para descarga.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Constancia de participación */}
-                <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}>
-                  <div className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'bg-gray-700/50 border-gray-700' : 'bg-muted/30 border-border'}`}>
-                    <Shield size={14} className="text-green-500" />
-                    <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Constancia de Participación</p>
-                    <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-green-900/40 text-green-400' : 'bg-green-100 text-green-700'}`}>Individual</span>
-                  </div>
-                  <div className="p-4 space-y-3">
-                    <div className="flex items-start gap-3">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-green-900/30' : 'bg-green-50'}`}>
-                        <Shield size={18} className="text-green-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Constancia Individual de Participación</p>
-                        <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>
-                          {(signatureEvidence?.signatureType?.includes('efirma') || signatureEvidence?.signatureType?.includes('e.firma') || savedSignatureType === 'efirma')
-                            ? 'Método: Firma Electrónica Avanzada · e.firma SAT' :'Método: Firma Autógrafa Digitalizada'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Constancia details */}
-                    <div className={`rounded-lg p-3 space-y-1.5 ${isDark ? 'bg-gray-700/40' : 'bg-muted/40'}`}>
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-semibold uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Firmante</span>
-                        <span className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-foreground'}`}>{userProfile.nombre_completo || user?.email || '—'}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-semibold uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Fecha de firma</span>
-                        <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                          {signatureEvidence?.signedAt
-                            ? new Date(signatureEvidence.signedAt).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })
-                            : new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-semibold uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Algoritmo</span>
-                        <span className={`text-xs font-mono ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>SHA-256</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-semibold uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Verificación</span>
-                        <span className={`text-xs ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>verificar.docubox.mx</span>
-                      </div>
-                    </div>
-
-                    {/* Legal note */}
-                    <div className={`flex items-start gap-2 rounded-lg px-3 py-2 ${isDark ? 'bg-blue-900/20 border border-blue-800' : 'bg-blue-50 border border-blue-100'}`}>
-                      <Shield size={11} className="text-blue-500 shrink-0 mt-0.5" />
-                      <p className={`text-[10px] leading-relaxed ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
-                        Válida conforme a los Arts. 89–97 del Código de Comercio, LFEA y NOM-151-SCFI-2016. Documento confidencial — uso exclusivo del firmante.
+                        Documento Original
                       </p>
                     </div>
-
-                    <button
-                      onClick={downloadParticipationCertificate}
-                      disabled={generatingPdf}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      {generatingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                      Descargar constancia de participación
-                    </button>
-                  </div>
-                </div>
-
-                {/* ── NOM-151 Constancia de Conservación ── */}
-                <div className={`rounded-2xl border overflow-hidden ${isDark ? 'border-purple-800/50 bg-gray-800' : 'border-purple-200 bg-white'}`}>
-                  <div className={`flex items-center justify-between px-4 py-3 border-b ${isDark ? 'border-purple-800/40 bg-purple-900/20' : 'border-purple-100 bg-purple-50'}`}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">🔏</span>
-                      <span className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Constancia NOM-151</span>
-                    </div>
-                    {nom151Data ? (
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-purple-900/40 text-purple-300' : 'bg-purple-100 text-purple-700'}`}>Emitida</span>
-                    ) : (
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}>
-                        {nom151Polling ? 'Generando…' : 'Pendiente'}
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-4 space-y-3">
-                    {nom151Data ? (
-                      <>
-                        <div className="flex items-start gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-purple-900/30' : 'bg-purple-50'}`}>
-                            <ShieldCheck size={18} className="text-purple-500" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Constancia de Conservación NOM-151</p>
-                            <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>PSC: Nubarium · Secretaría de Economía</p>
-                          </div>
-                        </div>
-                        <div className={`rounded-lg p-3 space-y-1.5 ${isDark ? 'bg-gray-700/40' : 'bg-muted/40'}`}>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Código validación</span>
-                            <span className={`text-xs font-mono truncate ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>{nom151Data.nubarium_codigo_validacion}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Hash SHA-256</span>
-                            <span className={`text-xs font-mono truncate ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>{nom151Data.constancia_sha256.slice(0, 16)}…</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Fecha emisión</span>
-                            <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                              {new Date(nom151Data.created_at).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })}
-                            </span>
-                          </div>
-                        </div>
-                        <div className={`flex items-start gap-2 rounded-lg px-3 py-2 ${isDark ? 'bg-purple-900/20 border border-purple-800' : 'bg-purple-50 border border-purple-100'}`}>
-                          <ShieldCheck size={11} className="text-purple-500 shrink-0 mt-0.5" />
-                          <p className={`text-[10px] leading-relaxed ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>
-                            Constancia emitida conforme a NOM-151-SCFI-2016. Válida ante cualquier autoridad o tribunal mexicano. Archivo .asn1 vinculado al PDF por hash criptográfico.
-                          </p>
-                        </div>
-                        <a
-                          href="https://validatuconstancia.pscworld.com/"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border transition-colors ${isDark ? 'border-purple-700 text-purple-300 hover:bg-purple-900/30' : 'border-purple-300 text-purple-700 hover:bg-purple-50'}`}
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-gray-700' : 'bg-slate-100'}`}
                         >
-                          <ShieldCheck size={14} />
-                          Verificar validez en PSC
-                        </a>
-                      </>
-                    ) : (
-                      <div className="flex flex-col items-center gap-3 py-4">
-                        {nom151Polling ? (
-                          <>
-                            <Loader2 size={24} className={`animate-spin ${isDark ? 'text-purple-400' : 'text-purple-500'}`} />
-                            <p className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                              Generando constancia NOM-151…<br />
-                              <span className="text-xs">Esto puede tomar unos segundos</span>
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <Clock size={24} className={`${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-                            <p className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                              La constancia NOM-151 se generará automáticamente cuando el documento esté completado.
-                            </p>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* ── XML Evidencia ── */}
-                <div className={`rounded-2xl border overflow-hidden ${isDark ? 'border-emerald-800/50 bg-gray-800' : 'border-emerald-200 bg-white'}`}>
-                  <div className={`flex items-center justify-between px-4 py-3 border-b ${isDark ? 'border-emerald-800/40 bg-emerald-900/20' : 'border-emerald-100 bg-emerald-50'}`}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">📄</span>
-                      <span className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>XML de Evidencia</span>
-                    </div>
-                    {xmlEvidenceData ? (
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>Generado</span>
-                    ) : (
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}>
-                        {xmlPolling ? 'Generando…' : 'Pendiente'}
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-4 space-y-3">
-                    {xmlEvidenceData ? (
-                      <>
-                        <div className="flex items-start gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-emerald-900/30' : 'bg-emerald-50'}`}>
-                            <FileText size={18} className="text-emerald-500" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Paquete de Evidencia XMLDSig</p>
-                            <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Evidencia criptográfica completa del documento</p>
-                          </div>
+                          <FileText
+                            size={18}
+                            className={isDark ? 'text-gray-400' : 'text-slate-500'}
+                          />
                         </div>
-                        <div className={`rounded-lg p-3 space-y-1.5 ${isDark ? 'bg-gray-700/40' : 'bg-muted/40'}`}>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Hash XML</span>
-                            <span className={`text-xs font-mono truncate ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>{xmlEvidenceData.xml_hash_sha256?.slice(0, 16)}…</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Generado</span>
-                            <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                              {new Date(xmlEvidenceData.xml_generated_at).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>Algoritmo</span>
-                            <span className={`text-xs font-mono ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>RSA-SHA256 + XMLDSig</span>
-                          </div>
-                        </div>
-                        <div className={`flex items-start gap-2 rounded-lg px-3 py-2 ${isDark ? 'bg-emerald-900/20 border border-emerald-800' : 'bg-emerald-50 border border-emerald-100'}`}>
-                          <ShieldCheck size={11} className="text-emerald-500 shrink-0 mt-0.5" />
-                          <p className={`text-[10px] leading-relaxed ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
-                            Paquete de evidencia conforme a XMLDSig W3C y NOM-151-SCFI-2016. Contiene identidad del documento, firmantes, bitácora de eventos y sello de conservación.
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className={`text-sm font-semibold truncate ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                          >
+                            {document.nombre || 'Documento'}
+                          </p>
+                          <p
+                            className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            Archivo PDF original del documento
                           </p>
                         </div>
+                      </div>
+                      {document.file_url ? (
                         <button
-                          onClick={downloadXmlEvidence}
-                          disabled={downloadingXml}
-                          className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${isDark ? 'border-emerald-700 text-emerald-300 hover:bg-emerald-900/30' : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'}`}
+                          onClick={downloadOriginalDocument}
+                          disabled={downloadingOriginal}
+                          className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${isDark ? 'border-gray-600 text-gray-200 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
                         >
-                          {downloadingXml ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                          Descargar XML de evidencia
+                          {downloadingOriginal ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <Download size={14} />
+                          )}
+                          Descargar documento original
                         </button>
-                      </>
-                    ) : (
-                      <div className="flex flex-col items-center gap-3 py-4">
-                        {xmlPolling ? (
-                          <>
-                            <Loader2 size={24} className={`animate-spin ${isDark ? 'text-emerald-400' : 'text-emerald-500'}`} />
-                            <p className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                              Generando XML de evidencia…<br />
-                              <span className="text-xs">Esto puede tomar unos segundos</span>
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <Clock size={24} className={`${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-                            <p className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                              El XML de evidencia se generará automáticamente cuando el documento esté completado.
-                            </p>
-                          </>
-                        )}
+                      ) : (
+                        <div
+                          className={`flex items-center gap-2 rounded-lg px-3 py-2 ${isDark ? 'bg-gray-700/50' : 'bg-muted/50'}`}
+                        >
+                          <AlertTriangle size={13} className="text-amber-500 shrink-0" />
+                          <p
+                            className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                          >
+                            El documento original no está disponible para descarga.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Constancia de participación */}
+                  <div
+                    className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}
+                  >
+                    <div
+                      className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'bg-gray-700/50 border-gray-700' : 'bg-muted/30 border-border'}`}
+                    >
+                      <Shield size={14} className="text-green-500" />
+                      <p
+                        className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                      >
+                        Constancia de Participación
+                      </p>
+                      <span
+                        className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-green-900/40 text-green-400' : 'bg-green-100 text-green-700'}`}
+                      >
+                        Individual
+                      </span>
+                    </div>
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-green-900/30' : 'bg-green-50'}`}
+                        >
+                          <Shield size={18} className="text-green-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                          >
+                            Constancia Individual de Participación
+                          </p>
+                          <p
+                            className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            {signatureEvidence?.signatureType?.includes('efirma') ||
+                            signatureEvidence?.signatureType?.includes('e.firma') ||
+                            savedSignatureType === 'efirma'
+                              ? 'Método: Firma Electrónica Avanzada · e.firma SAT'
+                              : 'Método: Firma Autógrafa Digitalizada'}
+                          </p>
+                        </div>
                       </div>
-                    )}
+
+                      {/* Constancia details */}
+                      <div
+                        className={`rounded-lg p-3 space-y-1.5 ${isDark ? 'bg-gray-700/40' : 'bg-muted/40'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-[10px] font-semibold uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            Firmante
+                          </span>
+                          <span
+                            className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                          >
+                            {userProfile.nombre_completo || user?.email || '—'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-[10px] font-semibold uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            Fecha de firma
+                          </span>
+                          <span
+                            className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                          >
+                            {signatureEvidence?.signedAt
+                              ? new Date(signatureEvidence.signedAt).toLocaleDateString('es-MX', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })
+                              : new Date().toLocaleDateString('es-MX', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-[10px] font-semibold uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            Algoritmo
+                          </span>
+                          <span
+                            className={`text-xs font-mono ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                          >
+                            SHA-256
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-[10px] font-semibold uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            Verificación
+                          </span>
+                          <span className={`text-xs ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                            verificar.docubox.mx
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Legal note */}
+                      <div
+                        className={`flex items-start gap-2 rounded-lg px-3 py-2 ${isDark ? 'bg-blue-900/20 border border-blue-800' : 'bg-blue-50 border border-blue-100'}`}
+                      >
+                        <Shield size={11} className="text-blue-500 shrink-0 mt-0.5" />
+                        <p
+                          className={`text-[10px] leading-relaxed ${isDark ? 'text-blue-300' : 'text-blue-700'}`}
+                        >
+                          Válida conforme a los Arts. 89–97 del Código de Comercio, LFEA y
+                          NOM-151-SCFI-2016. Documento confidencial — uso exclusivo del firmante.
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={downloadParticipationCertificate}
+                        disabled={generatingPdf}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {generatingPdf ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Download size={14} />
+                        )}
+                        Descargar constancia de participación
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ── NOM-151 Constancia de Conservación ── */}
+                  <div
+                    className={`rounded-2xl border overflow-hidden ${isDark ? 'border-purple-800/50 bg-gray-800' : 'border-purple-200 bg-white'}`}
+                  >
+                    <div
+                      className={`flex items-center justify-between px-4 py-3 border-b ${isDark ? 'border-purple-800/40 bg-purple-900/20' : 'border-purple-100 bg-purple-50'}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">🔏</span>
+                        <span
+                          className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-purple-300' : 'text-purple-700'}`}
+                        >
+                          Constancia NOM-151
+                        </span>
+                      </div>
+                      {nom151Data ? (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-purple-900/40 text-purple-300' : 'bg-purple-100 text-purple-700'}`}
+                        >
+                          Emitida
+                        </span>
+                      ) : (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}
+                        >
+                          {nom151Polling ? 'Generando…' : 'Pendiente'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="p-4 space-y-3">
+                      {nom151Data ? (
+                        <>
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-purple-900/30' : 'bg-purple-50'}`}
+                            >
+                              <ShieldCheck size={18} className="text-purple-500" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p
+                                className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                              >
+                                Constancia de Conservación NOM-151
+                              </p>
+                              <p
+                                className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              >
+                                PSC: Nubarium · Secretaría de Economía
+                              </p>
+                            </div>
+                          </div>
+                          <div
+                            className={`rounded-lg p-3 space-y-1.5 ${isDark ? 'bg-gray-700/40' : 'bg-muted/40'}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              >
+                                Código validación
+                              </span>
+                              <span
+                                className={`text-xs font-mono truncate ${isDark ? 'text-purple-300' : 'text-purple-700'}`}
+                              >
+                                {nom151Data.nubarium_codigo_validacion}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              >
+                                Hash SHA-256
+                              </span>
+                              <span
+                                className={`text-xs font-mono truncate ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                              >
+                                {nom151Data.constancia_sha256.slice(0, 16)}…
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              >
+                                Fecha emisión
+                              </span>
+                              <span
+                                className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                              >
+                                {new Date(nom151Data.created_at).toLocaleDateString('es-MX', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })}
+                              </span>
+                            </div>
+                          </div>
+                          <div
+                            className={`flex items-start gap-2 rounded-lg px-3 py-2 ${isDark ? 'bg-purple-900/20 border border-purple-800' : 'bg-purple-50 border border-purple-100'}`}
+                          >
+                            <ShieldCheck size={11} className="text-purple-500 shrink-0 mt-0.5" />
+                            <p
+                              className={`text-[10px] leading-relaxed ${isDark ? 'text-purple-300' : 'text-purple-700'}`}
+                            >
+                              Constancia emitida conforme a NOM-151-SCFI-2016. Válida ante cualquier
+                              autoridad o tribunal mexicano. Archivo .asn1 vinculado al PDF por hash
+                              criptográfico.
+                            </p>
+                          </div>
+                          <a
+                            href="https://validatuconstancia.pscworld.com/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border transition-colors ${isDark ? 'border-purple-700 text-purple-300 hover:bg-purple-900/30' : 'border-purple-300 text-purple-700 hover:bg-purple-50'}`}
+                          >
+                            <ShieldCheck size={14} />
+                            Verificar validez en PSC
+                          </a>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center gap-3 py-4">
+                          {nom151Polling ? (
+                            <>
+                              <Loader2
+                                size={24}
+                                className={`animate-spin ${isDark ? 'text-purple-400' : 'text-purple-500'}`}
+                              />
+                              <p
+                                className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                              >
+                                Generando constancia NOM-151…
+                                <br />
+                                <span className="text-xs">Esto puede tomar unos segundos</span>
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <Clock
+                                size={24}
+                                className={`${isDark ? 'text-gray-500' : 'text-gray-400'}`}
+                              />
+                              <p
+                                className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                              >
+                                La constancia NOM-151 se generará automáticamente cuando el
+                                documento esté completado.
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ── XML Evidencia ── */}
+                  <div
+                    className={`rounded-2xl border overflow-hidden ${isDark ? 'border-emerald-800/50 bg-gray-800' : 'border-emerald-200 bg-white'}`}
+                  >
+                    <div
+                      className={`flex items-center justify-between px-4 py-3 border-b ${isDark ? 'border-emerald-800/40 bg-emerald-900/20' : 'border-emerald-100 bg-emerald-50'}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">📄</span>
+                        <span
+                          className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}
+                        >
+                          XML de Evidencia
+                        </span>
+                      </div>
+                      {xmlEvidenceData ? (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}
+                        >
+                          Generado
+                        </span>
+                      ) : (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}
+                        >
+                          {xmlPolling ? 'Generando…' : 'Pendiente'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="p-4 space-y-3">
+                      {xmlEvidenceData ? (
+                        <>
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-emerald-900/30' : 'bg-emerald-50'}`}
+                            >
+                              <FileText size={18} className="text-emerald-500" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p
+                                className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                              >
+                                Paquete de Evidencia XMLDSig
+                              </p>
+                              <p
+                                className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              >
+                                Evidencia criptográfica completa del documento
+                              </p>
+                            </div>
+                          </div>
+                          <div
+                            className={`rounded-lg p-3 space-y-1.5 ${isDark ? 'bg-gray-700/40' : 'bg-muted/40'}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              >
+                                Hash XML
+                              </span>
+                              <span
+                                className={`text-xs font-mono truncate ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}
+                              >
+                                {xmlEvidenceData.xml_hash_sha256?.slice(0, 16)}…
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              >
+                                Generado
+                              </span>
+                              <span
+                                className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                              >
+                                {new Date(xmlEvidenceData.xml_generated_at).toLocaleDateString(
+                                  'es-MX',
+                                  { year: 'numeric', month: 'short', day: 'numeric' }
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                              >
+                                Algoritmo
+                              </span>
+                              <span
+                                className={`text-xs font-mono ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                              >
+                                RSA-SHA256 + XMLDSig
+                              </span>
+                            </div>
+                          </div>
+                          <div
+                            className={`flex items-start gap-2 rounded-lg px-3 py-2 ${isDark ? 'bg-emerald-900/20 border border-emerald-800' : 'bg-emerald-50 border border-emerald-100'}`}
+                          >
+                            <ShieldCheck size={11} className="text-emerald-500 shrink-0 mt-0.5" />
+                            <p
+                              className={`text-[10px] leading-relaxed ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}
+                            >
+                              Paquete de evidencia conforme a XMLDSig W3C y NOM-151-SCFI-2016.
+                              Contiene identidad del documento, firmantes, bitácora de eventos y
+                              sello de conservación.
+                            </p>
+                          </div>
+                          <button
+                            onClick={downloadXmlEvidence}
+                            disabled={downloadingXml}
+                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${isDark ? 'border-emerald-700 text-emerald-300 hover:bg-emerald-900/30' : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'}`}
+                          >
+                            {downloadingXml ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Download size={14} />
+                            )}
+                            Descargar XML de evidencia
+                          </button>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center gap-3 py-4">
+                          {xmlPolling ? (
+                            <>
+                              <Loader2
+                                size={24}
+                                className={`animate-spin ${isDark ? 'text-emerald-400' : 'text-emerald-500'}`}
+                              />
+                              <p
+                                className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                              >
+                                Generando XML de evidencia…
+                                <br />
+                                <span className="text-xs">Esto puede tomar unos segundos</span>
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <Clock
+                                size={24}
+                                className={`${isDark ? 'text-gray-500' : 'text-gray-400'}`}
+                              />
+                              <p
+                                className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                              >
+                                El XML de evidencia se generará automáticamente cuando el documento
+                                esté completado.
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-
-              </div>
               )}
             </div>
 
             {/* Bottom action bar */}
-            <div className={`border-t px-4 sm:px-6 py-3 flex flex-col gap-2 flex-shrink-0 shadow-sm transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-card'}`}>
+            <div
+              className={`border-t px-4 sm:px-6 py-3 flex flex-col gap-2 flex-shrink-0 shadow-sm transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-card'}`}
+            >
               <button
                 onClick={downloadParticipationCertificate}
                 disabled={generatingPdf}
                 className="w-full flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {generatingPdf ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                {generatingPdf ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Download size={16} />
+                )}
                 Descargar constancia de participación
               </button>
               <button
@@ -6197,14 +8888,20 @@ export default function FirmarDocumentoPage() {
 
   // ── Main layout ────────────────────────────────────────────────────────────
   return (
-    <div className={`flex h-screen flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-slate-50 text-slate-950'}`}>
+    <div
+      className={`flex h-screen flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-slate-50 text-slate-950'}`}
+    >
       {/* ── Top Bar ─────────────────────────────────────────────────────────── */}
-      <header className={`z-10 flex h-16 shrink-0 items-center border-b px-4 transition-colors duration-300 lg:px-6 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+      <header
+        className={`z-10 flex h-16 shrink-0 items-center border-b px-4 transition-colors duration-300 lg:px-6 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <AppLogo size={34} />
           <div className={`hidden h-8 w-px lg:block ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`} />
           <div className="hidden min-w-0 lg:block">
-            <p className={`truncate text-sm font-700 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}>
+            <p
+              className={`truncate text-sm font-700 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}
+            >
               {myRole === 'aprobador' ? 'Revisar documento' : 'Firmar documento'}
             </p>
             <p className={`truncate text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
@@ -6213,7 +8910,9 @@ export default function FirmarDocumentoPage() {
           </div>
         </div>
 
-        <nav className={`hidden items-center gap-1 rounded-lg border p-1 xl:flex ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-slate-200 bg-slate-50'}`}>
+        <nav
+          className={`hidden items-center gap-1 rounded-lg border p-1 xl:flex ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-slate-200 bg-slate-50'}`}
+        >
           {steps.map((s, idx) => {
             const isActive = idx === currentStepIndex;
             const isCompleted = idx < currentStepIndex;
@@ -6221,23 +8920,43 @@ export default function FirmarDocumentoPage() {
             return (
               <React.Fragment key={s.id}>
                 <button
-                  onClick={() => isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')}
+                  onClick={() =>
+                    isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')
+                  }
                   className={`flex h-8 items-center gap-2 rounded-md px-3 text-xs font-600 transition-colors ${
                     isActive
-                      ? isDark ? 'bg-gray-700 text-blue-300 shadow-[0_1px_3px_rgba(0,0,0,0.25)]' : 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
+                      ? isDark
+                        ? 'bg-gray-700 text-blue-300 shadow-[0_1px_3px_rgba(0,0,0,0.25)]'
+                        : 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
                       : isCompleted
-                      ? isDark ? 'cursor-pointer text-gray-200 hover:bg-gray-700' : 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary'
-                      : isDark ? 'cursor-default text-gray-500' : 'cursor-default text-slate-400'
+                        ? isDark
+                          ? 'cursor-pointer text-gray-200 hover:bg-gray-700'
+                          : 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary'
+                        : isDark
+                          ? 'cursor-default text-gray-500'
+                          : 'cursor-default text-slate-400'
                   }`}
                 >
-                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
-                    isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : isDark ? 'bg-gray-700 text-gray-500' : 'bg-slate-200/70 text-slate-400'
-                  }`}>
+                  <span
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
+                      isActive
+                        ? 'bg-primary text-white'
+                        : isCompleted
+                          ? 'bg-primary/10 text-primary'
+                          : isDark
+                            ? 'bg-gray-700 text-gray-500'
+                            : 'bg-slate-200/70 text-slate-400'
+                    }`}
+                  >
                     {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                   </span>
                   <span>{s.label}</span>
                 </button>
-                {idx < steps.length - 1 && <div className={`h-px w-3 ${isCompleted ? 'bg-primary/50' : isDark ? 'bg-gray-700' : 'bg-slate-200'}`} />}
+                {idx < steps.length - 1 && (
+                  <div
+                    className={`h-px w-3 ${isCompleted ? 'bg-primary/50' : isDark ? 'bg-gray-700' : 'bg-slate-200'}`}
+                  />
+                )}
               </React.Fragment>
             );
           })}
@@ -6256,12 +8975,15 @@ export default function FirmarDocumentoPage() {
             title="Salir"
             className={`ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-600 transition-colors ${isDark ? 'border-gray-600 bg-gray-800 text-gray-300 hover:border-red-800 hover:bg-red-900/20 hover:text-red-400' : 'border-slate-200 bg-white text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600'}`}
           >
-            <X size={16} /><span className="hidden sm:inline">Salir</span>
+            <X size={16} />
+            <span className="hidden sm:inline">Salir</span>
           </button>
         </div>
       </header>
 
-      <div className={`shrink-0 overflow-x-auto border-b px-4 py-2 xl:hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+      <div
+        className={`shrink-0 overflow-x-auto border-b px-4 py-2 xl:hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+      >
         <nav className="mx-auto flex min-w-max items-center gap-1">
           {steps.map((s, idx) => {
             const isActive = idx === currentStepIndex;
@@ -6270,9 +8992,19 @@ export default function FirmarDocumentoPage() {
             return (
               <button
                 key={s.id}
-                onClick={() => isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')}
+                onClick={() =>
+                  isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')
+                }
                 className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-600 transition-colors ${
-                  isActive ? 'bg-primary/10 text-primary' : isCompleted ? isDark ? 'text-gray-200' : 'text-slate-700' : isDark ? 'text-gray-500' : 'text-slate-400'
+                  isActive
+                    ? 'bg-primary/10 text-primary'
+                    : isCompleted
+                      ? isDark
+                        ? 'text-gray-200'
+                        : 'text-slate-700'
+                      : isDark
+                        ? 'text-gray-500'
+                        : 'text-slate-400'
                 }`}
               >
                 {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
@@ -6319,19 +9051,44 @@ export default function FirmarDocumentoPage() {
                   className="w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                   title="Reducir zoom"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    <line x1="8" y1="11" x2="14" y2="11" />
                   </svg>
                 </button>
-                <span className="text-slate-600 text-xs font-medium min-w-[40px] text-center select-none">{docModalZoom}%</span>
+                <span className="text-slate-600 text-xs font-medium min-w-[40px] text-center select-none">
+                  {docModalZoom}%
+                </span>
                 <button
                   onClick={() => setDocModalZoom((z) => Math.min(200, z + 10))}
                   disabled={docModalZoom >= 200}
                   className="w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                   title="Aumentar zoom"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    <line x1="11" y1="8" x2="11" y2="14" />
+                    <line x1="8" y1="11" x2="14" y2="11" />
                   </svg>
                 </button>
               </div>
@@ -6343,19 +9100,39 @@ export default function FirmarDocumentoPage() {
                   className="w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                   title="Página anterior"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 18 9 12 15 6"/>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="15 18 9 12 15 6" />
                   </svg>
                 </button>
-                <span className="text-slate-600 text-xs font-medium select-none">{docModalPage} / {totalPages}</span>
+                <span className="text-slate-600 text-xs font-medium select-none">
+                  {docModalPage} / {totalPages}
+                </span>
                 <button
                   onClick={() => setDocModalPage((p) => Math.min(totalPages, p + 1))}
                   disabled={docModalPage >= totalPages}
                   className="w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                   title="Página siguiente"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="9 18 15 12 9 6"/>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="9 18 15 12 9 6" />
                   </svg>
                 </button>
               </div>
@@ -6378,7 +9155,9 @@ export default function FirmarDocumentoPage() {
                   fileUrl={document.file_url}
                   page={docModalPage}
                   zoom={docModalZoom}
-                  onTotalPages={(n) => { /* totalPages already set */ }}
+                  onTotalPages={(n) => {
+                    /* totalPages already set */
+                  }}
                 />
               </div>
             </div>
@@ -6387,7 +9166,9 @@ export default function FirmarDocumentoPage() {
       )}
 
       {/* ── Body ─────────────────────────────────────────────────────────────── */}
-      <section className={`shrink-0 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-slate-50'}`}>
+      <section
+        className={`shrink-0 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-slate-50'}`}
+      >
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:flex-row sm:items-end sm:justify-between lg:px-6">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -6395,30 +9176,44 @@ export default function FirmarDocumentoPage() {
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className={`text-xl font-700 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}>{currentStepData?.label}</h1>
-                <span className={`rounded-md px-2 py-0.5 text-xs font-600 ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-200/70 text-slate-600'}`}>
+                <h1 className={`text-xl font-700 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}>
+                  {currentStepData?.label}
+                </h1>
+                <span
+                  className={`rounded-md px-2 py-0.5 text-xs font-600 ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-200/70 text-slate-600'}`}
+                >
                   Paso {currentStepIndex + 1} de {steps.length}
                 </span>
               </div>
-              <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>{currentStepDescription}</p>
+              <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+                {currentStepDescription}
+              </p>
             </div>
           </div>
           <div className="w-full sm:w-60">
-            <div className={`flex items-center justify-between text-xs font-600 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+            <div
+              className={`flex items-center justify-between text-xs font-600 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+            >
               <span>Progreso</span>
               <span>{completionPercent}%</span>
             </div>
-            <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`}>
-              <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${completionPercent}%` }} />
+            <div
+              className={`mt-2 h-1.5 overflow-hidden rounded-full ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`}
+            >
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{ width: `${completionPercent}%` }}
+              />
             </div>
           </div>
         </div>
       </section>
 
       <div className="flex flex-1 overflow-hidden">
-
         {/* PDF Viewer (left) */}
-        <div className={`hidden lg:flex flex-col border-r transition-all duration-300 ${showPdf ? 'w-[70%]' : 'w-0 overflow-hidden'} ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-border'}`}>
+        <div
+          className={`hidden lg:flex flex-col border-r transition-all duration-300 ${showPdf ? 'w-[70%]' : 'w-0 overflow-hidden'} ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-border'}`}
+        >
           {document.file_url && (
             <>
               <div className="flex-1 relative overflow-hidden">
@@ -6475,7 +9270,11 @@ export default function FirmarDocumentoPage() {
                 {/* Overlay: Ver documento completo — top-right */}
                 <div className="absolute top-4 right-4 z-20 pointer-events-auto">
                   <button
-                    onClick={() => { setDocModalPage(currentPage); setDocModalZoom(zoom); setShowDocModal(true); }}
+                    onClick={() => {
+                      setDocModalPage(currentPage);
+                      setDocModalZoom(zoom);
+                      setShowDocModal(true);
+                    }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground bg-white border border-border rounded-full shadow-sm hover:shadow-md transition-all"
                   >
                     <Maximize2 size={14} className="text-foreground" />
@@ -6492,19 +9291,44 @@ export default function FirmarDocumentoPage() {
                       className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                       title="Reducir zoom"
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        <line x1="8" y1="11" x2="14" y2="11" />
                       </svg>
                     </button>
-                    <span className="text-sm text-slate-600 font-medium min-w-[44px] text-center select-none">{zoom}%</span>
+                    <span className="text-sm text-slate-600 font-medium min-w-[44px] text-center select-none">
+                      {zoom}%
+                    </span>
                     <button
                       onClick={() => setZoom((z) => Math.min(200, z + 10))}
                       disabled={zoom >= 200}
                       className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                       title="Aumentar zoom"
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        <line x1="11" y1="8" x2="11" y2="14" />
+                        <line x1="8" y1="11" x2="14" y2="11" />
                       </svg>
                     </button>
                     <div className="w-px h-5 bg-slate-200 mx-1" />
@@ -6514,8 +9338,17 @@ export default function FirmarDocumentoPage() {
                       className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                       title="Página anterior"
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="15 18 9 12 15 6"/>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="15 18 9 12 15 6" />
                       </svg>
                     </button>
                     <span className="text-sm text-slate-600 font-medium min-w-[48px] text-center select-none">
@@ -6527,8 +9360,17 @@ export default function FirmarDocumentoPage() {
                       className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                       title="Página siguiente"
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="9 18 15 12 9 6"/>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="9 18 15 12 9 6" />
                       </svg>
                     </button>
                   </div>
@@ -6539,46 +9381,73 @@ export default function FirmarDocumentoPage() {
           {!document.file_url && (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <FileText size={40} className={`mx-auto mb-2 ${isDark ? 'text-gray-600' : 'text-slate-300'}`} />
-                <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>Sin vista previa disponible</p>
+                <FileText
+                  size={40}
+                  className={`mx-auto mb-2 ${isDark ? 'text-gray-600' : 'text-slate-300'}`}
+                />
+                <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
+                  Sin vista previa disponible
+                </p>
               </div>
             </div>
           )}
         </div>
 
         {/* Right Panel */}
-        <div className={`lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
+        <div
+          className={`lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-white'}`}
+        >
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-6">
-
               {/* ── STEP: TÉRMINOS ─────────────────────────────────────────── */}
               {step === 'terminos' && (
                 <div className="space-y-5">
                   <div>
-                    <h2 className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}>Términos y condiciones</h2>
-                    <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
+                    <h2
+                      className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                    >
+                      Términos y condiciones
+                    </h2>
+                    <p
+                      className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                    >
                       Antes de continuar, revisa y acepta los términos de participación.
                     </p>
                   </div>
 
-                  <div className={`rounded-xl p-4 flex items-start gap-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}>
+                  <div
+                    className={`rounded-xl p-4 flex items-start gap-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}
+                  >
                     <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                       <FileText size={18} className="text-primary" />
                     </div>
                     <div className="min-w-0">
-                      <p className={`text-sm font-semibold truncate ${isDark ? 'text-gray-100' : 'text-foreground'}`}>{document.nombre}</p>
-                      <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
+                      <p
+                        className={`text-sm font-semibold truncate ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                      >
+                        {document.nombre}
+                      </p>
+                      <p
+                        className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                      >
                         Tu rol: <span className="font-medium capitalize">{myRole}</span>
                       </p>
                       {/* Signature type indicator for firmante */}
                       {myRole === 'firmante' && (
                         <div className="mt-1.5 flex items-center gap-1.5">
                           <PenLine size={12} className="text-primary" />
-                          <span className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-foreground'}`}>
+                          <span
+                            className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                          >
                             Tipo de firma:{' '}
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${isDark ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'}`}>
-                              {savedSignatureType === 'efirma' ? 'e.firma (SAT)'
-                                : savedSignatureType === 'firma_electronica' ? 'Firma Electrónica Digital' : 'Firma Autógrafa Digital'}
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${isDark ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'}`}
+                            >
+                              {savedSignatureType === 'efirma'
+                                ? 'e.firma (SAT)'
+                                : savedSignatureType === 'firma_electronica'
+                                  ? 'Firma Electrónica Digital'
+                                  : 'Firma Autógrafa Digital'}
                             </span>
                           </span>
                         </div>
@@ -6586,48 +9455,98 @@ export default function FirmarDocumentoPage() {
                     </div>
                   </div>
 
-                  <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}>
-                    <div className={`px-4 py-2.5 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}>
-                      <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Términos de participación</p>
+                  <div
+                    className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
+                  >
+                    <div
+                      className={`px-4 py-2.5 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}
+                    >
+                      <p
+                        className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                      >
+                        Términos de participación
+                      </p>
                     </div>
-                    <div className={`p-4 max-h-64 overflow-y-auto text-sm space-y-3 leading-relaxed ${isDark ? 'text-gray-400 bg-gray-850' : 'text-muted-foreground'}`}>
-                      <p>Al aceptar y participar en este documento, usted declara y acepta lo siguiente:</p>
+                    <div
+                      className={`p-4 max-h-64 overflow-y-auto text-sm space-y-3 leading-relaxed ${isDark ? 'text-gray-400 bg-gray-850' : 'text-muted-foreground'}`}
+                    >
+                      <p>
+                        Al aceptar y participar en este documento, usted declara y acepta lo
+                        siguiente:
+                      </p>
                       <ol className="list-decimal list-inside space-y-2 pl-2">
-                        <li>Que ha revisado el contenido completo del documento y comprende su alcance y obligaciones.</li>
-                        <li>Que la firma electrónica o aprobación que otorgue tiene plena validez legal conforme a la legislación aplicable.</li>
-                        <li>Que los datos proporcionados son verídicos y corresponden a su identidad.</li>
-                        <li>Que autoriza el tratamiento de sus datos personales para los fines del presente documento.</li>
-                        <li>Que la fecha y hora de su participación quedarán registradas de forma inmutable en el sistema.</li>
+                        <li>
+                          Que ha revisado el contenido completo del documento y comprende su alcance
+                          y obligaciones.
+                        </li>
+                        <li>
+                          Que la firma electrónica o aprobación que otorgue tiene plena validez
+                          legal conforme a la legislación aplicable.
+                        </li>
+                        <li>
+                          Que los datos proporcionados son verídicos y corresponden a su identidad.
+                        </li>
+                        <li>
+                          Que autoriza el tratamiento de sus datos personales para los fines del
+                          presente documento.
+                        </li>
+                        <li>
+                          Que la fecha y hora de su participación quedarán registradas de forma
+                          inmutable en el sistema.
+                        </li>
                         {myRole === 'firmante' && (
-                          <li>Que su firma autógrafa digital es un acto voluntario y tiene el mismo valor que una firma manuscrita.</li>
+                          <li>
+                            Que su firma autógrafa digital es un acto voluntario y tiene el mismo
+                            valor que una firma manuscrita.
+                          </li>
                         )}
                         {myRole === 'aprobador' && (
-                          <li>Que su visto bueno constituye una aprobación formal del contenido del documento.</li>
+                          <li>
+                            Que su visto bueno constituye una aprobación formal del contenido del
+                            documento.
+                          </li>
                         )}
                       </ol>
-                      <p className={`text-xs pt-2 border-t ${isDark ? 'text-gray-500 border-gray-700' : 'text-muted-foreground/70 border-border'}`}>
-                        Este proceso está respaldado por la plataforma DocuBox y cumple con los estándares de firma electrónica avanzada.
+                      <p
+                        className={`text-xs pt-2 border-t ${isDark ? 'text-gray-500 border-gray-700' : 'text-muted-foreground/70 border-border'}`}
+                      >
+                        Este proceso está respaldado por la plataforma DocuBox y cumple con los
+                        estándares de firma electrónica avanzada.
                       </p>
                     </div>
                   </div>
 
                   <label className="flex items-start gap-3 cursor-pointer group">
-                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${
-                      terminosAceptados ? 'bg-primary border-primary' : `border-slate-300 group-hover:border-primary/60`
-                    }`}
-                      onClick={() => setTerminosAceptados((v) => !v)}>
+                    <div
+                      className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${
+                        terminosAceptados
+                          ? 'bg-primary border-primary'
+                          : `border-slate-300 group-hover:border-primary/60`
+                      }`}
+                      onClick={() => setTerminosAceptados((v) => !v)}
+                    >
                       {terminosAceptados && <Check size={12} className="text-white" />}
                     </div>
-                    <span className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-foreground'}`}>
-                      He leído y acepto los términos y condiciones de participación en este documento.
+                    <span
+                      className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                    >
+                      He leído y acepto los términos y condiciones de participación en este
+                      documento.
                     </span>
                   </label>
 
                   {/* ── Geo loading indicator ─────────────────────────────── */}
                   {geoLoading && (
-                    <div className={`flex items-center gap-3 p-3 rounded-lg border ${isDark ? 'bg-blue-900/20 border-blue-700/50' : 'bg-blue-50 border-blue-200'}`}>
-                      <Loader2 size={15} className={`animate-spin flex-shrink-0 ${isDark ? 'text-blue-400' : 'text-blue-500'}`} />
-                      <p className={`text-xs leading-snug ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
+                    <div
+                      className={`flex items-center gap-3 p-3 rounded-lg border ${isDark ? 'bg-blue-900/20 border-blue-700/50' : 'bg-blue-50 border-blue-200'}`}
+                    >
+                      <Loader2
+                        size={15}
+                        className={`animate-spin flex-shrink-0 ${isDark ? 'text-blue-400' : 'text-blue-500'}`}
+                      />
+                      <p
+                        className={`text-xs leading-snug ${isDark ? 'text-blue-300' : 'text-blue-700'}`}
+                      >
                         Verificando acceso a ubicación…
                       </p>
                     </div>
@@ -6635,14 +9554,26 @@ export default function FirmarDocumentoPage() {
 
                   {/* ── Geo denied — blocking error ───────────────────────── */}
                   {!geoLoading && geoDenied && (
-                    <div className={`flex items-start gap-3 p-4 rounded-lg border ${isDark ? 'bg-red-900/20 border-red-700/50' : 'bg-red-50 border-red-300'}`}>
-                      <MapPin size={16} className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`} />
+                    <div
+                      className={`flex items-start gap-3 p-4 rounded-lg border ${isDark ? 'bg-red-900/20 border-red-700/50' : 'bg-red-50 border-red-300'}`}
+                    >
+                      <MapPin
+                        size={16}
+                        className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`}
+                      />
                       <div>
-                        <p className={`text-sm font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}>
+                        <p
+                          className={`text-sm font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}
+                        >
                           Ubicación requerida para firmar
                         </p>
-                        <p className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-red-400/80' : 'text-red-600'}`}>
-                          Has bloqueado el acceso a tu ubicación. La ubicación geográfica es obligatoria para completar el proceso de firmado y garantizar la validez legal del documento. Activa el permiso de ubicación en la configuración de tu navegador y recarga la página para continuar.
+                        <p
+                          className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-red-400/80' : 'text-red-600'}`}
+                        >
+                          Has bloqueado el acceso a tu ubicación. La ubicación geográfica es
+                          obligatoria para completar el proceso de firmado y garantizar la validez
+                          legal del documento. Activa el permiso de ubicación en la configuración de
+                          tu navegador y recarga la página para continuar.
                         </p>
                       </div>
                     </div>
@@ -6654,11 +9585,15 @@ export default function FirmarDocumentoPage() {
               {step === 'campos' && (
                 <div className="space-y-5">
                   <div>
-                    <h2 className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}>
+                    <h2
+                      className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                    >
                       {hasCamposPrefijados ? 'Completar campos requeridos' : 'Campos'}
                     </h2>
                     {hasCamposPrefijados && (
-                      <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
+                      <p
+                        className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                      >
                         Completa los campos que el propietario del documento ha solicitado.
                       </p>
                     )}
@@ -6672,61 +9607,102 @@ export default function FirmarDocumentoPage() {
                         const resolvedTipo: CampoPersonalizado['tipo'] = resolveFieldTipo(campo);
                         const displayLabel = campo.fieldConfig?.customName || campo.label;
                         return (
-                          <div key={key} className={`border rounded-xl p-4 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border'}`}>
+                          <div
+                            key={key}
+                            className={`border rounded-xl p-4 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border'}`}
+                          >
                             <div className="flex items-center gap-2">
                               <CampoIcon tipo={resolvedTipo} />
-                              <label className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{displayLabel}</label>
+                              <label
+                                className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                              >
+                                {displayLabel}
+                              </label>
                               <span className="text-red-500 text-xs">*</span>
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ml-auto ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-muted text-muted-foreground'}`}>
-                                {resolvedTipo === 'firma' ? 'Firma' :
-                                 resolvedTipo === 'nombre_completo' ? 'Nombre Completo' :
-                                 resolvedTipo === 'rfc' ? 'RFC' :
-                                 resolvedTipo === 'curp' ? 'CURP' :
-                                 resolvedTipo === 'correo' ? 'Correo' :
-                                 resolvedTipo === 'telefono' ? 'Teléfono' :
-                                 resolvedTipo === 'direccion' ? 'Dirección' :
-                                 resolvedTipo === 'fecha' ? 'Fecha' :
-                                 resolvedTipo === 'hora' ? 'Hora' :
-                                 resolvedTipo === 'numero' ? 'Número' :
-                                 resolvedTipo === 'moneda' ? 'Moneda' :
-                                 resolvedTipo === 'checkbox' ? 'Casilla' :
-                                 resolvedTipo === 'dropdown' ? 'Desplegable' :
-                                 resolvedTipo === 'radio' ? 'Botones de opción' :
-                                 resolvedTipo === 'imagen'? 'Imagen' : 'Texto'}
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ml-auto ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-muted text-muted-foreground'}`}
+                              >
+                                {resolvedTipo === 'firma'
+                                  ? 'Firma'
+                                  : resolvedTipo === 'nombre_completo'
+                                    ? 'Nombre Completo'
+                                    : resolvedTipo === 'rfc'
+                                      ? 'RFC'
+                                      : resolvedTipo === 'curp'
+                                        ? 'CURP'
+                                        : resolvedTipo === 'correo'
+                                          ? 'Correo'
+                                          : resolvedTipo === 'telefono'
+                                            ? 'Teléfono'
+                                            : resolvedTipo === 'direccion'
+                                              ? 'Dirección'
+                                              : resolvedTipo === 'fecha'
+                                                ? 'Fecha'
+                                                : resolvedTipo === 'hora'
+                                                  ? 'Hora'
+                                                  : resolvedTipo === 'numero'
+                                                    ? 'Número'
+                                                    : resolvedTipo === 'moneda'
+                                                      ? 'Moneda'
+                                                      : resolvedTipo === 'checkbox'
+                                                        ? 'Casilla'
+                                                        : resolvedTipo === 'dropdown'
+                                                          ? 'Desplegable'
+                                                          : resolvedTipo === 'radio'
+                                                            ? 'Botones de opción'
+                                                            : resolvedTipo === 'imagen'
+                                                              ? 'Imagen'
+                                                              : 'Texto'}
                               </span>
                             </div>
                             {resolvedTipo === 'fecha' ? (
                               <input
                                 type="date"
                                 value={camposValues[key] || ''}
-                                onChange={(e) => setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                                onChange={(e) =>
+                                  setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))
+                                }
                                 className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                               />
                             ) : resolvedTipo === 'hora' ? (
                               <input
                                 type="time"
                                 value={camposValues[key] || ''}
-                                onChange={(e) => setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                                onChange={(e) =>
+                                  setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))
+                                }
                                 className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                               />
                             ) : resolvedTipo === 'numero' ? (
                               <input
                                 type="number"
                                 value={camposValues[key] || ''}
-                                onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                                onChange={(e) => setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault();
+                                }}
+                                onChange={(e) =>
+                                  setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))
+                                }
                                 placeholder={`Ingresa ${campo.label.toLowerCase()}`}
                                 className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                               />
                             ) : resolvedTipo === 'moneda' ? (
                               <div className="relative">
-                                <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>$</span>
+                                <span
+                                  className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                                >
+                                  $
+                                </span>
                                 <input
                                   type="number"
                                   step="0.01"
                                   value={camposValues[key] || ''}
-                                  onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                                  onChange={(e) => setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault();
+                                  }}
+                                  onChange={(e) =>
+                                    setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))
+                                  }
                                   placeholder="0.00"
                                   className={`w-full pl-7 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                                 />
@@ -6752,16 +9728,27 @@ export default function FirmarDocumentoPage() {
                                     }
                                     const reader = new FileReader();
                                     reader.onload = (ev) => {
-                                      setCamposValues((prev) => ({ ...prev, [key]: ev.target?.result as string }));
+                                      setCamposValues((prev) => ({
+                                        ...prev,
+                                        [key]: ev.target?.result as string,
+                                      }));
                                     };
                                     reader.readAsDataURL(file);
                                   }}
                                   className="w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
                                 />
-                                <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>JPG, JPEG o PNG · máx. 2 MB</p>
+                                <p
+                                  className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                >
+                                  JPG, JPEG o PNG · máx. 2 MB
+                                </p>
                                 {camposValues[key] && (
                                   // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={camposValues[key]} alt="Vista previa" className="w-full max-h-32 object-contain rounded-lg border border-border" />
+                                  <img
+                                    src={camposValues[key]}
+                                    alt="Vista previa"
+                                    className="w-full max-h-32 object-contain rounded-lg border border-border"
+                                  />
                                 )}
                               </div>
                             ) : resolvedTipo === 'checkbox' ? (
@@ -6769,50 +9756,87 @@ export default function FirmarDocumentoPage() {
                                 <input
                                   type="checkbox"
                                   checked={camposValues[key] === 'true'}
-                                  onChange={(e) => setCamposValues((prev) => ({ ...prev, [key]: e.target.checked ? 'true' : 'false' }))}
+                                  onChange={(e) =>
+                                    setCamposValues((prev) => ({
+                                      ...prev,
+                                      [key]: e.target.checked ? 'true' : 'false',
+                                    }))
+                                  }
                                   className="w-4 h-4 accent-primary"
                                 />
-                                <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{campo.casillaLabel || displayLabel}</span>
+                                <span
+                                  className={`text-sm ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                                >
+                                  {campo.casillaLabel || displayLabel}
+                                </span>
                               </label>
                             ) : resolvedTipo === 'firma' ? (
-                              <div className={`flex items-center gap-2.5 border border-dashed rounded-lg px-3 py-3 ${isDark ? 'border-teal-700 bg-teal-900/20' : 'border-teal-300 bg-teal-50'}`}>
+                              <div
+                                className={`flex items-center gap-2.5 border border-dashed rounded-lg px-3 py-3 ${isDark ? 'border-teal-700 bg-teal-900/20' : 'border-teal-300 bg-teal-50'}`}
+                              >
                                 <PenLine size={15} className="text-teal-500 shrink-0" />
-                                <p className={`text-xs leading-snug ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>
+                                <p
+                                  className={`text-xs leading-snug ${isDark ? 'text-teal-300' : 'text-teal-700'}`}
+                                >
                                   La firma se configurará en el paso siguiente.
                                 </p>
                               </div>
                             ) : resolvedTipo === 'dropdown' && campo.dropdownOptions?.length ? (
                               <select
                                 value={camposValues[key] || ''}
-                                onChange={(e) => setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                                onChange={(e) =>
+                                  setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))
+                                }
                                 className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                               >
                                 <option value="">Selecciona una opción</option>
                                 {campo.dropdownOptions.map((opt) => (
-                                  <option key={opt} value={opt}>{opt}</option>
+                                  <option key={opt} value={opt}>
+                                    {opt}
+                                  </option>
                                 ))}
                               </select>
                             ) : resolvedTipo === 'radio' && campo.radioOptions?.length ? (
                               <div className="flex flex-wrap gap-3">
                                 {campo.radioOptions.map((opt) => (
-                                  <label key={opt} className="flex items-center gap-2 cursor-pointer">
+                                  <label
+                                    key={opt}
+                                    className="flex items-center gap-2 cursor-pointer"
+                                  >
                                     <input
                                       type="radio"
                                       name={key}
                                       value={opt}
                                       checked={camposValues[key] === opt}
-                                      onChange={(e) => setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                                      onChange={(e) =>
+                                        setCamposValues((prev) => ({
+                                          ...prev,
+                                          [key]: e.target.value,
+                                        }))
+                                      }
                                       className="accent-primary"
                                     />
-                                    <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-foreground'}`}>{opt}</span>
+                                    <span
+                                      className={`text-sm ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                                    >
+                                      {opt}
+                                    </span>
                                   </label>
                                 ))}
                               </div>
                             ) : (
                               <input
-                                type={resolvedTipo === 'correo' ? 'email' : resolvedTipo === 'telefono' ? 'tel' : 'text'}
+                                type={
+                                  resolvedTipo === 'correo'
+                                    ? 'email'
+                                    : resolvedTipo === 'telefono'
+                                      ? 'tel'
+                                      : 'text'
+                                }
                                 value={camposValues[key] || ''}
-                                onChange={(e) => setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                                onChange={(e) =>
+                                  setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))
+                                }
                                 placeholder={`Ingresa ${campo.label.toLowerCase()}`}
                                 className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                               />
@@ -6826,30 +9850,59 @@ export default function FirmarDocumentoPage() {
                   {/* Additional fields section — shown for BOTH prefixed and non-prefixed */}
                   {hasCamposPrefijados && (
                     <div className="space-y-3">
-                      <h3 className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Agregar información adicional</h3>
+                      <h3
+                        className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                      >
+                        Agregar información adicional
+                      </h3>
 
                       {/* Placed custom fields shown in sidebar */}
                       {camposPersonalizados.length > 0 && (
                         <div className="space-y-2">
                           {camposPersonalizados.map((campo) => (
-                            <div key={campo.id} className={`border rounded-xl p-3 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border'}`}>
+                            <div
+                              key={campo.id}
+                              className={`border rounded-xl p-3 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border'}`}
+                            >
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <CampoPersonalizadoIcon tipo={campo.tipo} />
-                                  <span className={`text-sm font-medium truncate ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{campo.label}</span>
-                                  {campo.value && ['nombre_completo', 'rfc', 'curp', 'correo', 'telefono', 'direccion'].includes(campo.tipo) && (
-                                    <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium shrink-0">Auto</span>
-                                  )}
+                                  <span
+                                    className={`text-sm font-medium truncate ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                  >
+                                    {campo.label}
+                                  </span>
+                                  {campo.value &&
+                                    [
+                                      'nombre_completo',
+                                      'rfc',
+                                      'curp',
+                                      'correo',
+                                      'telefono',
+                                      'direccion',
+                                    ].includes(campo.tipo) && (
+                                      <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                                        Auto
+                                      </span>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-1 shrink-0">
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const placedField = placedFields.find((f) => f.id === campo.id);
+                                      const placedField = placedFields.find(
+                                        (f) => f.id === campo.id
+                                      );
                                       if (placedField) {
-                                        const newName = window.prompt('Nombre del campo:', placedField.fieldConfig?.customName || campo.label);
+                                        const newName = window.prompt(
+                                          'Nombre del campo:',
+                                          placedField.fieldConfig?.customName || campo.label
+                                        );
                                         if (newName !== null && newName.trim()) {
-                                          handleUpdateFieldConfig(campo.id, { ...(placedField.fieldConfig || {}), customName: newName.trim() });
+                                          handleUpdateFieldConfig(campo.id, {
+                                            ...(placedField.fieldConfig || {}),
+                                            customName: newName.trim(),
+                                          });
                                         }
                                       }
                                     }}
@@ -6860,7 +9913,14 @@ export default function FirmarDocumentoPage() {
                                   </button>
                                   {(() => {
                                     const placedField = placedFields.find((f) => f.id === campo.id);
-                                    const hasSettings = ['numero', 'moneda', 'fecha', 'hora', 'dropdown', 'radio'].includes(campo.tipo);
+                                    const hasSettings = [
+                                      'numero',
+                                      'moneda',
+                                      'fecha',
+                                      'hora',
+                                      'dropdown',
+                                      'radio',
+                                    ].includes(campo.tipo);
                                     if (campo.tipo === 'checkbox') {
                                       if (!placedField) return null;
                                       return (
@@ -6873,7 +9933,9 @@ export default function FirmarDocumentoPage() {
                                     }
                                     if (!hasSettings || !placedField) return null;
                                     return (
-                                      <SidebarSettingsButton campo={campo} placedField={placedField}
+                                      <SidebarSettingsButton
+                                        campo={campo}
+                                        placedField={placedField}
                                         onUpdateFieldTypeConfig={handleUpdateFieldTypeConfig}
                                         onUpdateDropdownOptions={handleUpdateDropdownOptions}
                                         onUpdateRadioOptions={handleUpdateRadioOptions}
@@ -6890,104 +9952,249 @@ export default function FirmarDocumentoPage() {
                               </div>
                               {(() => {
                                 const placedField = placedFields.find((f) => f.id === campo.id);
-                                const dropOpts = placedField?.dropdownOptions && placedField.dropdownOptions.length > 0 ? placedField.dropdownOptions : ['Opción A', 'Opción B'];
-                                const radioOpts = placedField?.radioOptions && placedField.radioOptions.length > 0 ? placedField.radioOptions : ['Opción 1', 'Opción 2'];
-                                const casillaLbl = placedField?.casillaLabel || 'Etiqueta de casilla';
-                                if (campo.tipo === 'firma') return (
-                                  <div className={`flex items-center gap-2.5 border border-dashed rounded-lg px-3 py-3 ${isDark ? 'border-teal-700 bg-teal-900/20' : 'border-teal-300 bg-teal-50'}`}>
-                                    <PenLine size={15} className="text-teal-500 shrink-0" />
-                                    <p className={`text-xs leading-snug ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>La firma se configurará en el paso siguiente.</p>
-                                  </div>
-                                );
-                                if (campo.tipo === 'fecha') return (
-                                  <input type="date" value={campo.value}
-                                    onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                );
-                                if (campo.tipo === 'hora') return (
-                                  <input type="time" value={campo.value}
-                                    onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                );
-                                if (campo.tipo === 'numero') return (
-                                  <input type="number" value={campo.value} placeholder="Ingresa número"
-                                    onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                                    onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                );
-                                if (campo.tipo === 'moneda') return (
-                                  <div className="relative">
-                                    <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>$</span>
-                                    <input type="number" step="0.01" value={campo.value} placeholder="0.00"
-                                      onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                      className={`w-full pl-7 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                  </div>
-                                );
-                                if (campo.tipo === 'imagen') return (
-                                  <div className="space-y-2">
-                                    <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-                                      onChange={(e) => {
-                                        const file = e.target.files?.[0];
-                                        if (!file) return;
-                                        if (!['image/jpeg', 'image/png'].includes(file.type)) { alert('Solo se permiten archivos JPG, JPEG o PNG.'); e.target.value = ''; return; }
-                                        if (file.size > 2 * 1024 * 1024) { alert('El archivo no debe superar los 2 MB.'); e.target.value = ''; return; }
-                                        const reader = new FileReader();
-                                        reader.onload = (ev) => handleUpdateCampoPersonalizado(campo.id, ev.target?.result as string);
-                                        reader.readAsDataURL(file);
+                                const dropOpts =
+                                  placedField?.dropdownOptions &&
+                                  placedField.dropdownOptions.length > 0
+                                    ? placedField.dropdownOptions
+                                    : ['Opción A', 'Opción B'];
+                                const radioOpts =
+                                  placedField?.radioOptions && placedField.radioOptions.length > 0
+                                    ? placedField.radioOptions
+                                    : ['Opción 1', 'Opción 2'];
+                                const casillaLbl =
+                                  placedField?.casillaLabel || 'Etiqueta de casilla';
+                                if (campo.tipo === 'firma')
+                                  return (
+                                    <div
+                                      className={`flex items-center gap-2.5 border border-dashed rounded-lg px-3 py-3 ${isDark ? 'border-teal-700 bg-teal-900/20' : 'border-teal-300 bg-teal-50'}`}
+                                    >
+                                      <PenLine size={15} className="text-teal-500 shrink-0" />
+                                      <p
+                                        className={`text-xs leading-snug ${isDark ? 'text-teal-300' : 'text-teal-700'}`}
+                                      >
+                                        La firma se configurará en el paso siguiente.
+                                      </p>
+                                    </div>
+                                  );
+                                if (campo.tipo === 'fecha')
+                                  return (
+                                    <input
+                                      type="date"
+                                      value={campo.value}
+                                      onChange={(e) =>
+                                        handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                      }
+                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                    />
+                                  );
+                                if (campo.tipo === 'hora')
+                                  return (
+                                    <input
+                                      type="time"
+                                      value={campo.value}
+                                      onChange={(e) =>
+                                        handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                      }
+                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                    />
+                                  );
+                                if (campo.tipo === 'numero')
+                                  return (
+                                    <input
+                                      type="number"
+                                      value={campo.value}
+                                      placeholder="Ingresa número"
+                                      onKeyDown={(e) => {
+                                        if (['e', 'E', '+', '-'].includes(e.key))
+                                          e.preventDefault();
                                       }}
-                                      className="w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer" />
-                                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>JPG, JPEG o PNG · máx. 2 MB</p>
-                                    {campo.value && <img src={campo.value} alt="Vista previa" className="w-full max-h-32 object-contain rounded-lg border border-border" />}
-                                  </div>
-                                );
-                                if (campo.tipo === 'telefono') return (
-                                  <input type="tel" value={campo.value} placeholder="Ingresa número telefónico"
-                                    onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                );
-                                if (campo.tipo === 'correo') return (
-                                  <input type="email" value={campo.value} placeholder="correo@ejemplo.com"
-                                    onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                );
-                                if (campo.tipo === 'direccion') return (
-                                  <input type="text" value={campo.value} placeholder="Calle, colonia, municipio, estado"
-                                    onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                );
-                                if (campo.tipo === 'checkbox') return (
-                                  <label className="flex items-center gap-2.5 cursor-pointer">
-                                    <input type="checkbox" checked={campo.value === 'true'}
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.checked ? 'true' : 'false')}
-                                      className="w-4 h-4 accent-primary" />
-                                    <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{casillaLbl}</span>
-                                  </label>
-                                );
-                                if (campo.tipo === 'dropdown') return (
-                                  <select value={campo.value}
-                                    onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}>
-                                    <option value="">Selecciona una opción</option>
-                                    {dropOpts.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                                  </select>
-                                );
-                                if (campo.tipo === 'radio') return (
-                                  <div className="flex flex-wrap gap-3">
-                                    {radioOpts.map((opt) => (
-                                      <label key={opt} className="flex items-center gap-2 cursor-pointer">
-                                        <input type="radio" name={campo.id} value={opt} checked={campo.value === opt}
-                                          onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                          className="accent-primary" />
-                                        <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-foreground'}`}>{opt}</span>
-                                      </label>
-                                    ))}
-                                  </div>
-                                );
+                                      onChange={(e) =>
+                                        handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                      }
+                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                    />
+                                  );
+                                if (campo.tipo === 'moneda')
+                                  return (
+                                    <div className="relative">
+                                      <span
+                                        className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                                      >
+                                        $
+                                      </span>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={campo.value}
+                                        placeholder="0.00"
+                                        onKeyDown={(e) => {
+                                          if (['e', 'E', '+', '-'].includes(e.key))
+                                            e.preventDefault();
+                                        }}
+                                        onChange={(e) =>
+                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                        }
+                                        className={`w-full pl-7 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                      />
+                                    </div>
+                                  );
+                                if (campo.tipo === 'imagen')
+                                  return (
+                                    <div className="space-y-2">
+                                      <input
+                                        type="file"
+                                        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (!file) return;
+                                          if (!['image/jpeg', 'image/png'].includes(file.type)) {
+                                            alert('Solo se permiten archivos JPG, JPEG o PNG.');
+                                            e.target.value = '';
+                                            return;
+                                          }
+                                          if (file.size > 2 * 1024 * 1024) {
+                                            alert('El archivo no debe superar los 2 MB.');
+                                            e.target.value = '';
+                                            return;
+                                          }
+                                          const reader = new FileReader();
+                                          reader.onload = (ev) =>
+                                            handleUpdateCampoPersonalizado(
+                                              campo.id,
+                                              ev.target?.result as string
+                                            );
+                                          reader.readAsDataURL(file);
+                                        }}
+                                        className="w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                                      />
+                                      <p
+                                        className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                      >
+                                        JPG, JPEG o PNG · máx. 2 MB
+                                      </p>
+                                      {campo.value && (
+                                        <img
+                                          src={campo.value}
+                                          alt="Vista previa"
+                                          className="w-full max-h-32 object-contain rounded-lg border border-border"
+                                        />
+                                      )}
+                                    </div>
+                                  );
+                                if (campo.tipo === 'telefono')
+                                  return (
+                                    <input
+                                      type="tel"
+                                      value={campo.value}
+                                      placeholder="Ingresa número telefónico"
+                                      onChange={(e) =>
+                                        handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                      }
+                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                    />
+                                  );
+                                if (campo.tipo === 'correo')
+                                  return (
+                                    <input
+                                      type="email"
+                                      value={campo.value}
+                                      placeholder="correo@ejemplo.com"
+                                      onChange={(e) =>
+                                        handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                      }
+                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                    />
+                                  );
+                                if (campo.tipo === 'direccion')
+                                  return (
+                                    <input
+                                      type="text"
+                                      value={campo.value}
+                                      placeholder="Calle, colonia, municipio, estado"
+                                      onChange={(e) =>
+                                        handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                      }
+                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                    />
+                                  );
+                                if (campo.tipo === 'checkbox')
+                                  return (
+                                    <label className="flex items-center gap-2.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={campo.value === 'true'}
+                                        onChange={(e) =>
+                                          handleUpdateCampoPersonalizado(
+                                            campo.id,
+                                            e.target.checked ? 'true' : 'false'
+                                          )
+                                        }
+                                        className="w-4 h-4 accent-primary"
+                                      />
+                                      <span
+                                        className={`text-sm ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                                      >
+                                        {casillaLbl}
+                                      </span>
+                                    </label>
+                                  );
+                                if (campo.tipo === 'dropdown')
+                                  return (
+                                    <select
+                                      value={campo.value}
+                                      onChange={(e) =>
+                                        handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                      }
+                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                    >
+                                      <option value="">Selecciona una opción</option>
+                                      {dropOpts.map((opt) => (
+                                        <option key={opt} value={opt}>
+                                          {opt}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  );
+                                if (campo.tipo === 'radio')
+                                  return (
+                                    <div className="flex flex-wrap gap-3">
+                                      {radioOpts.map((opt) => (
+                                        <label
+                                          key={opt}
+                                          className="flex items-center gap-2 cursor-pointer"
+                                        >
+                                          <input
+                                            type="radio"
+                                            name={campo.id}
+                                            value={opt}
+                                            checked={campo.value === opt}
+                                            onChange={(e) =>
+                                              handleUpdateCampoPersonalizado(
+                                                campo.id,
+                                                e.target.value
+                                              )
+                                            }
+                                            className="accent-primary"
+                                          />
+                                          <span
+                                            className={`text-sm ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                                          >
+                                            {opt}
+                                          </span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  );
                                 return (
-                                  <input type="text" value={campo.value} placeholder={`Ingresa ${campo.label.toLowerCase()}`}
-                                    onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
+                                  <input
+                                    type="text"
+                                    value={campo.value}
+                                    placeholder={`Ingresa ${campo.label.toLowerCase()}`}
+                                    onChange={(e) =>
+                                      handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                    }
+                                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                  />
                                 );
                               })()}
                             </div>
@@ -6996,61 +10203,137 @@ export default function FirmarDocumentoPage() {
                       )}
 
                       {camposPersonalizados.length === 0 && (
-                        <p className={`text-xs rounded-lg px-3 py-2 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-muted-foreground bg-muted/30'}`}>
-                          Haz clic en un campo para colocarlo en el documento, o arrástralo directamente sobre el PDF.
+                        <p
+                          className={`text-xs rounded-lg px-3 py-2 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-muted-foreground bg-muted/30'}`}
+                        >
+                          Haz clic en un campo para colocarlo en el documento, o arrástralo
+                          directamente sobre el PDF.
                         </p>
                       )}
 
                       {/* Campo type selector panel */}
                       {showCampoSelector && (
-                        <div className={`border rounded-xl overflow-hidden shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}>
-                          <div className={`border-b ${isDark ? 'border-gray-700' : 'border-border'}`}>
+                        <div
+                          className={`border rounded-xl overflow-hidden shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}
+                        >
+                          <div
+                            className={`border-b ${isDark ? 'border-gray-700' : 'border-border'}`}
+                          >
                             <button
                               onClick={() => setParticipanteOpen((v) => !v)}
                               className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-slate-50'}`}
                             >
-                              <span className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Campos del Participante</span>
-                              <ChevronDown size={16} className={`text-muted-foreground transition-transform ${participanteOpen ? 'rotate-180' : ''}`} />
+                              <span
+                                className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                              >
+                                Campos del Participante
+                              </span>
+                              <ChevronDown
+                                size={16}
+                                className={`text-muted-foreground transition-transform ${participanteOpen ? 'rotate-180' : ''}`}
+                              />
                             </button>
                             {participanteOpen && (
                               <div className="px-3 pb-3 space-y-2">
                                 {[
-                                  { tipo: 'firma' as const, label: 'Firma', icon: <PenLine size={14} />, required: true },
-                                  { tipo: 'nombre_completo' as const, label: 'Nombre Completo', icon: <User size={14} /> },
-                                  { tipo: 'rfc' as const, label: 'RFC', icon: <FileText size={14} /> },
-                                  { tipo: 'curp' as const, label: 'CURP', icon: <UserCheck size={14} /> },
-                                  { tipo: 'correo' as const, label: 'Correo Electrónico', icon: <Mail size={14} /> },
-                                  { tipo: 'telefono' as const, label: 'Número Telefónico', icon: <Phone size={14} /> },
-                                  { tipo: 'direccion' as const, label: 'Dirección', icon: <MapPin size={14} /> },
+                                  {
+                                    tipo: 'firma' as const,
+                                    label: 'Firma',
+                                    icon: <PenLine size={14} />,
+                                    required: true,
+                                  },
+                                  {
+                                    tipo: 'nombre_completo' as const,
+                                    label: 'Nombre Completo',
+                                    icon: <User size={14} />,
+                                  },
+                                  {
+                                    tipo: 'rfc' as const,
+                                    label: 'RFC',
+                                    icon: <FileText size={14} />,
+                                  },
+                                  {
+                                    tipo: 'curp' as const,
+                                    label: 'CURP',
+                                    icon: <UserCheck size={14} />,
+                                  },
+                                  {
+                                    tipo: 'correo' as const,
+                                    label: 'Correo Electrónico',
+                                    icon: <Mail size={14} />,
+                                  },
+                                  {
+                                    tipo: 'telefono' as const,
+                                    label: 'Número Telefónico',
+                                    icon: <Phone size={14} />,
+                                  },
+                                  {
+                                    tipo: 'direccion' as const,
+                                    label: 'Dirección',
+                                    icon: <MapPin size={14} />,
+                                  },
                                 ].map((item) => {
-                                  const firmaAlreadyAdded = item.tipo === 'firma' && (
-                                    camposPersonalizados.some((c) => c.tipo === 'firma') ||
-                                    camposPrefijados.some((c) => (c.tipo === 'firma') || deriveTipoFromLabel(c.label) === 'firma')
-                                  );
+                                  const firmaAlreadyAdded =
+                                    item.tipo === 'firma' &&
+                                    (camposPersonalizados.some((c) => c.tipo === 'firma') ||
+                                      camposPrefijados.some(
+                                        (c) =>
+                                          c.tipo === 'firma' ||
+                                          deriveTipoFromLabel(c.label) === 'firma'
+                                      ));
                                   return (
                                     <div
                                       key={item.tipo}
                                       draggable={!firmaAlreadyAdded}
                                       onDragStart={(e) => {
-                                        if (firmaAlreadyAdded) { e.preventDefault(); return; }
+                                        if (firmaAlreadyAdded) {
+                                          e.preventDefault();
+                                          return;
+                                        }
                                         e.dataTransfer.setData('campo-tipo', item.tipo);
                                         e.dataTransfer.setData('campo-label', item.label);
                                       }}
-                                      onClick={() => { if (!firmaAlreadyAdded) handlePlaceFieldOnDocument(item.tipo, item.label); }}
+                                      onClick={() => {
+                                        if (!firmaAlreadyAdded)
+                                          handlePlaceFieldOnDocument(item.tipo, item.label);
+                                      }}
                                       className={`flex items-center justify-between px-3 py-2.5 border rounded-lg transition-all select-none ${firmaAlreadyAdded ? 'border-slate-100 opacity-50 cursor-not-allowed' : `cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-sm ${isDark ? 'border-gray-600 bg-gray-700' : 'border-slate-200 bg-white'}`}`}
-                                      title={firmaAlreadyAdded ? 'La firma ya fue insertada en el documento' : undefined}
+                                      title={
+                                        firmaAlreadyAdded
+                                          ? 'La firma ya fue insertada en el documento'
+                                          : undefined
+                                      }
                                     >
                                       <div className="flex items-center gap-2.5">
                                         <span className="text-slate-500">{item.icon}</span>
-                                        <span className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
+                                        <span
+                                          className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                        >
                                           {item.label}
-                                          {item.required && <span className="text-red-500 ml-1">*</span>}
+                                          {item.required && (
+                                            <span className="text-red-500 ml-1">*</span>
+                                          )}
                                         </span>
                                       </div>
                                       {firmaAlreadyAdded ? (
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300 shrink-0"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                                        <svg
+                                          width="12"
+                                          height="12"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          className="text-gray-300 shrink-0"
+                                        >
+                                          <circle cx="12" cy="12" r="10" />
+                                          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                                        </svg>
                                       ) : (
-                                        <span className="text-slate-300 text-xs font-bold tracking-widest">⠿</span>
+                                        <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                          ⠿
+                                        </span>
                                       )}
                                     </div>
                                   );
@@ -7063,21 +10346,107 @@ export default function FirmarDocumentoPage() {
                               onClick={() => setGeneralesOpen((v) => !v)}
                               className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-slate-50'}`}
                             >
-                              <span className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Campos Generales</span>
-                              <ChevronDown size={16} className={`text-muted-foreground transition-transform ${generalesOpen ? 'rotate-180' : ''}`} />
+                              <span
+                                className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                              >
+                                Campos Generales
+                              </span>
+                              <ChevronDown
+                                size={16}
+                                className={`text-muted-foreground transition-transform ${generalesOpen ? 'rotate-180' : ''}`}
+                              />
                             </button>
                             {generalesOpen && (
                               <div className="px-3 pb-3 space-y-2">
                                 {[
-                                  { tipo: 'texto' as const, label: 'Texto', icon: <Type size={14} /> },
-                                  { tipo: 'fecha' as const, label: 'Fecha', icon: <Calendar size={14} /> },
-                                  { tipo: 'hora' as const, label: 'Hora', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
-                                  { tipo: 'numero' as const, label: 'Número', icon: <Hash size={14} /> },
-                                  { tipo: 'moneda' as const, label: 'Moneda', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
-                                  { tipo: 'checkbox' as const, label: 'Casilla', icon: <ToggleLeft size={14} /> },
-                                  { tipo: 'imagen' as const, label: 'Imagen', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> },
-                                  { tipo: 'radio' as const, label: 'Botones de opción', icon: <List size={14} /> },
-                                  { tipo: 'dropdown' as const, label: 'Desplegable', icon: <ChevronDown size={14} /> },
+                                  {
+                                    tipo: 'texto' as const,
+                                    label: 'Texto',
+                                    icon: <Type size={14} />,
+                                  },
+                                  {
+                                    tipo: 'fecha' as const,
+                                    label: 'Fecha',
+                                    icon: <Calendar size={14} />,
+                                  },
+                                  {
+                                    tipo: 'hora' as const,
+                                    label: 'Hora',
+                                    icon: (
+                                      <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <circle cx="12" cy="12" r="10" />
+                                        <polyline points="12 6 12 12 16 14" />
+                                      </svg>
+                                    ),
+                                  },
+                                  {
+                                    tipo: 'numero' as const,
+                                    label: 'Número',
+                                    icon: <Hash size={14} />,
+                                  },
+                                  {
+                                    tipo: 'moneda' as const,
+                                    label: 'Moneda',
+                                    icon: (
+                                      <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <line x1="12" y1="1" x2="12" y2="23" />
+                                        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                                      </svg>
+                                    ),
+                                  },
+                                  {
+                                    tipo: 'checkbox' as const,
+                                    label: 'Casilla',
+                                    icon: <ToggleLeft size={14} />,
+                                  },
+                                  {
+                                    tipo: 'imagen' as const,
+                                    label: 'Imagen',
+                                    icon: (
+                                      <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                                        <circle cx="8.5" cy="8.5" r="1.5" />
+                                        <polyline points="21 15 16 10 5 21" />
+                                      </svg>
+                                    ),
+                                  },
+                                  {
+                                    tipo: 'radio' as const,
+                                    label: 'Botones de opción',
+                                    icon: <List size={14} />,
+                                  },
+                                  {
+                                    tipo: 'dropdown' as const,
+                                    label: 'Desplegable',
+                                    icon: <ChevronDown size={14} />,
+                                  },
                                 ].map((item) => (
                                   <div
                                     key={item.tipo}
@@ -7086,20 +10455,33 @@ export default function FirmarDocumentoPage() {
                                       e.dataTransfer.setData('campo-tipo', item.tipo);
                                       e.dataTransfer.setData('campo-label', item.label);
                                     }}
-                                    onClick={() => handlePlaceFieldOnDocument(item.tipo as CampoPersonalizado['tipo'], item.label)}
+                                    onClick={() =>
+                                      handlePlaceFieldOnDocument(
+                                        item.tipo as CampoPersonalizado['tipo'],
+                                        item.label
+                                      )
+                                    }
                                     className={`flex items-center justify-between px-3 py-2.5 border rounded-lg cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-sm transition-all select-none ${isDark ? 'border-gray-600 bg-gray-700' : 'border-slate-200 bg-white'}`}
                                   >
                                     <div className="flex items-center gap-2.5">
                                       <span className="text-slate-500">{item.icon}</span>
-                                      <span className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{item.label}</span>
+                                      <span
+                                        className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                      >
+                                        {item.label}
+                                      </span>
                                     </div>
-                                    <span className="text-slate-300 text-xs font-bold tracking-widest">⠿</span>
+                                    <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                      ⠿
+                                    </span>
                                   </div>
                                 ))}
                               </div>
                             )}
                           </div>
-                          <div className={`px-3 pb-3 pt-1 border-t ${isDark ? 'border-gray-700' : 'border-border'}`}>
+                          <div
+                            className={`px-3 pb-3 pt-1 border-t ${isDark ? 'border-gray-700' : 'border-border'}`}
+                          >
                             <button
                               onClick={() => setShowCampoSelector(false)}
                               className={`w-full text-xs py-1.5 transition-colors ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-muted-foreground hover:text-foreground'}`}
@@ -7126,45 +10508,83 @@ export default function FirmarDocumentoPage() {
                   {!hasCamposPrefijados && (
                     <div className="space-y-5">
                       {/* Campos obligatorios section */}
-                      <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}>
-                        <div className={`px-4 py-3 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/20 border-border'}`}>
-                          <h3 className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Campos obligatorios</h3>
+                      <div
+                        className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
+                      >
+                        <div
+                          className={`px-4 py-3 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/20 border-border'}`}
+                        >
+                          <h3
+                            className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                          >
+                            Campos obligatorios
+                          </h3>
                         </div>
                         <div className={`px-4 py-4 ${isDark ? 'bg-gray-800' : ''}`}>
-                          <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                            No hay campos obligatorios. Puedes agregar información opcional o continuar directamente a la firma.
+                          <p
+                            className={`text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                          >
+                            No hay campos obligatorios. Puedes agregar información opcional o
+                            continuar directamente a la firma.
                           </p>
                         </div>
                       </div>
 
                       {/* Agregar información adicional section */}
                       <div className="space-y-3">
-                        <h3 className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Agregar información adicional</h3>
+                        <h3
+                          className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                        >
+                          Agregar información adicional
+                        </h3>
 
                         {/* Placed fields shown in sidebar */}
                         {camposPersonalizados.length > 0 && (
                           <div className="space-y-2">
                             {camposPersonalizados.map((campo) => (
-                              <div key={campo.id} className={`border rounded-xl p-3 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border'}`}>
+                              <div
+                                key={campo.id}
+                                className={`border rounded-xl p-3 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border'}`}
+                              >
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2 min-w-0">
                                     <CampoPersonalizadoIcon tipo={campo.tipo} />
-                                    <span className={`text-sm font-medium truncate ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{campo.label}</span>
-                                    {campo.value && ['nombre_completo', 'rfc', 'curp', 'correo', 'telefono', 'direccion'].includes(campo.tipo) && (
-                                      <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium shrink-0">
-                                        Auto
-                                      </span>
-                                    )}
+                                    <span
+                                      className={`text-sm font-medium truncate ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                    >
+                                      {campo.label}
+                                    </span>
+                                    {campo.value &&
+                                      [
+                                        'nombre_completo',
+                                        'rfc',
+                                        'curp',
+                                        'correo',
+                                        'telefono',
+                                        'direccion',
+                                      ].includes(campo.tipo) && (
+                                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                                          Auto
+                                        </span>
+                                      )}
                                   </div>
                                   <div className="flex items-center gap-1 shrink-0">
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        const placedField = placedFields.find((f) => f.id === campo.id);
+                                        const placedField = placedFields.find(
+                                          (f) => f.id === campo.id
+                                        );
                                         if (placedField) {
-                                          const newName = window.prompt('Nombre del campo:', placedField.fieldConfig?.customName || campo.label);
+                                          const newName = window.prompt(
+                                            'Nombre del campo:',
+                                            placedField.fieldConfig?.customName || campo.label
+                                          );
                                           if (newName !== null && newName.trim()) {
-                                            handleUpdateFieldConfig(campo.id, { ...(placedField.fieldConfig || {}), customName: newName.trim() });
+                                            handleUpdateFieldConfig(campo.id, {
+                                              ...(placedField.fieldConfig || {}),
+                                              customName: newName.trim(),
+                                            });
                                           }
                                         }
                                       }}
@@ -7174,8 +10594,17 @@ export default function FirmarDocumentoPage() {
                                       <Tag size={13} />
                                     </button>
                                     {(() => {
-                                      const placedField = placedFields.find((f) => f.id === campo.id);
-                                      const hasSettings = ['numero', 'moneda', 'fecha', 'hora', 'dropdown', 'radio'].includes(campo.tipo);
+                                      const placedField = placedFields.find(
+                                        (f) => f.id === campo.id
+                                      );
+                                      const hasSettings = [
+                                        'numero',
+                                        'moneda',
+                                        'fecha',
+                                        'hora',
+                                        'dropdown',
+                                        'radio',
+                                      ].includes(campo.tipo);
                                       if (campo.tipo === 'checkbox') {
                                         if (!placedField) return null;
                                         return (
@@ -7188,7 +10617,9 @@ export default function FirmarDocumentoPage() {
                                       }
                                       if (!hasSettings || !placedField) return null;
                                       return (
-                                        <SidebarSettingsButton campo={campo} placedField={placedField}
+                                        <SidebarSettingsButton
+                                          campo={campo}
+                                          placedField={placedField}
                                           onUpdateFieldTypeConfig={handleUpdateFieldTypeConfig}
                                           onUpdateDropdownOptions={handleUpdateDropdownOptions}
                                           onUpdateRadioOptions={handleUpdateRadioOptions}
@@ -7205,121 +10636,249 @@ export default function FirmarDocumentoPage() {
                                 </div>
                                 {(() => {
                                   const placedField = placedFields.find((f) => f.id === campo.id);
-                                  const dropOpts = placedField?.dropdownOptions && placedField.dropdownOptions.length > 0 ? placedField.dropdownOptions : ['Opción A', 'Opción B'];
-                                  const radioOpts = placedField?.radioOptions && placedField.radioOptions.length > 0 ? placedField.radioOptions : ['Opción 1', 'Opción 2'];
-                                  const casillaLbl = placedField?.casillaLabel || 'Etiqueta de casilla';
-                                  if (campo.tipo === 'firma') return (
-                                    <div className="border border-dashed border-slate-300 rounded-lg p-3 text-center text-xs text-muted-foreground">
-                                      <PenLine size={16} className="mx-auto mb-1 text-slate-400" />
-                                      La firma se capturará en el paso siguiente
-                                    </div>
-                                  );
-                                  if (campo.tipo === 'fecha') return (
-                                    <input type="date" value={campo.value}
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                  );
-                                  if (campo.tipo === 'hora') return (
-                                    <input type="time" value={campo.value}
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                  );
-                                  if (campo.tipo === 'numero') return (
-                                    <input type="number" value={campo.value} placeholder="Ingresa número"
-                                      onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                  );
-                                  if (campo.tipo === 'moneda') return (
-                                    <div className="relative">
-                                      <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>$</span>
-                                      <input type="number" step="0.01" value={campo.value} placeholder="0.00"
-                                        onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                                        onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                        className={`w-full pl-7 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                    </div>
-                                  );
-                                  if (campo.tipo === 'imagen') return (
-                                    <div className="space-y-2">
+                                  const dropOpts =
+                                    placedField?.dropdownOptions &&
+                                    placedField.dropdownOptions.length > 0
+                                      ? placedField.dropdownOptions
+                                      : ['Opción A', 'Opción B'];
+                                  const radioOpts =
+                                    placedField?.radioOptions && placedField.radioOptions.length > 0
+                                      ? placedField.radioOptions
+                                      : ['Opción 1', 'Opción 2'];
+                                  const casillaLbl =
+                                    placedField?.casillaLabel || 'Etiqueta de casilla';
+                                  if (campo.tipo === 'firma')
+                                    return (
+                                      <div className="border border-dashed border-slate-300 rounded-lg p-3 text-center text-xs text-muted-foreground">
+                                        <PenLine
+                                          size={16}
+                                          className="mx-auto mb-1 text-slate-400"
+                                        />
+                                        La firma se capturará en el paso siguiente
+                                      </div>
+                                    );
+                                  if (campo.tipo === 'fecha')
+                                    return (
                                       <input
-                                        type="file"
-                                        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-                                        onChange={(e) => {
-                                          const file = e.target.files?.[0];
-                                          if (!file) return;
-                                          const allowed = ['image/jpeg', 'image/png'];
-                                          if (!allowed.includes(file.type)) {
-                                            alert('Solo se permiten archivos JPG, JPEG o PNG.');
-                                            e.target.value = '';
-                                            return;
-                                          }
-                                          if (file.size > 2 * 1024 * 1024) {
-                                            alert('El archivo no debe superar los 2 MB.');
-                                            e.target.value = '';
-                                            return;
-                                          }
-                                          const reader = new FileReader();
-                                          reader.onload = (ev) => {
-                                            handleUpdateCampoPersonalizado(campo.id, ev.target?.result as string);
-                                          };
-                                          reader.readAsDataURL(file);
-                                        }}
-                                        className="w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                                        type="date"
+                                        value={campo.value}
+                                        onChange={(e) =>
+                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                        }
+                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                                       />
-                                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>JPG, JPEG o PNG · máx. 2 MB</p>
-                                      {campo.value && (
-                                        // eslint-disable-next-line @next/next/no-img-element
-                                        <img src={campo.value} alt="Vista previa" className="w-full max-h-32 object-contain rounded-lg border border-border" />
-                                      )}
-                                    </div>
-                                  );
-                                  if (campo.tipo === 'telefono') return (
-                                    <input type="tel" value={campo.value} placeholder="Ingresa número telefónico"
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                  );
-                                  if (campo.tipo === 'correo') return (
-                                    <input type="email" value={campo.value} placeholder="correo@ejemplo.com"
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                  );
-                                  if (campo.tipo === 'direccion') return (
-                                    <input type="text" value={campo.value} placeholder="Calle, colonia, municipio, estado"
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
-                                  );
-                                  if (campo.tipo === 'checkbox') return (
-                                    <label className="flex items-center gap-2.5 cursor-pointer">
-                                      <input type="checkbox" checked={campo.value === 'true'}
-                                        onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.checked ? 'true' : 'false')}
-                                        className="w-4 h-4 accent-primary" />
-                                      <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}>{casillaLbl}</span>
-                                    </label>
-                                  );
-                                  if (campo.tipo === 'dropdown') return (
-                                    <select value={campo.value}
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}>
-                                      <option value="">Selecciona una opción</option>
-                                      {dropOpts.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                                    </select>
-                                  );
-                                  if (campo.tipo === 'radio') return (
-                                    <div className="flex flex-wrap gap-3">
-                                      {radioOpts.map((opt) => (
-                                        <label key={opt} className="flex items-center gap-2 cursor-pointer">
-                                          <input type="radio" name={campo.id} value={opt} checked={campo.value === opt}
-                                            onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                            className="accent-primary" />
-                                          <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-foreground'}`}>{opt}</span>
-                                        </label>
-                                      ))}
-                                    </div>
-                                  );
+                                    );
+                                  if (campo.tipo === 'hora')
+                                    return (
+                                      <input
+                                        type="time"
+                                        value={campo.value}
+                                        onChange={(e) =>
+                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                        }
+                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                      />
+                                    );
+                                  if (campo.tipo === 'numero')
+                                    return (
+                                      <input
+                                        type="number"
+                                        value={campo.value}
+                                        placeholder="Ingresa número"
+                                        onKeyDown={(e) => {
+                                          if (['e', 'E', '+', '-'].includes(e.key))
+                                            e.preventDefault();
+                                        }}
+                                        onChange={(e) =>
+                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                        }
+                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                      />
+                                    );
+                                  if (campo.tipo === 'moneda')
+                                    return (
+                                      <div className="relative">
+                                        <span
+                                          className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                                        >
+                                          $
+                                        </span>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          value={campo.value}
+                                          placeholder="0.00"
+                                          onKeyDown={(e) => {
+                                            if (['e', 'E', '+', '-'].includes(e.key))
+                                              e.preventDefault();
+                                          }}
+                                          onChange={(e) =>
+                                            handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                          }
+                                          className={`w-full pl-7 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                        />
+                                      </div>
+                                    );
+                                  if (campo.tipo === 'imagen')
+                                    return (
+                                      <div className="space-y-2">
+                                        <input
+                                          type="file"
+                                          accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                          onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (!file) return;
+                                            const allowed = ['image/jpeg', 'image/png'];
+                                            if (!allowed.includes(file.type)) {
+                                              alert('Solo se permiten archivos JPG, JPEG o PNG.');
+                                              e.target.value = '';
+                                              return;
+                                            }
+                                            if (file.size > 2 * 1024 * 1024) {
+                                              alert('El archivo no debe superar los 2 MB.');
+                                              e.target.value = '';
+                                              return;
+                                            }
+                                            const reader = new FileReader();
+                                            reader.onload = (ev) => {
+                                              handleUpdateCampoPersonalizado(
+                                                campo.id,
+                                                ev.target?.result as string
+                                              );
+                                            };
+                                            reader.readAsDataURL(file);
+                                          }}
+                                          className="w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                                        />
+                                        <p
+                                          className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                        >
+                                          JPG, JPEG o PNG · máx. 2 MB
+                                        </p>
+                                        {campo.value && (
+                                          // eslint-disable-next-line @next/next/no-img-element
+                                          <img
+                                            src={campo.value}
+                                            alt="Vista previa"
+                                            className="w-full max-h-32 object-contain rounded-lg border border-border"
+                                          />
+                                        )}
+                                      </div>
+                                    );
+                                  if (campo.tipo === 'telefono')
+                                    return (
+                                      <input
+                                        type="tel"
+                                        value={campo.value}
+                                        placeholder="Ingresa número telefónico"
+                                        onChange={(e) =>
+                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                        }
+                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                      />
+                                    );
+                                  if (campo.tipo === 'correo')
+                                    return (
+                                      <input
+                                        type="email"
+                                        value={campo.value}
+                                        placeholder="correo@ejemplo.com"
+                                        onChange={(e) =>
+                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                        }
+                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                      />
+                                    );
+                                  if (campo.tipo === 'direccion')
+                                    return (
+                                      <input
+                                        type="text"
+                                        value={campo.value}
+                                        placeholder="Calle, colonia, municipio, estado"
+                                        onChange={(e) =>
+                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                        }
+                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                      />
+                                    );
+                                  if (campo.tipo === 'checkbox')
+                                    return (
+                                      <label className="flex items-center gap-2.5 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={campo.value === 'true'}
+                                          onChange={(e) =>
+                                            handleUpdateCampoPersonalizado(
+                                              campo.id,
+                                              e.target.checked ? 'true' : 'false'
+                                            )
+                                          }
+                                          className="w-4 h-4 accent-primary"
+                                        />
+                                        <span
+                                          className={`text-sm ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                                        >
+                                          {casillaLbl}
+                                        </span>
+                                      </label>
+                                    );
+                                  if (campo.tipo === 'dropdown')
+                                    return (
+                                      <select
+                                        value={campo.value}
+                                        onChange={(e) =>
+                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                        }
+                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                      >
+                                        <option value="">Selecciona una opción</option>
+                                        {dropOpts.map((opt) => (
+                                          <option key={opt} value={opt}>
+                                            {opt}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    );
+                                  if (campo.tipo === 'radio')
+                                    return (
+                                      <div className="flex flex-wrap gap-3">
+                                        {radioOpts.map((opt) => (
+                                          <label
+                                            key={opt}
+                                            className="flex items-center gap-2 cursor-pointer"
+                                          >
+                                            <input
+                                              type="radio"
+                                              name={campo.id}
+                                              value={opt}
+                                              checked={campo.value === opt}
+                                              onChange={(e) =>
+                                                handleUpdateCampoPersonalizado(
+                                                  campo.id,
+                                                  e.target.value
+                                                )
+                                              }
+                                              className="accent-primary"
+                                            />
+                                            <span
+                                              className={`text-sm ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                                            >
+                                              {opt}
+                                            </span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    );
                                   return (
-                                    <input type="text" value={campo.value} placeholder={`Ingresa ${campo.label.toLowerCase()}`}
-                                      onChange={(e) => handleUpdateCampoPersonalizado(campo.id, e.target.value)}
-                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`} />
+                                    <input
+                                      type="text"
+                                      value={campo.value}
+                                      placeholder={`Ingresa ${campo.label.toLowerCase()}`}
+                                      onChange={(e) =>
+                                        handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                      }
+                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                    />
                                   );
                                 })()}
                               </div>
@@ -7329,65 +10888,141 @@ export default function FirmarDocumentoPage() {
 
                         {/* Hint for drag-drop */}
                         {camposPersonalizados.length === 0 && (
-                          <p className={`text-xs rounded-lg px-3 py-2 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-muted-foreground bg-muted/30'}`}>
-                            Haz clic en un campo para colocarlo en el documento, o arrástralo directamente sobre el PDF.
+                          <p
+                            className={`text-xs rounded-lg px-3 py-2 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-muted-foreground bg-muted/30'}`}
+                          >
+                            Haz clic en un campo para colocarlo en el documento, o arrástralo
+                            directamente sobre el PDF.
                           </p>
                         )}
 
                         {/* Campo type selector panel */}
                         {showCampoSelector && (
-                          <div className={`border rounded-xl overflow-hidden shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}>
+                          <div
+                            className={`border rounded-xl overflow-hidden shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}
+                          >
                             {/* Campos del Participante */}
-                            <div className={`border-b ${isDark ? 'border-gray-700' : 'border-border'}`}>
+                            <div
+                              className={`border-b ${isDark ? 'border-gray-700' : 'border-border'}`}
+                            >
                               <button
                                 onClick={() => setParticipanteOpen((v) => !v)}
                                 className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-slate-50'}`}
                               >
-                                <span className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Campos del Participante</span>
-                                <ChevronDown size={16} className={`text-muted-foreground transition-transform ${participanteOpen ? 'rotate-180' : ''}`} />
+                                <span
+                                  className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                >
+                                  Campos del Participante
+                                </span>
+                                <ChevronDown
+                                  size={16}
+                                  className={`text-muted-foreground transition-transform ${participanteOpen ? 'rotate-180' : ''}`}
+                                />
                               </button>
                               {participanteOpen && (
                                 <div className="px-3 pb-3 space-y-2">
                                   {[
-                                    { tipo: 'firma' as const, label: 'Firma', icon: <PenLine size={14} />, required: true },
-                                    { tipo: 'nombre_completo' as const, label: 'Nombre Completo', icon: <User size={14} /> },
-                                    { tipo: 'rfc' as const, label: 'RFC', icon: <FileText size={14} /> },
-                                    { tipo: 'curp' as const, label: 'CURP', icon: <UserCheck size={14} /> },
-                                    { tipo: 'correo' as const, label: 'Correo Electrónico', icon: <Mail size={14} /> },
-                                    { tipo: 'telefono' as const, label: 'Número Telefónico', icon: <Phone size={14} /> },
-                                    { tipo: 'direccion' as const, label: 'Dirección', icon: <MapPin size={14} /> },
+                                    {
+                                      tipo: 'firma' as const,
+                                      label: 'Firma',
+                                      icon: <PenLine size={14} />,
+                                      required: true,
+                                    },
+                                    {
+                                      tipo: 'nombre_completo' as const,
+                                      label: 'Nombre Completo',
+                                      icon: <User size={14} />,
+                                    },
+                                    {
+                                      tipo: 'rfc' as const,
+                                      label: 'RFC',
+                                      icon: <FileText size={14} />,
+                                    },
+                                    {
+                                      tipo: 'curp' as const,
+                                      label: 'CURP',
+                                      icon: <UserCheck size={14} />,
+                                    },
+                                    {
+                                      tipo: 'correo' as const,
+                                      label: 'Correo Electrónico',
+                                      icon: <Mail size={14} />,
+                                    },
+                                    {
+                                      tipo: 'telefono' as const,
+                                      label: 'Número Telefónico',
+                                      icon: <Phone size={14} />,
+                                    },
+                                    {
+                                      tipo: 'direccion' as const,
+                                      label: 'Dirección',
+                                      icon: <MapPin size={14} />,
+                                    },
                                   ].map((item) => {
-                                    const firmaAlreadyAdded = item.tipo === 'firma' && (
-                                      camposPersonalizados.some((c) => c.tipo === 'firma') ||
-                                      camposPrefijados.some((c) => (c.tipo === 'firma') || deriveTipoFromLabel(c.label) === 'firma')
-                                    );
+                                    const firmaAlreadyAdded =
+                                      item.tipo === 'firma' &&
+                                      (camposPersonalizados.some((c) => c.tipo === 'firma') ||
+                                        camposPrefijados.some(
+                                          (c) =>
+                                            c.tipo === 'firma' ||
+                                            deriveTipoFromLabel(c.label) === 'firma'
+                                        ));
                                     return (
-                                    <div
-                                      key={item.tipo}
-                                      draggable={!firmaAlreadyAdded}
-                                      onDragStart={(e) => {
-                                        if (firmaAlreadyAdded) { e.preventDefault(); return; }
-                                        e.dataTransfer.setData('campo-tipo', item.tipo);
-                                        e.dataTransfer.setData('campo-label', item.label);
-                                      }}
-                                      onClick={() => { if (!firmaAlreadyAdded) handlePlaceFieldOnDocument(item.tipo, item.label); }}
-                                      className={`flex items-center justify-between px-3 py-2.5 border rounded-lg transition-all select-none ${firmaAlreadyAdded ? 'border-slate-100 opacity-50 cursor-not-allowed' : `cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-sm ${isDark ? 'border-gray-600 bg-gray-700' : 'border-slate-200 bg-white'}`}`}
-                                      title={firmaAlreadyAdded ? 'La firma ya fue insertada en el documento' : undefined}
-                                    >
-                                      <div className="flex items-center gap-2.5">
-                                        <span className="text-slate-500">{item.icon}</span>
-                                        <span className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
-                                          {item.label}
-                                          {item.required && <span className="text-red-500 ml-1">*</span>}
-                                        </span>
+                                      <div
+                                        key={item.tipo}
+                                        draggable={!firmaAlreadyAdded}
+                                        onDragStart={(e) => {
+                                          if (firmaAlreadyAdded) {
+                                            e.preventDefault();
+                                            return;
+                                          }
+                                          e.dataTransfer.setData('campo-tipo', item.tipo);
+                                          e.dataTransfer.setData('campo-label', item.label);
+                                        }}
+                                        onClick={() => {
+                                          if (!firmaAlreadyAdded)
+                                            handlePlaceFieldOnDocument(item.tipo, item.label);
+                                        }}
+                                        className={`flex items-center justify-between px-3 py-2.5 border rounded-lg transition-all select-none ${firmaAlreadyAdded ? 'border-slate-100 opacity-50 cursor-not-allowed' : `cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-sm ${isDark ? 'border-gray-600 bg-gray-700' : 'border-slate-200 bg-white'}`}`}
+                                        title={
+                                          firmaAlreadyAdded
+                                            ? 'La firma ya fue insertada en el documento'
+                                            : undefined
+                                        }
+                                      >
+                                        <div className="flex items-center gap-2.5">
+                                          <span className="text-slate-500">{item.icon}</span>
+                                          <span
+                                            className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                          >
+                                            {item.label}
+                                            {item.required && (
+                                              <span className="text-red-500 ml-1">*</span>
+                                            )}
+                                          </span>
+                                        </div>
+                                        {firmaAlreadyAdded ? (
+                                          <svg
+                                            width="12"
+                                            height="12"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            className="text-gray-300 shrink-0"
+                                          >
+                                            <circle cx="12" cy="12" r="10" />
+                                            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                                          </svg>
+                                        ) : (
+                                          <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                            ⠿
+                                          </span>
+                                        )}
                                       </div>
-                                      {firmaAlreadyAdded ? (
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300 shrink-0"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-                                      ) : (
-                                        <span className="text-slate-300 text-xs font-bold tracking-widest">⠿</span>
-                                      )}
-                                    </div>
-                                  );
+                                    );
                                   })}
                                 </div>
                               )}
@@ -7399,21 +11034,107 @@ export default function FirmarDocumentoPage() {
                                 onClick={() => setGeneralesOpen((v) => !v)}
                                 className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-slate-50'}`}
                               >
-                                <span className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Campos Generales</span>
-                                <ChevronDown size={16} className={`text-muted-foreground transition-transform ${generalesOpen ? 'rotate-180' : ''}`} />
+                                <span
+                                  className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                >
+                                  Campos Generales
+                                </span>
+                                <ChevronDown
+                                  size={16}
+                                  className={`text-muted-foreground transition-transform ${generalesOpen ? 'rotate-180' : ''}`}
+                                />
                               </button>
                               {generalesOpen && (
                                 <div className="px-3 pb-3 space-y-2">
                                   {[
-                                    { tipo: 'texto' as const, label: 'Texto', icon: <Type size={14} /> },
-                                    { tipo: 'fecha' as const, label: 'Fecha', icon: <Calendar size={14} /> },
-                                    { tipo: 'hora' as const, label: 'Hora', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
-                                    { tipo: 'numero' as const, label: 'Número', icon: <Hash size={14} /> },
-                                    { tipo: 'moneda' as const, label: 'Moneda', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
-                                    { tipo: 'checkbox' as const, label: 'Casilla', icon: <ToggleLeft size={14} /> },
-                                    { tipo: 'imagen' as const, label: 'Imagen', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> },
-                                    { tipo: 'radio' as const, label: 'Botones de opción', icon: <List size={14} /> },
-                                    { tipo: 'dropdown' as const, label: 'Desplegable', icon: <ChevronDown size={14} /> },
+                                    {
+                                      tipo: 'texto' as const,
+                                      label: 'Texto',
+                                      icon: <Type size={14} />,
+                                    },
+                                    {
+                                      tipo: 'fecha' as const,
+                                      label: 'Fecha',
+                                      icon: <Calendar size={14} />,
+                                    },
+                                    {
+                                      tipo: 'hora' as const,
+                                      label: 'Hora',
+                                      icon: (
+                                        <svg
+                                          width="14"
+                                          height="14"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        >
+                                          <circle cx="12" cy="12" r="10" />
+                                          <polyline points="12 6 12 12 16 14" />
+                                        </svg>
+                                      ),
+                                    },
+                                    {
+                                      tipo: 'numero' as const,
+                                      label: 'Número',
+                                      icon: <Hash size={14} />,
+                                    },
+                                    {
+                                      tipo: 'moneda' as const,
+                                      label: 'Moneda',
+                                      icon: (
+                                        <svg
+                                          width="14"
+                                          height="14"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        >
+                                          <line x1="12" y1="1" x2="12" y2="23" />
+                                          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                                        </svg>
+                                      ),
+                                    },
+                                    {
+                                      tipo: 'checkbox' as const,
+                                      label: 'Casilla',
+                                      icon: <ToggleLeft size={14} />,
+                                    },
+                                    {
+                                      tipo: 'imagen' as const,
+                                      label: 'Imagen',
+                                      icon: (
+                                        <svg
+                                          width="14"
+                                          height="14"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        >
+                                          <rect x="3" y="3" width="18" height="18" rx="2" />
+                                          <circle cx="8.5" cy="8.5" r="1.5" />
+                                          <polyline points="21 15 16 10 5 21" />
+                                        </svg>
+                                      ),
+                                    },
+                                    {
+                                      tipo: 'radio' as const,
+                                      label: 'Botones de opción',
+                                      icon: <List size={14} />,
+                                    },
+                                    {
+                                      tipo: 'dropdown' as const,
+                                      label: 'Desplegable',
+                                      icon: <ChevronDown size={14} />,
+                                    },
                                   ].map((item) => (
                                     <div
                                       key={item.tipo}
@@ -7422,14 +11143,25 @@ export default function FirmarDocumentoPage() {
                                         e.dataTransfer.setData('campo-tipo', item.tipo);
                                         e.dataTransfer.setData('campo-label', item.label);
                                       }}
-                                      onClick={() => handlePlaceFieldOnDocument(item.tipo as CampoPersonalizado['tipo'], item.label)}
+                                      onClick={() =>
+                                        handlePlaceFieldOnDocument(
+                                          item.tipo as CampoPersonalizado['tipo'],
+                                          item.label
+                                        )
+                                      }
                                       className={`flex items-center justify-between px-3 py-2.5 border rounded-lg cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-sm transition-all select-none ${isDark ? 'border-gray-600 bg-gray-700' : 'border-slate-200 bg-white'}`}
                                     >
                                       <div className="flex items-center gap-2.5">
                                         <span className="text-slate-500">{item.icon}</span>
-                                        <span className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{item.label}</span>
+                                        <span
+                                          className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                        >
+                                          {item.label}
+                                        </span>
                                       </div>
-                                      <span className="text-slate-300 text-xs font-bold tracking-widest">⠿</span>
+                                      <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                        ⠿
+                                      </span>
                                     </div>
                                   ))}
                                 </div>
@@ -7437,7 +11169,9 @@ export default function FirmarDocumentoPage() {
                             </div>
 
                             {/* Close button */}
-                            <div className={`px-3 pb-3 pt-1 border-t ${isDark ? 'border-gray-700' : 'border-border'}`}>
+                            <div
+                              className={`px-3 pb-3 pt-1 border-t ${isDark ? 'border-gray-700' : 'border-border'}`}
+                            >
                               <button
                                 onClick={() => setShowCampoSelector(false)}
                                 className={`w-full text-xs py-1.5 transition-colors ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-muted-foreground hover:text-foreground'}`}
@@ -7468,8 +11202,14 @@ export default function FirmarDocumentoPage() {
               {step === 'firma' && (
                 <div className="space-y-5">
                   <div>
-                    <h2 className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}>Asentar firma</h2>
-                    <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
+                    <h2
+                      className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                    >
+                      Asentar firma
+                    </h2>
+                    <p
+                      className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                    >
                       Captura tu firma para registrarla en el documento.
                     </p>
                   </div>
@@ -7477,13 +11217,23 @@ export default function FirmarDocumentoPage() {
                   {/* ── E.FIRMA SAT FLOW ───────────────────────────────────── */}
                   {isEfirmaSAT && (
                     <>
-                      <div className={`flex items-center gap-3 rounded-xl p-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}>
+                      <div
+                        className={`flex items-center gap-3 rounded-xl p-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}
+                      >
                         <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                           <Shield size={15} className="text-blue-600" />
                         </div>
                         <div>
-                          <p className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{user.user_metadata?.full_name || user.email}</p>
-                          <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>{user.email} · e.firma SAT</p>
+                          <p
+                            className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                          >
+                            {user.user_metadata?.full_name || user.email}
+                          </p>
+                          <p
+                            className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                          >
+                            {user.email} · e.firma SAT
+                          </p>
                         </div>
                         {efirmaValidated && (
                           <div className="ml-auto flex items-center gap-1 text-green-600 text-xs font-medium">
@@ -7523,10 +11273,18 @@ export default function FirmarDocumentoPage() {
                             ctx.fillStyle = '#1e293b';
                             ctx.font = '12px Arial';
                             ctx.fillText(profileEfirma?.rfc || userProfile.rfc || 'RFC', 300, 80);
-                            ctx.fillText(profileEfirma?.nombre || userProfile.nombre_completo || '', 300, 105);
+                            ctx.fillText(
+                              profileEfirma?.nombre || userProfile.nombre_completo || '',
+                              300,
+                              105
+                            );
                             ctx.fillStyle = '#64748b';
                             ctx.font = '10px Arial';
-                            ctx.fillText(`Validado ante SAT · ${new Date().toLocaleDateString('es-MX')}`, 300, 135);
+                            ctx.fillText(
+                              `Validado ante SAT · ${new Date().toLocaleDateString('es-MX')}`,
+                              300,
+                              135
+                            );
                             ctx.strokeStyle = '#0ea5e9';
                             ctx.lineWidth = 1;
                             ctx.beginPath();
@@ -7546,68 +11304,99 @@ export default function FirmarDocumentoPage() {
                       />
 
                       {/* ── Save e.firma to profile prompt ─────────────────── */}
-                      {efirmaValidated && wantToSaveEfirma === null && !efirmaSavedToProfile && (() => {
-                        // Show prompt if: no profile e.firma stored, OR the validated cert serial differs from stored serial
-                        const validatedSerial = efirmaCertInfo?.cert_serial || null;
-                        const storedSerial = profileEfirma?.serial || null;
-                        return !storedSerial || (validatedSerial && validatedSerial !== storedSerial);
-                      })() && (
-                        <div className={`border rounded-xl p-4 space-y-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}>
-                          <div className="flex items-start gap-2">
-                            <ShieldCheck size={16} className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
-                            <p className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
-                              ¿Deseas guardar tu e.firma en tu perfil para agilizar futuros procesos de firma?
+                      {efirmaValidated &&
+                        wantToSaveEfirma === null &&
+                        !efirmaSavedToProfile &&
+                        (() => {
+                          // Show prompt if: no profile e.firma stored, OR the validated cert serial differs from stored serial
+                          const validatedSerial = efirmaCertInfo?.cert_serial || null;
+                          const storedSerial = profileEfirma?.serial || null;
+                          return (
+                            !storedSerial || (validatedSerial && validatedSerial !== storedSerial)
+                          );
+                        })() && (
+                          <div
+                            className={`border rounded-xl p-4 space-y-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <ShieldCheck
+                                size={16}
+                                className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+                              />
+                              <p
+                                className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}
+                              >
+                                ¿Deseas guardar tu e.firma en tu perfil para agilizar futuros
+                                procesos de firma?
+                              </p>
+                            </div>
+                            <p className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>
+                              Solo se guardan los datos del certificado (RFC, número de serie,
+                              vigencia). Tus archivos .cer y .key nunca se almacenan.
                             </p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={savingEfirmaToProfile}
+                                onClick={async () => {
+                                  if (!user || !efirmaCertInfo) return;
+                                  setSavingEfirmaToProfile(true);
+                                  try {
+                                    const supabase = createClient();
+                                    await supabase.from('user_profiles').upsert(
+                                      {
+                                        id: user.id,
+                                        efirma_serial: efirmaCertInfo?.cert_serial || null,
+                                        efirma_rfc:
+                                          efirmaCertInfo?.cert_rfc || userProfile.rfc || null,
+                                        efirma_nombre:
+                                          efirmaCertInfo?.cert_subject ||
+                                          userProfile.nombre_completo ||
+                                          null,
+                                        efirma_vigencia_fin: efirmaCertInfo?.cert_not_after || null,
+                                        updated_at: new Date().toISOString(),
+                                      },
+                                      { onConflict: 'id' }
+                                    );
+                                    setWantToSaveEfirma(true);
+                                    setEfirmaSavedToProfile(true);
+                                  } catch (err) {
+                                    console.error('Error al guardar e.firma en perfil:', err);
+                                  } finally {
+                                    setSavingEfirmaToProfile(false);
+                                  }
+                                }}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-60"
+                              >
+                                {savingEfirmaToProfile ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <Check size={14} />
+                                )}
+                                Sí, guardar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setWantToSaveEfirma(false)}
+                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
+                              >
+                                No, gracias
+                              </button>
+                            </div>
                           </div>
-                          <p className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>
-                            Solo se guardan los datos del certificado (RFC, número de serie, vigencia). Tus archivos .cer y .key nunca se almacenan.
-                          </p>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              disabled={savingEfirmaToProfile}
-                              onClick={async () => {
-                                if (!user || !efirmaCertInfo) return;
-                                setSavingEfirmaToProfile(true);
-                                try {
-                                  const supabase = createClient();
-                                  await supabase.from('user_profiles').upsert({
-                                    id: user.id,
-                                    efirma_serial: efirmaCertInfo?.cert_serial || null,
-                                    efirma_rfc: efirmaCertInfo?.cert_rfc || userProfile.rfc || null,
-                                    efirma_nombre: efirmaCertInfo?.cert_subject || userProfile.nombre_completo || null,
-                                    efirma_vigencia_fin: efirmaCertInfo?.cert_not_after || null,
-                                    updated_at: new Date().toISOString(),
-                                  }, { onConflict: 'id' });
-                                  setWantToSaveEfirma(true);
-                                  setEfirmaSavedToProfile(true);
-                                } catch (err) {
-                                  console.error('Error al guardar e.firma en perfil:', err);
-                                } finally {
-                                  setSavingEfirmaToProfile(false);
-                                }
-                              }}
-                              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-60"
-                            >
-                              {savingEfirmaToProfile ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                              Sí, guardar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setWantToSaveEfirma(false)}
-                              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
-                            >
-                              No, gracias
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                        )}
 
                       {efirmaSavedToProfile && (
-                        <div className={`border rounded-xl p-3 flex items-center gap-2 ${isDark ? 'border-gray-600 bg-gray-800/40' : 'border-gray-200 bg-gray-50'}`}>
-                          <ShieldCheck size={16} className={`flex-shrink-0 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                        <div
+                          className={`border rounded-xl p-3 flex items-center gap-2 ${isDark ? 'border-gray-600 bg-gray-800/40' : 'border-gray-200 bg-gray-50'}`}
+                        >
+                          <ShieldCheck
+                            size={16}
+                            className={`flex-shrink-0 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}
+                          />
                           <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                            e.firma guardada en tu perfil. Podrás gestionarla desde <strong>/mi-perfil</strong>.
+                            e.firma guardada en tu perfil. Podrás gestionarla desde{' '}
+                            <strong>/mi-perfil</strong>.
                           </p>
                         </div>
                       )}
@@ -7618,118 +11407,175 @@ export default function FirmarDocumentoPage() {
                   {isAutografaDigital && !isEfirmaSAT && (
                     <>
                       {/* User info */}
-                      <div className={`flex items-center gap-3 rounded-xl p-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}>
+                      <div
+                        className={`flex items-center gap-3 rounded-xl p-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}
+                      >
                         <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                           <User size={15} className="text-blue-600" />
                         </div>
                         <div>
-                          <p className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}>{user.user_metadata?.full_name || user.email}</p>
-                          <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>{user.email} · Firma Autógrafa Digital</p>
+                          <p
+                            className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                          >
+                            {user.user_metadata?.full_name || user.email}
+                          </p>
+                          <p
+                            className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                          >
+                            {user.email} · Firma Autógrafa Digital
+                          </p>
                         </div>
                       </div>
 
                       {/* Check for pre-recorded autograph signature — new UX */}
-                      {savedSignature && savedSignatureType === 'autografa' && usePreloadedSignature === null && !autographFlowDone && (
-                        <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}>
-                          <div className="p-4 space-y-3">
-                            <div className="flex items-start gap-2">
-                              <ShieldCheck size={16} className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
-                              <p className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
-                                Existe una firma vinculada a este usuario, ¿quieres utilizarla?
-                              </p>
+                      {savedSignature &&
+                        savedSignatureType === 'autografa' &&
+                        usePreloadedSignature === null &&
+                        !autographFlowDone && (
+                          <div
+                            className={`border rounded-xl overflow-hidden ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}
+                          >
+                            <div className="p-4 space-y-3">
+                              <div className="flex items-start gap-2">
+                                <ShieldCheck
+                                  size={16}
+                                  className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+                                />
+                                <p
+                                  className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}
+                                >
+                                  Existe una firma vinculada a este usuario, ¿quieres utilizarla?
+                                </p>
+                              </div>
+                              {/* Signature preview */}
+                              <div className="border border-dashed border-slate-300 rounded-lg bg-white overflow-hidden">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={savedSignature}
+                                  alt="Firma autógrafa guardada"
+                                  className="w-full max-h-24 object-contain p-2"
+                                />
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setUsePreloadedSignature(true);
+                                    setFirmaData(savedSignature);
+                                    setFirmaConfirmada(true);
+                                  }}
+                                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
+                                >
+                                  <Check size={14} />
+                                  Sí, usar esta firma
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setUsePreloadedSignature(false)}
+                                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
+                                >
+                                  No, usar otra
+                                </button>
+                              </div>
                             </div>
-                            {/* Signature preview */}
-                            <div className="border border-dashed border-slate-300 rounded-lg bg-white overflow-hidden">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={savedSignature} alt="Firma autógrafa guardada" className="w-full max-h-24 object-contain p-2" />
-                            </div>
-                            <div className="flex gap-2">
+                          </div>
+                        )}
+
+                      {/* Using pre-recorded signature */}
+                      {savedSignature &&
+                        savedSignatureType === 'autografa' &&
+                        usePreloadedSignature === true && (
+                          <div
+                            className={`border rounded-xl overflow-hidden ${isDark ? 'border-green-700' : 'border-green-200'}`}
+                          >
+                            <div
+                              className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'bg-green-900/20 border-green-700' : 'bg-green-50 border-green-200'}`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 size={14} className="text-green-600" />
+                                <p
+                                  className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-green-400' : 'text-green-700'}`}
+                                >
+                                  Usando firma autógrafa pregrabada
+                                </p>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setUsePreloadedSignature(true);
-                                  setFirmaData(savedSignature);
-                                  setFirmaConfirmada(true);
+                                  setUsePreloadedSignature(null);
+                                  setFirmaData(null);
+                                  setFirmaConfirmada(false);
                                 }}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
+                                className={`text-xs underline ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-muted-foreground hover:text-foreground'}`}
                               >
-                                <Check size={14} />
-                                Sí, usar esta firma
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setUsePreloadedSignature(false)}
-                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
-                              >
-                                No, usar otra
+                                Cambiar
                               </button>
                             </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Using pre-recorded signature */}
-                      {savedSignature && savedSignatureType === 'autografa' && usePreloadedSignature === true && (
-                        <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-green-700' : 'border-green-200'}`}>
-                          <div className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'bg-green-900/20 border-green-700' : 'bg-green-50 border-green-200'}`}>
-                            <div className="flex items-center gap-2">
-                              <CheckCircle2 size={14} className="text-green-600" />
-                              <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-green-400' : 'text-green-700'}`}>
-                                Usando firma autógrafa pregrabada
-                              </p>
+                            <div className="p-4 bg-white">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={savedSignature}
+                                alt="Firma autógrafa guardada"
+                                className="w-full max-h-28 object-contain"
+                              />
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => { setUsePreloadedSignature(null); setFirmaData(null); setFirmaConfirmada(false); }}
-                              className={`text-xs underline ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-muted-foreground hover:text-foreground'}`}
-                            >
-                              Cambiar
-                            </button>
                           </div>
-                          <div className="p-4 bg-white">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={savedSignature} alt="Firma autógrafa guardada" className="w-full max-h-28 object-contain" />
-                          </div>
-                        </div>
-                      )}
+                        )}
 
                       {/* Full autograph flow — when no pre-recorded or user chose to draw new */}
-                      {((!savedSignature || savedSignatureType !== 'autografa') || usePreloadedSignature === false) && !autographFlowDone && (
-                        <AutographSignatureFlow
-                          documentId={document.id}
-                          userId={user.id}
-                          userToken=""
-                          userEmail={userProfile.email || user.email || ''}
-                          onNoticeAccepted={() => setHideNoSignatureWarning(true)}
-                          userName={userProfile.nombre_completo || user.email || ''}
-                          documentName={document.nombre}
-                          isDark={isDark}
-                          onComplete={(dataUrl) => {
-                            setFirmaData(dataUrl);
-                            setFirmaConfirmada(true);
-                            setAutographFlowDone(true);
-                          }}
-                        />
-                      )}
+                      {(!savedSignature ||
+                        savedSignatureType !== 'autografa' ||
+                        usePreloadedSignature === false) &&
+                        !autographFlowDone && (
+                          <AutographSignatureFlow
+                            documentId={document.id}
+                            userId={user.id}
+                            userToken=""
+                            userEmail={userProfile.email || user.email || ''}
+                            onNoticeAccepted={() => setHideNoSignatureWarning(true)}
+                            userName={userProfile.nombre_completo || user.email || ''}
+                            documentName={document.nombre}
+                            isDark={isDark}
+                            onComplete={(dataUrl) => {
+                              setFirmaData(dataUrl);
+                              setFirmaConfirmada(true);
+                              setAutographFlowDone(true);
+                            }}
+                          />
+                        )}
 
                       {autographFlowDone && firmaConfirmada && (
                         <div className="space-y-3">
                           <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-2">
                             <CheckCircle2 size={16} className="text-green-500 flex-shrink-0" />
-                            <p className="text-sm text-green-700">Firma autógrafa digital capturada y evidencia registrada correctamente.</p>
+                            <p className="text-sm text-green-700">
+                              Firma autógrafa digital capturada y evidencia registrada
+                              correctamente.
+                            </p>
                           </div>
 
                           {/* Save signature selector */}
                           {wantToSaveSignature === null && !newSignatureSaved && (
-                            <div className={`border rounded-xl p-4 space-y-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}>
+                            <div
+                              className={`border rounded-xl p-4 space-y-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}
+                            >
                               <div className="flex items-start gap-2">
-                                <ShieldCheck size={16} className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
-                                <p className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
-                                  ¿Quieres guardar tu firma para utilizarla posteriormente y agilizar el proceso de firmado?
+                                <ShieldCheck
+                                  size={16}
+                                  className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+                                />
+                                <p
+                                  className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}
+                                >
+                                  ¿Quieres guardar tu firma para utilizarla posteriormente y
+                                  agilizar el proceso de firmado?
                                 </p>
                               </div>
-                              <p className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>
-                                Tu firma se almacenará de forma segura y cifrada vinculada a tu perfil.
+                              <p
+                                className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}
+                              >
+                                Tu firma se almacenará de forma segura y cifrada vinculada a tu
+                                perfil.
                               </p>
                               <div className="flex gap-2">
                                 <button
@@ -7740,14 +11586,17 @@ export default function FirmarDocumentoPage() {
                                     setSavingNewSignature(true);
                                     try {
                                       const supabase = createClient();
-                                      await supabase.from('user_profiles').upsert({
-                                        id: user.id,
-                                        firma_autografa_url: firmaData,
-                                        metodo_firma: 'autografa_digital',
-                                        firma_autografa_created_at: new Date().toISOString(),
-                                        firma_autografa_last_used: new Date().toISOString(),
-                                        updated_at: new Date().toISOString(),
-                                      }, { onConflict: 'id' });
+                                      await supabase.from('user_profiles').upsert(
+                                        {
+                                          id: user.id,
+                                          firma_autografa_url: firmaData,
+                                          metodo_firma: 'autografa_digital',
+                                          firma_autografa_created_at: new Date().toISOString(),
+                                          firma_autografa_last_used: new Date().toISOString(),
+                                          updated_at: new Date().toISOString(),
+                                        },
+                                        { onConflict: 'id' }
+                                      );
                                       setWantToSaveSignature(true);
                                       setNewSignatureSaved(true);
                                     } catch (err) {
@@ -7758,7 +11607,11 @@ export default function FirmarDocumentoPage() {
                                   }}
                                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-60"
                                 >
-                                  {savingNewSignature ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                                  {savingNewSignature ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <Check size={14} />
+                                  )}
                                   Sí, guardar
                                 </button>
                                 <button
@@ -7773,10 +11626,18 @@ export default function FirmarDocumentoPage() {
                           )}
 
                           {newSignatureSaved && (
-                            <div className={`border rounded-xl p-3 flex items-center gap-2 ${isDark ? 'border-gray-600 bg-gray-800/40' : 'border-gray-200 bg-gray-50'}`}>
-                              <ShieldCheck size={16} className={`flex-shrink-0 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-                              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                Firma guardada de forma segura en tu perfil. Podrás verla en <strong>/mi-perfil</strong>.
+                            <div
+                              className={`border rounded-xl p-3 flex items-center gap-2 ${isDark ? 'border-gray-600 bg-gray-800/40' : 'border-gray-200 bg-gray-50'}`}
+                            >
+                              <ShieldCheck
+                                size={16}
+                                className={`flex-shrink-0 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}
+                              />
+                              <p
+                                className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}
+                              >
+                                Firma guardada de forma segura en tu perfil. Podrás verla en{' '}
+                                <strong>/mi-perfil</strong>.
                               </p>
                             </div>
                           )}
@@ -7786,240 +11647,380 @@ export default function FirmarDocumentoPage() {
                   )}
 
                   {/* ── NON-AUTÓGRAFA FLOW (existing) ─────────────────────── */}
-                  {!isAutografaDigital && !isEfirmaSAT && (<>
-                  <div className={`flex items-center gap-3 rounded-xl p-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}>
-                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                      <User size={15} className="text-blue-600" />
-                    </div>
-                    <div>
-                      <p className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
-                        {user.user_metadata?.full_name || user.email}
-                      </p>
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>{user.email}</p>
-                    </div>
-                  </div>
-
-                  {/* Preloaded signature option */}
-                  {savedSignature && usePreloadedSignature === null && (
-                    <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-amber-700 bg-amber-900/20' : 'border-amber-200 bg-amber-50'}`}>
-                      <div className={`px-4 py-2.5 border-b flex items-center gap-2 ${isDark ? 'border-amber-700' : 'border-amber-200'}`}>
-                        <PenLine size={14} className="text-amber-600" />
-                        <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
-                          Firma precargada disponible — {signatureTypeLabel}
-                        </p>
-                      </div>
-                      <div className="p-4 space-y-3">
-                        <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                          Tienes una firma guardada en tu perfil. ¿Deseas utilizarla o dibujar una nueva?
-                        </p>
-                        {/* Preview of saved signature */}
-                        <div className="border border-dashed border-slate-300 rounded-lg bg-white overflow-hidden">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={savedSignature} alt="Firma guardada" className="w-full max-h-24 object-contain p-2" />
+                  {!isAutografaDigital && !isEfirmaSAT && (
+                    <>
+                      <div
+                        className={`flex items-center gap-3 rounded-xl p-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                          <User size={15} className="text-blue-600" />
                         </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setUsePreloadedSignature(true);
-                              setFirmaData(savedSignature);
-                              setFirmaConfirmada(true);
-                            }}
-                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
+                        <div>
+                          <p
+                            className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
                           >
-                            <Check size={14} />
-                            Usar firma guardada
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setUsePreloadedSignature(false)}
-                            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
+                            {user.user_metadata?.full_name || user.email}
+                          </p>
+                          <p
+                            className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
                           >
-                            <PenLine size={14} />
-                            Dibujar nueva
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Show preloaded signature confirmation */}
-                  {savedSignature && usePreloadedSignature === true && (
-                    <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-green-700' : 'border-green-200'}`}>
-                      <div className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'bg-green-900/20 border-green-700' : 'bg-green-50 border-green-200'}`}>
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 size={14} className="text-green-600" />
-                          <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-green-400' : 'text-green-700'}`}>
-                            Usando firma guardada — {signatureTypeLabel}
+                            {user.email}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => { setUsePreloadedSignature(null); setFirmaData(null); setFirmaConfirmada(false); }}
-                          className={`text-xs underline ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-muted-foreground hover:text-foreground'}`}
-                        >
-                          Cambiar
-                        </button>
                       </div>
-                      <div className="p-4 bg-white">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={savedSignature} alt="Firma guardada" className="w-full max-h-28 object-contain" />
-                      </div>
-                    </div>
-                  )}
 
-                  {/* New signature drawing area — shown when no preloaded or user chose new */}
-                  {(!savedSignature || usePreloadedSignature === false) && (
-                    <>
-                      {/* Configurar modo de firma */}
-                      <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}>
-                        <div className={`px-4 py-2.5 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}>
-                          <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Configurar modo de firma</p>
+                      {/* Preloaded signature option */}
+                      {savedSignature && usePreloadedSignature === null && (
+                        <div
+                          className={`border rounded-xl overflow-hidden ${isDark ? 'border-amber-700 bg-amber-900/20' : 'border-amber-200 bg-amber-50'}`}
+                        >
+                          <div
+                            className={`px-4 py-2.5 border-b flex items-center gap-2 ${isDark ? 'border-amber-700' : 'border-amber-200'}`}
+                          >
+                            <PenLine size={14} className="text-amber-600" />
+                            <p
+                              className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-amber-400' : 'text-amber-700'}`}
+                            >
+                              Firma precargada disponible — {signatureTypeLabel}
+                            </p>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                              Tienes una firma guardada en tu perfil. ¿Deseas utilizarla o dibujar
+                              una nueva?
+                            </p>
+                            {/* Preview of saved signature */}
+                            <div className="border border-dashed border-slate-300 rounded-lg bg-white overflow-hidden">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={savedSignature}
+                                alt="Firma guardada"
+                                className="w-full max-h-24 object-contain p-2"
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUsePreloadedSignature(true);
+                                  setFirmaData(savedSignature);
+                                  setFirmaConfirmada(true);
+                                }}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
+                              >
+                                <Check size={14} />
+                                Usar firma guardada
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setUsePreloadedSignature(false)}
+                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
+                              >
+                                <PenLine size={14} />
+                                Dibujar nueva
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                        <div className={`p-4 space-y-4 ${isDark ? 'bg-gray-800' : ''}`}>
-                          {/* Mode selector — 3 styles */}
-                          <div className="grid grid-cols-3 gap-2">
+                      )}
+
+                      {/* Show preloaded signature confirmation */}
+                      {savedSignature && usePreloadedSignature === true && (
+                        <div
+                          className={`border rounded-xl overflow-hidden ${isDark ? 'border-green-700' : 'border-green-200'}`}
+                        >
+                          <div
+                            className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'bg-green-900/20 border-green-700' : 'bg-green-50 border-green-200'}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 size={14} className="text-green-600" />
+                              <p
+                                className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-green-400' : 'text-green-700'}`}
+                              >
+                                Usando firma guardada — {signatureTypeLabel}
+                              </p>
+                            </div>
                             <button
                               type="button"
-                              onClick={() => { setSignatureMode('dibujar'); setFirmaData(null); setFirmaConfirmada(false); }}
-                              className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${signatureMode === 'dibujar' ? 'border-primary bg-primary/5 text-primary' : `${isDark ? 'border-gray-600 text-gray-400 hover:border-gray-500' : 'border-border text-muted-foreground hover:border-primary/40'}`}`}
+                              onClick={() => {
+                                setUsePreloadedSignature(null);
+                                setFirmaData(null);
+                                setFirmaConfirmada(false);
+                              }}
+                              className={`text-xs underline ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-muted-foreground hover:text-foreground'}`}
                             >
-                              <PenLine size={18} />
-                              Dibujar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setSignatureMode('tipear'); setFirmaData(null); setFirmaConfirmada(false); }}
-                              className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${signatureMode === 'tipear' ? 'border-primary bg-primary/5 text-primary' : `${isDark ? 'border-gray-600 text-gray-400 hover:border-gray-500' : 'border-border text-muted-foreground hover:border-primary/40'}`}`}
-                            >
-                              <Type size={18} />
-                              Tipear
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setSignatureMode('cargar'); setFirmaData(null); setFirmaConfirmada(false); }}
-                              className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${signatureMode === 'cargar' ? 'border-primary bg-primary/5 text-primary' : `${isDark ? 'border-gray-600 text-gray-400 hover:border-gray-500' : 'border-border text-muted-foreground hover:border-primary/40'}`}`}
-                            >
-                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                              Cargar imagen
+                              Cambiar
                             </button>
                           </div>
+                          <div className="p-4 bg-white">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={savedSignature}
+                              alt="Firma guardada"
+                              className="w-full max-h-28 object-contain"
+                            />
+                          </div>
+                        </div>
+                      )}
 
-                          {/* Mode: Dibujar */}
-                          {signatureMode === 'dibujar' && (
-                            <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}>
-                              <div className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-muted/30 border-border'}`}>
-                                <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Firma autógrafa digital</p>
-                                {firmaConfirmada && (
-                                  <span className="text-xs text-green-600 font-medium flex items-center gap-1">
-                                    <Check size={11} /> Guardada
-                                  </span>
-                                )}
-                              </div>
-                              <div className="p-4">
-                                <SignaturePad
-                                  onSave={handleFirmaSaved}
-                                  onClear={handleFirmaClear}
-                                  existingSignature={firmaData || undefined}
-                                />
-                              </div>
+                      {/* New signature drawing area — shown when no preloaded or user chose new */}
+                      {(!savedSignature || usePreloadedSignature === false) && (
+                        <>
+                          {/* Configurar modo de firma */}
+                          <div
+                            className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
+                          >
+                            <div
+                              className={`px-4 py-2.5 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}
+                            >
+                              <p
+                                className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                              >
+                                Configurar modo de firma
+                              </p>
                             </div>
-                          )}
-
-                          {/* Mode: Tipear */}
-                          {signatureMode === 'tipear' && (
-                            <div className="space-y-3">
-                              <div>
-                                <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Escribe tu nombre para generar la firma</label>
-                                <input
-                                  type="text"
-                                  value={typedSignature}
-                                  onChange={(e) => { setTypedSignature(e.target.value); setFirmaConfirmada(false); setFirmaData(null); }}
-                                  placeholder="Tu nombre completo"
-                                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
-                                />
-                              </div>
-                              {/* 3 style options */}
-                              <div>
-                                <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Estilo de firma</label>
-                                <div className="grid grid-cols-3 gap-2">
-                                  {([
-                                    { key: 'cursive' as const, label: 'Cursiva', font: '"Dancing Script", cursive' },
-                                    { key: 'print' as const, label: 'Imprenta', font: '"Roboto", sans-serif' },
-                                    { key: 'formal' as const, label: 'Formal', font: '"Playfair Display", serif' },
-                                  ]).map((style) => (
-                                    <button
-                                      key={style.key}
-                                      type="button"
-                                      onClick={() => { setTypedSignatureStyle(style.key); setFirmaConfirmada(false); setFirmaData(null); }}
-                                      className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 transition-all ${typedSignatureStyle === style.key ? 'border-primary bg-primary/5' : `${isDark ? 'border-gray-600 hover:border-gray-500' : 'border-border hover:border-primary/40'}`}`}
-                                    >
-                                      <span style={{ fontFamily: style.font, fontSize: '18px', color: '#1e293b' }}>
-                                        {typedSignature ? typedSignature.split(' ')[0] || 'Firma' : 'Firma'}
-                                      </span>
-                                      <span className={`text-[10px] font-medium ${typedSignatureStyle === style.key ? 'text-primary' : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>{style.label}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                              {typedSignature.trim() && (
+                            <div className={`p-4 space-y-4 ${isDark ? 'bg-gray-800' : ''}`}>
+                              {/* Mode selector — 3 styles */}
+                              <div className="grid grid-cols-3 gap-2">
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    const dataUrl = generateTypedSignatureDataUrl(typedSignature, typedSignatureStyle);
-                                    if (dataUrl) { setFirmaData(dataUrl); setFirmaConfirmada(true); }
+                                    setSignatureMode('dibujar');
+                                    setFirmaData(null);
+                                    setFirmaConfirmada(false);
                                   }}
-                                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
+                                  className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${signatureMode === 'dibujar' ? 'border-primary bg-primary/5 text-primary' : `${isDark ? 'border-gray-600 text-gray-400 hover:border-gray-500' : 'border-border text-muted-foreground hover:border-primary/40'}`}`}
                                 >
-                                  <Check size={14} />
-                                  Confirmar firma tipografiada
+                                  <PenLine size={18} />
+                                  Dibujar
                                 </button>
-                              )}
-                            </div>
-                          )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSignatureMode('tipear');
+                                    setFirmaData(null);
+                                    setFirmaConfirmada(false);
+                                  }}
+                                  className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${signatureMode === 'tipear' ? 'border-primary bg-primary/5 text-primary' : `${isDark ? 'border-gray-600 text-gray-400 hover:border-gray-500' : 'border-border text-muted-foreground hover:border-primary/40'}`}`}
+                                >
+                                  <Type size={18} />
+                                  Tipear
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSignatureMode('cargar');
+                                    setFirmaData(null);
+                                    setFirmaConfirmada(false);
+                                  }}
+                                  className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${signatureMode === 'cargar' ? 'border-primary bg-primary/5 text-primary' : `${isDark ? 'border-gray-600 text-gray-400 hover:border-gray-500' : 'border-border text-muted-foreground hover:border-primary/40'}`}`}
+                                >
+                                  <svg
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="17 8 12 3 7 8" />
+                                    <line x1="12" y1="3" x2="12" y2="15" />
+                                  </svg>
+                                  Cargar imagen
+                                </button>
+                              </div>
 
-                          {/* Mode: Cargar imagen */}
-                          {signatureMode === 'cargar' && (
-                            <div className="space-y-3">
-                              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Sube una imagen de tu firma</label>
-                              <input
-                                type="file"
-                                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (!file) return;
-                                  if (file.size > 2 * 1024 * 1024) { alert('El archivo no debe superar los 2 MB.'); e.target.value = ''; return; }
-                                  const reader = new FileReader();
-                                  reader.onload = (ev) => {
-                                    const dataUrl = ev.target?.result as string;
-                                    setFirmaData(dataUrl);
-                                    setFirmaConfirmada(true);
-                                  };
-                                  reader.readAsDataURL(file);
-                                }}
-                                className="w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
-                              />
-                              <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>JPG, JPEG o PNG · máx. 2 MB</p>
-                              {firmaData && (
-                                <div className="border border-dashed border-slate-300 rounded-lg bg-white overflow-hidden">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={firmaData} alt="Firma cargada" className="w-full max-h-28 object-contain p-2" />
+                              {/* Mode: Dibujar */}
+                              {signatureMode === 'dibujar' && (
+                                <div
+                                  className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
+                                >
+                                  <div
+                                    className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-muted/30 border-border'}`}
+                                  >
+                                    <p
+                                      className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                                    >
+                                      Firma autógrafa digital
+                                    </p>
+                                    {firmaConfirmada && (
+                                      <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+                                        <Check size={11} /> Guardada
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="p-4">
+                                    <SignaturePad
+                                      onSave={handleFirmaSaved}
+                                      onClear={handleFirmaClear}
+                                      existingSignature={firmaData || undefined}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Mode: Tipear */}
+                              {signatureMode === 'tipear' && (
+                                <div className="space-y-3">
+                                  <div>
+                                    <label
+                                      className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                                    >
+                                      Escribe tu nombre para generar la firma
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={typedSignature}
+                                      onChange={(e) => {
+                                        setTypedSignature(e.target.value);
+                                        setFirmaConfirmada(false);
+                                        setFirmaData(null);
+                                      }}
+                                      placeholder="Tu nombre completo"
+                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                    />
+                                  </div>
+                                  {/* 3 style options */}
+                                  <div>
+                                    <label
+                                      className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                                    >
+                                      Estilo de firma
+                                    </label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                      {[
+                                        {
+                                          key: 'cursive' as const,
+                                          label: 'Cursiva',
+                                          font: '"Dancing Script", cursive',
+                                        },
+                                        {
+                                          key: 'print' as const,
+                                          label: 'Imprenta',
+                                          font: '"Roboto", sans-serif',
+                                        },
+                                        {
+                                          key: 'formal' as const,
+                                          label: 'Formal',
+                                          font: '"Playfair Display", serif',
+                                        },
+                                      ].map((style) => (
+                                        <button
+                                          key={style.key}
+                                          type="button"
+                                          onClick={() => {
+                                            setTypedSignatureStyle(style.key);
+                                            setFirmaConfirmada(false);
+                                            setFirmaData(null);
+                                          }}
+                                          className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 transition-all ${typedSignatureStyle === style.key ? 'border-primary bg-primary/5' : `${isDark ? 'border-gray-600 hover:border-gray-500' : 'border-border hover:border-primary/40'}`}`}
+                                        >
+                                          <span
+                                            style={{
+                                              fontFamily: style.font,
+                                              fontSize: '18px',
+                                              color: '#1e293b',
+                                            }}
+                                          >
+                                            {typedSignature
+                                              ? typedSignature.split(' ')[0] || 'Firma'
+                                              : 'Firma'}
+                                          </span>
+                                          <span
+                                            className={`text-[10px] font-medium ${typedSignatureStyle === style.key ? 'text-primary' : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                                          >
+                                            {style.label}
+                                          </span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  {typedSignature.trim() && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const dataUrl = generateTypedSignatureDataUrl(
+                                          typedSignature,
+                                          typedSignatureStyle
+                                        );
+                                        if (dataUrl) {
+                                          setFirmaData(dataUrl);
+                                          setFirmaConfirmada(true);
+                                        }
+                                      }}
+                                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
+                                    >
+                                      <Check size={14} />
+                                      Confirmar firma tipografiada
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Mode: Cargar imagen */}
+                              {signatureMode === 'cargar' && (
+                                <div className="space-y-3">
+                                  <label
+                                    className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                                  >
+                                    Sube una imagen de tu firma
+                                  </label>
+                                  <input
+                                    type="file"
+                                    accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (!file) return;
+                                      if (file.size > 2 * 1024 * 1024) {
+                                        alert('El archivo no debe superar los 2 MB.');
+                                        e.target.value = '';
+                                        return;
+                                      }
+                                      const reader = new FileReader();
+                                      reader.onload = (ev) => {
+                                        const dataUrl = ev.target?.result as string;
+                                        setFirmaData(dataUrl);
+                                        setFirmaConfirmada(true);
+                                      };
+                                      reader.readAsDataURL(file);
+                                    }}
+                                    className="w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                                  />
+                                  <p
+                                    className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                  >
+                                    JPG, JPEG o PNG · máx. 2 MB
+                                  </p>
+                                  {firmaData && (
+                                    <div className="border border-dashed border-slate-300 rounded-lg bg-white overflow-hidden">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={firmaData}
+                                        alt="Firma cargada"
+                                        className="w-full max-h-28 object-contain p-2"
+                                      />
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
-                          )}
+                          </div>
+                        </>
+                      )}
+
+                      {firmaConfirmada && firmaData && (
+                        <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-2">
+                          <CheckCircle2 size={16} className="text-green-500 flex-shrink-0" />
+                          <p className="text-sm text-green-700">
+                            Tu firma ha sido capturada. Puedes enviar tu participación.
+                          </p>
                         </div>
-                      </div>
+                      )}
                     </>
                   )}
-
-                  {firmaConfirmada && firmaData && (
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-2">
-                      <CheckCircle2 size={16} className="text-green-500 flex-shrink-0" />
-                      <p className="text-sm text-green-700">Tu firma ha sido capturada. Puedes enviar tu participación.</p>
-                    </div>
-                  )}
-                  </>)}
                 </div>
               )}
 
@@ -8027,9 +12028,16 @@ export default function FirmarDocumentoPage() {
               {step === 'aprobacion' && (
                 <div className="space-y-5">
                   <div>
-                    <h2 className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}>Dar visto bueno</h2>
-                    <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                      Como aprobador, indica tu aprobación formal del documento. Puedes agregar observaciones opcionales.
+                    <h2
+                      className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                    >
+                      Dar visto bueno
+                    </h2>
+                    <p
+                      className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                    >
+                      Como aprobador, indica tu aprobación formal del documento. Puedes agregar
+                      observaciones opcionales.
                     </p>
                   </div>
 
@@ -8038,44 +12046,86 @@ export default function FirmarDocumentoPage() {
                       <User size={15} className="text-violet-600" />
                     </div>
                     <div>
-                      <p className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
+                      <p
+                        className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                      >
                         {user.user_metadata?.full_name || user.email}
                       </p>
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>{user.email} · Aprobador</p>
+                      <p
+                        className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                      >
+                        {user.email} · Aprobador
+                      </p>
                     </div>
                   </div>
 
-                  <div className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}>
-                    <div className={`px-4 py-2.5 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}>
-                      <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}>Confirmación de aprobación</p>
+                  <div
+                    className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
+                  >
+                    <div
+                      className={`px-4 py-2.5 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}
+                    >
+                      <p
+                        className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                      >
+                        Confirmación de aprobación
+                      </p>
                     </div>
                     <div className={`p-4 space-y-4 ${isDark ? 'bg-gray-800' : ''}`}>
                       <div className="flex items-start gap-3 bg-violet-50 rounded-lg p-3 border border-violet-100">
                         <CheckCircle2 size={18} className="text-violet-500 flex-shrink-0 mt-0.5" />
                         <div>
-                          <p className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}>Visto bueno / Aprobación</p>
-                          <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                            Al enviar, confirmas que has revisado el documento y otorgas tu aprobación formal.
+                          <p
+                            className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                          >
+                            Visto bueno / Aprobación
+                          </p>
+                          <p
+                            className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                          >
+                            Al enviar, confirmas que has revisado el documento y otorgas tu
+                            aprobación formal.
                           </p>
                         </div>
                       </div>
 
                       {hasCamposPrefijados && camposPrefijados.length > 0 && (
                         <div className="space-y-3">
-                          <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>Campos requeridos</p>
+                          <p
+                            className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                          >
+                            Campos requeridos
+                          </p>
                           {camposPrefijados.map((campo, idx) => {
                             const key = campo.id || `prefijado-${idx}`;
                             return (
                               <div key={key} className="space-y-1.5">
-                                <label className={`flex items-center gap-1.5 text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
+                                <label
+                                  className={`flex items-center gap-1.5 text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                >
                                   <CampoIcon tipo={campo.tipo} />
                                   {campo.label}
                                 </label>
                                 <input
-                                  type={campo.tipo === 'fecha' ? 'date' : campo.tipo === 'numero' ? 'number' : 'text'}
+                                  type={
+                                    campo.tipo === 'fecha'
+                                      ? 'date'
+                                      : campo.tipo === 'numero'
+                                        ? 'number'
+                                        : 'text'
+                                  }
                                   value={camposValues[key] || ''}
-                                  onKeyDown={campo.tipo === 'numero' ? (e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); } : undefined}
-                                  onChange={(e) => setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                                  onKeyDown={
+                                    campo.tipo === 'numero'
+                                      ? (e) => {
+                                          if (['e', 'E', '+', '-'].includes(e.key))
+                                            e.preventDefault();
+                                        }
+                                      : undefined
+                                  }
+                                  onChange={(e) =>
+                                    setCamposValues((prev) => ({ ...prev, [key]: e.target.value }))
+                                  }
                                   placeholder={`Ingresa ${campo.label.toLowerCase()}`}
                                   className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                                 />
@@ -8086,8 +12136,15 @@ export default function FirmarDocumentoPage() {
                       )}
 
                       <div className="space-y-1.5">
-                        <label className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
-                          Observaciones <span className={`font-normal ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>(opcional)</span>
+                        <label
+                          className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                        >
+                          Observaciones{' '}
+                          <span
+                            className={`font-normal ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                          >
+                            (opcional)
+                          </span>
                         </label>
                         <textarea
                           value={observaciones}
@@ -8096,7 +12153,11 @@ export default function FirmarDocumentoPage() {
                           rows={4}
                           className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200 placeholder-gray-500' : 'bg-background border-border'}`}
                         />
-                        <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>{observaciones.length}/500 caracteres</p>
+                        <p
+                          className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                        >
+                          {observaciones.length}/500 caracteres
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -8110,19 +12171,21 @@ export default function FirmarDocumentoPage() {
                   <p className="text-sm text-red-700">{submitError}</p>
                 </div>
               )}
-
             </div>
           </div>
 
           {/* ── Bottom Action Bar ──────────────────────────────────────────── */}
-          <div className={`border-t px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-shrink-0 shadow-sm transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-card'}`}>
+          <div
+            className={`border-t px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-shrink-0 shadow-sm transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-card'}`}
+          >
             <div className="flex items-center gap-2">
               {step !== 'terminos' && (
                 <button
                   onClick={() => {
                     if (step === 'campos') setStep('terminos');
                     else if (step === 'firma') setStep('campos');
-                    else if (step === 'aprobacion') setStep(myRole === 'aprobador' ? 'terminos' : 'campos');
+                    else if (step === 'aprobacion')
+                      setStep(myRole === 'aprobador' ? 'terminos' : 'campos');
                   }}
                   className={`flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg transition-colors ${isDark ? 'text-gray-300 border-gray-600 hover:bg-gray-700' : 'text-muted-foreground border-border hover:bg-muted'}`}
                 >
@@ -8137,12 +12200,18 @@ export default function FirmarDocumentoPage() {
                   disabled={savingProgress}
                   className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border rounded-lg transition-colors ${isDark ? 'text-gray-300 border-gray-600 hover:bg-gray-700' : 'text-primary border-primary/30 hover:bg-primary/5'} disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                  {savingProgress ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  {savingProgress ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Save size={14} />
+                  )}
                   <span className="hidden sm:inline">Guardar avance</span>
                 </button>
               )}
               {saveProgressMsg && (
-                <span className={`text-xs font-medium ${saveProgressMsg.startsWith('Error') ? 'text-red-500' : 'text-green-600'}`}>
+                <span
+                  className={`text-xs font-medium ${saveProgressMsg.startsWith('Error') ? 'text-red-500' : 'text-green-600'}`}
+                >
                   {saveProgressMsg}
                 </span>
               )}
@@ -8155,7 +12224,11 @@ export default function FirmarDocumentoPage() {
                   disabled={!terminosAceptados || geoDenied || geoLoading}
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {geoLoading ? <Loader2 size={14} className="animate-spin" /> : <ChevronDown size={14} className="rotate-[-90deg]" />}
+                  {geoLoading ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <ChevronDown size={14} className="rotate-[-90deg]" />
+                  )}
                   Continuar
                 </button>
               )}
@@ -8178,9 +12251,13 @@ export default function FirmarDocumentoPage() {
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
-                    <><Loader2 size={14} className="animate-spin" /> Enviando...</>
+                    <>
+                      <Loader2 size={14} className="animate-spin" /> Enviando...
+                    </>
                   ) : (
-                    <><Save size={14} /> Firmar ahora</>
+                    <>
+                      <Save size={14} /> Firmar ahora
+                    </>
                   )}
                 </button>
               )}
@@ -8192,9 +12269,13 @@ export default function FirmarDocumentoPage() {
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-violet-500 rounded-xl hover:bg-violet-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
-                    <><Loader2 size={14} className="animate-spin" /> Enviando...</>
+                    <>
+                      <Loader2 size={14} className="animate-spin" /> Enviando...
+                    </>
                   ) : (
-                    <><CheckCircle2 size={14} /> Confirmar aprobación</>
+                    <>
+                      <CheckCircle2 size={14} /> Confirmar aprobación
+                    </>
                   )}
                 </button>
               )}

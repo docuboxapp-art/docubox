@@ -29,10 +29,8 @@ export const dynamic = 'force-dynamic';
 const DOCUMENT_BUCKET = 'documents';
 const CERTIFICATION_BUCKET = 'certification-artifacts';
 const MAX_BODY_BYTES = 4096;
-const MIN_RETRY_INTERVAL_MS = 30_000;
-
-let activeRun = false;
-const lastRunByUser = new Map<string, number>();
+const MIN_RETRY_INTERVAL_SECONDS = 30;
+const RUN_LEASE_SECONDS = 15 * 60;
 
 class LifecycleE2eError extends Error {
   constructor(
@@ -569,9 +567,6 @@ export async function POST(request: NextRequest) {
   const body = (await request.text()).trim();
   if (body && body !== '{}')
     return NextResponse.json({ error: 'El runner no acepta parámetros.' }, { status: 400 });
-  if (activeRun)
-    return NextResponse.json({ error: 'Ya existe una ejecución en curso.' }, { status: 429 });
-
   let user: Awaited<ReturnType<typeof requireApiUser>>;
   try {
     const candidate = request.headers.get('authorization')
@@ -582,10 +577,6 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Autenticación requerida.' }, { status: 401 });
   }
-  const lastRun = lastRunByUser.get(user.id) || 0;
-  if (Date.now() - lastRun < MIN_RETRY_INTERVAL_MS)
-    return NextResponse.json({ error: 'Reintento demasiado pronto.' }, { status: 429 });
-
   const service = createServiceClient();
   let workspaceId: string;
   try {
@@ -600,8 +591,29 @@ export async function POST(request: NextRequest) {
   }
 
   const runId = randomUUID();
-  activeRun = true;
-  lastRunByUser.set(user.id, Date.now());
+  const claim = await service.rpc('claim_crypto_lifecycle_e2e_run', {
+    p_run_id: runId,
+    p_workspace_id: workspaceId,
+    p_actor_id: user.id,
+    p_retry_seconds: MIN_RETRY_INTERVAL_SECONDS,
+    p_lease_seconds: RUN_LEASE_SECONDS,
+  });
+  if (claim.error) {
+    console.error('[crypto-lifecycle-e2e] Distributed claim failed', {
+      code: claim.error.code || null,
+    });
+    return NextResponse.json({ error: 'No se pudo reservar la ejecución.' }, { status: 503 });
+  }
+  if (claim.data === 'ACTIVE_RUN') {
+    return NextResponse.json({ error: 'Ya existe una ejecución en curso.' }, { status: 429 });
+  }
+  if (claim.data === 'RETRY_TOO_SOON') {
+    return NextResponse.json({ error: 'Reintento demasiado pronto.' }, { status: 429 });
+  }
+  if (claim.data !== 'CLAIMED') {
+    return NextResponse.json({ error: 'No se pudo reservar la ejecución.' }, { status: 503 });
+  }
+
   try {
     await audit(service, {
       workspaceId,
@@ -638,6 +650,14 @@ export async function POST(request: NextRequest) {
         constancias: result.constancias.length,
       },
     });
+    const completion = await service.rpc('finish_crypto_lifecycle_e2e_run', {
+      p_run_id: runId,
+      p_status: 'completed',
+      p_error_code: null,
+    });
+    if (completion.error || completion.data !== true) {
+      throw new LifecycleE2eError('CRYPTO_LIFECYCLE_E2E_JOB_FINALIZATION_FAILED');
+    }
     return NextResponse.json(result, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     const code =
@@ -653,11 +673,14 @@ export async function POST(request: NextRequest) {
       outcome: 'failed',
       payload: { run_id: runId, failure_code: code },
     }).catch(() => undefined);
+    await service.rpc('finish_crypto_lifecycle_e2e_run', {
+      p_run_id: runId,
+      p_status: 'failed',
+      p_error_code: code,
+    });
     return NextResponse.json(
       { status: 'FAILED', runId, failureCode: code, failClosed: true },
       { status: 502 }
     );
-  } finally {
-    activeRun = false;
   }
 }

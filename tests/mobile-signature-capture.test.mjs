@@ -31,11 +31,16 @@ test('only the authenticated initiator can recover the mobile signature result',
   assert.match(source, /decryptCapture/);
 });
 
-test('desktop flow offers the two signature methods and defaults to thin strokes', () => {
+test('desktop flow opens the inline pad directly and keeps expanded and mobile signing optional', () => {
   const source = read('src/app/firmar-documento/[id]/AutographSignatureFlow.tsx');
-  assert.match(source, /'signature_method' \| 'pad' \| 'mobile_signature'/);
+  assert.doesNotMatch(source, /flowStep === 'signature_method'/);
+  assert.doesNotMatch(source, /¿Dónde deseas plasmar tu firma\?/);
+  assert.match(source, /onNoticeAccepted\?\.\(\);\s*setFlowStep\('pad'\);/);
+  assert.match(source, /const \[padExpanded, setPadExpanded\] = useState\(false\)/);
+  assert.match(source, /aria-label=\{padExpanded \? 'Reducir firma' : 'Expandir firma'\}/);
+  assert.match(source, /height: padExpanded \? 'min\(52dvh, 420px\)' : '200px'/);
   assert.match(source, /useState<'thin' \| 'medium' \| 'thick'>\('thin'\)/);
-  assert.match(source, /Firmar desde el móvil/);
+  assert.match(source, /aria-label="Firmar desde el móvil"/);
   assert.match(source, /MobileSignatureModal/);
 });
 
