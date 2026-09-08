@@ -6,7 +6,7 @@ import { readDocumentStorageObject } from '@/lib/crypto/document-encryption';
 import { blockchainEvidenceConfig } from './config';
 import { resolveBitcoinBlock } from './bitcoin-core';
 import { createBlockchainEvidenceManifest, hashBytes } from './manifest';
-import { OpenTimestampsCliProvider } from './opentimestamps-cli-provider';
+import { createOpenTimestampProvider } from './provider';
 import { readBlockchainArtifact, storeBlockchainArtifact } from './storage';
 import { retryDelayMs } from './state-machine';
 import type { OpenTimestampProvider } from './types';
@@ -128,7 +128,7 @@ async function featureEnabledForDocument(service: SupabaseClient, documentId: st
 export async function createBlockchainEvidenceForFinalDocument(
   service: SupabaseClient,
   input: { documentId: string; actorId?: string | null; submitImmediately?: boolean },
-  provider: OpenTimestampProvider = new OpenTimestampsCliProvider()
+  provider: OpenTimestampProvider = createOpenTimestampProvider()
 ) {
   const config = blockchainEvidenceConfig();
   if (!config.enabled || !(await featureEnabledForDocument(service, input.documentId))) return null;
@@ -219,6 +219,16 @@ export async function createBlockchainEvidenceForFinalDocument(
   if (input.submitImmediately === false) return inserted.data;
 
   try {
+    const stampStartedAt = Date.now();
+    await audit(service, {
+      documentId: input.documentId,
+      evidenceId,
+      eventType: 'OPENTIMESTAMPS_STAMP_STARTED',
+      result: 'PENDING',
+      actorId: input.actorId,
+      documentHash,
+      idempotencyKey: `ots-stamp-started:${evidenceId}:1`,
+    });
     const created = await provider.createProof({
       canonicalManifest: manifest.canonical,
       manifestHash: manifest.manifestHash,
@@ -287,6 +297,7 @@ export async function createBlockchainEvidenceForFinalDocument(
         calendar_origin: new URL(calendar).origin,
         operation: 'SUBMIT',
         result: created.calendarsFailed.includes(calendar) ? 'FAILED' : 'SUCCESS',
+        duration_ms: Date.now() - stampStartedAt,
       });
     }
     await audit(service, {
@@ -321,7 +332,7 @@ export async function createBlockchainEvidenceForFinalDocument(
       .from('document_blockchain_evidence')
       .update({
         status: 'SUBMISSION_FAILED',
-        verification_status: 'FAILED',
+        verification_status: 'PENDING',
         verification_error_code: code,
         last_error_message: error instanceof Error ? error.message.slice(0, 1000) : code,
         next_upgrade_attempt_at: new Date(
@@ -332,7 +343,7 @@ export async function createBlockchainEvidenceForFinalDocument(
     await audit(service, {
       documentId: input.documentId,
       evidenceId,
-      eventType: 'BLOCKCHAIN_VERIFICATION_FAILED',
+      eventType: 'OPENTIMESTAMPS_STAMP_FAILED',
       result: 'FAILED',
       documentHash,
       idempotencyKey: `ots-submission-failed:${evidenceId}:1`,
@@ -347,7 +358,7 @@ export async function createBlockchainEvidenceForFinalDocument(
 export async function retryBlockchainEvidenceSubmission(
   service: SupabaseClient,
   row: Record<string, any>,
-  provider: OpenTimestampProvider = new OpenTimestampsCliProvider()
+  provider: OpenTimestampProvider = createOpenTimestampProvider()
 ) {
   const config = blockchainEvidenceConfig();
   if (row.proof_storage_path) return row;
@@ -358,6 +369,15 @@ export async function retryBlockchainEvidenceSubmission(
       'El manifiesto almacenado no coincide con su SHA-256.'
     );
   const canonicalManifest = Buffer.from(manifestBytes).toString('utf8');
+  const stampStartedAt = Date.now();
+  await audit(service, {
+    documentId: row.document_id,
+    evidenceId: row.id,
+    eventType: 'OPENTIMESTAMPS_STAMP_STARTED',
+    result: 'PENDING',
+    documentHash: row.document_hash,
+    idempotencyKey: `ots-stamp-started:${row.id}:retry:${Number(row.upgrade_attempts || 0) + 1}`,
+  });
   const created = await provider.createProof({
     canonicalManifest,
     manifestHash: row.manifest_hash,
@@ -369,6 +389,7 @@ export async function retryBlockchainEvidenceSubmission(
       calendar_origin: new URL(calendar).origin,
       operation: 'SUBMIT',
       result: created.calendarsFailed.includes(calendar) ? 'FAILED' : 'SUCCESS',
+      duration_ms: Date.now() - stampStartedAt,
     });
   }
   const proofHash = hashBytes(created.proof);
@@ -449,14 +470,15 @@ export async function retryBlockchainEvidenceSubmission(
 
 export async function processBlockchainEvidenceQueue(
   service: SupabaseClient,
-  input: { workerId: string; limit?: number },
-  provider: OpenTimestampProvider = new OpenTimestampsCliProvider()
+  input: { workerId: string; limit?: number; operation?: 'STAMP' | 'UPGRADE' | 'ALL' },
+  provider: OpenTimestampProvider = createOpenTimestampProvider()
 ) {
   const config = blockchainEvidenceConfig();
   if (!config.enabled) return { claimed: 0, verified: 0, pending: 0, failed: 0 };
-  const claims = await service.rpc('claim_pending_blockchain_evidence', {
+  const claims = await service.rpc('claim_blockchain_evidence_jobs', {
     p_worker: input.workerId,
     p_limit: input.limit || 20,
+    p_operation: input.operation || 'ALL',
   });
   if (claims.error) throw claims.error;
   let verified = 0,
@@ -471,6 +493,15 @@ export async function processBlockchainEvidenceQueue(
         pending += 1;
         continue;
       }
+      await audit(service, {
+        documentId: row.document_id,
+        evidenceId: row.id,
+        eventType: 'OPENTIMESTAMPS_UPGRADE_STARTED',
+        result: 'PENDING',
+        documentHash: row.document_hash,
+        idempotencyKey: `ots-upgrade-started:${row.id}:${attempt}`,
+      });
+      const upgradeStartedAt = Date.now();
       const original = await readBlockchainArtifact(
         service,
         row.proof_storage_path,
@@ -485,6 +516,15 @@ export async function processBlockchainEvidenceQueue(
         proof: original,
         calendars: config.calendars,
       });
+      for (const calendar of config.calendars) {
+        await service.from('document_blockchain_calendar_attempts').insert({
+          evidence_id: row.id,
+          calendar_origin: new URL(calendar).origin,
+          operation: 'UPGRADE',
+          result: 'SUCCESS',
+          duration_ms: Date.now() - upgradeStartedAt,
+        });
+      }
       const proof = upgraded.proof;
       const proofHash = hashBytes(proof);
       let version = Number(row.proof_version || 1);
@@ -528,6 +568,14 @@ export async function processBlockchainEvidenceQueue(
       let blockHash: string | null = null;
       let attestedAt = inspection.bitcoinAttestedAt;
       if (inspection.bitcoinAttestationFound) {
+        await audit(service, {
+          documentId: row.document_id,
+          evidenceId: row.id,
+          eventType: 'OPENTIMESTAMPS_VERIFY_STARTED',
+          result: 'PENDING',
+          documentHash: row.document_hash,
+          idempotencyKey: `ots-verify-started:${row.id}:${proofHash}`,
+        });
         const result = await provider.verifyProof({ proof, manifestHash: row.manifest_hash });
         if (!result.manifestHashMatches)
           throw new BlockchainEvidenceError(
@@ -676,7 +724,7 @@ export async function processBlockchainEvidenceQueue(
         .from('document_blockchain_evidence')
         .update({
           status: invalid ? 'INVALID_PROOF' : hadProof ? 'UPGRADE_FAILED' : 'SUBMISSION_FAILED',
-          verification_status: 'FAILED',
+          verification_status: invalid ? 'INVALID' : 'PENDING',
           verification_error_code: code,
           last_error_message: error instanceof Error ? error.message.slice(0, 1000) : code,
           last_upgrade_attempt_at: new Date().toISOString(),
@@ -693,7 +741,9 @@ export async function processBlockchainEvidenceQueue(
       await audit(service, {
         documentId: row.document_id,
         evidenceId: row.id,
-        eventType: 'BLOCKCHAIN_VERIFICATION_FAILED',
+        eventType: hadProof
+          ? 'BLOCKCHAIN_EVIDENCE_VERIFICATION_FAILED'
+          : 'OPENTIMESTAMPS_STAMP_FAILED',
         result: 'FAILED',
         documentHash: row.document_hash,
         idempotencyKey: `ots-upgrade-failed:${row.id}:${attempt}`,
@@ -704,11 +754,27 @@ export async function processBlockchainEvidenceQueue(
   return { claimed: (claims.data || []).length, verified, pending, failed };
 }
 
+export function processGeneratedBlockchainEvidence(
+  service: SupabaseClient,
+  input: { workerId: string; limit?: number },
+  provider: OpenTimestampProvider = createOpenTimestampProvider()
+) {
+  return processBlockchainEvidenceQueue(service, { ...input, operation: 'STAMP' }, provider);
+}
+
+export function processPendingBlockchainEvidence(
+  service: SupabaseClient,
+  input: { workerId: string; limit?: number },
+  provider: OpenTimestampProvider = createOpenTimestampProvider()
+) {
+  return processBlockchainEvidenceQueue(service, { ...input, operation: 'UPGRADE' }, provider);
+}
+
 export async function verifyBlockchainEvidenceArtifacts(
   service: SupabaseClient,
   row: Record<string, any>,
   documentBytes?: Uint8Array,
-  provider: OpenTimestampProvider = new OpenTimestampsCliProvider()
+  provider: OpenTimestampProvider = createOpenTimestampProvider()
 ) {
   const presentedDocumentHash = documentBytes ? hashBytes(documentBytes) : null;
   if (presentedDocumentHash !== null && presentedDocumentHash !== row.document_hash) {

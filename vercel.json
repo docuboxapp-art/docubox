@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/opentimestamps_runtime.py": {
+      "maxDuration": 300
+    }
+  },
   "crons": [
     {
       "path": "/api/colabora/automations/process",

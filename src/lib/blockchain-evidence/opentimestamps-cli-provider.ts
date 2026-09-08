@@ -163,4 +163,26 @@ export class OpenTimestampsCliProvider implements OpenTimestampProvider {
       }
     });
   }
+
+  async healthCheck() {
+    const config = blockchainEvidenceConfig();
+    try {
+      const result = await this.workspace((directory) => this.run(['--version'], directory));
+      return {
+        available: true,
+        clientVersion: `${result.stdout}\n${result.stderr}`.trim().slice(0, 120) || null,
+        calendarsReachable: 0,
+        calendarsConfigured: config.calendars.length,
+        errorCode: null,
+      };
+    } catch (error) {
+      return {
+        available: false,
+        clientVersion: null,
+        calendarsReachable: 0,
+        calendarsConfigured: config.calendars.length,
+        errorCode: error instanceof Error ? error.name : 'OTS_CLIENT_UNAVAILABLE',
+      };
+    }
+  }
 }

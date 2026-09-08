@@ -118,3 +118,44 @@ test('provider pins allowlisted calendars and never sends a PDF', () => {
   assert.match(source, /canonicalManifest/);
   assert.doesNotMatch(source, /pdfBytes|documentBytes/);
 });
+
+test('real anchoring requires its dedicated feature flag', () => {
+  const source = readFileSync('src/lib/blockchain-evidence/config.ts', 'utf8');
+  assert.match(source, /OPENTIMESTAMPS_REAL_ANCHORING_ENABLED/);
+  assert.match(source, /DOCUBOX_BLOCKCHAIN_EVIDENCE_ENABLED/);
+  assert.match(source, /OPENTIMESTAMPS_ENABLED/);
+});
+
+test('Vercel runtime uses the official Python client behind internal authentication', () => {
+  const runtime = readFileSync('api/opentimestamps_runtime.py', 'utf8');
+  const requirements = readFileSync('requirements.txt', 'utf8');
+  const provider = readFileSync(
+    'src/lib/blockchain-evidence/opentimestamps-http-provider.ts',
+    'utf8'
+  );
+  assert.match(requirements, /^opentimestamps-client==0\.7\.2/m);
+  assert.match(runtime, /OTS_WORKER_SECRET/);
+  assert.match(runtime, /Authorization/);
+  assert.match(provider, /manifestBase64/);
+  assert.doesNotMatch(provider, /documentBytes|pdfBytes|tenantId|participant|email/);
+});
+
+test('stamp and upgrade workers are independently protected and claim separate queues', () => {
+  const stamp = readFileSync(
+    'src/app/api/internal/jobs/opentimestamps/stamp/route.ts',
+    'utf8'
+  );
+  const upgrade = readFileSync(
+    'src/app/api/internal/jobs/opentimestamps/upgrade/route.ts',
+    'utf8'
+  );
+  const claims = readFileSync(
+    'supabase/migrations/20260908133000_opentimestamps_worker_claims.sql',
+    'utf8'
+  );
+  assert.match(stamp, /isAuthorizedOpenTimestampsWorker/);
+  assert.match(upgrade, /isAuthorizedOpenTimestampsWorker/);
+  assert.match(claims, /FOR UPDATE SKIP LOCKED/);
+  assert.match(claims, /p_operation = 'STAMP'/);
+  assert.match(claims, /p_operation = 'UPGRADE'/);
+});

@@ -77,6 +77,7 @@
     "crypto:bootstrap:hsm-production-certificate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/bootstrap-google-hsm-production-certificate.ts",
     "type-check": "tsc --noEmit",
     "test:blockchain-evidence": "node --test tests/blockchain-evidence.test.mjs",
+    "test:opentimestamps-runtime": "python -m unittest tests/test_ots_runtime.py",
     "qa:blockchain-certificate": "esbuild scripts/render-blockchain-certificate-fixture.ts --bundle --platform=node --format=esm --packages=external --outfile=.tmp/render-blockchain-certificate-fixture.mjs && node .tmp/render-blockchain-certificate-fixture.mjs"
   },
   "overrides": {

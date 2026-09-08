@@ -3165,11 +3165,16 @@ function FileUploadedLayout({
                     <input
                       type="checkbox"
                       checked={blockchainEvidence}
+                      disabled={
+                        process.env.NEXT_PUBLIC_OPENTIMESTAMPS_REAL_ANCHORING_ENABLED !== 'true'
+                      }
                       onChange={(event) => setBlockchainEvidence(event.target.checked)}
                       className="h-4 w-4 rounded border-gray-300 accent-primary"
                     />
                     <span className="flex-1 text-sm font-normal text-gray-700">
-                      Registrar evidencia en Bitcoin
+                      {process.env.NEXT_PUBLIC_OPENTIMESTAMPS_REAL_ANCHORING_ENABLED === 'true'
+                        ? 'Registrar evidencia en Bitcoin'
+                        : 'Evidencia en Bitcoin: funcionalidad en preparación'}
                     </span>
                     <InfoTooltip
                       showOnParentHover

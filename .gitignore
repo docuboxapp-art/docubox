@@ -59,6 +59,8 @@ Thumbs.db
 # Optional: if using testing tools
 coverage/
 jest-test-results.json
+__pycache__/
+*.py[cod]
 
 # Optional: if using IDEs
 .vscode/

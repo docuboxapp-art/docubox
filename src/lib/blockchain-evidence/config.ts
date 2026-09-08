@@ -30,10 +30,20 @@ export function blockchainEvidenceConfig() {
   return {
     enabled:
       process.env.DOCUBOX_BLOCKCHAIN_EVIDENCE_ENABLED === 'true' &&
-      process.env.OPENTIMESTAMPS_ENABLED === 'true',
+      process.env.OPENTIMESTAMPS_ENABLED === 'true' &&
+      process.env.OPENTIMESTAMPS_REAL_ANCHORING_ENABLED === 'true',
+    realAnchoringEnabled: process.env.OPENTIMESTAMPS_REAL_ANCHORING_ENABLED === 'true',
     calendars: [...new Set(calendars)],
     cliPath: process.env.OPENTIMESTAMPS_CLI_PATH || 'ots',
-    bitcoinVerificationMode: process.env.BITCOIN_VERIFICATION_MODE || 'OTS_COMPATIBLE',
+    providerMode: process.env.OPENTIMESTAMPS_PROVIDER || (process.env.VERCEL ? 'HTTP' : 'CLI'),
+    executionMode: process.env.OTS_EXECUTION_MODE || (process.env.VERCEL ? 'VERCEL' : 'WORKER'),
+    workerUrl:
+      process.env.OPENTIMESTAMPS_WORKER_URL ||
+      (process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}/api/opentimestamps-runtime`
+        : ''),
+    workerSecret: process.env.OTS_WORKER_SECRET || process.env.CRON_SECRET || '',
+    bitcoinVerificationMode: process.env.BITCOIN_VERIFICATION_MODE || 'OPENTIMESTAMPS',
     upgradeIntervalMs: parseIsoDurationMs(process.env.OPENTIMESTAMPS_UPGRADE_INTERVAL || 'PT1H'),
     timeoutMs: Math.min(
       Math.max(Number(process.env.OPENTIMESTAMPS_TIMEOUT_MS || 30000), 5000),

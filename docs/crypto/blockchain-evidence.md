@@ -18,9 +18,20 @@ El archivo `.ots` resultante permanece compatible y portable. Cada upgrade se co
 
 ## Runtime del proveedor
 
-La implementación usa `OpenTimestampsCliProvider`, aislado detrás de `OpenTimestampProvider`. Se descartó el paquete npm `opentimestamps` porque su publicación disponible es antigua y depende de paquetes obsoletos. El worker debe instalar el cliente oficial `opentimestamps-client` y exponer el ejecutable con `OPENTIMESTAMPS_CLI_PATH`.
+La implementación permanece aislada detrás de `OpenTimestampProvider`. En Vercel,
+`OpenTimestampsHttpProvider` invoca una función Python 3.12 protegida que instala
+`opentimestamps-client==0.7.2` y ejecuta el cliente oficial dentro de `/tmp`. El proceso Node de
+Next.js nunca presupone que `ots` exista en su imagen. En Docker,
+`OpenTimestampsCliProvider` y el mismo contrato HTTP permiten usar el ejecutable local sin cambiar
+la lógica documental.
 
-En Vercel, el proceso Next.js no incluye ese binario por defecto. Producción debe ejecutar la ruta programada en un runtime backend que contenga `ots` o mover el mismo proveedor a un worker contenedorizado. Mientras falte el binario, el sistema registra `SUBMISSION_FAILED`; nunca simula ni publica un anclaje.
+La función Python sólo acepta manifiesto canónico o pruebas `.ots`, valida los SHA-256 recibidos,
+impone la allowlist server-side y elimina todos los temporales al terminar. No recibe PDF, UUID,
+tenant, participantes ni otros datos personales.
+
+La activación requiere simultáneamente `DOCUBOX_BLOCKCHAIN_EVIDENCE_ENABLED`,
+`OPENTIMESTAMPS_ENABLED` y `OPENTIMESTAMPS_REAL_ANCHORING_ENABLED`. El flag público de interfaz se
+mantiene apagado hasta completar la prueba real del runtime desplegado.
 
 ## Estados verdaderos
 
@@ -28,7 +39,7 @@ En Vercel, el proceso Next.js no incluye ese binario por defecto. Producción de
 - `ANCHORED`: la prueba contiene una attestación Bitcoin, pero todavía no se completó la verificación criptográfica configurada.
 - `VERIFIED`: `ots verify` confirmó la prueba contra Bitcoin. Sólo entonces se emite la constancia.
 
-`BITCOIN_VERIFICATION_MODE=LOCAL_NODE` consulta `getblockhash` y `getblockheader` en un Bitcoin Core propio sin wallet para persistir de forma independiente el hash y fecha del bloque.
+`BITCOIN_VERIFICATION_MODE=LOCAL_NODE` consulta `getblockhash` y `getblockheader` en un Bitcoin Core propio sin wallet para persistir de forma independiente el hash y fecha del bloque. Sin un nodo verificable, una prueba completa puede avanzar a `ANCHORED`, pero no a `VERIFIED`.
 
 ## Seguridad y retención
 
@@ -40,4 +51,17 @@ La verificación pública se localiza mediante un token aleatorio de 192 bits y 
 
 ## Operación
 
-El cron `/api/internal/blockchain-evidence/upgrade` requiere `Authorization: Bearer $CRON_SECRET`, reclama filas con `FOR UPDATE SKIP LOCKED`, libera claims vencidos y aplica backoff exponencial con límite de 24 horas. Una restricción única evita duplicados por `document_id + document_hash + schema_version`.
+Los disparadores `/api/internal/jobs/opentimestamps/stamp` y
+`/api/internal/jobs/opentimestamps/upgrade` requieren `Authorization: Bearer $OTS_WORKER_SECRET`
+con fallback a `CRON_SECRET`. El cron combinado heredado sigue disponible para el plan Hobby de
+Vercel, que sólo admite ejecución diaria. La migración futura a un scheduler cada 5 minutos para
+stamp y cada 60 minutos para upgrade está preparada en `workers/ots-worker`.
+
+Las colas separadas reclaman filas con `FOR UPDATE SKIP LOCKED`, liberan claims vencidos y aplican
+backoff exponencial con límite de 24 horas. Una restricción única evita duplicados por
+`document_id + document_hash + schema_version`.
+
+El diagnóstico interno `/api/internal/opentimestamps/health` expone únicamente disponibilidad del
+cliente, calendarios alcanzables, Storage, base de datos, contadores y latencias sin PII. La ruta
+`/api/internal/opentimestamps/probe` crea una prueba controlada sin PII y la guarda en el bucket
+privado; no activa la función para documentos reales.

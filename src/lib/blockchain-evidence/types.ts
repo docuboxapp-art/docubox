@@ -37,6 +37,15 @@ export type ProofInspection = {
 export type ProofVerification = ProofInspection & {
   manifestHashMatches: boolean;
   bitcoinVerified: boolean;
+  verificationUnavailable?: boolean;
+};
+
+export type OpenTimestampsHealth = {
+  available: boolean;
+  clientVersion: string | null;
+  calendarsReachable: number;
+  calendarsConfigured: number;
+  errorCode: string | null;
 };
 
 export interface OpenTimestampProvider {
@@ -56,4 +65,5 @@ export interface OpenTimestampProvider {
   }): Promise<{ proof: Uint8Array; changed: boolean }>;
   verifyProof(input: { proof: Uint8Array; manifestHash: string }): Promise<ProofVerification>;
   getProofStatus(proof: Uint8Array): Promise<ProofInspection>;
+  healthCheck(): Promise<OpenTimestampsHealth>;
 }
