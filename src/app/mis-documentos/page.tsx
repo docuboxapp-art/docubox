@@ -1,6 +1,7 @@
 'use client';
 
 import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 
 import {
   Star,
@@ -39,15 +40,15 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import PersonalizarVistaModal, {
+import {
   DEFAULT_COLUMNS,
   DEFAULT_FILTERS,
-  ColumnConfig,
-  FilterVisibilityConfig,
-  GridColumnConfig,
   DEFAULT_GRID_COLUMNS,
   DEFAULT_CF_COLUMNS,
-} from './components/PersonalizarVistaModal';
+  type ColumnConfig,
+  type FilterVisibilityConfig,
+  type GridColumnConfig,
+} from './components/view-config';
 import AppLayout from '@/components/AppLayout';
 import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { DocumentPriorityBadge } from '@/components/documents/DocumentPriorityBadge';
@@ -57,6 +58,11 @@ import {
   normalizeDocumentPriority,
   type DocumentPriority,
 } from '@/lib/documents/priority';
+
+const PersonalizarVistaModal = dynamic(
+  () => import('./components/PersonalizarVistaModal'),
+  { ssr: false }
+);
 
 // ─── ResizableTh Component ├───────────────────────────────────────────────────
 interface ResizableThProps {
@@ -3063,10 +3069,15 @@ function MisDocumentosContent() {
         return;
       }
 
-      // Fetch own documents
-      const res = await fetch('/api/documentos/listar?tipo=todos', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // These lists are independent and can share the same validated session.
+      const [res, partRes] = await Promise.all([
+        fetch('/api/documentos/listar?tipo=todos', {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch('/api/documentos/mis-participaciones', {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
       const json = await res.json();
       if (!res.ok) {
         console.error('[mis-documentos] Error al cargar documentos:', json.error);
@@ -3079,9 +3090,6 @@ function MisDocumentosContent() {
       // Fetch participant documents (documents where user is a participant but not owner)
       let participacionesData: any[] = [];
       try {
-        const partRes = await fetch(`/api/documentos/mis-participaciones?t=${Date.now()}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
         if (partRes.ok) {
           const partJson = await partRes.json();
           // Map participaciones to raw document format for merging
@@ -9594,25 +9602,27 @@ function MisDocumentosContent() {
       {renderFolderContextMenu()}
 
       {/* Personalizar Vista Modal */}
-      <PersonalizarVistaModal
-        open={personalizarOpen}
-        onClose={() => setPersonalizarOpen(false)}
-        columns={columnConfig}
-        filters={filterConfig}
-        onColumnsChange={(cols) => {
-          setColumnConfig(cols);
-          savePreferences(cols, filterConfig);
-        }}
-        onFiltersChange={(fils) => {
-          setFilterConfig(fils);
-          savePreferences(columnConfig, fils);
-        }}
-        gridColumns={gridColumnConfig}
-        onGridColumnsChange={(gridCols) => {
-          setGridColumnConfig(gridCols);
-          saveGridColumnPreferences(gridCols);
-        }}
-      />
+      {personalizarOpen && (
+        <PersonalizarVistaModal
+          open
+          onClose={() => setPersonalizarOpen(false)}
+          columns={columnConfig}
+          filters={filterConfig}
+          onColumnsChange={(cols) => {
+            setColumnConfig(cols);
+            savePreferences(cols, filterConfig);
+          }}
+          onFiltersChange={(fils) => {
+            setFilterConfig(fils);
+            savePreferences(columnConfig, fils);
+          }}
+          gridColumns={gridColumnConfig}
+          onGridColumnsChange={(gridCols) => {
+            setGridColumnConfig(gridCols);
+            saveGridColumnPreferences(gridCols);
+          }}
+        />
+      )}
 
       {folderTrashModal.open && (
         <div className="fixed inset-0 z-[510] flex items-center justify-center p-4">

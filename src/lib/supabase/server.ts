@@ -27,7 +27,7 @@ export function createClient() {
  * Use this to validate user Bearer tokens in API routes.
  * The anon key properly validates JWTs against Supabase Auth.
  */
-export function createAnonClient() {
+export function createAnonClient(accessToken?: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
@@ -35,5 +35,6 @@ export function createAnonClient() {
   }
   return createSupabaseClient(url, anonKey, {
     auth: { persistSession: false },
+    global: accessToken ? { headers: { Authorization: `Bearer ${accessToken}` } } : undefined,
   });
 }

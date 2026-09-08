@@ -2020,6 +2020,8 @@ export function StepAjustes({
   const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   const [pdfPageImages, setPdfPageImages] = useState<Record<number, string>>({});
   const [pdfLoading, setPdfLoading] = useState(false);
+  const pdfDocumentRef = useRef<any>(null);
+  const renderingPdfPagesRef = useRef<Set<number>>(new Set());
   const [selectedParticipantId, setSelectedParticipantId] = useState<string>('');
   const [participantDropdownOpen, setParticipantDropdownOpen] = useState(false);
   const [camposParticipanteOpen, setCamposParticipanteOpen] = useState(true);
@@ -2208,12 +2210,42 @@ export function StepAjustes({
     PARTICIPANT_COLORS_HEX[selectedParticipantIdx % PARTICIPANT_COLORS_HEX.length];
   const selectedColor = PARTICIPANT_COLORS[selectedParticipantIdx % PARTICIPANT_COLORS.length];
 
+  const renderPdfPage = useCallback(async (pageNumber: number, documentOverride?: any) => {
+    const pdfDocument = documentOverride || pdfDocumentRef.current;
+    if (!pdfDocument || renderingPdfPagesRef.current.has(pageNumber)) return;
+
+    renderingPdfPagesRef.current.add(pageNumber);
+    try {
+      const page = await pdfDocument.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+
+      await page.render({ canvasContext: context, viewport }).promise;
+      const image = canvas.toDataURL('image/jpeg', 0.85);
+      if (pdfDocumentRef.current === pdfDocument) {
+        setPdfPageImages((current) =>
+          current[pageNumber] ? current : { ...current, [pageNumber]: image }
+        );
+      }
+    } catch {
+      // The existing iframe fallback remains available if one page cannot be rasterized.
+    } finally {
+      renderingPdfPagesRef.current.delete(pageNumber);
+    }
+  }, []);
+
   useEffect(() => {
     if (!file || !isPdf) return;
     const url = URL.createObjectURL(file);
+    let cancelled = false;
     setPdfObjectUrl(url);
     setPdfLoading(true);
     setPdfPageImages({});
+    renderingPdfPagesRef.current.clear();
     setCurrentPage(1);
     const loadPdf = async () => {
       try {
@@ -2231,29 +2263,34 @@ export function StepAjustes({
             'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         }
         const pdf = await pdfjsLib.getDocument(url).promise;
-        setTotalPages(pdf.numPages);
-        const maxPages = Math.min(pdf.numPages, 50);
-        const images: Record<number, string> = {};
-        for (let i = 1; i <= maxPages; i++) {
-          const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale: 1.5 });
-          const canvas = document.createElement('canvas');
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          const ctx = canvas.getContext('2d');
-          await page.render({ canvasContext: ctx, viewport }).promise;
-          images[i] = canvas.toDataURL('image/jpeg', 0.85);
+        if (cancelled) {
+          await pdf.destroy?.();
+          return;
         }
-        setPdfPageImages(images);
+        pdfDocumentRef.current = pdf;
+        setTotalPages(pdf.numPages);
+        await renderPdfPage(1, pdf);
       } catch {
         /* silently fail */
       } finally {
-        setPdfLoading(false);
+        if (!cancelled) setPdfLoading(false);
       }
     };
-    loadPdf();
-    return () => URL.revokeObjectURL(url);
-  }, [file, isPdf]);
+    void loadPdf();
+    return () => {
+      cancelled = true;
+      const pdfDocument = pdfDocumentRef.current;
+      pdfDocumentRef.current = null;
+      renderingPdfPagesRef.current.clear();
+      void pdfDocument?.destroy?.();
+      URL.revokeObjectURL(url);
+    };
+  }, [file, isPdf, renderPdfPage]);
+
+  useEffect(() => {
+    if (!isPdf || pdfLoading || pdfPageImages[currentPage]) return;
+    void renderPdfPage(currentPage);
+  }, [currentPage, isPdf, pdfLoading, pdfPageImages, renderPdfPage]);
 
   const participantFields = [
     { icon: <PenLine size={15} className="text-gray-400" />, label: 'Firma', required: true },

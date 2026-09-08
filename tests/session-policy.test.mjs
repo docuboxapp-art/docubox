@@ -43,10 +43,16 @@ test('middleware validates authenticated browser and API traffic server-side', (
   assert.doesNotMatch(middleware, /'\/api\/'\s*,/);
   assert.match(middleware, /enforce_docubox_session_policy/);
   assert.match(middleware, /p_record_user_activity: false/);
+  assert.doesNotMatch(middleware, /supabase\.auth\.getUser\(\)/);
+  assert.match(middleware, /hasSessionMaterial/);
+  assert.match(middleware, /isInvalidSessionError/);
+  assert.match(middleware, /refresh_token_not_found/);
   assert.match(middleware, /SESSION_EXPIRED/);
   assert.match(middleware, /unavailableSessionPolicyResponse/);
   assert.match(middleware, /SESSION_POLICY_UNAVAILABLE/);
-  assert.match(middleware, /await supabase\.auth\.signOut\(\{ scope: 'local' \}\)/);
+  assert.match(middleware, /event\.waitUntil/);
+  assert.match(middleware, /supabase\.auth\s*\.signOut\(\{ scope: 'local' \}\)/);
+  assert.match(middleware, /Server-Timing/);
   assert.match(middleware, /SESSION_POLICY_BOOTSTRAP_API_ROUTES/);
   assert.match(middleware, /'\/api\/auth\/totp\/check'/);
 });
@@ -64,8 +70,14 @@ test('session expiry is auditable and protected from direct table access', () =>
   assert.match(migration, /session_timeout_inactivity/);
   assert.match(migration, /session_timeout_absolute/);
   assert.match(migration, /ENABLE ROW LEVEL SECURITY/);
-  assert.match(migration, /REVOKE ALL ON TABLE public\.docubox_session_activity FROM PUBLIC, anon, authenticated/);
-  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.enforce_docubox_session_policy\(BOOLEAN\)\s+TO authenticated, service_role/);
+  assert.match(
+    migration,
+    /REVOKE ALL ON TABLE public\.docubox_session_activity FROM PUBLIC, anon, authenticated/
+  );
+  assert.match(
+    migration,
+    /GRANT EXECUTE ON FUNCTION public\.enforce_docubox_session_policy\(BOOLEAN\)\s+TO authenticated, service_role/
+  );
 });
 
 test('post-login checks use the freshly issued session token', () => {

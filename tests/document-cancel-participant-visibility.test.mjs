@@ -27,7 +27,9 @@ const reminderRoute = await read('../src/app/api/documentos/send-reminder/route.
 const access = await read('../src/lib/security/document-access.ts');
 const fetchRoute = await read('../src/app/api/documentos/obtener/route.ts');
 const portalInfo = await read('../src/app/api/portal-participante/info/route.ts');
-const portalParticipantData = await read('../src/app/api/portal-participante/participant-data/route.ts');
+const portalParticipantData = await read(
+  '../src/app/api/portal-participante/participant-data/route.ts'
+);
 const trashRoute = await read('../src/app/api/documentos/papelera/route.ts');
 const lifecycle = await read('../src/lib/documents/lifecycle-policy.ts');
 
@@ -35,7 +37,9 @@ test('only a legally relevant action creates effective participation', () => {
   const participant = { id: 'participant-1', user_id: 'user-1', email: 'ana@example.com' };
   assert.equal(visibility.hasEffectiveParticipation(participant), false);
   assert.equal(
-    visibility.hasEffectiveParticipation(participant, [{ participante_id: 'user-1', firma_completada: true }]),
+    visibility.hasEffectiveParticipation(participant, [
+      { participante_id: 'user-1', firma_completada: true },
+    ]),
     true
   );
   assert.equal(
@@ -50,18 +54,27 @@ test('only a legally relevant action creates effective participation', () => {
 
 test('historical participation remains readable while revoked untouched invitations do not', () => {
   assert.equal(
-    visibility.canAccessParticipantRecord({ current_access: false, historical_participation: true }),
+    visibility.canAccessParticipantRecord({
+      current_access: false,
+      historical_participation: true,
+    }),
     true
   );
   assert.equal(
-    visibility.canAccessParticipantRecord({ current_access: false, historical_participation: false }),
+    visibility.canAccessParticipantRecord({
+      current_access: false,
+      historical_participation: false,
+    }),
     false
   );
 });
 
 test('historical visibility does not preserve document access after revocation', () => {
   assert.equal(
-    visibility.canAccessParticipantDocument({ current_access: false, historical_participation: true }),
+    visibility.canAccessParticipantDocument({
+      current_access: false,
+      historical_participation: true,
+    }),
     false
   );
   assert.equal(visibility.canAccessParticipantDocument({}), true);
@@ -78,9 +91,13 @@ test('cancellation records participant-level access outcomes and audit events', 
 });
 
 test('participant listings and document reads respect revoked visibility', () => {
-  assert.match(participationRoute, /myEntry\.current_access === false && myEntry\.historical_participation !== true/);
-  assert.match(participationRoute, /document_user_visibility/);
-  assert.match(participationRoute, /hiddenFromParticipant\.has\(doc\.id\)/);
+  assert.match(
+    participationRoute,
+    /myEntry\.current_access === false && myEntry\.historical_participation !== true/
+  );
+  assert.match(participationRoute, /const supabase = userClient/);
+  assert.doesNotMatch(participationRoute, /Fetch all non-deleted documents using service role/);
+  assert.doesNotMatch(participationRoute, /hiddenFromParticipant\.has\(doc\.id\)/);
   assert.match(access, /participantAccessRevoked/);
   assert.match(access, /canAccessParticipantDocument/);
   assert.match(fetchRoute, /participantEntry\.current_access !== false/);

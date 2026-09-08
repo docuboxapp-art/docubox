@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient, createAnonClient } from '@/lib/supabase/server';
+import { createAnonClient } from '@/lib/supabase/server';
 import { classifyTrashRetention } from '@/lib/documents/trash-retention';
 import { evaluateDocumentDisposition } from '@/lib/documents/lifecycle-policy';
 import { getTrashCountdown } from '@/lib/documents/trash-countdown';
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const token = authHeader.slice(7);
 
     // Use anon client to validate the JWT properly
-    const anonClient = createAnonClient();
+    const anonClient = createAnonClient(token);
     const {
       data: { user },
       error: authError,
@@ -28,13 +28,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Token inválido o expirado' }, { status: 401 });
     }
 
-    // Use service role client for the actual query (bypasses RLS, filters by owner_id)
-    const supabase = createServiceClient();
-
     const { searchParams } = new URL(request.url);
     const tipo = searchParams.get('tipo') || 'todos';
 
-    let query = supabase.from('documentos').select(DOC_SELECT).eq('owner_id', user.id);
+    let query = anonClient.from('documentos').select(DOC_SELECT).eq('owner_id', user.id);
 
     if (tipo === 'papelera') {
       query = query.not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
@@ -112,7 +109,10 @@ export async function GET(request: NextRequest) {
       }));
     }
 
-    console.info(`[listar-documentos] user=${user.id} tipo=${tipo} count=${responseData.length}`);
+    console.info('[listar-documentos] Query completed', {
+      tipo,
+      count: responseData.length,
+    });
     return NextResponse.json({ data: responseData });
   } catch (err: unknown) {
     console.error('[listar-documentos] Unexpected error:', err);

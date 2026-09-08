@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies, headers } from 'next/headers';
+import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
 
 // Terminal sub_estados stored in documentos.participantes JSONB
 const TERMINAL_SUB_ESTADOS = [
@@ -49,20 +49,21 @@ export async function GET(request: NextRequest) {
   try {
     // Step 1: Validate the user session — try Bearer token first, then cookies
     let user: any = null;
+    let userClient: ReturnType<typeof createServiceClient> | null = null;
 
     // Try Bearer token from Authorization header
-    const headersList = await headers();
-    const authHeader = headersList.get('authorization') || headersList.get('Authorization');
+    const authHeader = request.headers.get('authorization');
     const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
     if (bearerToken) {
-      const serviceClient = createServiceClient();
+      const anonClient = createAnonClient(bearerToken);
       const {
         data: { user: tokenUser },
         error: tokenError,
-      } = await serviceClient.auth.getUser(bearerToken);
+      } = await anonClient.auth.getUser(bearerToken);
       if (!tokenError && tokenUser) {
         user = tokenUser;
+        userClient = anonClient;
       }
     }
 
@@ -82,7 +83,9 @@ export async function GET(request: NextRequest) {
                 cookiesToSet.forEach(({ name, value, options }) =>
                   cookieStore.set(name, value, options)
                 );
-              } catch {}
+              } catch {
+                // Cookie writes are unavailable while rendering some server contexts.
+              }
             },
           },
         }
@@ -95,15 +98,22 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
       }
       user = cookieUser;
+      userClient = anonClient;
     }
 
-    // Step 2: Use service client for the DB query (bypasses RLS, we filter manually)
-    const supabase = createServiceClient();
+    if (!userClient) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+    }
+
+    // Step 2: query through the authenticated client so RLS removes inaccessible
+    // documents before any rows or participant JSON cross the network.
+    const supabase = userClient;
 
     const userEmail = user.email?.toLowerCase() ?? '';
     const userId = user.id;
 
-    // Fetch all non-deleted documents using service role (bypasses RLS)
+    // RLS admits only owner, authorized workspace administrator or participant rows.
+    // The participant filter below preserves this endpoint's narrower response contract.
     const { data: docs, error } = await supabase
       .from('documentos')
       .select(
@@ -142,29 +152,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const documentIds = (docs ?? []).map((doc: any) => doc.id).filter(Boolean);
-    const personalVisibilityResult = documentIds.length
-      ? await supabase
-          .from('document_user_visibility')
-          .select('document_id,trashed_at,hidden_at')
-          .eq('user_id', userId)
-          .in('document_id', documentIds)
-      : { data: [], error: null };
-    if (personalVisibilityResult.error) {
-      console.error('[mis-participaciones] Visibility error:', personalVisibilityResult.error.message);
-      return NextResponse.json({ error: personalVisibilityResult.error.message }, { status: 500 });
-    }
-    const hiddenFromParticipant = new Set(
-      (personalVisibilityResult.data || [])
-        .filter((entry: any) => entry.trashed_at || entry.hidden_at)
-        .map((entry: any) => entry.document_id)
-    );
-
     // Fetch owner profiles separately to avoid join issues
     const ownerIds = [...new Set((docs ?? []).map((d: any) => d.owner_id).filter(Boolean))];
     let ownerMap: Record<string, { full_name: string; email: string }> = {};
     if (ownerIds.length > 0) {
-      const { data: profiles } = await supabase
+      const { data: profiles } = await createServiceClient()
         .from('user_profiles')
         .select('id, full_name, email')
         .in('id', ownerIds);
@@ -179,7 +171,6 @@ export async function GET(request: NextRequest) {
     // NOTE: p.id is the participant's internal UUID (not the Supabase user ID), so we do NOT check p.id === userId
     // ── VISIBILITY FILTER: For sequential/mixed orders, only show if participant is marked visible ──
     const myDocs = (docs ?? []).filter((doc: any) => {
-      if (hiddenFromParticipant.has(doc.id)) return false;
       const parts: any[] = doc.participantes ?? [];
       const myEntry = parts.find(
         (p: any) => (p.email ?? '').toLowerCase() === userEmail || p.user_id === userId
@@ -275,7 +266,12 @@ export async function GET(request: NextRequest) {
         senderName: ownerProfile?.full_name || 'Remitente',
         senderEmail: ownerProfile?.email || '',
         status,
-        priority: doc.priority === 'urgent' || doc.es_urgente ? 'Urgente' : doc.priority === 'high' ? 'Alta' : 'Normal',
+        priority:
+          doc.priority === 'urgent' || doc.es_urgente
+            ? 'Urgente'
+            : doc.priority === 'high'
+              ? 'Alta'
+              : 'Normal',
         receivedAt: doc.created_at,
         expiresAt: doc.fecha_vencimiento ?? null,
         tieneVencimiento: !!(doc.fecha_vencimiento || doc.tiene_vencimiento),

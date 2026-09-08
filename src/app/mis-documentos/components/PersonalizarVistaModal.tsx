@@ -1,30 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { X, GripVertical, Lock, List, LayoutGrid, SlidersHorizontal } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
-
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export interface ColumnConfig {
-  id: string;
-  label: string;
-  visible: boolean;
-}
-
-export interface FilterVisibilityConfig {
-  id: string;
-  label: string;
-  visible: boolean;
-}
-
-export interface GridColumnConfig {
-  id: string;
-  label: string;
-  selected: boolean;
-  order: number;
-}
+import {
+  DEFAULT_COLUMNS,
+  DEFAULT_FILTERS,
+  DEFAULT_GRID_COLUMNS,
+  type ColumnConfig,
+  type FilterVisibilityConfig,
+  type GridColumnConfig,
+} from './view-config';
 
 interface PersonalizarVistaModalProps {
   open: boolean;
@@ -36,57 +22,6 @@ interface PersonalizarVistaModalProps {
   gridColumns?: GridColumnConfig[];
   onGridColumnsChange?: (cols: GridColumnConfig[]) => void;
 }
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-export const DEFAULT_COLUMNS: ColumnConfig[] = [
-  { id: 'numeroDocumento', label: 'Número de documento', visible: true },
-  { id: 'folioInterno', label: 'Folio interno documento', visible: false },
-  { id: 'estado', label: 'Estado', visible: true },
-  { id: 'estadoParticipacion', label: 'Estado de mi participación', visible: false },
-  { id: 'etiquetas', label: 'Etiquetas', visible: true },
-  { id: 'tamano', label: 'Tamaño', visible: true },
-  { id: 'ultimaModificacion', label: 'Última modificación', visible: true },
-  { id: 'propietario', label: 'Propietario', visible: true },
-  { id: 'fechaCreacion', label: 'Fecha de creación', visible: false },
-  { id: 'fechaCompletado', label: 'Fecha de completado', visible: false },
-  { id: 'tipoDocumento', label: 'Tipo de documento', visible: false },
-  { id: 'fechaVencimiento', label: 'Fecha de vencimiento', visible: false },
-  { id: 'rutaGuardado', label: 'Ruta de guardado', visible: false },
-  { id: 'prioridad', label: 'Prioridad', visible: false },
-];
-
-export const DEFAULT_GRID_COLUMNS: GridColumnConfig[] = [
-  { id: 'estado', label: 'Estado', selected: true, order: 1 },
-  { id: 'estadoParticipacion', label: 'Estado de mi participación', selected: false, order: 2 },
-  { id: 'etiquetas', label: 'Etiquetas', selected: true, order: 3 },
-  { id: 'ultimaModificacion', label: 'Última modificación', selected: true, order: 4 },
-  { id: 'tamano', label: 'Tamaño', selected: false, order: 5 },
-  { id: 'propietario', label: 'Propietario', selected: false, order: 6 },
-  { id: 'numeroDocumento', label: 'Número de documento', selected: false, order: 7 },
-  { id: 'folioInterno', label: 'Folio interno', selected: false, order: 8 },
-  { id: 'fechaCreacion', label: 'Fecha de creación', selected: false, order: 9 },
-  { id: 'fechaCompletado', label: 'Fecha de completado', selected: false, order: 10 },
-  { id: 'tipoDocumento', label: 'Tipo de documento', selected: false, order: 11 },
-  { id: 'fechaVencimiento', label: 'Fecha de vencimiento', selected: false, order: 12 },
-  { id: 'prioridad', label: 'Prioridad', selected: false, order: 13 },
-];
-
-// Only the filters that appear in the Mi Espacio toolbar
-export const DEFAULT_FILTERS: FilterVisibilityConfig[] = [
-  { id: 'estructura', label: 'Tipo', visible: true },
-  { id: 'tipoDocumento', label: 'Tipo de Documento', visible: true },
-  { id: 'propietario', label: 'Propietario', visible: true },
-  { id: 'ultimaModificacion', label: 'Última modificación', visible: true },
-  { id: 'estado', label: 'Estado', visible: true },
-  { id: 'estadoParticipacion', label: 'Estado de mi participación', visible: true },
-  { id: 'fechaVencimiento', label: 'Fecha de Vencimiento', visible: true },
-  { id: 'etiquetas', label: 'Etiquetas', visible: false },
-  { id: 'fechaCompletado', label: 'Fecha de completado', visible: false },
-  { id: 'fechaCreacion', label: 'Fecha de creación', visible: false },
-  { id: 'participantes', label: 'Participantes', visible: false },
-  { id: 'prioridad', label: 'Prioridad', visible: false },
-];
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
@@ -135,23 +70,11 @@ export default function PersonalizarVistaModal({
   const [gridDragIndex, setGridDragIndex] = useState<number | null>(null);
   const [gridDragOverIndex, setGridDragOverIndex] = useState<number | null>(null);
 
-  // Sync when modal opens
-  useEffect(() => {
-    if (open) {
-      setLocalColumns(columns);
-      setLocalFilters(filters);
-      setLocalGridColumns(gridColumns || DEFAULT_GRID_COLUMNS);
-      setActiveTab('lista');
-    }
-  }, [open, columns, filters, gridColumns]);
-
   // ── Column handlers ──────────────────────────────────────────────────────
 
   const handleToggleColumn = (id: string) => {
     if (id === 'nombre') return;
-    setLocalColumns((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c))
-    );
+    setLocalColumns((prev) => prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)));
   };
 
   const handleColDragStart = (index: number) => {
@@ -184,9 +107,7 @@ export default function PersonalizarVistaModal({
   // ── Filter handlers ──────────────────────────────────────────────────────
 
   const handleToggleFilter = (id: string) => {
-    setLocalFilters((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, visible: !f.visible } : f))
-    );
+    setLocalFilters((prev) => prev.map((f) => (f.id === id ? { ...f, visible: !f.visible } : f)));
   };
 
   const handleFilDragStart = (index: number) => {
@@ -281,7 +202,10 @@ export default function PersonalizarVistaModal({
   const visibleColCount = localColumns.filter((c) => c.visible).length;
 
   return (
-    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40"
+      onClick={onClose}
+    >
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 flex flex-col overflow-hidden"
         style={{ maxHeight: '90vh' }}
@@ -312,8 +236,8 @@ export default function PersonalizarVistaModal({
               id === 'lista'
                 ? visibleColCount
                 : id === 'cuadricula'
-                ? selectedGridCount
-                : activeFilterCount;
+                  ? selectedGridCount
+                  : activeFilterCount;
 
             return (
               <button
@@ -330,8 +254,7 @@ export default function PersonalizarVistaModal({
                 {badge > 0 && (
                   <span
                     className={`absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full flex items-center justify-center ${
-                      isActive
-                        ? 'bg-white text-blue-600' :'bg-blue-600 text-white'
+                      isActive ? 'bg-white text-blue-600' : 'bg-blue-600 text-white'
                     }`}
                   >
                     {badge}
@@ -348,7 +271,9 @@ export default function PersonalizarVistaModal({
           {activeTab === 'lista' && (
             <>
               <p className="text-xs text-muted-foreground mb-3">
-                Arrastra para reordenar las columnas o usa la casilla para mostrar/ocultar. La columna <span className="font-semibold text-foreground">Nombre</span> es obligatoria.
+                Arrastra para reordenar las columnas o usa la casilla para mostrar/ocultar. La
+                columna <span className="font-semibold text-foreground">Nombre</span> es
+                obligatoria.
               </p>
               <div className="space-y-1.5">
                 {/* Nombre — mandatory, always first */}
@@ -368,35 +293,40 @@ export default function PersonalizarVistaModal({
                     className="w-4 h-4 rounded border-border accent-blue-600 cursor-not-allowed flex-shrink-0 opacity-60"
                   />
                 </div>
-                {localColumns.filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento').map((col, index) => (
-                  <div
-                    key={col.id}
-                    draggable
-                    onDragStart={() => handleColDragStart(index)}
-                    onDragEnter={() => handleColDragEnter(index)}
-                    onDragEnd={handleColDragEnd}
-                    onDragOver={(e) => e.preventDefault()}
-                    className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all cursor-grab active:cursor-grabbing select-none ${
-                      colDragIndex === index
-                        ? 'opacity-40 border-blue-400 bg-blue-50'
-                        : colDragOverIndex === index
-                        ? 'border-blue-400 bg-blue-50 shadow-sm'
-                        : 'border-border bg-white hover:bg-muted/30'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <GripVertical size={16} className="text-muted-foreground/50 flex-shrink-0" />
-                      <span className="text-sm text-foreground font-medium">{col.label}</span>
+                {localColumns
+                  .filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento')
+                  .map((col, index) => (
+                    <div
+                      key={col.id}
+                      draggable
+                      onDragStart={() => handleColDragStart(index)}
+                      onDragEnter={() => handleColDragEnter(index)}
+                      onDragEnd={handleColDragEnd}
+                      onDragOver={(e) => e.preventDefault()}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all cursor-grab active:cursor-grabbing select-none ${
+                        colDragIndex === index
+                          ? 'opacity-40 border-blue-400 bg-blue-50'
+                          : colDragOverIndex === index
+                            ? 'border-blue-400 bg-blue-50 shadow-sm'
+                            : 'border-border bg-white hover:bg-muted/30'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <GripVertical
+                          size={16}
+                          className="text-muted-foreground/50 flex-shrink-0"
+                        />
+                        <span className="text-sm text-foreground font-medium">{col.label}</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={col.visible}
+                        onChange={() => handleToggleColumn(col.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-4 h-4 rounded border-border accent-blue-600 cursor-pointer flex-shrink-0"
+                      />
                     </div>
-                    <input
-                      type="checkbox"
-                      checked={col.visible}
-                      onChange={() => handleToggleColumn(col.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-4 h-4 rounded border-border accent-blue-600 cursor-pointer flex-shrink-0"
-                    />
-                  </div>
-                ))}
+                  ))}
               </div>
             </>
           )}
@@ -405,12 +335,16 @@ export default function PersonalizarVistaModal({
           {activeTab === 'cuadricula' && (
             <>
               <p className="text-xs text-muted-foreground mb-3">
-                Elige hasta <span className="font-semibold text-foreground">5 filas</span> para la vista cuadrícula del documento. El orden en que las acomodes define cómo aparecerán en la tarjeta.
+                Elige hasta <span className="font-semibold text-foreground">5 filas</span> para la
+                vista cuadrícula del documento. El orden en que las acomodes define cómo aparecerán
+                en la tarjeta.
               </p>
 
               {/* Nombre — mandatory in grid too */}
               <div className="mb-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1.5 px-1">Fila obligatoria</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1.5 px-1">
+                  Fila obligatoria
+                </p>
                 <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-blue-200 bg-blue-50 select-none">
                   <div className="flex items-center gap-2.5">
                     <GripVertical size={16} className="text-muted-foreground/30 flex-shrink-0" />
@@ -433,7 +367,9 @@ export default function PersonalizarVistaModal({
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 px-1">
                   Filas adicionales
                 </p>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selectedGridCount >= 5 ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
+                <span
+                  className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selectedGridCount >= 5 ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}
+                >
                   {selectedGridCount}/5
                 </span>
               </div>
@@ -441,7 +377,9 @@ export default function PersonalizarVistaModal({
               {/* Selected rows (draggable for order) */}
               {localGridColumns.filter((c) => c.selected).length > 0 && (
                 <div className="mb-3">
-                  <p className="text-[10px] text-muted-foreground/50 mb-1.5 px-1 italic">Arrastra para definir el orden en la tarjeta</p>
+                  <p className="text-[10px] text-muted-foreground/50 mb-1.5 px-1 italic">
+                    Arrastra para definir el orden en la tarjeta
+                  </p>
                   <div className="space-y-1.5">
                     {localGridColumns
                       .map((col, index) => ({ col, index }))
@@ -458,12 +396,15 @@ export default function PersonalizarVistaModal({
                             gridDragIndex === index
                               ? 'opacity-40 border-blue-400 bg-blue-50'
                               : gridDragOverIndex === index
-                              ? 'border-blue-400 bg-blue-50 shadow-sm'
-                              : 'border-blue-200 bg-blue-50'
+                                ? 'border-blue-400 bg-blue-50 shadow-sm'
+                                : 'border-blue-200 bg-blue-50'
                           }`}
                         >
                           <div className="flex items-center gap-2.5">
-                            <GripVertical size={16} className="text-muted-foreground/50 flex-shrink-0" />
+                            <GripVertical
+                              size={16}
+                              className="text-muted-foreground/50 flex-shrink-0"
+                            />
                             <span className="text-sm text-foreground font-medium">{col.label}</span>
                           </div>
                           <input
@@ -482,7 +423,9 @@ export default function PersonalizarVistaModal({
               {/* Unselected rows */}
               {localGridColumns.filter((c) => !c.selected).length > 0 && (
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1.5 px-1">Disponibles</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1.5 px-1">
+                    Disponibles
+                  </p>
                   <div className="space-y-1.5">
                     {localGridColumns
                       .map((col, index) => ({ col, index }))
@@ -492,11 +435,15 @@ export default function PersonalizarVistaModal({
                           key={col.id}
                           className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all select-none ${
                             selectedGridCount >= 5
-                              ? 'border-border bg-muted/20 opacity-50 cursor-not-allowed' :'border-border bg-white hover:bg-muted/30 cursor-pointer'
+                              ? 'border-border bg-muted/20 opacity-50 cursor-not-allowed'
+                              : 'border-border bg-white hover:bg-muted/30 cursor-pointer'
                           }`}
                         >
                           <div className="flex items-center gap-2.5">
-                            <GripVertical size={16} className="text-muted-foreground/30 flex-shrink-0" />
+                            <GripVertical
+                              size={16}
+                              className="text-muted-foreground/30 flex-shrink-0"
+                            />
                             <span className="text-sm text-foreground font-medium">{col.label}</span>
                           </div>
                           <input
@@ -539,8 +486,8 @@ export default function PersonalizarVistaModal({
                       filDragIndex === index
                         ? 'opacity-40 border-blue-400 bg-blue-50'
                         : filDragOverIndex === index
-                        ? 'border-blue-400 bg-blue-50 shadow-sm'
-                        : 'border-border bg-white hover:bg-muted/30'
+                          ? 'border-blue-400 bg-blue-50 shadow-sm'
+                          : 'border-border bg-white hover:bg-muted/30'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
@@ -567,7 +514,11 @@ export default function PersonalizarVistaModal({
             onClick={handleReset}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
           >
-            {activeTab === 'lista' ? 'Restablecer columnas' : activeTab === 'cuadricula' ? 'Restablecer cuadrícula' : 'Restablecer filtros'}
+            {activeTab === 'lista'
+              ? 'Restablecer columnas'
+              : activeTab === 'cuadricula'
+                ? 'Restablecer cuadrícula'
+                : 'Restablecer filtros'}
           </button>
           <div className="flex items-center gap-2">
             <button
@@ -588,19 +539,3 @@ export default function PersonalizarVistaModal({
     </div>
   );
 }
-
-// Default columns for custom filters, favoritos, por-vencer: Nombre, Propietario, Estado, Fecha de creación, Número de documento
-export const DEFAULT_CF_COLUMNS: ColumnConfig[] = [
-  { id: 'nombre', label: 'Nombre', visible: true },
-  { id: 'propietario', label: 'Propietario', visible: true },
-  { id: 'estado', label: 'Estado', visible: true },
-  { id: 'fechaCreacion', label: 'Fecha de creación', visible: true },
-  { id: 'numeroDocumento', label: 'Número de documento', visible: true },
-  { id: 'ultimaModificacion', label: 'Última modificación', visible: false },
-  { id: 'etiquetas', label: 'Etiquetas', visible: false },
-  { id: 'tamano', label: 'Tamaño', visible: false },
-  { id: 'fechaVencimiento', label: 'Fecha de vencimiento', visible: false },
-  { id: 'tipoDocumento', label: 'Tipo de documento', visible: false },
-  { id: 'prioridad', label: 'Prioridad', visible: false },
-  { id: 'folioInterno', label: 'Folio interno', visible: false },
-];
