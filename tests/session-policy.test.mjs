@@ -36,6 +36,8 @@ test('middleware validates authenticated browser and API traffic server-side', (
   assert.match(middleware, /p_record_user_activity: false/);
   assert.match(middleware, /SESSION_EXPIRED/);
   assert.match(middleware, /await supabase\.auth\.signOut\(\)/);
+  assert.match(middleware, /SESSION_POLICY_BOOTSTRAP_API_ROUTES/);
+  assert.match(middleware, /'\/api\/auth\/totp\/check'/);
 });
 
 test('session expiry is auditable and protected from direct table access', () => {

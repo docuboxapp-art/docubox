@@ -34,6 +34,10 @@ const PUBLIC_PREFIXES = [
   '/verify/promissory-note/',
 ];
 
+// This endpoint runs immediately after sign-in and validates the freshly issued
+// Bearer token itself before the browser has completed its session handoff.
+const SESSION_POLICY_BOOTSTRAP_API_ROUTES = new Set(['/api/auth/totp/check']);
+
 type SessionPolicyRow = { active?: unknown };
 
 function getPolicyRow(value: unknown): SessionPolicyRow | null {
@@ -113,6 +117,10 @@ export async function middleware(request: NextRequest) {
 
   const isApiRequest = pathname.startsWith('/api/');
   const isPublicPage = PUBLIC_ROUTES.includes(pathname);
+  if (isApiRequest && SESSION_POLICY_BOOTSTRAP_API_ROUTES.has(pathname)) {
+    return NextResponse.next();
+  }
+
   const response = NextResponse.next({ request: { headers: request.headers } });
   const authorization = request.headers.get('authorization');
   const supabase = createServerClient(
