@@ -19,11 +19,28 @@ const passkeyEnrollment = read('src/app/auth/passkey-enrollment/page.tsx');
 const passkeyVerification = read('src/app/auth/passkey-verification/page.tsx');
 const webauthnVerify = read('src/app/api/webauthn/auth-verify/route.ts');
 const webauthnRegisterVerify = read('src/app/api/webauthn/register-verify/route.ts');
+const loginSecurityMigration = read(
+  'supabase/migrations/20260908231051_login_security_requirements.sql'
+);
 
 test('TOTP requirement lookup is authenticated and bound to the active session user', () => {
   assert.match(checkRoute, /authorization\?\.startsWith\('Bearer '\)/);
-  assert.match(checkRoute, /service\.auth\.getUser\(token\)/);
+  assert.match(checkRoute, /auth\.auth\.getUser\(token\)/);
+  assert.match(checkRoute, /get_login_security_requirements/);
   assert.doesNotMatch(checkRoute, /req\.json\(\)|body\.userId|\{ userId \}/);
+});
+
+test('post-login security requirements stay service-only and use a fixed search path', () => {
+  assert.match(loginSecurityMigration, /SECURITY DEFINER/);
+  assert.match(loginSecurityMigration, /SET search_path = pg_catalog, public, auth/);
+  assert.match(
+    loginSecurityMigration,
+    /REVOKE ALL ON FUNCTION public\.get_login_security_requirements\(UUID\) FROM PUBLIC, anon, authenticated/
+  );
+  assert.match(
+    loginSecurityMigration,
+    /GRANT EXECUTE ON FUNCTION public\.get_login_security_requirements\(UUID\) TO service_role/
+  );
 });
 
 test('every primary login method passes through the same post-login security gate', () => {

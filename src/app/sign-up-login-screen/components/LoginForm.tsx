@@ -213,6 +213,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const [emailLoading, setEmailLoading] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
   const [isRegisteredUser, setIsRegisteredUser] = useState(false);
+  const [alternativeOptionsRequested, setAlternativeOptionsRequested] = useState(false);
   const loginOptionsRequestRef = useRef<AbortController | null>(null);
   const loginOptionsRequestIdRef = useRef(0);
 
@@ -277,6 +278,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const resetAuthReveal = () => {
     setUserName(null);
     setIsRegisteredUser(false);
+    setAlternativeOptionsRequested(false);
     setAvailableTabs(['password']);
     setActiveTab('password');
     setPassword('');
@@ -300,8 +302,8 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     resetAuthReveal();
   };
 
-  // ── Step 1: Continue ───────────────────────────────────────────────────
-  const handleContinue = async () => {
+  // Load non-password methods only when the user asks for them.
+  const loadAlternativeLoginOptions = async () => {
     const trimmed = emailValue.trim();
     if (!trimmed || !/^\S+@\S+\.\S+$/.test(trimmed)) {
       setEmailError('Ingresa un correo electrónico válido.');
@@ -315,6 +317,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
     setEmailError('');
     setEmailLoading(true);
+    setAlternativeOptionsRequested(true);
     setUserName(null);
     setIsRegisteredUser(false);
     setAvailableTabs(['password']);
@@ -360,6 +363,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       if (requestId !== loginOptionsRequestIdRef.current) return;
       setUserName(null);
       setAvailableTabs(['password']);
+      setAlternativeOptionsRequested(false);
     } finally {
       if (requestId === loginOptionsRequestIdRef.current) {
         setEmailLoading(false);
@@ -367,20 +371,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       }
     }
   };
-
-  useEffect(() => {
-    const trimmed = emailValue.trim();
-    if (!trimmed || !/^\S+@\S+\.\S+$/.test(trimmed)) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      handleContinue();
-    }, 550);
-
-    return () => window.clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emailValue]);
 
   // ── Helper: collect client-side device metadata ────────────────────────
   const getDeviceMeta = () => ({
@@ -403,6 +393,35 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         : undefined,
   });
 
+  const recordLoginAttempt = (
+    loginSuccess: boolean,
+    authMethod: 'password' | 'otp' | 'biometric',
+    userId: string | null = null
+  ) => {
+    void fetch('/api/security/log-access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        email: emailValue.trim(),
+        loginSuccess,
+        authMethod,
+        ...getDeviceMeta(),
+      }),
+      keepalive: true,
+    }).catch(() => undefined);
+  };
+
+  const markLoginTiming = (name: string, startedAt: number) => {
+    if (typeof performance === 'undefined') return;
+    const finishedAt = performance.now();
+    const startMark = `docubox:login:${name}:start`;
+    const endMark = `docubox:login:${name}:end`;
+    performance.mark(startMark, { startTime: startedAt });
+    performance.mark(endMark, { startTime: finishedAt });
+    performance.measure(`docubox:login:${name}`, startMark, endMark);
+  };
+
   const requestedRedirect = () => {
     const value = searchParams?.get('redirect');
     if (!value || !value.startsWith('/') || value.startsWith('//')) return '/inicio';
@@ -413,6 +432,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     primaryFactor: 'passkey' | 'other' = 'other',
     accessToken?: string
   ) => {
+    const securityCheckStartedAt = typeof performance === 'undefined' ? 0 : performance.now();
     const supabase = createClient();
     let token = accessToken;
     if (!token) {
@@ -433,6 +453,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     }
 
     const requirements = await response.json();
+    if (securityCheckStartedAt) markLoginTiming('security-check', securityCheckStartedAt);
     const target = requirements.platformStaff ? '/panel' : requestedRedirect();
     if (requirements.passkeyRequired && !requirements.passkeyEnrolled) {
       router.push(`/auth/passkey-enrollment?redirect=${encodeURIComponent(target)}`);
@@ -465,6 +486,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     }
     setPasswordError(null);
     setPasswordLoading(true);
+    const loginStartedAt = performance.now();
 
     try {
       const supabase = createClient();
@@ -472,40 +494,16 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         email: emailValue.trim(),
         password,
       });
+      markLoginTiming('password-authentication', loginStartedAt);
 
       if (error) {
-        try {
-          await fetch('/api/security/log-access', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userId: null,
-              email: emailValue.trim(),
-              loginSuccess: false,
-              authMethod: 'password',
-              ...getDeviceMeta(),
-            }),
-          });
-        } catch {
-          /* non-blocking */
-        }
+        recordLoginAttempt(false, 'password');
         setPasswordError('Credenciales incorrectas. Verifica tu correo y contraseña.');
         setPasswordLoading(false);
         return;
       }
 
-      void fetch('/api/security/log-access', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: authData.user?.id || null,
-          email: emailValue.trim(),
-          loginSuccess: true,
-          authMethod: 'password',
-          ...getDeviceMeta(),
-        }),
-        keepalive: true,
-      }).catch(() => undefined);
+      recordLoginAttempt(true, 'password', authData.user?.id || null);
 
       if (await enforcePostLoginSecurity('other', authData.session?.access_token)) return;
 
@@ -522,6 +520,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         }).catch(() => undefined);
       }
 
+      markLoginTiming('password-total', loginStartedAt);
       router.replace(requestedRedirect());
     } catch (error) {
       setPasswordError(
@@ -581,21 +580,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        try {
-          await fetch('/api/security/log-access', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userId: null,
-              email: emailValue.trim(),
-              loginSuccess: false,
-              authMethod: 'otp',
-              ...getDeviceMeta(),
-            }),
-          });
-        } catch {
-          /* non-blocking */
-        }
+        recordLoginAttempt(false, 'otp');
         setOtpError(data.error || 'Código incorrecto o expirado. Intenta de nuevo.');
         setOtpLoading(false);
         return;
@@ -619,18 +604,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         sessionAccessToken = verifiedSession.session?.access_token;
       }
 
-      void fetch('/api/security/log-access', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: data.userId || null,
-          email: emailValue.trim(),
-          loginSuccess: true,
-          authMethod: 'otp',
-          ...getDeviceMeta(),
-        }),
-        keepalive: true,
-      }).catch(() => undefined);
+      recordLoginAttempt(true, 'otp', data.userId || null);
       if (await enforcePostLoginSecurity('other', sessionAccessToken)) return;
       router.replace(requestedRedirect());
     } catch (error) {
@@ -708,21 +682,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       });
       if (!verifyRes.ok) {
         const e = await verifyRes.json();
-        try {
-          await fetch('/api/security/log-access', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userId: null,
-              email: emailValue.trim(),
-              loginSuccess: false,
-              authMethod: 'biometric',
-              ...getDeviceMeta(),
-            }),
-          });
-        } catch {
-          /* non-blocking */
-        }
+        recordLoginAttempt(false, 'biometric');
         setBiometricError(e.error || 'Autenticación biométrica fallida.');
         setBiometricLoading(false);
         return;
@@ -748,18 +708,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         return;
       }
 
-      void fetch('/api/security/log-access', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: verifyData?.userId || null,
-          email: emailValue.trim(),
-          loginSuccess: true,
-          authMethod: 'biometric',
-          ...getDeviceMeta(),
-        }),
-        keepalive: true,
-      }).catch(() => undefined);
+      recordLoginAttempt(true, 'biometric', verifyData?.userId || null);
       if (await enforcePostLoginSecurity('passkey', verifiedSession?.session?.access_token)) return;
       router.replace(requestedRedirect());
     } catch (err: unknown) {
@@ -890,6 +839,16 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                       'Iniciar sesión'
                     )}
                   </button>
+                  {!alternativeOptionsRequested && (
+                    <button
+                      type="button"
+                      onClick={loadAlternativeLoginOptions}
+                      disabled={emailLoading}
+                      className="w-full text-xs font-600 text-primary transition-colors hover:text-primary/80 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Usar otro método de acceso
+                    </button>
+                  )}
                 </div>
               )}
 

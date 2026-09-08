@@ -71,7 +71,13 @@ test('login keeps security validation blocking but does not wait for audit telem
     loginSource.indexOf('// ── OTP Email')
   );
 
-  assert.match(passwordLogin, /void fetch\('\/api\/security\/log-access'/);
+  assert.match(loginSource, /const recordLoginAttempt = \(/);
+  assert.match(passwordLogin, /recordLoginAttempt\(false, 'password'\)/);
+  assert.match(
+    passwordLogin,
+    /recordLoginAttempt\(true, 'password', authData\.user\?\.id \|\| null\)/
+  );
+  assert.doesNotMatch(passwordLogin, /await fetch\('\/api\/security\/log-access'/);
   assert.match(passwordLogin, /void fetch\('\/api\/security\/check-device'/);
   assert.match(passwordLogin, /keepalive: true/);
   assert.match(
@@ -134,7 +140,7 @@ test('dashboard avoids visible auth placeholders and repeated token-refresh load
   );
 });
 
-test('login cancels stale option lookups and the server queries independent checks together', () => {
+test('login loads alternative methods on demand and the server checks requirements in one RPC', () => {
   assert.match(
     loginSource,
     /const loginOptionsRequestRef = useRef<AbortController \| null>\(null\);/
@@ -142,6 +148,8 @@ test('login cancels stale option lookups and the server queries independent chec
   assert.match(loginSource, /loginOptionsRequestRef\.current\?\.abort\(\);/);
   assert.match(loginSource, /signal: controller\.signal,/);
   assert.match(loginSource, /requestId !== loginOptionsRequestIdRef\.current/);
+  assert.match(loginSource, /onClick=\{loadAlternativeLoginOptions\}/);
+  assert.doesNotMatch(loginSource, /setTimeout\(\(\) =>\s*handleContinue\(\)/);
   assert.match(loginOptionsRouteSource, /await Promise\.all\(\[/);
   assert.match(loginOptionsRouteSource, /user_verification_status/);
   assert.match(loginOptionsRouteSource, /webauthn_credentials/);
