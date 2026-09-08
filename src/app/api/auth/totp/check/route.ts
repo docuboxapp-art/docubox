@@ -10,7 +10,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
     const token = authorization.slice(7).trim();
-    const { data, error } = await createAnonClient().auth.getUser(token);
+    const auth = createAnonClient();
+    const { data, error } = await auth.auth.getUser(token);
     if (error || !data.user) {
       console.warn('[auth/totp/check] Token validation failed', {
         code: error?.code,

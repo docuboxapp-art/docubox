@@ -38,7 +38,7 @@ const PUBLIC_PREFIXES = [
 // Bearer token itself before the browser has completed its session handoff.
 const SESSION_POLICY_BOOTSTRAP_API_ROUTES = new Set(['/api/auth/totp/check']);
 
-type SessionPolicyRow = { active?: unknown };
+type SessionPolicyRow = { active?: unknown; reason?: unknown };
 
 function getPolicyRow(value: unknown): SessionPolicyRow | null {
   const row = Array.isArray(value) ? value[0] : value;
@@ -159,6 +159,12 @@ export async function middleware(request: NextRequest) {
 
   // Fail closed: server-side session validation is mandatory for authenticated traffic.
   if (policyError || policy?.active !== true) {
+    console.warn('[session-policy] Middleware sign-out requested', {
+      pathname,
+      policyReason: typeof policy?.reason === 'string' ? policy.reason : null,
+      policyErrorCode: policyError?.code,
+      policyErrorMessage: policyError?.message,
+    });
     await supabase.auth.signOut();
     return expiredSessionResponse(request, response, isApiRequest);
   }

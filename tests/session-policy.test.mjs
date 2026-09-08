@@ -31,6 +31,14 @@ test('only explicit human interactions can extend the inactivity window', () => 
   assert.match(migration, /IF p_record_user_activity THEN/);
 });
 
+test('authentication routes finish session bootstrap before timeout enforcement starts', () => {
+  assert.match(timeoutHook, /SESSION_BOOTSTRAP_PATHS/);
+  assert.match(timeoutHook, /'\/login'/);
+  assert.match(timeoutHook, /'\/auth\/'/);
+  assert.match(timeoutHook, /sessionPolicyEnabled = isAuthenticated && !isSessionBootstrapPath/);
+  assert.match(timeoutHook, /if \(!sessionPolicyEnabled \|\| signedOutRef\.current\) return/);
+});
+
 test('middleware validates authenticated browser and API traffic server-side', () => {
   assert.doesNotMatch(middleware, /'\/api\/'\s*,/);
   assert.match(middleware, /enforce_docubox_session_policy/);
@@ -56,7 +64,8 @@ test('post-login checks use the freshly issued session token', () => {
 });
 
 test('post-login endpoint validates the user token without the service-role client', () => {
-  assert.match(totpCheckRoute, /createAnonClient\(\)\.auth\.getUser\(token\)/);
+  assert.match(totpCheckRoute, /const auth = createAnonClient\(\)/);
+  assert.match(totpCheckRoute, /auth\.auth\.getUser\(token\)/);
   assert.doesNotMatch(totpCheckRoute, /service\.auth\.getUser\(token\)/);
   assert.match(totpCheckRoute, /resolvePlatformAccess\(data\.user, service\)/);
 });

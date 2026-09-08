@@ -8,6 +8,8 @@ const WARNING_BEFORE_MS = 2 * 60 * 1000;
 const ACTIVITY_DEBOUNCE_MS = 1_000;
 const BROADCAST_CHANNEL_NAME = 'docubox-session';
 
+const SESSION_BOOTSTRAP_PATHS = ['/login', '/auth/', '/register-device'];
+
 // Deliberately excludes mousemove, scroll, polling and background work.
 const HUMAN_ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
   'pointerdown',
@@ -67,6 +69,10 @@ export function useSessionTimeout(
   options: SessionTimeoutOptions
 ) {
   const pathname = usePathname();
+  const isSessionBootstrapPath = SESSION_BOOTSTRAP_PATHS.some((path) =>
+    path.endsWith('/') ? pathname.startsWith(path) : pathname === path || pathname.startsWith(`${path}/`)
+  );
+  const sessionPolicyEnabled = isAuthenticated && !isSessionBootstrapPath;
   const { onShowWarning, onHideWarning, onBeforeSignOut } = options;
   const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -131,7 +137,7 @@ export function useSessionTimeout(
   }, [clearTimers, executeSignOut, onHideWarning, onShowWarning]);
 
   const synchronizePolicy = useCallback(async (recordUserActivity: boolean) => {
-    if (!isAuthenticated || signedOutRef.current) return;
+    if (!sessionPolicyEnabled || signedOutRef.current) return;
 
     const { data, error } = await createClient().rpc('enforce_docubox_session_policy', {
       p_record_user_activity: recordUserActivity,
@@ -151,18 +157,18 @@ export function useSessionTimeout(
     }
 
     scheduleTimers(policy);
-  }, [executeSignOut, isAuthenticated, scheduleTimers]);
+  }, [executeSignOut, scheduleTimers, sessionPolicyEnabled]);
 
   const recordHumanActivity = useCallback(() => {
-    if (!isAuthenticated || signedOutRef.current) return;
+    if (!sessionPolicyEnabled || signedOutRef.current) return;
     if (activityDebounceRef.current) clearTimeout(activityDebounceRef.current);
     activityDebounceRef.current = setTimeout(() => {
       void synchronizePolicy(true);
     }, ACTIVITY_DEBOUNCE_MS);
-  }, [isAuthenticated, synchronizePolicy]);
+  }, [sessionPolicyEnabled, synchronizePolicy]);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!sessionPolicyEnabled) {
       clearTimers();
       previousPathnameRef.current = null;
       return;
@@ -182,10 +188,10 @@ export function useSessionTimeout(
       });
       clearTimers();
     };
-  }, [clearTimers, isAuthenticated, recordHumanActivity, synchronizePolicy]);
+  }, [clearTimers, recordHumanActivity, sessionPolicyEnabled, synchronizePolicy]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!sessionPolicyEnabled) return;
     if (previousPathnameRef.current === null) {
       previousPathnameRef.current = pathname;
       return;
@@ -194,10 +200,10 @@ export function useSessionTimeout(
       previousPathnameRef.current = pathname;
       recordHumanActivity();
     }
-  }, [isAuthenticated, pathname, recordHumanActivity]);
+  }, [pathname, recordHumanActivity, sessionPolicyEnabled]);
 
   useEffect(() => {
-    if (!isAuthenticated || typeof BroadcastChannel === 'undefined') return;
+    if (!sessionPolicyEnabled || typeof BroadcastChannel === 'undefined') return;
 
     const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
     channelRef.current = channel;
@@ -214,7 +220,7 @@ export function useSessionTimeout(
       channel.close();
       channelRef.current = null;
     };
-  }, [clearTimers, isAuthenticated, onBeforeSignOut, onHideWarning]);
+  }, [clearTimers, onBeforeSignOut, onHideWarning, sessionPolicyEnabled]);
 
   const continueSession = useCallback(() => {
     void synchronizePolicy(true);
