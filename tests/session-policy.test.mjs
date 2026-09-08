@@ -10,6 +10,7 @@ const migration = await read(
 const timeoutHook = await read('../src/hooks/useSessionTimeout.ts');
 const middleware = await read('../src/middleware.ts');
 const loginForm = await read('../src/app/sign-up-login-screen/components/LoginForm.tsx');
+const totpCheckRoute = await read('../src/app/api/auth/totp/check/route.ts');
 
 test('server session policy distinguishes ordinary and privileged limits', () => {
   assert.match(migration, /CASE WHEN v_is_privileged THEN 600 ELSE 900 END/);
@@ -52,4 +53,10 @@ test('post-login checks use the freshly issued session token', () => {
   assert.match(loginForm, /accessToken\?: string/);
   assert.match(loginForm, /authData\.session\?\.access_token/);
   assert.match(loginForm, /verifiedSession\?\.session\?\.access_token/);
+});
+
+test('post-login endpoint validates the user token without the service-role client', () => {
+  assert.match(totpCheckRoute, /createAnonClient\(\)\.auth\.getUser\(token\)/);
+  assert.doesNotMatch(totpCheckRoute, /service\.auth\.getUser\(token\)/);
+  assert.match(totpCheckRoute, /resolvePlatformAccess\(data\.user, service\)/);
 });

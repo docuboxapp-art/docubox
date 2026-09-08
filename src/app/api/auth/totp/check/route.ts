@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hasConfirmedTotp, resolvePlatformAccess } from '@/lib/platform-admin/access';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
 
 // Check if user has TOTP enabled — used by login flow
 export async function POST(req: NextRequest) {
@@ -9,13 +9,17 @@ export async function POST(req: NextRequest) {
     if (!authorization?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
-    const service = createServiceClient();
     const token = authorization.slice(7).trim();
-    const { data, error } = await service.auth.getUser(token);
+    const { data, error } = await createAnonClient().auth.getUser(token);
     if (error || !data.user) {
+      console.warn('[auth/totp/check] Token validation failed', {
+        code: error?.code,
+        message: error?.message,
+      });
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
+    const service = createServiceClient();
     const [totpEnabled, access] = await Promise.all([
       hasConfirmedTotp(data.user.id, service),
       resolvePlatformAccess(data.user, service),
@@ -34,7 +38,8 @@ export async function POST(req: NextRequest) {
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );
-  } catch {
+  } catch (error) {
+    console.error('[auth/totp/check] Security requirements check failed', error);
     return NextResponse.json({ error: 'No se pudo validar el segundo factor' }, { status: 500 });
   }
 }
