@@ -2,9 +2,11 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { createClient } from '@/lib/supabase/client';
 import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
-import { fetchDashboardParticipations } from '@/lib/dashboard/participations';
+import {
+  fetchDashboardOwnedDocuments,
+  fetchDashboardParticipations,
+} from '@/lib/dashboard/participations';
 
 const PERIOD_OPTIONS = [
   { value: '7d', label: 'Últimos 7 días' },
@@ -89,6 +91,7 @@ function PeriodFilter({ value, onChange }: { value: string; onChange: (v: string
 
 export default function EstadoParticipacionesWidget() {
   const { user } = useAuth();
+  const userId = user?.id ?? '';
   const [period, setPeriod] = useState('30d');
   // participaciones: docs where I am a participant (from API, bypasses RLS)
   const [participaciones, setParticipaciones] = useState<any[]>([]);
@@ -100,34 +103,25 @@ export default function EstadoParticipacionesWidget() {
   );
 
   const fetchData = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     setLoading(true);
 
-    // Fetch participaciones via API (uses service client, bypasses RLS)
-    const fetchParticipaciones = fetchDashboardParticipations();
-
-    // Fetch owned docs via Supabase (RLS allows owner to see their own docs)
-    const supabase = createClient();
-    const fetchOwned = supabase
-      .from('documentos')
-      .select('id, estado, fecha_vencimiento, created_at, participantes, owner_id, es_urgente')
-      .eq('owner_id', user.id)
-      .is('deleted_at', null)
-      .then(({ data }) => data ?? []);
-
-    Promise.all([fetchParticipaciones, fetchOwned]).then(([parts, owned]) => {
-      setParticipaciones(parts);
-      setOwnedDocs(owned);
-      setLoading(false);
-    });
-  }, [user]);
+    Promise.all([fetchDashboardParticipations(), fetchDashboardOwnedDocuments(userId)]).then(
+      ([parts, owned]) => {
+        setParticipaciones(parts);
+        setOwnedDocs(owned);
+        setLoading(false);
+      }
+    );
+  }, [userId]);
 
   useEffect(() => {
-    fetchData();
+    const timer = window.setTimeout(() => void fetchData(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchData]);
 
   // Real-time: refresh on any documentos/participantes change for this user
-  useDocumentRealtime(user?.id, fetchData, 'estado-participaciones-widget');
+  useDocumentRealtime(userId || undefined, fetchData, 'estado-participaciones-widget');
 
   const periodStart = getPeriodStartDate(period);
 

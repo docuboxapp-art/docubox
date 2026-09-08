@@ -3,10 +3,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FileText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
-import { fetchDashboardParticipations } from '@/lib/dashboard/participations';
+import {
+  fetchDashboardOwnedDocuments,
+  fetchDashboardParticipations,
+} from '@/lib/dashboard/participations';
 
 interface SuggestedDoc {
   id: string;
@@ -16,77 +18,70 @@ interface SuggestedDoc {
 
 export default function SugeridosParaTiWidget() {
   const { user } = useAuth();
+  const userId = user?.id ?? '';
   const router = useRouter();
   const [docs, setDocs] = useState<SuggestedDoc[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadDocs = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
 
-    const supabase = createClient();
+    Promise.all([fetchDashboardParticipations(), fetchDashboardOwnedDocuments(userId)]).then(
+      ([participaciones, allOwnedData]) => {
+        const ownedData = allOwnedData.filter((document: any) => document.estado === 'en_proceso');
+        const sugeridos: SuggestedDoc[] = [];
+        const addedIds = new Set<string>();
 
-    const fetchParticipaciones = fetchDashboardParticipations();
+        participaciones.forEach((p: any) => {
+          if (p.status !== 'en-progreso' && p.status !== 'pendiente') return;
+          const sub = (p.mySignatureStatus ?? '').toLowerCase();
+          const notReviewed =
+            sub === 'sin revisión' ||
+            sub === 'sin_revisar' ||
+            sub === 'en revisión' ||
+            sub === 'en_revision';
+          if (notReviewed && !addedIds.has(p.supabaseId ?? p.id)) {
+            sugeridos.push({
+              id: p.supabaseId ?? p.id,
+              name: p.documentName || p.id,
+              esUrgente: p.priority === 'Urgente',
+            });
+            addedIds.add(p.supabaseId ?? p.id);
+          }
+        });
 
-    const fetchOwned = supabase
-      .from('documentos')
-      .select('id, nombre, estado, participantes, es_urgente')
-      .eq('estado', 'en_proceso')
-      .eq('owner_id', user.id)
-      .is('deleted_at', null)
-      .then(({ data }) => data ?? []);
+        ownedData.forEach((d: any) => {
+          if (addedIds.has(d.id)) return;
+          const parts: any[] = d.participantes || [];
+          const esUrgente = !!d.es_urgente;
+          const tieneSinRevisar = parts.some(
+            (p: any) => !p.sub_estado || p.sub_estado === 'sin_revisar'
+          );
+          if (esUrgente || tieneSinRevisar) {
+            sugeridos.push({ id: d.id, name: d.nombre || d.id, esUrgente });
+            addedIds.add(d.id);
+          }
+        });
 
-    Promise.all([fetchParticipaciones, fetchOwned]).then(([participaciones, ownedData]) => {
-      const sugeridos: SuggestedDoc[] = [];
-      const addedIds = new Set<string>();
+        sugeridos.sort((a, b) => {
+          if (a.esUrgente && !b.esUrgente) return -1;
+          if (!a.esUrgente && b.esUrgente) return 1;
+          return 0;
+        });
 
-      participaciones.forEach((p: any) => {
-        if (p.status !== 'en-progreso' && p.status !== 'pendiente') return;
-        const sub = (p.mySignatureStatus ?? '').toLowerCase();
-        const notReviewed =
-          sub === 'sin revisión' ||
-          sub === 'sin_revisar' ||
-          sub === 'en revisión' ||
-          sub === 'en_revision';
-        if (notReviewed && !addedIds.has(p.supabaseId ?? p.id)) {
-          sugeridos.push({
-            id: p.supabaseId ?? p.id,
-            name: p.documentName || p.id,
-            esUrgente: p.priority === 'Urgente',
-          });
-          addedIds.add(p.supabaseId ?? p.id);
-        }
-      });
-
-      ownedData.forEach((d: any) => {
-        if (addedIds.has(d.id)) return;
-        const parts: any[] = d.participantes || [];
-        const esUrgente = !!d.es_urgente;
-        const tieneSinRevisar = parts.some(
-          (p: any) => !p.sub_estado || p.sub_estado === 'sin_revisar'
-        );
-        if (esUrgente || tieneSinRevisar) {
-          sugeridos.push({ id: d.id, name: d.nombre || d.id, esUrgente });
-          addedIds.add(d.id);
-        }
-      });
-
-      sugeridos.sort((a, b) => {
-        if (a.esUrgente && !b.esUrgente) return -1;
-        if (!a.esUrgente && b.esUrgente) return 1;
-        return 0;
-      });
-
-      setDocs(sugeridos.slice(0, 10));
-      setLoading(false);
-    });
-  }, [user]);
+        setDocs(sugeridos.slice(0, 10));
+        setLoading(false);
+      }
+    );
+  }, [userId]);
 
   useEffect(() => {
-    loadDocs();
+    const timer = window.setTimeout(() => void loadDocs(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadDocs]);
 
   // Real-time: refresh on any documentos/participantes change for this user
-  useDocumentRealtime(user?.id, loadDocs, 'sugeridos-widget');
+  useDocumentRealtime(userId || undefined, loadDocs, 'sugeridos-widget');
 
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">

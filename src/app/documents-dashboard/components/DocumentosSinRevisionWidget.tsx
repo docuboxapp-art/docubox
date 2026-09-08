@@ -3,10 +3,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FileText, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
-import { fetchDashboardParticipations } from '@/lib/dashboard/participations';
+import {
+  fetchDashboardOwnedDocuments,
+  fetchDashboardParticipations,
+} from '@/lib/dashboard/participations';
 
 interface DocItem {
   id: string;
@@ -16,6 +18,8 @@ interface DocItem {
 
 export default function DocumentosSinRevisionWidget() {
   const { user } = useAuth();
+  const userId = user?.id ?? '';
+  const userEmail = (user?.email ?? '').toLowerCase();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
     'no_revisados_por_mi' | 'no_revisados_por_participantes'
@@ -25,23 +29,14 @@ export default function DocumentosSinRevisionWidget() {
   const [loading, setLoading] = useState(true);
 
   const loadDocs = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     setLoading(true);
-    const supabase = createClient();
     try {
-      // Fetch participaciones via API (uses service client, bypasses RLS)
-      const fetchParticipaciones = fetchDashboardParticipations();
-
-      // Fetch owned docs (RLS allows owner to see their own docs)
-      const fetchOwned = supabase
-        .from('documentos')
-        .select('id, nombre, estado, participantes, es_urgente, owner_id')
-        .eq('estado', 'en_proceso')
-        .eq('owner_id', user.id)
-        .is('deleted_at', null)
-        .then(({ data }) => data ?? []);
-
-      const [participaciones, ownedData] = await Promise.all([fetchParticipaciones, fetchOwned]);
+      const [participaciones, allOwnedData] = await Promise.all([
+        fetchDashboardParticipations(),
+        fetchDashboardOwnedDocuments(userId),
+      ]);
+      const ownedData = allOwnedData.filter((document: any) => document.estado === 'en_proceso');
 
       const propios: DocItem[] = [];
       const participantes: DocItem[] = [];
@@ -67,7 +62,7 @@ export default function DocumentosSinRevisionWidget() {
         const hasParticipantSinRevisar = parts.some((p: any) => {
           const pId = p.id || p.user_id || p.userId;
           const pEmail = (p.email || '').toLowerCase();
-          const isCurrentUser = pId === user.id || pEmail === (user.email || '').toLowerCase();
+          const isCurrentUser = pId === userId || pEmail === userEmail;
           return !isCurrentUser && (!p.sub_estado || p.sub_estado === 'sin_revisar');
         });
         if (hasParticipantSinRevisar && participantes.length < 10) {
@@ -82,13 +77,14 @@ export default function DocumentosSinRevisionWidget() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userEmail, userId]);
 
   // Real-time: refresh on any documentos/participantes change for this user
-  useDocumentRealtime(user?.id, loadDocs, 'sin-revision-widget');
+  useDocumentRealtime(userId || undefined, loadDocs, 'sin-revision-widget');
 
   useEffect(() => {
-    loadDocs();
+    const timer = window.setTimeout(() => void loadDocs(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadDocs]);
 
   const docs = activeTab === 'no_revisados_por_mi' ? propiosDocs : participantesDocs;

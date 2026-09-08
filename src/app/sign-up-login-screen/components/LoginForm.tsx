@@ -522,7 +522,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         }).catch(() => undefined);
       }
 
-      window.location.href = requestedRedirect();
+      router.replace(requestedRedirect());
     } catch (error) {
       setPasswordError(
         error instanceof Error ? error.message : 'Error de conexión. Intenta nuevamente.'
@@ -632,7 +632,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         keepalive: true,
       }).catch(() => undefined);
       if (await enforcePostLoginSecurity('other', sessionAccessToken)) return;
-      window.location.href = requestedRedirect();
+      router.replace(requestedRedirect());
     } catch (error) {
       setOtpError(
         error instanceof Error ? error.message : 'Error de conexión. Intenta nuevamente.'
@@ -761,7 +761,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         keepalive: true,
       }).catch(() => undefined);
       if (await enforcePostLoginSecurity('passkey', verifiedSession?.session?.access_token)) return;
-      window.location.href = requestedRedirect();
+      router.replace(requestedRedirect());
     } catch (err: unknown) {
       const name = err instanceof Error ? err.name : '';
       if (name === 'NotAllowedError') setBiometricError('Autenticación cancelada.');
@@ -833,7 +833,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
             <>
               {!isOtpMode && (
                 <div className="space-y-3">
-
                   {passwordError && (
                     <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
                       <AlertTriangle size={13} className="text-red-600 flex-shrink-0 mt-0.5" />

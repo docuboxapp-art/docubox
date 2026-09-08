@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   CheckCircle2,
   XCircle,
@@ -240,6 +240,10 @@ const TIME_LABELS: Record<TimeFilter, string> = {
 export default function ActivityAuditLog() {
   const { user } = useAuth();
   const { activeWorkspace } = useWorkspace();
+  const userId = user?.id ?? '';
+  const userEmail = user?.email ?? '';
+  const workspaceId = activeWorkspace?.id ?? '';
+  const supabase = useMemo(() => createClient(), []);
 
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[]>([]);
@@ -254,9 +258,8 @@ export default function ActivityAuditLog() {
   const [auditPageSize, setAuditPageSize] = useState<10 | 30 | 50 | 100>(10);
 
   const loadData = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     setLoading(true);
-    const supabase = createClient();
 
     // Time range calculation
     const now = new Date();
@@ -280,11 +283,35 @@ export default function ActivityAuditLog() {
       let docsQuery = supabase
         .from('documentos')
         .select('id, nombre, estado, created_at, updated_at, ultimo_paso')
-        .eq('owner_id', user.id)
+        .eq('owner_id', userId)
         .order('updated_at', { ascending: false })
         .limit(30);
       if (fromDate) docsQuery = docsQuery.gte('created_at', fromDate.toISOString());
-      const { data: docsData } = await docsQuery;
+
+      const participationQuery = supabase
+        .from('documentos')
+        .select('id, nombre, participantes, updated_at')
+        .neq('owner_id', userId)
+        .not('participantes', 'is', null)
+        .order('updated_at', { ascending: false })
+        .limit(20);
+
+      const alertQuery = workspaceId
+        ? supabase
+            .from('documentos')
+            .select('id, nombre, fecha_vencimiento, estado')
+            .eq('workspace_id', workspaceId)
+            .not('fecha_vencimiento', 'is', null)
+            .in('estado', ['en_proceso', 'en_espera', 'borrador'])
+            .order('fecha_vencimiento', { ascending: true })
+        : Promise.resolve({ data: [], error: null });
+
+      const [docsResult, participationResult, alertResult] = await Promise.all([
+        docsQuery,
+        participationQuery,
+        alertQuery,
+      ]);
+      const docsData = docsResult.data;
       if (docsData) {
         for (const doc of docsData) {
           // Creation event
@@ -320,17 +347,11 @@ export default function ActivityAuditLog() {
       }
 
       // 1b. Participation events (documents where user is a participant)
-      const { data: partDocs } = await supabase
-        .from('documentos')
-        .select('id, nombre, participantes, updated_at')
-        .neq('owner_id', user.id)
-        .not('participantes', 'is', null)
-        .order('updated_at', { ascending: false })
-        .limit(20);
+      const partDocs = participationResult.data;
       if (partDocs) {
         for (const doc of partDocs) {
           const parts: any[] = Array.isArray(doc.participantes) ? doc.participantes : [];
-          const myPart = parts.find((p: any) => p.user_id === user.id || p.email === user.email);
+          const myPart = parts.find((p: any) => p.user_id === userId || p.email === userEmail);
           if (myPart && myPart.sub_estado && myPart.sub_estado !== 'sin_revisar') {
             const subEstadoLabel: Record<string, string> = {
               en_revision: 'Documento revisado',
@@ -363,16 +384,8 @@ export default function ActivityAuditLog() {
       setAuditLogEntries(uniqueEntries);
 
       // 2. Load expiration alerts from documentos
-      const workspaceId = activeWorkspace?.id;
       if (workspaceId) {
-        const alertQuery = supabase
-          .from('documentos')
-          .select('id, nombre, fecha_vencimiento, estado')
-          .eq('workspace_id', workspaceId)
-          .not('fecha_vencimiento', 'is', null)
-          .in('estado', ['en_proceso', 'en_espera', 'borrador'])
-          .order('fecha_vencimiento', { ascending: true });
-        const { data: alertData, error: alertError } = await alertQuery;
+        const { data: alertData, error: alertError } = alertResult;
         if (!alertError && alertData) {
           const alerts: ExpirationAlert[] = alertData.map((d: any) => ({
             id: d.id,
@@ -389,7 +402,7 @@ export default function ActivityAuditLog() {
     } finally {
       setLoading(false);
     }
-  }, [user, activeWorkspace, timeFilter]);
+  }, [supabase, timeFilter, userEmail, userId, workspaceId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

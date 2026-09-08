@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -39,13 +39,15 @@ const ACTIVE_WORKSPACE_KEY = 'docubox_active_workspace_id';
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const userId = user?.id ?? '';
+  const accountType = user?.user_metadata?.account_type ?? '';
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(null);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchWorkspaces = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setWorkspaces([]);
       setActiveWorkspaceState(null);
       setLoading(false);
@@ -55,7 +57,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     try {
       let { data, error } = await supabase
         .from('workspace_members')
-        .select(`
+        .select(
+          `
           role,
           status,
           workspaces (
@@ -67,17 +70,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             description,
             organization_enabled
           )
-        `)
-        .eq('user_id', user.id)
+        `
+        )
+        .eq('user_id', userId)
         .eq('status', 'active');
 
       // Keep existing accounts operational when the frontend is deployed just
       // before the organization migration reaches the database.
       const workspaceQueryError = error?.message || '';
-      if (['organization_enabled', 'status'].some((column) => workspaceQueryError.includes(column))) {
+      if (
+        ['organization_enabled', 'status'].some((column) => workspaceQueryError.includes(column))
+      ) {
         const fallback = await supabase
           .from('workspace_members')
-          .select(`
+          .select(
+            `
             role,
             workspaces (
               id,
@@ -87,8 +94,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
               logo_url,
               description
             )
-          `)
-          .eq('user_id', user.id);
+          `
+          )
+          .eq('user_id', userId);
         data = fallback.data as typeof data;
         error = fallback.error;
       }
@@ -110,9 +118,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           description: row.workspaces.description,
           role: row.role as 'owner' | 'admin' | 'member',
           membershipStatus: (row.status || 'active') as Workspace['membershipStatus'],
-          organizationEnabled: row.workspaces.organization_enabled == null
-            ? row.workspaces.workspace_type === 'business'
-            : Boolean(row.workspaces.organization_enabled),
+          organizationEnabled:
+            row.workspaces.organization_enabled == null
+              ? row.workspaces.workspace_type === 'business'
+              : Boolean(row.workspaces.organization_enabled),
           collaborationEnabled: false,
         }));
 
@@ -149,33 +158,35 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setWorkspaces(mapped);
 
       // Restore previously selected workspace or default to personal
-      const savedId = typeof window !== 'undefined'
-        ? localStorage.getItem(ACTIVE_WORKSPACE_KEY)
-        : null;
+      const savedId =
+        typeof window !== 'undefined' ? localStorage.getItem(ACTIVE_WORKSPACE_KEY) : null;
 
       const savedWorkspace = savedId ? mapped.find((w) => w.id === savedId) : null;
       const personalWorkspace = mapped.find((w) => w.workspaceType === 'personal');
       const businessWorkspace = mapped.find((w) => w.workspaceType === 'business');
-      const isBusinessAccount = user.user_metadata?.account_type === 'empresarial';
+      const isBusinessAccount = accountType === 'empresarial';
       const compatibleSavedWorkspace = isBusinessAccount
-        ? savedWorkspace?.workspaceType === 'business' ? savedWorkspace : null
+        ? savedWorkspace?.workspaceType === 'business'
+          ? savedWorkspace
+          : null
         : savedWorkspace;
 
       setActiveWorkspaceState(
         compatibleSavedWorkspace ||
-        (isBusinessAccount ? businessWorkspace : personalWorkspace) ||
-        mapped[0] ||
-        null
+          (isBusinessAccount ? businessWorkspace : personalWorkspace) ||
+          mapped[0] ||
+          null
       );
     } catch (err) {
       console.log('Workspace context error:', err);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [accountType, supabase, userId]);
 
   useEffect(() => {
-    fetchWorkspaces();
+    const timer = window.setTimeout(() => void fetchWorkspaces(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchWorkspaces]);
 
   const setActiveWorkspace = useCallback((workspace: Workspace) => {

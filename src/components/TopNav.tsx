@@ -237,7 +237,14 @@ export default function TopNav() {
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const [searchCollapsed, setSearchCollapsed] = useState(false);
+  const [searchCollapsed, setSearchCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem(SEARCH_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [isExpanded, setIsExpanded] = useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
@@ -268,6 +275,7 @@ export default function TopNav() {
     refreshWorkspaces,
   } = useWorkspace();
   const { user, signOut } = useAuth();
+  const userId = user?.id ?? '';
   const { isDark, toggleTheme } = useTheme();
   const { isModuleActive, loading: modulesLoading } = useAppModules();
   const router = useRouter();
@@ -343,38 +351,33 @@ export default function TopNav() {
   }, [isExpanded]);
 
   useEffect(() => {
-    try {
-      setSearchCollapsed(localStorage.getItem(SEARCH_COLLAPSED_KEY) === 'true');
-    } catch {
-      setSearchCollapsed(false);
-    }
-  }, []);
+    const timer = window.setTimeout(() => {
+      if (!userId) {
+        recentSearchesRef.current = [];
+        setRecentSearches([]);
+        return;
+      }
 
-  useEffect(() => {
-    if (!user?.id) {
-      recentSearchesRef.current = [];
-      setRecentSearches([]);
-      return;
-    }
-
-    try {
-      const userKey = `${RECENT_SEARCHES_KEY}:${user.id}`;
-      const stored = localStorage.getItem(userKey) || localStorage.getItem(RECENT_SEARCHES_KEY);
-      const parsed = stored ? JSON.parse(stored) : [];
-      const validSearches = Array.isArray(parsed)
-        ? parsed
-            .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-            .slice(0, 5)
-        : [];
-      recentSearchesRef.current = validSearches;
-      setRecentSearches(validSearches);
-      if (validSearches.length > 0) localStorage.setItem(userKey, JSON.stringify(validSearches));
-      localStorage.removeItem(RECENT_SEARCHES_KEY);
-    } catch {
-      recentSearchesRef.current = [];
-      setRecentSearches([]);
-    }
-  }, [user?.id]);
+      try {
+        const userKey = `${RECENT_SEARCHES_KEY}:${userId}`;
+        const stored = localStorage.getItem(userKey) || localStorage.getItem(RECENT_SEARCHES_KEY);
+        const parsed = stored ? JSON.parse(stored) : [];
+        const validSearches = Array.isArray(parsed)
+          ? parsed
+              .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+              .slice(0, 5)
+          : [];
+        recentSearchesRef.current = validSearches;
+        setRecentSearches(validSearches);
+        if (validSearches.length > 0) localStorage.setItem(userKey, JSON.stringify(validSearches));
+        localStorage.removeItem(RECENT_SEARCHES_KEY);
+      } catch {
+        recentSearchesRef.current = [];
+        setRecentSearches([]);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [userId]);
 
   // Focus the visible search field when the anchored panel opens.
   useEffect(() => {
@@ -446,11 +449,7 @@ export default function TopNav() {
   };
 
   const isPersonal = activeWorkspace?.workspaceType === 'personal';
-  const displayName = wsLoading
-    ? 'Cargando...'
-    : isPersonal
-      ? userFullName
-      : (activeWorkspace?.name ?? 'Espacio Personal');
+  const displayName = isPersonal ? userFullName : (activeWorkspace?.name ?? userFullName);
 
   const rememberSearch = (value: string) => {
     const cleaned = value.trim();
@@ -508,10 +507,12 @@ export default function TopNav() {
 
   useEffect(() => {
     const query = searchQuery.trim();
-    if (!searchOpen || query.length < 2 || !user) {
-      setSearchResults([]);
-      setSearchLoading(false);
-      return;
+    if (!searchOpen || query.length < 2 || !userId) {
+      const resetTimer = window.setTimeout(() => {
+        setSearchResults([]);
+        setSearchLoading(false);
+      }, 0);
+      return () => window.clearTimeout(resetTimer);
     }
 
     let cancelled = false;
@@ -536,7 +537,7 @@ export default function TopNav() {
         const documentsRequest = supabase
           .from('documentos')
           .select('id, nombre, descripcion, estado, updated_at')
-          .eq('owner_id', user.id)
+          .eq('owner_id', userId)
           .is('deleted_at', null)
           .or(
             `nombre.ilike.${textPattern},descripcion.ilike.${textPattern},estado.ilike.${statusPattern}`
@@ -547,7 +548,7 @@ export default function TopNav() {
         const contactsRequest = supabase
           .from('contacts')
           .select('id, nombre, apellido_paterno, apellido_materno, email')
-          .eq('user_id', user.id)
+          .eq('user_id', userId)
           .or(
             `nombre.ilike.${textPattern},apellido_paterno.ilike.${textPattern},apellido_materno.ilike.${textPattern},email.ilike.${textPattern}`
           )
@@ -556,7 +557,7 @@ export default function TopNav() {
         const foldersRequest = supabase
           .from('carpetas')
           .select('id, nombre, descripcion, parent_id, created_at')
-          .eq('owner_id', user.id)
+          .eq('owner_id', userId)
           .or(`nombre.ilike.${textPattern},descripcion.ilike.${textPattern}`)
           .order('created_at', { ascending: false })
           .limit(5);
@@ -634,7 +635,7 @@ export default function TopNav() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [activeWorkspace?.id, searchOpen, searchQuery, user]);
+  }, [activeWorkspace?.id, searchOpen, searchQuery, userId]);
 
   // Open join modal
   const handleOpenJoinModal = () => {
@@ -704,7 +705,7 @@ export default function TopNav() {
 
   // Load real notifications from Supabase
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     const supabase = createClient();
 
     const loadNotifications = async () => {
@@ -713,7 +714,7 @@ export default function TopNav() {
         .select(
           'id, title, description, created_at, read, type, priority, metadata, action_url, action_label'
         )
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .is('archived_at', null)
         .order('created_at', { ascending: false })
         .limit(20);
@@ -743,7 +744,7 @@ export default function TopNav() {
       .channel('topnav-notifications')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
         () => {
           loadNotifications();
         }
@@ -753,7 +754,7 @@ export default function TopNav() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [userId]);
 
   const isBusinessWorkspace = activeWorkspace?.workspaceType === 'business';
   const canManageOrganization =

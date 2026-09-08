@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -116,23 +116,18 @@ export function AppModulesProvider({ children }: { children: React.ReactNode }) 
   const [activeModuleId, setActiveModuleId] = useState<ModuleId | null>(null);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
-  const supabase = createClient();
+  const userId = user?.id ?? '';
+  const supabase = useMemo(() => createClient(), []);
 
   // Load preference from Supabase when user is available
   useEffect(() => {
-    if (!user) {
-      setActiveModuleId(null);
-      setLoading(false);
-      return;
-    }
-
     const loadPreference = async () => {
       setLoading(true);
       try {
         const { data, error } = await supabase
           .from('user_module_preferences')
           .select('active_module_id')
-          .eq('user_id', user.id)
+          .eq('user_id', userId)
           .maybeSingle();
 
         if (error) {
@@ -149,21 +144,29 @@ export function AppModulesProvider({ children }: { children: React.ReactNode }) 
       }
     };
 
-    loadPreference();
-  }, [user?.id]);
+    const timer = window.setTimeout(() => {
+      if (!userId) {
+        setActiveModuleId(null);
+        setLoading(false);
+        return;
+      }
+      void loadPreference();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [supabase, userId]);
 
   const setActiveModule = useCallback(
     async (id: ModuleId | null) => {
       // Optimistic update
       setActiveModuleId(id);
 
-      if (!user) return;
+      if (!userId) return;
 
       try {
         const { error } = await supabase
           .from('user_module_preferences')
           .upsert(
-            { user_id: user.id, active_module_id: id, updated_at: new Date().toISOString() },
+            { user_id: userId, active_module_id: id, updated_at: new Date().toISOString() },
             { onConflict: 'user_id' }
           );
 
@@ -174,7 +177,7 @@ export function AppModulesProvider({ children }: { children: React.ReactNode }) 
         // silent
       }
     },
-    [user?.id]
+    [supabase, userId]
   );
 
   const isModuleActive = useCallback((id: ModuleId) => activeModuleId === id, [activeModuleId]);

@@ -1,6 +1,15 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { createClient } from '../lib/supabase/client';
 import { useSessionTimeout } from '../hooks/useSessionTimeout';
 
@@ -28,11 +37,7 @@ function SessionTimeoutModal({
   const [actionPending, setActionPending] = useState<'continue' | 'signout' | null>(null);
 
   useEffect(() => {
-    if (!visible) {
-      setRemaining(120);
-      return;
-    }
-    setRemaining(120);
+    if (!visible) return;
     const interval = setInterval(() => {
       setRemaining((prev) => {
         if (prev <= 1) {
@@ -98,15 +103,10 @@ function SessionTimeoutModal({
 
         {/* Title */}
         <div className="text-center">
-          <h2
-            id="session-timeout-title"
-            className="text-lg font-700 text-foreground"
-          >
+          <h2 id="session-timeout-title" className="text-lg font-700 text-foreground">
             ¿Sigues ahí?
           </h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Tu sesión cerrará por inactividad en
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">Tu sesión cerrará por inactividad en</p>
           <p className="text-3xl font-700 text-amber-500 mt-1 tabular-nums">
             {mins}:{secs.toString().padStart(2, '0')}
           </p>
@@ -135,7 +135,7 @@ function SessionTimeoutModal({
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -144,33 +144,44 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Session timeout modal state
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
+  const emailVerifiedUserRef = useRef<string | null>(null);
 
-  const fetchEmailVerified = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('email_verified')
-        .eq('id', userId)
-        .single();
-      if (error) {
+  const fetchEmailVerified = useCallback(
+    async (userId: string) => {
+      try {
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('email_verified')
+          .eq('id', userId)
+          .single();
+        if (error) {
+          setEmailVerified(false);
+          return;
+        }
+        setEmailVerified(data?.email_verified === true);
+      } catch {
         setEmailVerified(false);
-        return;
       }
-      setEmailVerified(data?.email_verified === true);
-    } catch {
-      setEmailVerified(false);
-    }
-  };
+    },
+    [supabase]
+  );
 
   useEffect(() => {
+    const syncEmailVerified = (userId: string, force = false) => {
+      if (!force && emailVerifiedUserRef.current === userId) return;
+      emailVerifiedUserRef.current = userId;
+      void fetchEmailVerified(userId);
+    };
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user?.id) {
-        fetchEmailVerified(session.user.id);
+        syncEmailVerified(session.user.id);
       } else {
+        emailVerifiedUserRef.current = null;
         setEmailVerified(null);
       }
       setLoading(false);
@@ -178,20 +189,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Listen for auth changes
     const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user?.id) {
-        fetchEmailVerified(session.user.id);
+        syncEmailVerified(session.user.id, event === 'USER_UPDATED');
       } else {
+        emailVerifiedUserRef.current = null;
         setEmailVerified(null);
       }
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchEmailVerified, supabase]);
 
   // ── useSessionTimeout integration ─────────────────────────────────────────
   const { continueSession, signOutNow } = useSessionTimeout(!!user, {
@@ -217,10 +229,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       options: {
         data: {
           full_name: (metadata as any)?.fullName || '',
-          avatar_url: (metadata as any)?.avatarUrl || ''
+          avatar_url: (metadata as any)?.avatarUrl || '',
         },
-        emailRedirectTo: `${window.location.origin}/auth/callback`
-      }
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
     });
     if (error) throw error;
     return data;
@@ -229,7 +241,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
-      password
+      password,
     });
     if (error) throw error;
     return data;
@@ -242,7 +254,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const getCurrentUser = async () => {
-    const { data: { user }, error } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
     if (error) throw error;
     return user;
   };
@@ -279,11 +294,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   return (
     <AuthContext.Provider value={value}>
       {children}
-      <SessionTimeoutModal
-        visible={showTimeoutWarning}
-        onContinue={continueSession}
-        onSignOut={signOutNow}
-      />
+      {showTimeoutWarning && (
+        <SessionTimeoutModal visible onContinue={continueSession} onSignOut={signOutNow} />
+      )}
     </AuthContext.Provider>
   );
 };

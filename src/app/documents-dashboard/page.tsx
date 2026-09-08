@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import AppLayout from '@/components/AppLayout';
 import {
   Gift,
@@ -18,13 +19,21 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import VerificationProgressBar from './components/VerificationProgressBar';
-import ActivityAuditLog from '@/app/mis-documentos/components/ActivityAuditLog';
 import EstadoDocumentosWidget from './components/EstadoDocumentosWidget';
 import EstadoParticipacionesWidget from './components/EstadoParticipacionesWidget';
 import SugeridosParaTiWidget from './components/SugeridosParaTiWidget';
 import DocumentosSinRevisionWidget from './components/DocumentosSinRevisionWidget';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+
+const ActivityAuditLog = dynamic(() => import('@/app/mis-documentos/components/ActivityAuditLog'), {
+  ssr: false,
+});
+
+function getGreeting() {
+  const hour = new Date().getHours();
+  return hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches';
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -104,14 +113,13 @@ export default function DocumentsDashboardPage() {
   const supabase = useMemo(() => createClient(), []);
   const { user, loading: authLoading } = useAuth();
 
-  const [greeting, setGreeting] = useState('');
+  const [greeting] = useState(getGreeting);
   const [userId, setUserId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     docsUsed: 0,
     docsTotal: 2,
     planName: 'Plan Gratuito',
   });
-  const [loadingData, setLoadingData] = useState(true);
 
   // Personalizar mode
   const [customizing, setCustomizing] = useState(false);
@@ -121,146 +129,142 @@ export default function DocumentsDashboardPage() {
   const [savingLayout, setSavingLayout] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const hour = new Date().getHours();
-    setGreeting(hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches');
-  }, []);
+  const loadDashboardData = useCallback(
+    async (currentUserId: string) => {
+      try {
+        setUserId(currentUserId);
 
-  const loadDashboardData = useCallback(async (currentUserId: string) => {
-    setLoadingData(true);
-    try {
-      setUserId(currentUserId);
+        // These independent lookups are intentionally concurrent for the first dashboard render.
+        const [{ data: profile }, { data: sub }] = await Promise.all([
+          supabase
+            .from('user_profiles')
+            .select('dashboard_layout')
+            .eq('id', currentUserId)
+            .single(),
+          supabase
+            .from('subscriptions')
+            .select('documents_used, documents_limit, plan_id, subscription_plans(name)')
+            .eq('user_id', currentUserId)
+            .eq('status', 'active')
+            .single(),
+        ]);
 
-      // These independent lookups are intentionally concurrent for the first dashboard render.
-      const [{ data: profile }, { data: sub }] = await Promise.all([
-        supabase
-          .from('user_profiles')
-          .select('dashboard_layout')
-          .eq('id', currentUserId)
-          .single(),
-        supabase
-          .from('subscriptions')
-          .select('documents_used, documents_limit, plan_id, subscription_plans(name)')
-          .eq('user_id', currentUserId)
-          .eq('status', 'active')
-          .single(),
-      ]);
-
-      // Load saved layout
-      if (profile?.dashboard_layout) {
-        try {
-          const saved = profile.dashboard_layout as { widgets: WidgetDef[]; removed: WidgetDef[] };
-          if (saved.widgets && Array.isArray(saved.widgets)) {
-            // Filter out removed old widgets, keep only valid ones
-            const validIds = [
-              'estado_documentos',
-              'estado_participaciones',
-              'sugeridos',
-              'sin_revision',
-              'bitacora',
-              'docs',
-              'plan',
-              'quickactions',
-            ];
-            let mergedWidgets = saved.widgets.filter((w) => validIds.includes(w.id));
-            // Ensure new widgets are present
-            const hasEstadoDocs = mergedWidgets.some((w) => w.id === 'estado_documentos');
-            const hasEstadoPart = mergedWidgets.some((w) => w.id === 'estado_participaciones');
-            const hasSugeridos = mergedWidgets.some((w) => w.id === 'sugeridos');
-            const hasSinRevision = mergedWidgets.some((w) => w.id === 'sin_revision');
-            const hasBitacora = mergedWidgets.some((w) => w.id === 'bitacora');
-            if (!hasEstadoDocs)
-              mergedWidgets = [
-                ...mergedWidgets,
-                {
-                  id: 'estado_documentos',
-                  label: 'Estado de los documentos',
-                  column: 'left' as const,
-                  order: mergedWidgets.filter((w) => w.column === 'left').length,
-                },
+        // Load saved layout
+        if (profile?.dashboard_layout) {
+          try {
+            const saved = profile.dashboard_layout as {
+              widgets: WidgetDef[];
+              removed: WidgetDef[];
+            };
+            if (saved.widgets && Array.isArray(saved.widgets)) {
+              // Filter out removed old widgets, keep only valid ones
+              const validIds = [
+                'estado_documentos',
+                'estado_participaciones',
+                'sugeridos',
+                'sin_revision',
+                'bitacora',
+                'docs',
+                'plan',
+                'quickactions',
               ];
-            if (!hasEstadoPart)
-              mergedWidgets = [
-                ...mergedWidgets,
-                {
-                  id: 'estado_participaciones',
-                  label: 'Estado de participaciones',
-                  column: 'left' as const,
-                  order: mergedWidgets.filter((w) => w.column === 'left').length,
-                },
+              let mergedWidgets = saved.widgets.filter((w) => validIds.includes(w.id));
+              // Ensure new widgets are present
+              const hasEstadoDocs = mergedWidgets.some((w) => w.id === 'estado_documentos');
+              const hasEstadoPart = mergedWidgets.some((w) => w.id === 'estado_participaciones');
+              const hasSugeridos = mergedWidgets.some((w) => w.id === 'sugeridos');
+              const hasSinRevision = mergedWidgets.some((w) => w.id === 'sin_revision');
+              const hasBitacora = mergedWidgets.some((w) => w.id === 'bitacora');
+              if (!hasEstadoDocs)
+                mergedWidgets = [
+                  ...mergedWidgets,
+                  {
+                    id: 'estado_documentos',
+                    label: 'Estado de los documentos',
+                    column: 'left' as const,
+                    order: mergedWidgets.filter((w) => w.column === 'left').length,
+                  },
+                ];
+              if (!hasEstadoPart)
+                mergedWidgets = [
+                  ...mergedWidgets,
+                  {
+                    id: 'estado_participaciones',
+                    label: 'Estado de participaciones',
+                    column: 'left' as const,
+                    order: mergedWidgets.filter((w) => w.column === 'left').length,
+                  },
+                ];
+              if (!hasSugeridos)
+                mergedWidgets = [
+                  ...mergedWidgets,
+                  {
+                    id: 'sugeridos',
+                    label: 'Sugeridos para ti',
+                    column: 'left' as const,
+                    order: mergedWidgets.filter((w) => w.column === 'left').length,
+                  },
+                ];
+              if (!hasSinRevision)
+                mergedWidgets = [
+                  ...mergedWidgets,
+                  {
+                    id: 'sin_revision',
+                    label: 'Documentos sin revisión',
+                    column: 'left' as const,
+                    order: mergedWidgets.filter((w) => w.column === 'left').length,
+                  },
+                ];
+              if (!hasBitacora)
+                mergedWidgets = [
+                  ...mergedWidgets,
+                  {
+                    id: 'bitacora',
+                    label: 'Bitácora de Actividad y Auditoría',
+                    column: 'left' as const,
+                    order: mergedWidgets.filter((w) => w.column === 'left').length,
+                  },
+                ];
+              setWidgets(mergedWidgets);
+            }
+            if (saved.removed && Array.isArray(saved.removed)) {
+              // Filter removed list to only valid widget ids
+              const validIds = [
+                'estado_documentos',
+                'estado_participaciones',
+                'sugeridos',
+                'sin_revision',
+                'bitacora',
+                'docs',
+                'plan',
+                'quickactions',
               ];
-            if (!hasSugeridos)
-              mergedWidgets = [
-                ...mergedWidgets,
-                {
-                  id: 'sugeridos',
-                  label: 'Sugeridos para ti',
-                  column: 'left' as const,
-                  order: mergedWidgets.filter((w) => w.column === 'left').length,
-                },
-              ];
-            if (!hasSinRevision)
-              mergedWidgets = [
-                ...mergedWidgets,
-                {
-                  id: 'sin_revision',
-                  label: 'Documentos sin revisión',
-                  column: 'left' as const,
-                  order: mergedWidgets.filter((w) => w.column === 'left').length,
-                },
-              ];
-            if (!hasBitacora)
-              mergedWidgets = [
-                ...mergedWidgets,
-                {
-                  id: 'bitacora',
-                  label: 'Bitácora de Actividad y Auditoría',
-                  column: 'left' as const,
-                  order: mergedWidgets.filter((w) => w.column === 'left').length,
-                },
-              ];
-            setWidgets(mergedWidgets);
+              setRemovedWidgets(saved.removed.filter((w) => validIds.includes(w.id)));
+            }
+          } catch {
+            // use defaults
           }
-          if (saved.removed && Array.isArray(saved.removed)) {
-            // Filter removed list to only valid widget ids
-            const validIds = [
-              'estado_documentos',
-              'estado_participaciones',
-              'sugeridos',
-              'sin_revision',
-              'bitacora',
-              'docs',
-              'plan',
-              'quickactions',
-            ];
-            setRemovedWidgets(saved.removed.filter((w) => validIds.includes(w.id)));
-          }
-        } catch {
-          // use defaults
         }
+
+        const planData = sub?.subscription_plans as { name?: string } | null;
+
+        setMetrics({
+          docsUsed: sub?.documents_used ?? 0,
+          docsTotal: sub?.documents_limit ?? 2,
+          planName: planData?.name ?? 'Plan Gratuito',
+        });
+      } catch {
+        // Keep the default dashboard state when optional profile data is unavailable.
       }
-
-      const planData = sub?.subscription_plans as { name?: string } | null;
-
-      setMetrics({
-        docsUsed: sub?.documents_used ?? 0,
-        docsTotal: sub?.documents_limit ?? 2,
-        planName: planData?.name ?? 'Plan Gratuito',
-      });
-    } catch {
-      // silent
-    } finally {
-      setLoadingData(false);
-    }
-  }, [supabase]);
+    },
+    [supabase]
+  );
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user?.id) {
-      setLoadingData(false);
-      return;
-    }
-    void loadDashboardData(user.id);
+    if (!user?.id) return;
+    const timer = window.setTimeout(() => void loadDashboardData(user.id), 0);
+    return () => window.clearTimeout(timer);
   }, [authLoading, loadDashboardData, user?.id]);
 
   // ── Layout persistence ─────────────────────────────────────────────────────
@@ -619,12 +623,11 @@ export default function DocumentsDashboardPage() {
             {/* Greeting + actions */}
             <div className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h1 className="flex items-center gap-2 text-2xl font-700 leading-tight tracking-normal text-slate-950">
-                  {loadingData ? (
-                    <span className="inline-block h-7 w-48 animate-pulse rounded bg-slate-200" />
-                  ) : (
-                    greeting
-                  )}
+                <h1
+                  suppressHydrationWarning
+                  className="flex items-center gap-2 text-2xl font-700 leading-tight tracking-normal text-slate-950"
+                >
+                  {greeting}
                 </h1>
                 <p className="mt-1 text-sm text-slate-500">
                   Panel principal de tu espacio de trabajo

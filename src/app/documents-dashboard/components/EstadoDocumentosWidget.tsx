@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
-import { fetchDashboardParticipations } from '@/lib/dashboard/participations';
+import {
+  fetchDashboardOwnedDocuments,
+  fetchDashboardParticipations,
+} from '@/lib/dashboard/participations';
 
 const PERIOD_OPTIONS = [
   { value: '7d', label: 'Últimos 7 días' },
@@ -89,23 +91,17 @@ function PeriodFilter({ value, onChange }: { value: string; onChange: (v: string
 
 export default function EstadoDocumentosWidget() {
   const { user } = useAuth();
+  const userId = user?.id ?? '';
   const [period, setPeriod] = useState('30d');
   const [rawDocs, setRawDocs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
-    if (!user) return;
-    const supabase = createClient();
+    if (!userId) return;
     setLoading(true);
     try {
-      const fetchOwnedDocuments = supabase
-        .from('documentos')
-        .select('id, estado, fecha_vencimiento, created_at')
-        .eq('owner_id', user.id)
-        .is('deleted_at', null);
-
-      const [{ data: ownedDocs }, participaciones] = await Promise.all([
-        fetchOwnedDocuments,
+      const [ownedDocs, participaciones] = await Promise.all([
+        fetchDashboardOwnedDocuments(userId),
         fetchDashboardParticipations(),
       ]);
       const participantDocs = participaciones.map((p: any) => ({
@@ -127,20 +123,21 @@ export default function EstadoDocumentosWidget() {
       }));
 
       // Merge: deduplicate by id (owned docs take priority)
-      const ownedIds = new Set((ownedDocs ?? []).map((d: any) => d.id));
+      const ownedIds = new Set(ownedDocs.map((d: any) => d.id));
       const uniqueParticipant = participantDocs.filter((p) => !ownedIds.has(p.id));
-      setRawDocs([...(ownedDocs ?? []), ...uniqueParticipant]);
+      setRawDocs([...ownedDocs, ...uniqueParticipant]);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
-    fetchAll();
+    const timer = window.setTimeout(() => void fetchAll(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchAll]);
 
   // Real-time: refresh on any documentos/participantes change for this user
-  useDocumentRealtime(user?.id, fetchAll, 'estado-docs-widget');
+  useDocumentRealtime(userId || undefined, fetchAll, 'estado-docs-widget');
 
   const periodStart = getPeriodStartDate(period);
   const filteredDocs = periodStart

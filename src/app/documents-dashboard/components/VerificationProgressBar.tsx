@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Mail,
   Fingerprint,
@@ -18,6 +18,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface VerificationStatus {
   email_verified: boolean;
@@ -78,7 +79,11 @@ interface StepDef {
 }
 
 export default function VerificationProgressBar() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
+  const { user, loading: authLoading } = useAuth();
+  const authUserId = user?.id ?? '';
+  const authUserEmail = user?.email ?? null;
+  const authEmailConfirmedAt = user?.email_confirmed_at ?? null;
   const [status, setStatus] = useState<VerificationStatus>(defaultStatus);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
@@ -111,10 +116,6 @@ export default function VerificationProgressBar() {
   > | null>(null);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    loadVerificationStatus();
-  }, []);
-
   // QR countdown timer
   useEffect(() => {
     if (!qrExpiresAt || qrExpired || biometricCompleted) return;
@@ -135,64 +136,55 @@ export default function VerificationProgressBar() {
     return () => clearInterval(interval);
   }, [qrExpiresAt, qrExpired, biometricCompleted]);
 
-  async function loadVerificationStatus() {
+  const loadVerificationStatus = useCallback(async () => {
+    if (!authUserId) {
+      if (!authLoading) setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false);
-        return;
-      }
+      setUserId(authUserId);
+      setUserEmail(authUserEmail);
 
-      setUserId(user.id);
-      setUserEmail(user.email ?? null);
-
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('phone')
-        .eq('id', user.id)
-        .single();
-      let { data: vs } = await supabase
-        .from('user_verification_status')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      const [{ data: profile }, verificationResult] = await Promise.all([
+        supabase.from('user_profiles').select('phone').eq('id', authUserId).single(),
+        supabase
+          .from('user_verification_status')
+          .select('*')
+          .eq('user_id', authUserId)
+          .maybeSingle(),
+      ]);
+      let vs = verificationResult.data;
 
       if (!vs) {
         const { data: newVs } = await supabase
           .from('user_verification_status')
-          .insert({ user_id: user.id })
+          .insert({ user_id: authUserId })
           .select()
           .single();
         vs = newVs;
       }
 
       if (vs) {
-        const emailVerifiedInAuth = !!user.email_confirmed_at;
+        const updates: Record<string, unknown> = {};
+        const emailVerifiedInAuth = !!authEmailConfirmedAt;
         if (emailVerifiedInAuth && !vs.email_verified) {
-          await supabase
-            .from('user_verification_status')
-            .update({ email_verified: true, email_verified_at: user.email_confirmed_at })
-            .eq('user_id', user.id);
           vs.email_verified = true;
-          vs.email_verified_at = user.email_confirmed_at;
+          vs.email_verified_at = authEmailConfirmedAt;
+          updates.email_verified = true;
+          updates.email_verified_at = authEmailConfirmedAt;
         }
         if (!emailVerifiedInAuth && vs.email_verified) {
-          await supabase
-            .from('user_verification_status')
-            .update({ email_verified: false, email_verified_at: null })
-            .eq('user_id', user.id);
           vs.email_verified = false;
           vs.email_verified_at = null;
+          updates.email_verified = false;
+          updates.email_verified_at = null;
         }
 
         if (profile?.phone && !vs.phone_number) {
-          await supabase
-            .from('user_verification_status')
-            .update({ phone_number: profile.phone })
-            .eq('user_id', user.id);
+          vs.phone_number = profile.phone;
+          updates.phone_number = profile.phone;
         }
 
         // ── Reconciliación biométrica ──────────────────────────────────────
@@ -202,7 +194,7 @@ export default function VerificationProgressBar() {
           const { data: enrollResult } = await supabase
             .from('enrollment_results')
             .select('id, created_at')
-            .eq('user_id', user.id)
+            .eq('user_id', authUserId)
             .eq('face_match_passed', true)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -210,31 +202,34 @@ export default function VerificationProgressBar() {
 
           if (enrollResult) {
             const now = new Date().toISOString();
-            await supabase
-              .from('user_verification_status')
-              .update({
-                biometric_verified: true,
-                biometric_verified_at: enrollResult.created_at ?? now,
-                biometric_source: 'enrollment',
-                enrollment_result_id: enrollResult.id,
-              })
-              .eq('user_id', user.id);
             vs.biometric_verified = true;
             vs.biometric_verified_at = enrollResult.created_at ?? now;
             vs.biometric_source = 'enrollment';
+            updates.biometric_verified = true;
+            updates.biometric_verified_at = enrollResult.created_at ?? now;
+            updates.biometric_source = 'enrollment';
+            updates.enrollment_result_id = enrollResult.id;
           }
         }
         // ──────────────────────────────────────────────────────────────────
 
+        if (Object.keys(updates).length > 0) {
+          await supabase.from('user_verification_status').update(updates).eq('user_id', authUserId);
+        }
+
         setStatus(vs as VerificationStatus);
       }
-
     } catch {
       // silent
     } finally {
       setLoading(false);
     }
-  }
+  }, [authEmailConfirmedAt, authLoading, authUserEmail, authUserId, supabase]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadVerificationStatus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadVerificationStatus]);
 
   // ── Send verification email (link-based, no OTP) ───────────────────────────
   async function sendVerificationEmail() {
@@ -282,7 +277,9 @@ export default function VerificationProgressBar() {
     sessionIdRef.current = sessionId;
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const res = await fetch('/api/enrollment/create-token', {
         method: 'POST',
         headers: {
@@ -388,7 +385,10 @@ export default function VerificationProgressBar() {
           return;
         }
         try {
-          const response = await fetch(`/api/enrollment/status?token=${encodeURIComponent(result.token)}&session_id=${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
+          const response = await fetch(
+            `/api/enrollment/status?token=${encodeURIComponent(result.token)}&session_id=${encodeURIComponent(sessionId)}`,
+            { cache: 'no-store' }
+          );
           const status = await response.json();
           if (response.ok && status.result) {
             if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
@@ -404,7 +404,7 @@ export default function VerificationProgressBar() {
     } finally {
       setQrLoading(false);
     }
-  }, [userId, supabase]);
+  }, [loadVerificationStatus, userId, supabase]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -414,7 +414,7 @@ export default function VerificationProgressBar() {
         supabase.removeChannel(realtimeResultsChannelRef.current);
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
     };
-  }, []);
+  }, [supabase]);
 
   // ── Toggle step ────────────────────────────────────────────────────────────
   function toggleStep(id: ActiveStep) {
@@ -430,8 +430,7 @@ export default function VerificationProgressBar() {
   }
 
   // ── Required: email + biometric (2/2) ─────────────────────────────────────
-  const requiredCompleted =
-    (status.email_verified ? 1 : 0) + (status.biometric_verified ? 1 : 0);
+  const requiredCompleted = (status.email_verified ? 1 : 0) + (status.biometric_verified ? 1 : 0);
   const requiredTotal = 2;
   const requiredAllDone = status.email_verified && status.biometric_verified;
 
@@ -457,7 +456,7 @@ export default function VerificationProgressBar() {
   ];
 
   // Hide the prompt once both currently required methods are complete.
-  if (!loading && requiredAllDone) return null;
+  if (loading || requiredAllDone) return null;
 
   const minutes = Math.floor(qrTimeLeft / 60);
   const seconds = qrTimeLeft % 60;
@@ -762,7 +761,6 @@ export default function VerificationProgressBar() {
               ))}
             </div>
           </div>
-
         </div>
       )}
     </div>
