@@ -393,16 +393,23 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     return value === '/visor-documento' ? '/mis-participaciones' : value;
   };
 
-  const enforcePostLoginSecurity = async (primaryFactor: 'passkey' | 'other' = 'other') => {
+  const enforcePostLoginSecurity = async (
+    primaryFactor: 'passkey' | 'other' = 'other',
+    accessToken?: string
+  ) => {
     const supabase = createClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error('No se pudo validar la sesión iniciada.');
+    let token = accessToken;
+    if (!token) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      token = session?.access_token;
+    }
+    if (!token) throw new Error('No se pudo validar la sesión iniciada.');
 
     const response = await fetch('/api/auth/totp/check', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     if (!response.ok) {
       await supabase.auth.signOut();
@@ -488,7 +495,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         /* non-blocking */
       }
 
-      if (await enforcePostLoginSecurity()) return;
+      if (await enforcePostLoginSecurity('other', authData.session?.access_token)) return;
 
       // Device check
       if (authData.user?.id) {
@@ -596,10 +603,12 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         return;
       }
 
+      let sessionAccessToken: string | undefined;
+
       // Exchange the token hash for a real Supabase session
       if (data.tokenHash) {
         const supabase = createClient();
-        const { error: verifyError } = await supabase.auth.verifyOtp({
+        const { data: verifiedSession, error: verifyError } = await supabase.auth.verifyOtp({
           token_hash: data.tokenHash,
           type: 'magiclink',
         });
@@ -609,6 +618,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
           setOtpLoading(false);
           return;
         }
+        sessionAccessToken = verifiedSession.session?.access_token;
       }
 
       try {
@@ -626,7 +636,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       } catch {
         /* non-blocking */
       }
-      if (await enforcePostLoginSecurity()) return;
+      if (await enforcePostLoginSecurity('other', sessionAccessToken)) return;
       window.location.href = requestedRedirect();
     } catch (error) {
       setOtpError(
@@ -732,7 +742,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       }
 
       const supabase = createClient();
-      const { error: sessionError } = await supabase.auth.verifyOtp({
+      const { data: verifiedSession, error: sessionError } = await supabase.auth.verifyOtp({
         token_hash: verifyData.tokenHash,
         type: 'magiclink',
       });
@@ -758,7 +768,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       } catch {
         /* non-blocking */
       }
-      if (await enforcePostLoginSecurity('passkey')) return;
+      if (await enforcePostLoginSecurity('passkey', verifiedSession?.session?.access_token)) return;
       window.location.href = requestedRedirect();
     } catch (err: unknown) {
       const name = err instanceof Error ? err.name : '';

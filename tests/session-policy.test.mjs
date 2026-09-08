@@ -9,6 +9,7 @@ const migration = await read(
 );
 const timeoutHook = await read('../src/hooks/useSessionTimeout.ts');
 const middleware = await read('../src/middleware.ts');
+const loginForm = await read('../src/app/sign-up-login-screen/components/LoginForm.tsx');
 
 test('server session policy distinguishes ordinary and privileged limits', () => {
   assert.match(migration, /CASE WHEN v_is_privileged THEN 600 ELSE 900 END/);
@@ -43,4 +44,10 @@ test('session expiry is auditable and protected from direct table access', () =>
   assert.match(migration, /ENABLE ROW LEVEL SECURITY/);
   assert.match(migration, /REVOKE ALL ON TABLE public\.docubox_session_activity FROM PUBLIC, anon, authenticated/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.enforce_docubox_session_policy\(BOOLEAN\)\s+TO authenticated, service_role/);
+});
+
+test('post-login checks use the freshly issued session token', () => {
+  assert.match(loginForm, /accessToken\?: string/);
+  assert.match(loginForm, /authData\.session\?\.access_token/);
+  assert.match(loginForm, /verifiedSession\?\.session\?\.access_token/);
 });
