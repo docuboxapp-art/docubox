@@ -392,7 +392,7 @@ function buildDocumentCompletedHtml(payload: EmailPayload): string {
         </p>
         ${buildInfoTable(infoRows)}
         ${evidenceSection}
-        ${buildCTA("Ver y Descargar Documentos", visorUrl, "#059669")}
+        ${buildCTA("Ver y descargar documento", visorUrl, "#059669")}
         <p style="font-family:'Inter',Arial,sans-serif;font-size:13px;color:#6b7280;margin:12px 0 0;line-height:1.6;">
           O copia y pega este enlace en tu navegador:<br/>
           <a href="${visorUrl}" style="color:#059669;word-break:break-all;">${visorUrl}</a>
