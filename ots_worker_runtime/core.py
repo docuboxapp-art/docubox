@@ -100,6 +100,20 @@ def _run(args: list[str], cwd: str, allow_pending: bool = False) -> tuple[str, i
             code = "OTS_CALENDAR_UNAVAILABLE"
         else:
             code = "OTS_STAMP_FAILED" if "stamp" in args else "OTS_UPGRADE_FAILED"
+        diagnostic = re.sub(r"/tmp/docubox-ots-[^/\s]+", "<tmp>", output)
+        diagnostic = re.sub(r"https://[^\s'\"]+", "<calendar>", diagnostic)
+        print(
+            json.dumps(
+                {
+                    "event": "opentimestamps_command_failed",
+                    "code": code,
+                    "exitCode": result.returncode,
+                    "diagnostic": diagnostic[:500],
+                },
+                separators=(",", ":"),
+            ),
+            file=sys.stderr,
+        )
         raise OtsRuntimeError(code, "OpenTimestamps operation failed.")
     return output, result.returncode
 
