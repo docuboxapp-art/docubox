@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/internal/blockchain-evidence/upgrade",
-      "schedule": "17 * * * *"
+      "schedule": "17 5 * * *"
     }
   ]
 }
