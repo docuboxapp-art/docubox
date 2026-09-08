@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
+import { fetchDashboardParticipations } from '@/lib/dashboard/participations';
 
 interface SuggestedDoc {
   id: string;
@@ -24,10 +25,7 @@ export default function SugeridosParaTiWidget() {
 
     const supabase = createClient();
 
-    const fetchParticipaciones = fetch(`/api/documentos/mis-participaciones?t=${Date.now()}`)
-      .then((r) => r.json())
-      .then((data) => (data.participaciones ?? []) as any[])
-      .catch(() => [] as any[]);
+    const fetchParticipaciones = fetchDashboardParticipations();
 
     const fetchOwned = supabase
       .from('documentos')

@@ -31,21 +31,20 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Check email_verified
-    const { data: verifData } = await supabaseAdmin
-      .from('user_verification_status')
-      .select('email_verified')
-      .eq('user_id', profile.id)
-      .maybeSingle();
-
-    // Fetch active webauthn credentials with device details
-    // Note: table uses 'registered_from' and 'created_at' (not 'registration_method'/'registered_at')
-    const { data: webauthnCreds, error: webauthnError } = await supabaseAdmin
-      .from('webauthn_credentials')
-      .select('id, device_name, os, browser, device_category, created_at, registered_from')
-      .eq('user_id', profile.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
+    // These lookups are independent once the profile is found.
+    const [{ data: verifData }, { data: webauthnCreds, error: webauthnError }] = await Promise.all([
+      supabaseAdmin
+        .from('user_verification_status')
+        .select('email_verified')
+        .eq('user_id', profile.id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from('webauthn_credentials')
+        .select('id, device_name, os, browser, device_category, created_at, registered_from')
+        .eq('user_id', profile.id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false }),
+    ]);
 
     if (webauthnError) {
       console.error('[check-login-options] webauthn query error:', webauthnError);

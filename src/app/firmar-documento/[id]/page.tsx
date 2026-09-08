@@ -48,6 +48,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import AppLogo from '@/components/ui/AppLogo';
 import { createNotification } from '@/lib/notificationsInApp';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
+import { isDocumentGeneratedCryptographicField } from '@/lib/documentFields';
 import AutographSignatureFlow from './AutographSignatureFlow';
 import { useEfirmaEvidence, fileToBase64 } from '@/hooks/useEfirmaEvidence';
 
@@ -65,6 +66,9 @@ interface CampoSolicitado {
   height?: number;
   colorHex?: string | null;
   tipo?: string;
+  placementKind?: 'participant' | 'general' | 'cryptographic';
+  cryptographicType?: 'document_chain' | 'document_seal' | 'timestamp' | 'evidence_chain';
+  generatedOnCompletion?: boolean;
   dropdownOptions?: string[];
   radioOptions?: string[];
   casillaLabel?: string;
@@ -6266,8 +6270,11 @@ export default function FirmarDocumentoPage() {
       }
 
       const campos: CampoSolicitado[] = data.campos_solicitados || [];
+      const participantCampos = campos.filter(
+        (campo) => !isDocumentGeneratedCryptographicField(campo)
+      );
       // Match campos assigned to this participant by: no participantId, or matches participant's internal id, or matches user's supabase id, or matches user's email
-      const myCampos = campos.filter(
+      const myCampos = participantCampos.filter(
         (c: CampoSolicitado) =>
           !c.participantId ||
           c.participantId === myPart?.id ||

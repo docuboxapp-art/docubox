@@ -126,6 +126,13 @@ test('real anchoring requires its dedicated feature flag', () => {
   assert.match(source, /OPENTIMESTAMPS_ENABLED/);
 });
 
+test('document viewer keeps blockchain evidence visible before a proof exists', () => {
+  const source = readFileSync('src/app/visor-documento/[id]/page.tsx', 'utf8');
+  assert.match(source, /Evidencia Blockchain/);
+  assert.match(source, /Evidencia no solicitada para este documento/);
+  assert.doesNotMatch(source, /\{blockchainEvidence && \(\s*<div[^>]+>/);
+});
+
 test('Vercel runtime uses the official Python client behind internal authentication', () => {
   const runtime = readFileSync('api/opentimestamps_runtime.py', 'utf8');
   const requirements = readFileSync('requirements.txt', 'utf8');

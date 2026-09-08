@@ -488,6 +488,7 @@ function CrearDocumentoPageInner() {
           workspaceId: activeWorkspace?.id || null,
           vencimientoEnabled: securitySummary?.vencimientoEnabled ?? false,
           fechaVencimiento: securitySummary?.fechaVencimiento || null,
+          fechaVencimientoTimezone: securitySummary?.fechaVencimientoTimezone || null,
           codigoAccesoEnabled: securitySummary?.codigoAccesoEnabled ?? false,
           proteccionAdicionalEnabled: securitySummary?.proteccionAdicionalEnabled ?? false,
           impedirImpresion: securitySummary?.impedirImpresion ?? false,

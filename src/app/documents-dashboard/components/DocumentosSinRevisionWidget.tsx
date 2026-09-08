@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
+import { fetchDashboardParticipations } from '@/lib/dashboard/participations';
 
 interface DocItem {
   id: string;
@@ -29,10 +30,7 @@ export default function DocumentosSinRevisionWidget() {
     const supabase = createClient();
     try {
       // Fetch participaciones via API (uses service client, bypasses RLS)
-      const fetchParticipaciones = fetch(`/api/documentos/mis-participaciones?t=${Date.now()}`)
-        .then((r) => r.json())
-        .then((data) => (data.participaciones ?? []) as any[])
-        .catch(() => [] as any[]);
+      const fetchParticipaciones = fetchDashboardParticipations();
 
       // Fetch owned docs (RLS allows owner to see their own docs)
       const fetchOwned = supabase

@@ -124,8 +124,12 @@ async function drawStamp(
   const { width: pageWidth, height: pageHeight } = page.getSize();
   const defaultWidth = 220;
   const defaultHeight = 82;
-  const stampWidth = field ? Math.max(130, pageWidth * Math.max(12, Number(field.width || 34)) / 100) : defaultWidth;
-  const stampHeight = field ? Math.max(54, pageHeight * Math.max(6, Number(field.height || 12)) / 100) : defaultHeight;
+  const stampWidth = field
+    ? Math.max(24, pageWidth * Math.max(1, Math.min(96, Number(field.width || 34))) / 100)
+    : defaultWidth;
+  const stampHeight = field
+    ? Math.max(24, pageHeight * Math.max(1, Math.min(90, Number(field.height || 12))) / 100)
+    : defaultHeight;
   const x = field
     ? Math.max(0, Math.min(pageWidth - stampWidth, pageWidth * Math.max(0, Number(field.x || 0)) / 100))
     : 36;
@@ -138,30 +142,49 @@ async function drawStamp(
   const ip = String(response.signature_ip || metadata.ip || 'No disponible');
   const verificationUrl = String(metadata.verification_url || 'docubox.mx/verificar-documento');
 
+  const compact = stampWidth < 150 || stampHeight < 62;
+  const inset = Math.max(4, Math.min(10, stampWidth * 0.05));
+  const headerHeight = compact ? 0 : 16;
   page.drawRectangle({ x, y, width: stampWidth, height: stampHeight, color: rgb(1, 1, 1), borderColor: accent, borderWidth: 0.9, opacity: 0.98 });
-  page.drawRectangle({ x, y, width: 4, height: stampHeight, color: accent });
-  page.drawText(`DOCUBOX ${style}`, { x: x + 10, y: y + stampHeight - 13, size: Math.min(8, stampHeight * 0.12), font: bold, color: accent });
+  page.drawRectangle({ x, y, width: Math.min(4, Math.max(2, stampWidth * 0.025)), height: stampHeight, color: accent });
+  if (!compact) {
+    page.drawText(`DOCUBOX ${style}`, { x: x + inset, y: y + stampHeight - inset - 8, size: Math.min(8, stampHeight * 0.12), font: bold, color: accent });
+  }
 
   if (method === 'autografa') {
     const source = response.firma_data ? dataUrlToBytes(response.firma_data) : null;
     if (source) {
       try {
         const image = source.type === 'png' ? await pdf.embedPng(source.bytes) : await pdf.embedJpg(source.bytes);
-        const imageSize = image.scaleToFit(stampWidth - 22, Math.max(20, stampHeight * 0.48));
-        page.drawImage(image, { x: x + 10, y: y + stampHeight - 22 - imageSize.height, width: imageSize.width, height: imageSize.height });
+        const footerLines = compact ? [name] : [name, `SHA-256 ${shortHash(response.signature_hash)}`];
+        const footerSize = Math.max(4.2, Math.min(7.5, stampHeight * 0.11));
+        const footerHeight = footerLines.length * (footerSize + 2);
+        const imageTop = y + stampHeight - inset - headerHeight;
+        const imageHeight = Math.max(10, imageTop - (y + inset + footerHeight + 2));
+        const imageSize = image.scaleToFit(stampWidth - inset * 2, imageHeight);
+        page.drawImage(image, { x: x + inset, y: y + inset + footerHeight + 2, width: imageSize.width, height: imageSize.height });
+        drawTextLines(page, footerLines, x + inset, y + inset + footerHeight - footerSize, stampWidth - inset * 2, regular, footerSize, ink);
       } catch {
-        page.drawText('Trazo de firma disponible', { x: x + 10, y: y + stampHeight - 34, size: 7, font: regular, color: muted });
+        page.drawText('Trazo de firma disponible', { x: x + inset, y: y + Math.max(inset, stampHeight / 2), size: Math.max(4.2, Math.min(7, stampHeight * 0.11)), font: regular, color: muted });
       }
     }
-    drawTextLines(page, [name, `SHA-256 ${shortHash(response.signature_hash)}`], x + 10, y + 18, stampWidth - 18, regular, Math.min(7.5, stampHeight * 0.11), ink);
+    if (!source) {
+      const lines = compact ? [name] : [name, `SHA-256 ${shortHash(response.signature_hash)}`];
+      drawTextLines(page, lines, x + inset, y + inset + (lines.length - 1) * 7, stampWidth - inset * 2, regular, Math.max(4.2, Math.min(7.5, stampHeight * 0.11)), ink);
+    }
     return;
   }
 
   const lines = method === 'efirma'
     ? [name, `RFC: ${rfc}`, `Certificado: ${String(metadata.certificate_serial || 'No disponible')}`, `SHA-256: ${shortHash(response.signature_hash)}`, `OCSP: ${String(metadata.ocsp_status || 'No disponible')}`, signedAt, verificationUrl]
     : [name, `RFC: ${rfc}`, 'Aceptacion: confirmada', `SHA-256: ${shortHash(response.signature_hash)}`, `IP: ${ip}`, signedAt, verificationUrl];
-  const fontSize = Math.max(4.7, Math.min(7, stampHeight / 13));
-  drawTextLines(page, lines, x + 10, y + stampHeight - 27, stampWidth - 18, regular, fontSize, ink);
+  const fontSize = Math.max(4.2, Math.min(7, stampHeight / 13));
+  const availableLineCount = Math.max(1, Math.floor((stampHeight - headerHeight - inset * 2) / (fontSize + 2)));
+  const compactLines = [name, `SHA-256: ${shortHash(response.signature_hash)}`, verificationUrl];
+  const visibleLines = lines.length <= availableLineCount
+    ? lines
+    : compactLines.slice(0, availableLineCount);
+  drawTextLines(page, visibleLines, x + inset, y + stampHeight - inset - headerHeight - fontSize, stampWidth - inset * 2, regular, fontSize, ink);
 }
 
 export async function createSignedDocumentPdf(params: {

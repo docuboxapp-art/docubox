@@ -53,6 +53,7 @@ import { useSidebar } from '@/contexts/SidebarContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createNotification } from '@/lib/notificationsInApp';
 import { getNom151Presentation } from '@/lib/nom151/presentation';
+import { formatEvidenceTimestamp, formatLocalTimestamp, getEffectiveTimeZone } from '@/lib/datetime';
 import { StepSubir } from '@/app/crear-documento/components/StepSubir';
 import { StepParticipantes } from '@/app/crear-documento/components/StepParticipantes';
 import { StepAjustes } from '@/app/crear-documento/components/StepAjustes';
@@ -77,6 +78,7 @@ interface DocumentData {
   created_at?: string;
   updated_at?: string;
   vencimiento?: string;
+  vencimiento_timezone?: string | null;
   carpeta_nombre?: string;
   organizacion?: string;
   owner_nombre?: string;
@@ -94,6 +96,7 @@ interface DocumentData {
   xml_evidencia_path?: string;
   xml_hash_sha256?: string;
   xml_generated_at?: string;
+  blockchain_evidence_enabled?: boolean;
   es_publico?: boolean;
   legal_hold?: boolean;
   legal_hold_status?: string | null;
@@ -723,6 +726,10 @@ export default function VisorDocumentoPage() {
   const { sidebarOpen } = useSidebar();
   const { activeWorkspace } = useWorkspace();
   const docId = params?.id as string;
+  const userId = user?.id ?? '';
+  const userEmail = user?.email ?? '';
+  const userDisplayName =
+    user?.user_metadata?.full_name || user?.user_metadata?.nombre || userEmail || 'Usuario';
 
   const [document, setDocument] = useState<DocumentData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -851,6 +858,8 @@ export default function VisorDocumentoPage() {
   const [certificationLoading, setCertificationLoading] = useState(false);
   const [certificationError, setCertificationError] = useState('');
   const [blockchainEvidence, setBlockchainEvidence] = useState<Record<string, any> | null>(null);
+  const [blockchainEvidenceLoading, setBlockchainEvidenceLoading] = useState(false);
+  const [blockchainEvidenceError, setBlockchainEvidenceError] = useState('');
   const [certificationDownload, setCertificationDownload] = useState<
     | 'certificate'
     | 'package'
@@ -876,19 +885,51 @@ export default function VisorDocumentoPage() {
     padesVerified &&
     cryptographicCertification?.padesProfile === 'PAdES-B-T' &&
     cryptographicCertification.timestampStatus === 'valid';
+  const blockchainEvidenceReady = blockchainEvidence?.status === 'VERIFIED';
+  const blockchainEvidenceFailed = Boolean(
+    blockchainEvidenceError ||
+      (blockchainEvidence &&
+        [
+          'SUBMISSION_FAILED',
+          'UPGRADE_FAILED',
+          'VERIFICATION_FAILED',
+          'INVALID_PROOF',
+          'STORAGE_ERROR',
+        ].includes(blockchainEvidence.status))
+  );
+  const blockchainEvidenceStatusLabel = blockchainEvidenceReady
+    ? 'Verificada'
+    : blockchainEvidenceFailed
+      ? 'Requiere atención'
+      : blockchainEvidenceLoading
+        ? 'Procesando'
+        : 'Pendiente';
 
   useEffect(() => {
     if (!docId || document?.estado !== 'completado') return;
     let active = true;
     const load = async () => {
+      if (active) {
+        setBlockchainEvidenceLoading(true);
+        setBlockchainEvidenceError('');
+      }
       try {
         const response = await fetch(`/api/documents/${docId}/blockchain-evidence`, {
           headers: await apiAuthHeaders(),
           cache: 'no-store',
         });
-        if (response.ok && active) setBlockchainEvidence((await response.json()).evidence || null);
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error || 'No se pudo consultar la evidencia blockchain.');
+        }
+        if (active) {
+          setBlockchainEvidence((await response.json()).evidence || null);
+          setBlockchainEvidenceError('');
+        }
       } catch {
-        /* Optional evidence does not interrupt the document viewer. */
+        if (active) setBlockchainEvidenceError('No se pudo consultar la evidencia blockchain.');
+      } finally {
+        if (active) setBlockchainEvidenceLoading(false);
       }
     };
     load();
@@ -2230,7 +2271,7 @@ export default function VisorDocumentoPage() {
   // ── Load document + participants + activity ────────────────────────────────
   useEffect(() => {
     if (authLoading) return;
-    if (!docId || !user) {
+    if (!docId || !userId) {
       const loadingFrame = window.requestAnimationFrame(() => setLoading(false));
       return () => window.cancelAnimationFrame(loadingFrame);
     }
@@ -2246,7 +2287,7 @@ export default function VisorDocumentoPage() {
         const { data: directData, error } = await supabase
           .from('documentos')
           .select(
-            'id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, legal_hold, legal_hold_status, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at'
+            'id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, legal_hold, legal_hold_status, created_at, updated_at, fecha_vencimiento, fecha_vencimiento_timezone, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at, blockchain_evidence_enabled'
           )
           .eq('id', docId)
           .single();
@@ -2363,6 +2404,7 @@ export default function VisorDocumentoPage() {
           ...data,
           file_url: viewerFileUrl,
           vencimiento: data.fecha_vencimiento || undefined,
+          vencimiento_timezone: data.fecha_vencimiento_timezone || null,
           owner_nombre: ownerNombre,
           carpeta_nombre: carpetaNombre,
           organizacion,
@@ -2421,8 +2463,8 @@ export default function VisorDocumentoPage() {
           }));
           setParticipantes(mapped);
 
-          if (user?.email) {
-            const myPart = mapped.find((p: any) => p.email === user.email);
+          if (userEmail) {
+            const myPart = mapped.find((p: any) => p.email === userEmail);
             if (myPart) {
               setParticipantSubEstado(myPart.sub_estado || 'en_revision');
               // Only update to 'en_revision' if participant has legacy 'sin_revisar' state
@@ -2442,7 +2484,7 @@ export default function VisorDocumentoPage() {
                 try {
                   await supabase.rpc('update_participante_sub_estado', {
                     p_documento_id: docId,
-                    p_email: user.email,
+                    p_email: userEmail,
                     p_sub_estado: 'en_revision',
                   });
                   setParticipantSubEstado('en_revision');
@@ -2863,17 +2905,15 @@ export default function VisorDocumentoPage() {
     loadParticipationResponses();
     // Log document view after a short delay to ensure user is authenticated
     const viewTimer = setTimeout(() => {
-      if (user && docId) {
+      if (userId && docId) {
         const supabase = createClient();
-        const actorNombre =
-          user.user_metadata?.full_name || user.user_metadata?.nombre || user.email || 'Usuario';
         supabase
           .from('document_activity_log')
           .insert({
             documento_id: docId,
-            actor_id: user.id,
-            actor_nombre: actorNombre,
-            actor_email: user.email || '',
+            actor_id: userId,
+            actor_nombre: userDisplayName,
+            actor_email: userEmail,
             action: 'documento_visto',
             category: 'acceso',
             details: { source: 'visor' },
@@ -2885,11 +2925,11 @@ export default function VisorDocumentoPage() {
       }
     }, 1500);
     return () => clearTimeout(viewTimer);
-  }, [docId, user, authLoading, loadAdditionalMetadata]);
+  }, [authLoading, docId, loadAdditionalMetadata, userDisplayName, userEmail, userId]);
 
   // ── Load chat messages ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!docId || !user) return;
+    if (!docId || !userId) return;
     const supabase = createClient();
 
     const loadMessages = async () => {
@@ -2938,11 +2978,11 @@ export default function VisorDocumentoPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [docId, user]);
+  }, [docId, userId]);
 
   // ── Load notes ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!docId || !user) return;
+    if (!docId || !userId) return;
     const supabase = createClient();
 
     const loadNotes = async () => {
@@ -2987,15 +3027,15 @@ export default function VisorDocumentoPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [docId, user]);
+  }, [docId, userId]);
 
   // ── Presence tracking ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!docId || !user) return;
+    if (!docId || !userId) return;
     const supabase = createClient();
 
     const presenceChannel = supabase.channel(`presence:${docId}`, {
-      config: { presence: { key: user.id } },
+      config: { presence: { key: userId } },
     });
 
     presenceChannel
@@ -3012,8 +3052,8 @@ export default function VisorDocumentoPage() {
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await presenceChannel.track({
-            user_id: user.id,
-            email: user.email || '',
+            user_id: userId,
+            email: userEmail,
           });
         }
       });
@@ -3021,7 +3061,7 @@ export default function VisorDocumentoPage() {
     return () => {
       supabase.removeChannel(presenceChannel);
     };
-  }, [docId, user]);
+  }, [docId, userEmail, userId]);
 
   // Scroll to bottom when messages load
   useEffect(() => {
@@ -3031,8 +3071,16 @@ export default function VisorDocumentoPage() {
   }, [chatMessages.length]);
 
   const handleTotalPages = useCallback((n: number) => {
-    setTotalPages(n);
+    setTotalPages(Math.max(1, n));
   }, []);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(Math.max(page, 1), totalPages));
+  }, [totalPages]);
+
+  useEffect(() => {
+    setPageInputValue(String(currentPage));
+  }, [currentPage]);
 
   const toggleSection = (section: keyof SectionState) => {
     setSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -3061,6 +3109,7 @@ export default function VisorDocumentoPage() {
     const parsed = parseInt(pageInputValue, 10);
     if (!isNaN(parsed) && parsed >= 1 && parsed <= totalPages) {
       setCurrentPage(parsed);
+      setPageInputValue(String(parsed));
     } else {
       setPageInputValue(String(currentPage));
     }
@@ -3070,6 +3119,7 @@ export default function VisorDocumentoPage() {
       const parsed = parseInt(pageInputValue, 10);
       if (!isNaN(parsed) && parsed >= 1 && parsed <= totalPages) {
         setCurrentPage(parsed);
+        setPageInputValue(String(parsed));
       } else {
         setPageInputValue(String(currentPage));
       }
@@ -3710,33 +3760,11 @@ export default function VisorDocumentoPage() {
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return 'Sin vencimiento';
-    try {
-      return new Date(dateStr).toLocaleDateString('es-MX', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return dateStr;
-    }
+    return formatLocalTimestamp(dateStr, { dateStyle: 'long', timeStyle: 'short' });
   };
 
   const formatChatTime = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleString('es-MX', {
-        day: '2-digit',
-        month: '2-digit',
-        year: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      });
-    } catch {
-      return '';
-    }
+    return formatLocalTimestamp(dateStr, { dateStyle: 'short', timeStyle: 'short', hour12: false });
   };
 
   const formatSize = (bytes?: number) => {
@@ -4025,19 +4053,7 @@ export default function VisorDocumentoPage() {
   };
 
   const formatActivityDate = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleString('es-MX', {
-        month: 'numeric',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-    } catch {
-      return dateStr;
-    }
+    return formatEvidenceTimestamp(dateStr);
   };
 
   const getActivityLabel = (action: string, event?: ActivityEvent) => {
@@ -4914,8 +4930,19 @@ export default function VisorDocumentoPage() {
         >
           <ChevronLeft size={14} />
         </button>
-        <div className="flex min-w-[54px] items-center justify-center gap-1 px-2">
-          <span className="text-xs font-600 text-slate-800">{currentPage}</span>
+        <div className="flex min-w-[62px] items-center justify-center gap-1 px-2">
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={pageInputValue}
+            onChange={handlePageInputChange}
+            onBlur={handlePageInputBlur}
+            onKeyDown={handlePageInputKeyDown}
+            onFocus={(event) => event.currentTarget.select()}
+            aria-label="Ir a página"
+            className="w-7 bg-transparent text-center text-xs font-600 text-slate-800 outline-none focus:text-primary"
+          />
           <span className="whitespace-nowrap text-xs text-slate-400">/ {totalPages}</span>
         </div>
         <button
@@ -5399,6 +5426,11 @@ export default function VisorDocumentoPage() {
                                 ? formatDate(document.vencimiento)
                                 : 'Sin vencimiento'}
                             </p>
+                            {document.vencimiento && document.vencimiento_timezone && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Definido en {document.vencimiento_timezone}
+                              </p>
+                            )}
                           </div>
                           {document.fecha_completado && (
                             <div>
@@ -5415,7 +5447,7 @@ export default function VisorDocumentoPage() {
                               ZONA HORARIA
                             </p>
                             <p className="text-sm text-foreground">
-                              (UTC-06:00) Hora Estándar Central
+                              Hora local del visor: {getEffectiveTimeZone()}
                             </p>
                           </div>
                         </div>
@@ -7463,15 +7495,9 @@ export default function VisorDocumentoPage() {
                                         Fecha emisión
                                       </span>
                                       <span className="text-right text-xs text-foreground">
-                                        {new Date(
+                                        {formatEvidenceTimestamp(
                                           nom151Data.issued_at || nom151Data.created_at
-                                        ).toLocaleString('es-MX', {
-                                          year: 'numeric',
-                                          month: 'short',
-                                          day: 'numeric',
-                                          hour: '2-digit',
-                                          minute: '2-digit',
-                                        })}
+                                        )}
                                       </span>
                                     </div>
                                     <div className="flex items-center justify-between gap-2">
@@ -7552,22 +7578,21 @@ export default function VisorDocumentoPage() {
                             </div>
                           </div>
 
-                          {blockchainEvidence && (
-                            <div className="rounded-xl border border-border bg-white shadow-sm">
-                              <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
-                                <span className="text-xs font-bold uppercase tracking-wide text-foreground">
-                                  Evidencia Blockchain
-                                </span>
-                                <span
-                                  className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${blockchainEvidence.status === 'VERIFIED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'INVALID_PROOF', 'STORAGE_ERROR'].includes(blockchainEvidence.status) ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
-                                >
-                                  {blockchainEvidence.status === 'VERIFIED'
-                                    ? 'Verificado'
-                                    : 'Pendiente'}
-                                </span>
-                              </div>
-                              <div className="space-y-3 p-4">
-                                <div className="flex items-start gap-2">
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
+                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                                Evidencia Blockchain
+                              </span>
+                              <span
+                                className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${blockchainEvidenceReady ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : blockchainEvidenceFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
+                              >
+                                {blockchainEvidenceStatusLabel}
+                              </span>
+                            </div>
+                            <div className="space-y-3 p-4">
+                              {blockchainEvidence ? (
+                                <>
+                                  <div className="flex items-start gap-2">
                                   {blockchainEvidence.status === 'VERIFIED' ? (
                                     <CheckCircle2
                                       size={18}
@@ -7607,42 +7632,139 @@ export default function VisorDocumentoPage() {
                                     </p>
                                   </div>
                                 </div>
-                                <div className="flex flex-wrap gap-2">
-                                  <a
-                                    href={`/verify/blockchain/${blockchainEvidence.public_token}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"
-                                  >
-                                    <Shield size={14} />
-                                    Verificar
-                                  </a>
-                                  {blockchainEvidence.proof_sha256 && (
+                                <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
+                                  {[
+                                    ['Protocolo', blockchainEvidence.protocol || 'OpenTimestamps'],
+                                    ['Red de registro', blockchainEvidence.blockchain || 'Bitcoin'],
+                                    ['Estado', blockchainEvidenceStatusLabel],
+                                    [
+                                      'Verificación criptográfica',
+                                      blockchainEvidenceReady
+                                        ? 'Verificada'
+                                        : blockchainEvidenceFailed
+                                          ? 'No completada'
+                                          : 'Pendiente',
+                                    ],
+                                    ...(blockchainEvidence.submitted_at
+                                      ? [
+                                          [
+                                            'Enviada a OpenTimestamps',
+                                            formatEvidenceTimestamp(
+                                              blockchainEvidence.submitted_at
+                                            ),
+                                          ],
+                                        ]
+                                      : []),
+                                    ...(blockchainEvidenceReady
+                                      ? [
+                                          [
+                                            'Bloque de Bitcoin',
+                                            blockchainEvidence.bitcoin_block_height
+                                              ? `Altura ${blockchainEvidence.bitcoin_block_height}`
+                                              : 'Verificado',
+                                          ],
+                                          [
+                                            'Fecha de verificación',
+                                            blockchainEvidence.verified_at
+                                              ? formatEvidenceTimestamp(
+                                                  blockchainEvidence.verified_at
+                                                )
+                                              : 'Verificada',
+                                          ],
+                                        ]
+                                      : []),
+                                  ].map(([label, value], index) => (
+                                    <div
+                                      key={String(label)}
+                                      className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
+                                    >
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        {label}
+                                      </span>
+                                      <span className="max-w-[190px] text-right text-xs text-foreground">
+                                        {value}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="space-y-2">
+                                  {blockchainEvidenceReady && blockchainEvidence.public_token ? (
+                                    <a
+                                      href={`/verify/blockchain/${blockchainEvidence.public_token}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                                    >
+                                      <Shield size={15} />
+                                      Verificar evidencia blockchain
+                                    </a>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled
+                                      title="La verificación estará disponible cuando termine el anclaje Bitcoin."
+                                      className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white opacity-60"
+                                    >
+                                      <Shield size={15} />
+                                      Verificar evidencia blockchain
+                                    </button>
+                                  )}
+                                  {blockchainEvidenceReady && blockchainEvidence.proof_sha256 ? (
                                     <a
                                       href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/proof`}
-                                      className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"
+                                      className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
                                     >
-                                      <Download size={14} />
-                                      Descargar .ots
+                                      <Download size={15} />
+                                      Descargar prueba OpenTimestamps (.ots)
                                     </a>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled
+                                      title="La prueba descargable estará disponible al concluir la verificación."
+                                      className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border-2 border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
+                                    >
+                                      <Download size={15} />
+                                      Descargar prueba OpenTimestamps (.ots)
+                                    </button>
                                   )}
-                                  {blockchainEvidence.status === 'VERIFIED' && (
+                                  {blockchainEvidenceReady && blockchainEvidence.public_token ? (
                                     <a
                                       href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/certificate`}
-                                      className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
+                                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
                                     >
-                                      <Download size={14} />
-                                      Ver constancia
+                                      <Download size={15} />
+                                      Descargar constancia
                                     </a>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled
+                                      title="La constancia estará disponible cuando la evidencia esté verificada."
+                                      className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
+                                    >
+                                      <Download size={15} />
+                                      Descargar constancia
+                                    </button>
                                   )}
-                                  {blockchainEvidence.status === 'VERIFIED' && (
+                                  {blockchainEvidenceReady ? (
                                     <a
                                       href={`/api/documents/${docId}/blockchain-evidence/package`}
-                                      className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"
+                                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
                                     >
-                                      <Download size={14} />
-                                      Paquete de evidencia
+                                      <Download size={15} />
+                                      Descargar paquete de evidencia
                                     </a>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled
+                                      title="El paquete estará disponible cuando la evidencia esté verificada."
+                                      className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
+                                    >
+                                      <Download size={15} />
+                                      Descargar paquete de evidencia
+                                    </button>
                                   )}
                                   {[
                                     'SUBMISSION_FAILED',
@@ -7666,10 +7788,117 @@ export default function VisorDocumentoPage() {
                                       Reintentar
                                     </button>
                                   )}
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                <div className="flex items-start gap-2">
+                                  {blockchainEvidenceLoading ? (
+                                    <RefreshCw
+                                      size={18}
+                                      className="mt-0.5 shrink-0 animate-spin text-amber-600"
+                                    />
+                                  ) : blockchainEvidenceError ? (
+                                    <AlertTriangle
+                                      size={18}
+                                      className="mt-0.5 shrink-0 text-red-600"
+                                    />
+                                  ) : (
+                                    <Shield
+                                      size={18}
+                                      className="mt-0.5 shrink-0 text-muted-foreground"
+                                    />
+                                  )}
+                                  <div>
+                                    <p className="text-sm font-semibold text-foreground">
+                                      {blockchainEvidenceLoading
+                                        ? 'Consultando evidencia blockchain'
+                                        : blockchainEvidenceError
+                                          ? 'No fue posible consultar la evidencia'
+                                          : document?.estado !== 'completado'
+                                            ? 'Disponible al completar el documento'
+                                            : document.blockchain_evidence_enabled
+                                              ? 'Evidencia solicitada, aún no disponible'
+                                              : 'Evidencia no solicitada para este documento'}
+                                    </p>
+                                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                                      {blockchainEvidenceError ||
+                                        (document?.estado !== 'completado'
+                                          ? 'La prueba OpenTimestamps sólo puede crearse sobre el PDF final completado.'
+                                          : document.blockchain_evidence_enabled
+                                            ? 'Docubox mostrará aquí la prueba y sus descargas cuando termine el procesamiento.'
+                                            : 'Este documento se completó sin solicitar una prueba OpenTimestamps. No se ha publicado el documento ni información personal en blockchain.')}
+                                    </p>
+                                  </div>
                                 </div>
-                              </div>
+                                <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
+                                  {[
+                                    ['Protocolo', 'OpenTimestamps'],
+                                    ['Red de registro', 'Bitcoin'],
+                                    ['Estado', blockchainEvidenceStatusLabel],
+                                    [
+                                      'PDF final',
+                                      document?.estado === 'completado'
+                                        ? 'Preparado para evidencia'
+                                        : 'Pendiente de completar',
+                                    ],
+                                    ['Verificación criptográfica', 'Pendiente'],
+                                  ].map(([label, value], index) => (
+                                    <div
+                                      key={String(label)}
+                                      className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
+                                    >
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        {label}
+                                      </span>
+                                      <span className="max-w-[190px] text-right text-xs text-foreground">
+                                        {value}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="space-y-2">
+                                  <button
+                                    type="button"
+                                    disabled
+                                    title="Esta opción se habilitará cuando la evidencia esté verificada."
+                                    className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white opacity-60"
+                                  >
+                                    <Shield size={15} />
+                                    Verificar evidencia blockchain
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled
+                                    title="Esta opción se habilitará cuando la evidencia esté verificada."
+                                    className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border-2 border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
+                                  >
+                                    <Download size={15} />
+                                    Descargar prueba OpenTimestamps (.ots)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled
+                                    title="Esta opción se habilitará cuando la evidencia esté verificada."
+                                    className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
+                                  >
+                                    <Download size={15} />
+                                    Descargar constancia
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled
+                                    title="Esta opción se habilitará cuando la evidencia esté verificada."
+                                    className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
+                                  >
+                                    <Download size={15} />
+                                    Descargar paquete de evidencia
+                                  </button>
+                                </div>
+                                </>
+                              )}
                             </div>
-                          )}
+                          </div>
 
                           {/* ── 6. XML de Evidencia ── */}
                         </>
@@ -7719,13 +7948,7 @@ export default function VisorDocumentoPage() {
                                       Generado
                                     </span>
                                     <span className="text-xs text-muted-foreground">
-                                      {new Date(
-                                        xmlEvidenceData.xml_generated_at
-                                      ).toLocaleDateString('es-MX', {
-                                        year: 'numeric',
-                                        month: 'short',
-                                        day: 'numeric',
-                                      })}
+                                      {formatEvidenceTimestamp(xmlEvidenceData.xml_generated_at)}
                                     </span>
                                   </div>
                                 </div>
@@ -7895,6 +8118,11 @@ export default function VisorDocumentoPage() {
                                   : 'Sin fecha de vencimiento configurada'}
                               </span>
                             </div>
+                            {document?.vencimiento && document.vencimiento_timezone && (
+                              <p className="text-xs text-muted-foreground">
+                                Definido por el creador en {document.vencimiento_timezone}
+                              </p>
+                            )}
                             {document?.vencimiento && (
                               <div
                                 className={`rounded-lg px-3 py-2 text-xs font-medium ${

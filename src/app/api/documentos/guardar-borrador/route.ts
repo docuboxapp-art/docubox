@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isSupportedTimeZone, toUtcIsoTimestamp } from '@/lib/datetime';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseAdmin = createClient(
@@ -110,6 +111,7 @@ export async function POST(req: NextRequest) {
       // Security
       vencimientoEnabled,
       fechaVencimiento,
+      fechaVencimientoTimezone,
       codigoAccesoEnabled,
       proteccionAdicionalEnabled,
       impedirImpresion,
@@ -162,6 +164,22 @@ export async function POST(req: NextRequest) {
       : [];
     const requestedLegalHold = legalHoldEnabled === true;
     const validLegalHoldReason = getLegalHoldReason(legalHoldReason);
+    const expirationTimezone =
+      typeof fechaVencimientoTimezone === 'string' && isSupportedTimeZone(fechaVencimientoTimezone)
+        ? fechaVencimientoTimezone
+        : 'UTC';
+    const expirationAt =
+      vencimientoEnabled && fechaVencimiento ? toUtcIsoTimestamp(fechaVencimiento) : null;
+
+    if (vencimientoEnabled && !expirationAt) {
+      return NextResponse.json(
+        {
+          error: 'La fecha y hora de vencimiento debe definir un instante UTC válido.',
+          code: 'INVALID_EXPIRATION',
+        },
+        { status: 400 }
+      );
+    }
 
     if (requestedLegalHold && !validLegalHoldReason) {
       return NextResponse.json(
@@ -217,7 +235,8 @@ export async function POST(req: NextRequest) {
       participant_mode: participantMode || null,
       participantes: participants || [],
       tiene_vencimiento: vencimientoEnabled ?? false,
-      fecha_vencimiento: fechaVencimiento || null,
+      fecha_vencimiento: expirationAt,
+      fecha_vencimiento_timezone: expirationAt ? expirationTimezone : null,
       tiene_codigo_acceso: codigoAccesoEnabled ?? false,
       proteccion_firmado: proteccionAdicionalEnabled ?? false,
       impedir_impresion: impedirImpresion ?? false,

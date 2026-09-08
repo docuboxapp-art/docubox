@@ -25,6 +25,13 @@ import {
   Lock,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import {
+  addCalendarDaysInTimeZone,
+  getEffectiveTimeZone,
+  getTimeZoneOffsetLabel,
+  isSupportedTimeZone,
+  zonedDateTimeToUtcIso,
+} from '@/lib/datetime';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { SearchableSelect, InfoTooltip } from './SharedComponents';
@@ -2749,7 +2756,7 @@ function FileUploadedLayout({
   >('7d');
   const [fechaVencimientoPersonalizado, setFechaVencimientoPersonalizado] = useState('');
   const [horaVencimiento, setHoraVencimiento] = useState('23:59');
-  const [zonaHoraria, setZonaHoraria] = useState('America/Mexico_City');
+  const [zonaHoraria, setZonaHoraria] = useState('UTC');
   const [diasHabiles, setDiasHabiles] = useState(false);
   const [recordatorioEnabled, setRecordatorioEnabled] = useState(false);
   const [recordatorioCuando, setRecordatorioCuando] = useState<'diario' | '48h' | '24h' | '6h'>(
@@ -2794,14 +2801,19 @@ function FileUploadedLayout({
   const [loadingData, setLoadingData] = useState(true);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
 
-  // Compute effective fecha vencimiento from preset
+  useEffect(() => {
+    const userTimeZone = getEffectiveTimeZone();
+    if (isSupportedTimeZone(userTimeZone)) setZonaHoraria(userTimeZone);
+  }, []);
+
+  // Convert the creator's configured wall-clock time to the canonical UTC instant.
   const getEffectiveFechaVencimiento = () => {
-    if (presetVencimiento === 'personalizado') return fechaVencimientoPersonalizado;
-    const now = new Date();
     const daysMap: Record<string, number> = { '24h': 1, '3d': 3, '7d': 7, '15d': 15, '30d': 30 };
-    const days = daysMap[presetVencimiento] ?? 7;
-    now.setDate(now.getDate() + days);
-    return now.toISOString().split('T')[0];
+    const date =
+      presetVencimiento === 'personalizado'
+        ? fechaVencimientoPersonalizado
+        : addCalendarDaysInTimeZone(zonaHoraria, daysMap[presetVencimiento] ?? 7);
+    return zonedDateTimeToUtcIso(date, incluirHoraVencimiento ? horaVencimiento : '23:59', zonaHoraria) || '';
   };
 
   const recordatorioFrecuencia = recordatorioEnabled ? recordatorioCuando : '';
@@ -2810,6 +2822,7 @@ function FileUploadedLayout({
     onSecurityChange?.({
       vencimientoEnabled: vencimiento,
       fechaVencimiento: getEffectiveFechaVencimiento(),
+      fechaVencimientoTimezone: zonaHoraria,
       recordatorioFrecuencia,
       codigoAccesoEnabled: codigoAcceso,
       codigoAcceso: codigoAccesoValue,
@@ -3421,15 +3434,35 @@ function FileUploadedLayout({
                               <line x1="2" y1="12" x2="22" y2="12" />
                               <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                             </svg>
-                            <span className="text-xs">CDT / Ciudad de México (UTC-6)</span>
+                            <select
+                              value={zonaHoraria}
+                              onChange={(event) => setZonaHoraria(event.target.value)}
+                              className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+                              aria-label="Zona horaria que define el vencimiento"
+                            >
+                              {Array.from(
+                                new Set([
+                                  getEffectiveTimeZone(),
+                                  'America/Mazatlan',
+                                  'America/Mexico_City',
+                                  'America/Chihuahua',
+                                  'America/Tijuana',
+                                  'America/Cancun',
+                                  'UTC',
+                                ])
+                              )
+                                .filter(isSupportedTimeZone)
+                                .map((zone) => (
+                                  <option key={zone} value={zone}>
+                                    {zone} ({getTimeZoneOffsetLabel(zone)})
+                                  </option>
+                                ))}
+                            </select>
                           </div>
-                          <button
-                            type="button"
-                            className="px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-500 hover:bg-gray-50 transition-colors bg-white"
-                          >
-                            Cambiar
-                          </button>
                         </div>
+                        <p className="mt-1.5 text-xs text-gray-500">
+                          El plazo se guarda como un instante UTC; esta zona define la fecha y hora elegidas.
+                        </p>
                       </div>
 
                       {/* Días hábiles vs naturales */}

@@ -29,6 +29,7 @@ export interface DocumentSettings {
 export interface SecuritySettings {
   vencimientoEnabled: boolean;
   fechaVencimiento: string;
+  fechaVencimientoTimezone?: string;
   recordatorioFrecuencia: string;
   codigoAccesoEnabled: boolean;
   codigoAcceso: string;

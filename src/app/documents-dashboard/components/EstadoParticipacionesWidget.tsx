@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
+import { fetchDashboardParticipations } from '@/lib/dashboard/participations';
 
 const PERIOD_OPTIONS = [
   { value: '7d', label: 'Últimos 7 días' },
@@ -103,10 +104,7 @@ export default function EstadoParticipacionesWidget() {
     setLoading(true);
 
     // Fetch participaciones via API (uses service client, bypasses RLS)
-    const fetchParticipaciones = fetch(`/api/documentos/mis-participaciones?t=${Date.now()}`)
-      .then((r) => r.json())
-      .then((data) => data.participaciones ?? [])
-      .catch(() => []);
+    const fetchParticipaciones = fetchDashboardParticipations();
 
     // Fetch owned docs via Supabase (RLS allows owner to see their own docs)
     const supabase = createClient();

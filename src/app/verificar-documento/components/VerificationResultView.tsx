@@ -21,6 +21,7 @@ import type {
   VerificationStatus,
 } from '@/lib/public-verification/types';
 import { STATUS_LABELS } from '@/lib/public-verification/types';
+import { formatLocalTimestamp, formatUtcTimestamp } from '@/lib/datetime';
 
 type Tone = ReturnType<typeof statusTone>;
 
@@ -788,21 +789,9 @@ function checkTypeLabel(value: string) {
 }
 
 function formatUtc(value?: string | null) {
-  if (!value) return 'No disponible';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'No disponible';
-  return (
-    new Intl.DateTimeFormat('es-MX', {
-      dateStyle: 'medium',
-      timeStyle: 'medium',
-      timeZone: 'UTC',
-    }).format(date) + ' UTC'
-  );
+  return formatUtcTimestamp(value);
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat('es-MX', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
+  return formatLocalTimestamp(value, { dateStyle: 'medium', timeStyle: 'short' });
 }

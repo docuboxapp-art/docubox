@@ -760,6 +760,13 @@ function PlacedFieldWidget({
   const isTelefono = field.label === 'Número Telefónico';
   const isDireccion = field.label === 'Dirección';
   const hasTypeConfigOption = hasTypeConfig(field.label);
+  const minDimensions = field.cryptographicType === 'document_chain'
+    ? { width: 60, height: 14 }
+    : field.cryptographicType === 'document_seal'
+      ? { width: 60, height: 22 }
+      : isFirma
+        ? { width: 24, height: 8 }
+        : { width: 5, height: 3 };
 
   const colorHex = field.colorHex || '#2dd4bf';
 
@@ -837,14 +844,14 @@ function PlacedFieldWidget({
         newH = startH,
         newX = startFX,
         newY = startFY;
-      if (dir.includes('e')) newW = Math.max(5, startW + dx);
-      if (dir.includes('s')) newH = Math.max(3, startH + dy);
+      if (dir.includes('e')) newW = Math.max(minDimensions.width, startW + dx);
+      if (dir.includes('s')) newH = Math.max(minDimensions.height, startH + dy);
       if (dir.includes('w')) {
-        newW = Math.max(5, startW - dx);
+        newW = Math.max(minDimensions.width, startW - dx);
         newX = startFX + dx;
       }
       if (dir.includes('n')) {
-        newH = Math.max(3, startH - dy);
+        newH = Math.max(minDimensions.height, startH - dy);
         newY = startFY + dy;
       }
       newX = Math.max(0, Math.min(100 - newW, newX));
@@ -2332,9 +2339,14 @@ export function StepAjustes({
   ];
 
   const getCryptographicDimensions = (type: CryptographicElementType) => {
-    if (type === 'document_chain') return { width: 76, height: 16 };
-    if (type === 'document_seal') return { width: 76, height: 25 };
+    if (type === 'document_chain') return { width: 78, height: 20 };
+    if (type === 'document_seal') return { width: 78, height: 30 };
     return { width: 42, height: 9 };
+  };
+
+  const getParticipantFieldDimensions = (label: string) => {
+    if (label === 'Firma') return { width: 34, height: 12 };
+    return { width: 16, height: label.startsWith('Botones') ? 7 : 4 };
   };
 
   const handleClickPlaceCrypto = (label: string, cryptographicType: CryptographicElementType) => {
@@ -2371,19 +2383,21 @@ export function StepAjustes({
       );
       if (alreadyHasFirma) return;
     }
-    // Place field at center of the document preview on the current page
-    const x = 50 - 8; // center minus half width (16/2)
-    const y = 50 - 2; // center minus half height (4/2)
+    // Place field at center of the document preview on the current page.
+    // Signature stamps need space for the visible stroke and identifying details.
+    const dimensions = getParticipantFieldDimensions(label);
+    const x = 50 - dimensions.width / 2;
+    const y = 50 - dimensions.height / 2;
     setPlacedFields((prev) => [
       ...prev,
       {
         id: `field-${Date.now()}-${Math.random()}`,
         label,
         icon: null,
-        x: Math.max(0, Math.min(84, x)),
-        y: Math.max(0, Math.min(96, y)),
-        width: 16,
-        height: label === 'Botones de opción' ? 7 : 4,
+        x: Math.max(0, Math.min(100 - dimensions.width, x)),
+        y: Math.max(0, Math.min(100 - dimensions.height, y)),
+        width: dimensions.width,
+        height: dimensions.height,
         page: currentPage,
         participantId: selectedParticipant?.id,
         participantName: selectedParticipant?.name,
@@ -2447,7 +2461,7 @@ export function StepAjustes({
       const y = ((e.clientY - rect.top) / rect.height) * 100;
       const dimensions = data.cryptographicType
         ? getCryptographicDimensions(data.cryptographicType)
-        : { width: 16, height: data.label.startsWith('Botones') ? 7 : 4 };
+        : getParticipantFieldDimensions(data.label);
       setPlacedFields((prev) => [
         ...prev,
         {

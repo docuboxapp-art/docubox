@@ -51,7 +51,9 @@ export async function GET(request: NextRequest) {
             } = await supabaseAdmin.auth.getUser(accessToken);
             if (cookieUser) user = cookieUser;
           }
-        } catch (_) {}
+        } catch (_) {
+          // Ignore malformed legacy auth cookies and keep the request unauthenticated.
+        }
       }
     }
 
@@ -63,7 +65,7 @@ export async function GET(request: NextRequest) {
     const { data: doc, error: docError } = await supabaseAdmin
       .from('documentos')
       .select(
-        'id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, legal_hold, legal_hold_status, created_at, updated_at, fecha_vencimiento, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at'
+        'id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, legal_hold, legal_hold_status, created_at, updated_at, fecha_vencimiento, fecha_vencimiento_timezone, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at, blockchain_evidence_enabled'
       )
       .eq('id', documentoId)
       .single();

@@ -52,3 +52,13 @@ test('mobile signing page captures vector strokes and submits them through the t
   assert.match(source, /useState<StrokeSize>\('thin'\)/);
   assert.match(read('src/middleware.ts'), /'\/firma-movil\/'/);
 });
+
+test('mobile signing preserves strokes and uses a horizontal pad in every orientation', () => {
+  const source = read('src/app/firma-movil/[token]/page.tsx');
+  assert.match(source, /orientation\.lock\?\.\('landscape'\)/);
+  assert.match(source, /window\.visualViewport\?\.addEventListener\('resize'/);
+  assert.match(source, /x: \(point\.x \* nextWidth\) \/ priorWidth/);
+  assert.match(source, /aspect-\[2\/1\]/);
+  assert.match(source, /flex flex-col gap-2 landscape:flex-row/);
+  assert.match(source, /landscape:h-\[calc\(100dvh-185px\)\]/);
+});

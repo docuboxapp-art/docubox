@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
 import {
@@ -24,6 +24,7 @@ import EstadoParticipacionesWidget from './components/EstadoParticipacionesWidge
 import SugeridosParaTiWidget from './components/SugeridosParaTiWidget';
 import DocumentosSinRevisionWidget from './components/DocumentosSinRevisionWidget';
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,8 @@ function DonutChart({ used, total }: { used: number; total: number }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function DocumentsDashboardPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
+  const { user, loading: authLoading } = useAuth();
 
   const [greeting, setGreeting] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
@@ -122,28 +124,27 @@ export default function DocumentsDashboardPage() {
   useEffect(() => {
     const hour = new Date().getHours();
     setGreeting(hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches');
-    loadDashboardData();
   }, []);
 
-  async function loadDashboardData() {
+  const loadDashboardData = useCallback(async (currentUserId: string) => {
     setLoadingData(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        setLoadingData(false);
-        return;
-      }
+      setUserId(currentUserId);
 
-      setUserId(user.id);
-
-      // Load user profile for name
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('dashboard_layout')
-        .eq('id', user.id)
-        .single();
+      // These independent lookups are intentionally concurrent for the first dashboard render.
+      const [{ data: profile }, { data: sub }] = await Promise.all([
+        supabase
+          .from('user_profiles')
+          .select('dashboard_layout')
+          .eq('id', currentUserId)
+          .single(),
+        supabase
+          .from('subscriptions')
+          .select('documents_used, documents_limit, plan_id, subscription_plans(name)')
+          .eq('user_id', currentUserId)
+          .eq('status', 'active')
+          .single(),
+      ]);
 
       // Load saved layout
       if (profile?.dashboard_layout) {
@@ -239,14 +240,6 @@ export default function DocumentsDashboardPage() {
         }
       }
 
-      // Load subscription
-      const { data: sub } = await supabase
-        .from('subscriptions')
-        .select('documents_used, documents_limit, plan_id, subscription_plans(name)')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .single();
-
       const planData = sub?.subscription_plans as { name?: string } | null;
 
       setMetrics({
@@ -259,7 +252,16 @@ export default function DocumentsDashboardPage() {
     } finally {
       setLoadingData(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user?.id) {
+      setLoadingData(false);
+      return;
+    }
+    void loadDashboardData(user.id);
+  }, [authLoading, loadDashboardData, user?.id]);
 
   // ── Layout persistence ─────────────────────────────────────────────────────
 

@@ -6,7 +6,6 @@ import {
   Eye,
   EyeOff,
   AlertTriangle,
-  ShieldAlert,
   Mail,
   Fingerprint,
   RefreshCw,
@@ -214,6 +213,8 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const [emailLoading, setEmailLoading] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
   const [isRegisteredUser, setIsRegisteredUser] = useState(false);
+  const loginOptionsRequestRef = useRef<AbortController | null>(null);
+  const loginOptionsRequestIdRef = useRef(0);
 
   // ── Step 2: auth accordion ─────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<AuthTab>('password');
@@ -224,7 +225,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const [showPassword, setShowPassword] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [newDeviceWarning, setNewDeviceWarning] = useState<string | null>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
 
   // OTP tab state
@@ -281,7 +281,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     setActiveTab('password');
     setPassword('');
     setPasswordError(null);
-    setNewDeviceWarning(null);
     setOtpCode('');
     setOtpSent(false);
     setOtpError(null);
@@ -292,8 +291,12 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   };
 
   const handleEmailChange = (value: string) => {
+    loginOptionsRequestIdRef.current += 1;
+    loginOptionsRequestRef.current?.abort();
+    loginOptionsRequestRef.current = null;
     setEmailValue(value);
     setEmailError('');
+    setEmailLoading(false);
     resetAuthReveal();
   };
 
@@ -304,6 +307,12 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       setEmailError('Ingresa un correo electrónico válido.');
       return;
     }
+    loginOptionsRequestRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = loginOptionsRequestIdRef.current + 1;
+    loginOptionsRequestIdRef.current = requestId;
+    loginOptionsRequestRef.current = controller;
+
     setEmailError('');
     setEmailLoading(true);
     setUserName(null);
@@ -311,7 +320,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     setAvailableTabs(['password']);
     setActiveTab('password');
     setPasswordError(null);
-    setNewDeviceWarning(null);
     setOtpCode('');
     setOtpSent(false);
     setOtpError(null);
@@ -325,8 +333,11 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: trimmed }),
+        signal: controller.signal,
       });
       const data = await res.json();
+
+      if (requestId !== loginOptionsRequestIdRef.current) return;
 
       setUserName(data.nombre || null);
       setWebAuthnDevices(data.webAuthnDevices || []);
@@ -344,11 +355,16 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
       setAvailableTabs(tabs);
       setActiveTab('password');
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      if (requestId !== loginOptionsRequestIdRef.current) return;
       setUserName(null);
       setAvailableTabs(['password']);
     } finally {
-      setEmailLoading(false);
+      if (requestId === loginOptionsRequestIdRef.current) {
+        setEmailLoading(false);
+        loginOptionsRequestRef.current = null;
+      }
     }
   };
 
@@ -448,7 +464,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       return;
     }
     setPasswordError(null);
-    setNewDeviceWarning(null);
     setPasswordLoading(true);
 
     try {
@@ -479,49 +494,32 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         return;
       }
 
-      try {
-        await fetch('/api/security/log-access', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: authData.user?.id || null,
-            email: emailValue.trim(),
-            loginSuccess: true,
-            authMethod: 'password',
-            ...getDeviceMeta(),
-          }),
-        });
-      } catch {
-        /* non-blocking */
-      }
+      void fetch('/api/security/log-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: authData.user?.id || null,
+          email: emailValue.trim(),
+          loginSuccess: true,
+          authMethod: 'password',
+          ...getDeviceMeta(),
+        }),
+        keepalive: true,
+      }).catch(() => undefined);
 
       if (await enforcePostLoginSecurity('other', authData.session?.access_token)) return;
 
-      // Device check
+      // Device recognition can send alerts and record the device, but must not delay access.
       if (authData.user?.id) {
-        try {
-          const res = await fetch('/api/security/check-device', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${authData.session?.access_token || ''}`,
-            },
-            body: JSON.stringify({
-              userId: authData.user.id,
-            }),
-          });
-          const deviceResult = await res.json();
-          if (deviceResult.isNewDevice) {
-            const { browser, os, city, country } = deviceResult.device || {};
-            const location = [city, country].filter(Boolean).join(', ');
-            const deviceLabel = [browser, os].filter(Boolean).join(' en ');
-            setNewDeviceWarning(
-              `Inicio de sesión desde un nuevo dispositivo: ${deviceLabel}${location ? ` (${location})` : ''}. Se ha enviado una alerta a tu correo.`
-            );
-          }
-        } catch {
-          /* non-blocking */
-        }
+        void fetch('/api/security/check-device', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authData.session?.access_token || ''}`,
+          },
+          body: JSON.stringify({ userId: authData.user.id }),
+          keepalive: true,
+        }).catch(() => undefined);
       }
 
       window.location.href = requestedRedirect();
@@ -621,21 +619,18 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         sessionAccessToken = verifiedSession.session?.access_token;
       }
 
-      try {
-        await fetch('/api/security/log-access', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: data.userId || null,
-            email: emailValue.trim(),
-            loginSuccess: true,
-            authMethod: 'otp',
-            ...getDeviceMeta(),
-          }),
-        });
-      } catch {
-        /* non-blocking */
-      }
+      void fetch('/api/security/log-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: data.userId || null,
+          email: emailValue.trim(),
+          loginSuccess: true,
+          authMethod: 'otp',
+          ...getDeviceMeta(),
+        }),
+        keepalive: true,
+      }).catch(() => undefined);
       if (await enforcePostLoginSecurity('other', sessionAccessToken)) return;
       window.location.href = requestedRedirect();
     } catch (error) {
@@ -753,21 +748,18 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         return;
       }
 
-      try {
-        await fetch('/api/security/log-access', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: verifyData?.userId || null,
-            email: emailValue.trim(),
-            loginSuccess: true,
-            authMethod: 'biometric',
-            ...getDeviceMeta(),
-          }),
-        });
-      } catch {
-        /* non-blocking */
-      }
+      void fetch('/api/security/log-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: verifyData?.userId || null,
+          email: emailValue.trim(),
+          loginSuccess: true,
+          authMethod: 'biometric',
+          ...getDeviceMeta(),
+        }),
+        keepalive: true,
+      }).catch(() => undefined);
       if (await enforcePostLoginSecurity('passkey', verifiedSession?.session?.access_token)) return;
       window.location.href = requestedRedirect();
     } catch (err: unknown) {
@@ -841,12 +833,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
             <>
               {!isOtpMode && (
                 <div className="space-y-3">
-                  {newDeviceWarning && (
-                    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                      <ShieldAlert size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                      <p className="text-xs text-amber-800">{newDeviceWarning}</p>
-                    </div>
-                  )}
 
                   {passwordError && (
                     <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">

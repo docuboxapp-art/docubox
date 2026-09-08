@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { AlertCircle, ArrowLeft, CheckCircle2, Clock3, Download, FileCheck2, Fingerprint, Hash, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
+import { formatUtcTimestamp } from '@/lib/datetime';
 
 type VerificationResult = {
   verification_uuid: string;
@@ -72,7 +73,7 @@ export default function PublicCertificationVerificationPage() {
               <ValidationCard icon={FileCheck2} title="Documento" rows={[['Huella del cuerpo', result.document.body_hash_match], ['PDF certificado', result.document.certified_pdf_hash_match]]} />
               <ValidationCard icon={KeyRound} title="Cadena original" rows={[['Hash de cadena', result.document_chain.hash_match], ['Sello KMS', result.document_chain.seal_valid], [`Llave ${result.document_chain.key_version}`, true]]} />
               <ValidationCard icon={ShieldCheck} title="Cadena de evidencia" rows={[['Manifiesto', result.evidence_chain.manifest_hash_match], ['Sello KMS', result.evidence_chain.seal_valid], ['Bitacora encadenada', result.evidence_chain.audit_chain_valid]]} />
-              <ValidationCard icon={Clock3} title="Estampa RFC 3161" rows={result.timestamp ? [[result.timestamp.standard, result.timestamp.status === 'VALID'], [new Date(result.timestamp.gen_time).toLocaleString('es-MX', { timeZone: 'UTC' }) + ' UTC', true]] : [['No disponible', false]]} />
+              <ValidationCard icon={Clock3} title="Estampa RFC 3161" rows={result.timestamp ? [[result.timestamp.standard, result.timestamp.status === 'VALID'], [formatUtcTimestamp(result.timestamp.gen_time), true]] : [['No disponible', false]]} />
             </section>
             <section className="mt-5 overflow-hidden rounded-md border border-slate-200 bg-white">
               <header className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -85,7 +86,7 @@ export default function PublicCertificationVerificationPage() {
                   <SealValue label="Hash de la cadena original" value={result.document_seal.document_chain_sha256} mono />
                   <div className="grid gap-4 sm:grid-cols-2"><SealValue label="Algoritmo" value={result.document_seal.signature_algorithm && result.document_seal.key_size_bits ? `${result.document_seal.signature_algorithm} / ${result.document_seal.key_size_bits} bits` : null} /><SealValue label="Version de llave" value={result.document_seal.signing_key_version} mono /></div>
                   <SealValue label="Huella SHA-256 de la llave publica" value={result.document_seal.public_key_fingerprint_sha256} mono />
-                  <SealValue label="Fecha de generacion" value={result.document_seal.signed_at ? new Date(result.document_seal.signed_at).toLocaleString('es-MX', { timeZone: 'UTC' }) + ' UTC' : null} />
+                  <SealValue label="Fecha de generacion" value={result.document_seal.signed_at ? formatUtcTimestamp(result.document_seal.signed_at) : null} />
                 </div>
                 <div className="p-5"><p className="text-xs font-700 uppercase text-slate-500">Sello Base64 abreviado</p><pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-all rounded-md border border-slate-200 bg-slate-50 p-4 font-mono text-[11px] leading-5 text-slate-600">{result.document_seal.seal_base64_preview}</pre><p className="mt-3 text-xs leading-5 text-slate-500">La validacion utiliza siempre el sello completo. Esta abreviacion es solamente visual.</p></div>
               </div>

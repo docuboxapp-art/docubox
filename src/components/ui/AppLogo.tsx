@@ -11,6 +11,7 @@ interface AppLogoProps {
   iconName?: string; // Icon name when no image
   size?: number; // Size for icon/image
   className?: string; // Additional classes
+  imageClassName?: string; // Additional classes for the logo image
   onClick?: () => void; // Click handler
 }
 
@@ -24,6 +25,7 @@ const AppLogo = memo(function AppLogo({
   iconName = 'SparklesIcon',
   size = 32,
   className = '',
+  imageClassName = '',
   onClick,
 }: AppLogoProps) {
   const resolvedDarkSrc = darkSrc ?? (src === DEFAULT_LOGO ? DEFAULT_DARK_MODE_LOGO : src);
@@ -46,7 +48,7 @@ const AppLogo = memo(function AppLogo({
             alt="Logo"
             width={126}
             height={24}
-            className="flex-shrink-0 object-contain dark:hidden"
+            className={`flex-shrink-0 object-contain dark:hidden ${imageClassName}`}
             priority={true}
             unoptimized={src.endsWith('.svg')}
             showLoadingBackground={false}
@@ -56,7 +58,7 @@ const AppLogo = memo(function AppLogo({
             alt="Logo"
             width={126}
             height={24}
-            className="hidden flex-shrink-0 object-contain dark:block"
+            className={`hidden flex-shrink-0 object-contain dark:block ${imageClassName}`}
             priority={true}
             unoptimized={resolvedDarkSrc.endsWith('.svg')}
             showLoadingBackground={false}
@@ -68,7 +70,7 @@ const AppLogo = memo(function AppLogo({
           alt="Logo"
           width={126}
           height={24}
-          className="flex-shrink-0 object-contain"
+          className={`flex-shrink-0 object-contain ${imageClassName}`}
           priority={true}
           unoptimized={(variant === 'light' ? resolvedDarkSrc : src).endsWith('.svg')}
           showLoadingBackground={false}

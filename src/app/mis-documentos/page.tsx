@@ -134,6 +134,37 @@ function ResizableTh({
 // keyed by tableKey inside the column_widths_config JSONB column.
 // Falls back to localStorage for instant hydration while Supabase loads.
 const COL_WIDTHS_VIEW_KEY = 'col_widths_config';
+type ColumnWidthsConfig = Record<string, Record<string, number>>;
+const pendingColumnWidthsConfig = new Map<string, Promise<ColumnWidthsConfig | null>>();
+
+function loadColumnWidthsConfig(userId: string): Promise<ColumnWidthsConfig | null> {
+  const existingRequest = pendingColumnWidthsConfig.get(userId);
+  if (existingRequest) return existingRequest;
+
+  const request = Promise.resolve(
+    createClient()
+      .from('user_view_preferences')
+      .select('column_widths_config')
+      .eq('user_id', userId)
+      .eq('view_key', COL_WIDTHS_VIEW_KEY)
+      .single()
+  )
+    .then(({ data, error }) =>
+      !error && data?.column_widths_config
+        ? (data.column_widths_config as ColumnWidthsConfig)
+        : null
+    )
+    .catch(() => null);
+
+  pendingColumnWidthsConfig.set(userId, request);
+  void request.finally(() => {
+    if (pendingColumnWidthsConfig.get(userId) === request) {
+      pendingColumnWidthsConfig.delete(userId);
+    }
+  });
+
+  return request;
+}
 
 function useColumnWidths(
   tableKey: string,
@@ -155,29 +186,23 @@ function useColumnWidths(
   // Load from Supabase on mount when userId is available
   useEffect(() => {
     if (!userId) return;
-    const supabase = createClient();
-    supabase
-      .from('user_view_preferences')
-      .select('column_widths_config')
-      .eq('user_id', userId)
-      .eq('view_key', COL_WIDTHS_VIEW_KEY)
-      .single()
-      .then(({ data, error }) => {
-        if (!error && data?.column_widths_config) {
-          const tableWidths = (data.column_widths_config as Record<string, Record<string, number>>)[
-            tableKey
-          ];
-          if (tableWidths && typeof tableWidths === 'object') {
-            const merged = { ...defaults, ...tableWidths };
-            setWidths(merged);
-            try {
-              localStorage.setItem(storageKey, JSON.stringify(merged));
-            } catch {
-              // Supabase remains the source of truth when local storage is unavailable.
-            }
-          }
+    let cancelled = false;
+    void loadColumnWidthsConfig(userId).then((config) => {
+      if (cancelled || !config) return;
+      const tableWidths = config[tableKey];
+      if (tableWidths && typeof tableWidths === 'object') {
+        const merged = { ...defaults, ...tableWidths };
+        setWidths(merged);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(merged));
+        } catch {
+          // Supabase remains the source of truth when local storage is unavailable.
         }
-      });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, tableKey]);
 
@@ -2958,13 +2983,6 @@ function MisDocumentosContent() {
     }
   }, []);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- These async loaders own their loading-state transitions. */
-  useEffect(() => {
-    loadTiposDocumento();
-    loadGruposDocumento();
-  }, [loadTiposDocumento, loadGruposDocumento]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
   const loadEtiquetas = useCallback(async () => {
     setLoadingEtiquetas(true);
     try {
@@ -3059,13 +3077,56 @@ function MisDocumentosContent() {
     }
   }, [user]);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- These async loaders own their loading-state transitions. */
+  /* eslint-disable react-hooks/set-state-in-effect -- Tags are visible in the initial document list. */
   useEffect(() => {
     loadEtiquetas();
-    loadWorkspaceUsers();
-    loadParticipantUsers();
-  }, [loadEtiquetas, loadWorkspaceUsers, loadParticipantUsers]);
+  }, [loadEtiquetas]);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  useEffect(() => {
+    if (openFilterDropdown === 'tipoDocumento') {
+      if (tiposDocumento.length === 0 && !loadingTipos) void loadTiposDocumento();
+      if (gruposDocumento.length === 0 && !loadingGrupos) void loadGruposDocumento();
+    }
+    if (openFilterDropdown === 'propietario' && workspaceUsers.length === 0 && !loadingPropietarios) {
+      void loadWorkspaceUsers();
+    }
+    if (
+      openFilterDropdown === 'participantes' &&
+      participantUsers.length === 0 &&
+      !loadingParticipantes
+    ) {
+      void loadParticipantUsers();
+    }
+  }, [
+    gruposDocumento.length,
+    loadGruposDocumento,
+    loadParticipantUsers,
+    loadTiposDocumento,
+    loadWorkspaceUsers,
+    loadingGrupos,
+    loadingParticipantes,
+    loadingPropietarios,
+    loadingTipos,
+    openFilterDropdown,
+    participantUsers.length,
+    tiposDocumento.length,
+    workspaceUsers.length,
+  ]);
+
+  useEffect(() => {
+    if (!showCarpetaModal) return;
+    if (tiposDocumento.length === 0 && !loadingTipos) void loadTiposDocumento();
+    if (gruposDocumento.length === 0 && !loadingGrupos) void loadGruposDocumento();
+  }, [
+    gruposDocumento.length,
+    loadGruposDocumento,
+    loadTiposDocumento,
+    loadingGrupos,
+    loadingTipos,
+    showCarpetaModal,
+    tiposDocumento.length,
+  ]);
 
   const loadDocuments = useCallback(async () => {
     if (!user) return;

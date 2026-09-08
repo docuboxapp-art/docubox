@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
+import { fetchDashboardParticipations } from '@/lib/dashboard/participations';
 
 const PERIOD_OPTIONS = [
   { value: '7d', label: 'Últimos 7 días' },
@@ -97,46 +98,33 @@ export default function EstadoDocumentosWidget() {
     const supabase = createClient();
     setLoading(true);
     try {
-      // Fetch owned documents
-      const { data: ownedDocs } = await supabase
+      const fetchOwnedDocuments = supabase
         .from('documentos')
         .select('id, estado, fecha_vencimiento, created_at')
         .eq('owner_id', user.id)
         .is('deleted_at', null);
 
-      // Fetch participant documents via API
-      let participantDocs: any[] = [];
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        const partRes = await fetch(`/api/documentos/mis-participaciones?t=${Date.now()}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (partRes.ok) {
-          const partJson = await partRes.json();
-          participantDocs = (partJson.participaciones || []).map((p: any) => ({
-            id: p.supabaseId,
-            estado:
-              p.status === 'en-progreso'
-                ? 'en_proceso'
-                : p.status === 'en-espera'
-                  ? 'en_espera'
-                  : p.status === 'completado'
-                    ? 'completado'
-                    : p.status === 'cancelado'
-                      ? 'cancelado'
-                      : p.status === 'rechazado'
-                        ? 'rechazado'
-                        : 'en_proceso',
-            fecha_vencimiento: p.expiresAt || null,
-            created_at: p.receivedAt,
-          }));
-        }
-      } catch (_) {
-        /* ignore participant fetch errors */
-      }
+      const [{ data: ownedDocs }, participaciones] = await Promise.all([
+        fetchOwnedDocuments,
+        fetchDashboardParticipations(),
+      ]);
+      const participantDocs = participaciones.map((p: any) => ({
+        id: p.supabaseId,
+        estado:
+          p.status === 'en-progreso'
+            ? 'en_proceso'
+            : p.status === 'en-espera'
+              ? 'en_espera'
+              : p.status === 'completado'
+                ? 'completado'
+                : p.status === 'cancelado'
+                  ? 'cancelado'
+                  : p.status === 'rechazado'
+                    ? 'rechazado'
+                    : 'en_proceso',
+        fecha_vencimiento: p.expiresAt || null,
+        created_at: p.receivedAt,
+      }));
 
       // Merge: deduplicate by id (owned docs take priority)
       const ownedIds = new Set((ownedDocs ?? []).map((d: any) => d.id));

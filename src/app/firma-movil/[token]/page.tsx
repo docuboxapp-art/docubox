@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Loader2, PenLine, RotateCcw, ShieldCheck } from 'lucide-react';
+import { Check, Loader2, PenLine, RotateCcw, RotateCw, ShieldCheck } from 'lucide-react';
 import { useParams } from 'next/navigation';
+import AppLogo from '@/components/ui/AppLogo';
 
 type StrokeSize = 'thin' | 'medium' | 'thick';
 
@@ -47,19 +48,63 @@ export default function MobileSignaturePage() {
       const SignaturePad = (await import('signature_pad')).default;
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const ratio = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.floor(rect.width * ratio);
-      canvas.height = Math.floor(rect.height * ratio);
-      canvas.getContext('2d')?.scale(ratio, ratio);
       pad = new SignaturePad(canvas, { minWidth: 0.4, maxWidth: 1.2, penColor, throttle: 16 });
       pad.addEventListener('beginStroke', () => setHasStrokes(true));
       padRef.current = pad;
+      const resizePad = () => {
+        const priorWidth = canvas.width / (window.devicePixelRatio || 1) || 1;
+        const priorHeight = canvas.height / (window.devicePixelRatio || 1) || 1;
+        const strokes = pad.toData();
+        const ratio = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        const nextWidth = Math.max(Math.floor(rect.width), 1);
+        const nextHeight = Math.max(Math.floor(rect.height), 1);
+        canvas.width = Math.floor(nextWidth * ratio);
+        canvas.height = Math.floor(nextHeight * ratio);
+        canvas.getContext('2d')?.scale(ratio, ratio);
+        if (!strokes.length) return;
+        pad.clear();
+        pad.fromData(
+          strokes.map((stroke: any) => ({
+            ...stroke,
+            points: stroke.points.map((point: any) => ({
+              ...point,
+              x: (point.x * nextWidth) / priorWidth,
+              y: (point.y * nextHeight) / priorHeight,
+            })),
+          }))
+        );
+      };
+      resizePad();
+      const onViewportResize = () => window.requestAnimationFrame(resizePad);
+      window.addEventListener('resize', onViewportResize);
+      window.visualViewport?.addEventListener('resize', onViewportResize);
       setPadReady(true);
+      return () => {
+        window.removeEventListener('resize', onViewportResize);
+        window.visualViewport?.removeEventListener('resize', onViewportResize);
+      };
     };
-    initialise();
-    return () => pad?.off();
+    let cleanup: (() => void) | undefined;
+    initialise().then((dispose) => {
+      cleanup = dispose;
+    });
+    return () => {
+      cleanup?.();
+      pad?.off();
+    };
   }, [screen]);
+
+  const requestLandscape = async () => {
+    try {
+      const orientation = window.screen.orientation as ScreenOrientation & {
+        lock?: (mode: 'landscape') => Promise<void>;
+      };
+      await orientation.lock?.('landscape');
+    } catch {
+      // Safari and some browsers only permit orientation changes after fullscreen mode.
+    }
+  };
 
   const updateStrokeSize = (size: StrokeSize) => {
     setStrokeSize(size);
@@ -138,11 +183,9 @@ export default function MobileSignaturePage() {
   ];
 
   return (
-    <main className="min-h-dvh bg-slate-50 px-4 py-7 text-slate-900">
-      <div className="mx-auto w-full max-w-lg">
-        <div className="mb-6 flex items-center justify-center gap-2 text-xl font-semibold tracking-normal text-slate-900">
-          <span className="h-6 w-1 rounded-sm bg-primary" /> Docubox
-        </div>
+    <main className="min-h-dvh bg-slate-50 px-4 py-7 text-slate-900 landscape:px-3 landscape:py-3">
+      <div className="mx-auto w-full max-w-lg landscape:max-w-3xl">
+        <AppLogo className="mb-6 justify-center landscape:mb-3" imageClassName="h-auto" />
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           {screen === 'loading' && (
             <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="animate-spin" size={18} /> Abriendo firma segura…</div>
@@ -159,31 +202,31 @@ export default function MobileSignaturePage() {
           )}
           {(screen === 'draw' || screen === 'sending') && (
             <>
-              <header className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="flex items-center gap-2"><PenLine size={17} className="text-primary" /><h1 className="text-sm font-semibold">Firma autógrafa digital</h1></div>
+              <header className="border-b border-slate-200 bg-slate-50 px-4 py-3 landscape:px-3 landscape:py-2">
+                <div className="flex items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-2"><PenLine size={17} className="shrink-0 text-primary" /><h1 className="truncate text-sm font-semibold">Firma autógrafa digital</h1></div><button type="button" onClick={requestLandscape} title="Usar orientación horizontal" aria-label="Usar orientación horizontal" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 landscape:hidden"><RotateCw size={15} /></button></div>
                 <p className="mt-1 truncate pl-6 text-xs text-slate-500">{documentName}</p>
               </header>
-              <div className="p-4">
-                <p className="mb-3 text-sm text-slate-600">Dibuja tu firma en el recuadro.</p>
-                <div className="flex gap-2">
-                  <div className="relative min-w-0 flex-1 overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white" style={{ touchAction: 'none' }}>
-                    <canvas ref={canvasRef} className="block w-full cursor-crosshair" style={{ height: '260px', touchAction: 'none' }} />
+              <div className="p-4 landscape:p-3">
+                <p className="mb-3 text-sm text-slate-600 landscape:mb-2">Dibuja tu firma en el recuadro.</p>
+                <div className="flex flex-col gap-2 landscape:flex-row">
+                  <div className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:flex-1 landscape:aspect-auto landscape:h-[calc(100dvh-185px)] landscape:min-h-[230px] landscape:max-h-[420px]" style={{ touchAction: 'none' }}>
+                    <canvas ref={canvasRef} className="block h-full w-full cursor-crosshair" style={{ touchAction: 'none' }} />
                     {!hasStrokes && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-center text-slate-400"><div><PenLine size={28} className="mx-auto mb-1 text-slate-300" /><p className="text-xs">Dibuja tu firma aquí</p></div></div>}
                     <div className="pointer-events-none absolute bottom-10 left-6 right-6 border-b border-slate-200" />
                   </div>
-                  <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5">
+                  <div className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 landscape:flex-col landscape:gap-1.5">
                     {thicknesses.map(({ size, width, label }) => <button key={size} type="button" title={label} onClick={() => updateStrokeSize(size)} className={`flex h-9 w-9 items-center justify-center rounded-md ${strokeSize === size ? 'border-2 border-primary bg-primary/10' : 'border border-slate-200 bg-white'}`}><svg width="22" height="22" viewBox="0 0 22 22"><line x1="3" y1="11" x2="19" y2="11" stroke={darkLine} strokeWidth={width} strokeLinecap="round" /></svg></button>)}
-                    <div className="my-0.5 h-px bg-slate-200" />
+                    <div className="h-6 w-px bg-slate-200 landscape:h-px landscape:w-6" />
                     {['#0a0a0f', '#1d4ed8', '#dc2626'].map((color) => <button key={color} type="button" title={color === '#0a0a0f' ? 'Negro' : color === '#1d4ed8' ? 'Azul' : 'Rojo'} onClick={() => updateColor(color)} className={`h-7 w-7 self-center rounded-full ${penColor === color ? 'ring-2 ring-slate-500 ring-offset-2' : ''}`} style={{ backgroundColor: color }} />)}
                   </div>
                 </div>
                 {!padReady && <p className="mt-3 flex items-center gap-2 text-xs text-slate-400"><Loader2 className="animate-spin" size={13} /> Cargando pad de firma…</p>}
                 {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
-                <div className="mt-4 flex gap-2">
+                <div className="mt-4 flex gap-2 landscape:mt-2">
                   <button type="button" onClick={clear} disabled={screen === 'sending'} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 disabled:opacity-50"><RotateCcw size={14} /> Limpiar</button>
                   <button type="button" onClick={submit} disabled={!hasStrokes || screen === 'sending'} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{screen === 'sending' ? <Loader2 className="animate-spin" size={15} /> : <Check size={15} />} Confirmar firma</button>
                 </div>
-                <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-slate-400"><ShieldCheck size={13} /> Enlace temporal y de un solo uso</p>
+                <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-slate-400 landscape:mt-2"><ShieldCheck size={13} /> Enlace temporal y de un solo uso</p>
               </div>
             </>
           )}
