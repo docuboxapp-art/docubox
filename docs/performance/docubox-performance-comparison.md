@@ -9,9 +9,10 @@ Fecha: 2026-09-08
 | Llamadas remotas de middleware sin sesión | 1 `getUser` habitual | 0 | -1 por request |
 | Validaciones remotas de middleware autenticado | `getUser` + RPC | 1 RPC | -1 por request |
 | Bloqueo de fila en validación normal | Sí, `FOR UPDATE` | No | Elimina serialización normal |
-| Middleware local sin sesión | N/D | 0.1-0.3 ms en `Server-Timing` | N/D, entorno no equivalente |
-| `/mis-documentos` TTFB sin sesión | 285 ms producción | 3.9 ms local producción | N/D, entorno no equivalente |
-| `/inicio` TTFB sin sesión | 423 ms producción | 3.9 ms local producción | N/D, entorno no equivalente |
+| Middleware sin sesión | N/D | 0.1 ms en Vercel `Server-Timing` | llamada remota eliminada |
+| `/mis-documentos` TTFB sin sesión | 285 ms producción | 106.3 ms producción | -62.7% |
+| `/inicio` TTFB sin sesión | 423 ms producción | 96.3 ms producción | -77.2% |
+| API participaciones sin sesión | 409 ms producción | 175.2 ms producción | -57.2% |
 | Consulta de participaciones | todos los documentos globales + filtro Node | filas permitidas por RLS | Menor escala y payload; bytes N/D |
 | Consultas auxiliares de participaciones | visibilidad + perfiles | perfiles | -1 query |
 | Inicio de listados en `/mis-documentos` | secuencial | paralelo | elimina un waterfall |
@@ -25,8 +26,8 @@ Fecha: 2026-09-08
 | CLS autenticado | N/D | N/D | sin RUM disponible |
 | Payload autenticado | N/D | N/D | no se capturó contenido privado |
 
-No se calcula un porcentaje entre producción PRE y localhost POST. La evidencia equivalente de
-producción debe recolectarse después de una ventana con tráfico real.
+Las mediciones PRE usaron tres muestras y las POST cinco muestras calentadas desde el mismo cliente.
+Son una señal comparable de TTFB, no sustituyen percentiles con tráfico real ni RUM autenticado.
 
 ## Resultado por prioridad
 

@@ -102,6 +102,26 @@ Clasificación de procesos:
 | `PRIVATE_WORKSPACE_CACHE` | datos de workspace | no se añadió caché compartida |
 | `PUBLIC_CACHE` | assets inmutables administrados por Next/Vercel | caché de plataforma existente |
 
+Medición Vercel POST, cinco solicitudes por ruta después de una solicitud de calentamiento:
+
+| Ruta | p50 POST | máximo POST | respuesta |
+| --- | ---: | ---: | ---: |
+| `/login` | 208.4 ms | 376.6 ms | 200 |
+| `/inicio` | 96.3 ms | 99.3 ms | 307 |
+| `/mis-documentos` | 106.3 ms | 139.3 ms | 307 |
+| `/mis-participaciones` | 93.3 ms | 102.3 ms | 307 |
+| `/mis-solicitudes` | 97.8 ms | 107.9 ms | 307 |
+| `/plantillas` | 93.0 ms | 97.2 ms | 307 |
+| `/formularios` | 91.9 ms | 99.2 ms | 307 |
+| `/expedientes` | 99.0 ms | 103.0 ms | 307 |
+| `/mis-tareas` | 97.4 ms | 125.4 ms | 307 |
+| `/contactos` | 89.8 ms | 96.7 ms | 307 |
+| `/reportes` | 91.9 ms | 93.4 ms | 307 |
+| `/api/documentos/mis-participaciones` | 175.2 ms | 202.7 ms | 401 |
+
+Todas reportaron `middleware;dur=0.1` ms en la última muestra. Una cookie malformada respondió 307
+a `/login`, eliminó la cookie y registró 1.0 ms de middleware.
+
 Prueba local de producción, 200 solicitudes por ruta, concurrencia 20:
 
 | Ruta | p50 | p95 | p99 | Errores |
@@ -126,16 +146,19 @@ No se crearon 401 índices ni se eliminaron masivamente índices sin uso.
 ## Validación
 
 - 36 pruebas focalizadas de sesión, rendimiento, documentos, participación, visibilidad, papelera y
-  Legal Hold: PASS.
+  Legal Hold: PASS. Otras 24 pruebas de hash, blockchain, ciclo criptográfico y fuentes PDF: PASS.
 - TypeScript: PASS.
 - ESLint de archivos nuevos y endpoints modificados: PASS.
-- Build Next.js, 224 páginas: PASS.
+- Build Next.js, 224 páginas, compilación final 42 s: PASS.
 - Carga local, 600 solicitudes: PASS, 0 errores.
 - La pantalla de login local carga sin errores de consola. Se corrigió la advertencia de calidad 85
   de los logotipos.
 - Los efectos preexistentes de `StepAjustes` siguen generando findings
   `react-hooks/set-state-in-effect` al ejecutar lint aislado; no fueron introducidos por la
   optimización y no se hizo un refactor funcional para ocultarlos.
+- El lint global agotó más de seis minutos y varios gigabytes sin completar; el lint focalizado de
+  todos los archivos modificados terminó sin errores al excluir únicamente el finding preexistente
+  anterior.
 
 `SECURITY_REGRESSION=NONE`
 
