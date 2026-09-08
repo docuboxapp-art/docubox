@@ -72,6 +72,8 @@ def _global_args(calendars: list[str]) -> list[str]:
 
 def _run(args: list[str], cwd: str, allow_pending: bool = False) -> tuple[str, int]:
     timeout = min(max(int(os.environ.get("OPENTIMESTAMPS_TIMEOUT_MS", "30000")), 5000), 120000)
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = os.pathsep.join(item for item in sys.path if item)
     try:
         result = subprocess.run(
             [
@@ -85,6 +87,7 @@ def _run(args: list[str], cwd: str, allow_pending: bool = False) -> tuple[str, i
             text=True,
             timeout=timeout / 1000,
             check=False,
+            env=environment,
         )
     except FileNotFoundError as error:
         raise OtsRuntimeError("OTS_CLIENT_UNAVAILABLE", "OpenTimestamps client is unavailable.") from error
