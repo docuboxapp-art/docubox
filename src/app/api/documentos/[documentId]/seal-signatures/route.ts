@@ -25,6 +25,7 @@ import {
   DocumentCompletionEmailError,
   queueVerifiedDocumentCompletionEmails,
 } from '@/lib/notifications/document-completion';
+import { createBlockchainEvidenceForFinalDocument } from '@/lib/blockchain-evidence/service';
 import {
   documentEncryptionPolicy,
   readDocumentStorageObject,
@@ -135,6 +136,24 @@ async function finalizeAfterVerifiedPadesBt(
     certificationUuid: input.certificationUuid,
     requestedBy: input.actorId,
   });
+  let blockchainEvidence: Record<string, unknown> | null = null;
+  try {
+    const evidence = await createBlockchainEvidenceForFinalDocument(service, {
+      documentId: input.documentId,
+      actorId: input.actorId,
+      submitImmediately: false,
+    });
+    blockchainEvidence = evidence
+      ? { id: evidence.id, public_token: evidence.public_token, status: evidence.status }
+      : null;
+  } catch (error) {
+    // This evidence is additive and must not roll back a valid signed document.
+    console.error('[blockchain-evidence] Final PDF anchoring request failed', {
+      documentId: input.documentId,
+      code: error instanceof Error ? error.name : 'BLOCKCHAIN_EVIDENCE_FAILED',
+    });
+    blockchainEvidence = { status: 'SUBMISSION_FAILED' };
+  }
   await recordCertificationStage(service, {
     documentId: input.documentId,
     actorId: input.actorId,
@@ -167,6 +186,7 @@ async function finalizeAfterVerifiedPadesBt(
         provider_message_id: delivery.providerMessageId,
       })),
     },
+    blockchain_evidence: blockchainEvidence,
   };
 }
 

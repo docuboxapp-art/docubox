@@ -21,10 +21,11 @@ function SessionTimeoutModal({
   onSignOut,
 }: {
   visible: boolean;
-  onContinue: () => void;
-  onSignOut: () => void;
+  onContinue: () => Promise<boolean | undefined>;
+  onSignOut: () => Promise<void>;
 }) {
   const [remaining, setRemaining] = useState(120); // 2 minutes in seconds
+  const [actionPending, setActionPending] = useState<'continue' | 'signout' | null>(null);
 
   useEffect(() => {
     if (!visible) {
@@ -48,6 +49,26 @@ function SessionTimeoutModal({
 
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
+
+  const handleContinue = async () => {
+    if (actionPending) return;
+    setActionPending('continue');
+    try {
+      await onContinue();
+    } finally {
+      setActionPending(null);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (actionPending) return;
+    setActionPending('signout');
+    try {
+      await onSignOut();
+    } finally {
+      setActionPending(null);
+    }
+  };
 
   return (
     <div
@@ -94,16 +115,18 @@ function SessionTimeoutModal({
         {/* Actions */}
         <div className="flex flex-col gap-2 mt-2">
           <button
-            onClick={onContinue}
-            className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-600 hover:bg-primary/90 transition-colors"
+            onClick={handleContinue}
+            disabled={actionPending !== null}
+            className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-600 hover:bg-primary/90 transition-colors disabled:cursor-wait disabled:opacity-75"
           >
-            Continuar sesión
+            {actionPending === 'continue' ? 'Validando sesión...' : 'Continuar sesión'}
           </button>
           <button
-            onClick={onSignOut}
-            className="w-full py-2.5 rounded-xl border border-border text-sm font-500 text-muted-foreground hover:bg-muted/50 transition-colors"
+            onClick={handleSignOut}
+            disabled={actionPending !== null}
+            className="w-full py-2.5 rounded-xl border border-border text-sm font-500 text-muted-foreground hover:bg-muted/50 transition-colors disabled:cursor-wait disabled:opacity-75"
           >
-            Cerrar sesión ahora
+            {actionPending === 'signout' ? 'Cerrando sesión...' : 'Cerrar sesión ahora'}
           </button>
         </div>
       </div>

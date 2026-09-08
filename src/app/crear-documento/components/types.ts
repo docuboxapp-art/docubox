@@ -52,6 +52,7 @@ export interface SecuritySettings {
   selloDigital?: boolean;
   selloUbicacion?: 'calce' | 'libre';
   estampaAutenticacion?: boolean;
+  blockchainEvidence?: boolean;
   metadatosAdicionales?: boolean;
   leyendasDocumento?: boolean;
   vencimientoSolicitud?: boolean;

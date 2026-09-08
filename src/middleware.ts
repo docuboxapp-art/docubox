@@ -1,5 +1,4 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 const PUBLIC_ROUTES = [
@@ -21,6 +20,7 @@ const PUBLIC_PREFIXES = [
   '/enrolamiento/',
   '/subir-movil/',
   '/captura-id-movil/',
+  '/firma-movil/',
   '/portal-participante/',
   '/registro-participante/',
   '/form/',
@@ -32,6 +32,7 @@ const PUBLIC_PREFIXES = [
   '/verificar-certificacion/',
   '/v/',
   '/verify/promissory-note/',
+  '/verify/blockchain/',
 ];
 
 // This endpoint runs immediately after sign-in and validates the freshly issued
@@ -66,6 +67,23 @@ function expiredSessionResponse(request: NextRequest, response: NextResponse, is
   }
   clearSessionCookies(request, expiredResponse);
   return expiredResponse;
+}
+
+function unavailableSessionPolicyResponse(request: NextRequest, response: NextResponse, isApiRequest: boolean) {
+  if (isApiRequest) {
+    return NextResponse.json(
+      { error: 'SESSION_POLICY_UNAVAILABLE', message: 'No fue posible validar la sesión. Inténtalo de nuevo.' },
+      { status: 503 }
+    );
+  }
+
+  const unavailableResponse = NextResponse.redirect(
+    new URL('/login?reason=session-check-unavailable', request.url)
+  );
+  for (const cookie of response.cookies.getAll()) {
+    unavailableResponse.cookies.set(cookie);
+  }
+  return unavailableResponse;
 }
 
 export async function middleware(request: NextRequest) {
@@ -157,15 +175,22 @@ export async function middleware(request: NextRequest) {
   );
   const policy = getPolicyRow(policyData);
 
+  if (policyError) {
+    console.error('[session-policy] Middleware validation unavailable', {
+      pathname,
+      policyErrorCode: policyError.code,
+      policyErrorMessage: policyError.message,
+    });
+    return unavailableSessionPolicyResponse(request, response, isApiRequest);
+  }
+
   // Fail closed: server-side session validation is mandatory for authenticated traffic.
-  if (policyError || policy?.active !== true) {
+  if (policy?.active !== true) {
     console.warn('[session-policy] Middleware sign-out requested', {
       pathname,
       policyReason: typeof policy?.reason === 'string' ? policy.reason : null,
-      policyErrorCode: policyError?.code,
-      policyErrorMessage: policyError?.message,
     });
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: 'local' });
     return expiredSessionResponse(request, response, isApiRequest);
   }
 

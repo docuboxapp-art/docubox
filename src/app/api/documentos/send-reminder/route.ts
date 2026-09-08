@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
 
     // Get sender profile
     const { data: profile } = await supabase
-      .from('profiles')
+      .from('user_profiles')
       .select('full_name, email')
       .eq('id', user.id)
       .maybeSingle();

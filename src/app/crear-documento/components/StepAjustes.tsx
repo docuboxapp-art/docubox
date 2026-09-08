@@ -2438,16 +2438,13 @@ export function StepAjustes({
 
   return (
     <div
-      className={`flex w-full gap-6 ${
+      className={`flex h-full min-h-0 w-full gap-6 ${
         isPreviewFocused ? 'fixed inset-0 z-50 bg-slate-100 p-4' : ''
       }`}
     >
       {/* LEFT PANEL — scrollable independently */}
       <div
-        className={`flex w-[38%] flex-col gap-4 overflow-y-auto ${
-          isPreviewFocused ? 'h-full' : ''
-        }`}
-        style={isPreviewFocused ? undefined : { maxHeight: 'calc(100vh - 220px)' }}
+        className="flex h-full min-h-0 w-[38%] flex-col gap-4 overflow-y-auto"
       >
         {/* Field settings */}
         <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
@@ -2850,8 +2847,7 @@ export function StepAjustes({
 
       {/* RIGHT PANEL — document preview, fixed height, no scroll on the sheet itself */}
       <div
-        className={`flex min-h-0 flex-1 flex-col ${isPreviewFocused ? 'h-full' : ''}`}
-        style={isPreviewFocused ? undefined : { maxHeight: 'calc(100vh - 220px)' }}
+        className="flex h-full min-h-0 flex-1 flex-col"
       >
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-full overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
@@ -3016,30 +3012,6 @@ export function StepAjustes({
                   />
                 ))}
             </div>
-            {canPlaceFields && placedFields.length === 0 && !isDragOver && (
-              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-white border border-gray-200 rounded-xl px-5 py-3 shadow-sm flex items-center gap-2 pointer-events-none">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M5 9l4 4L19 7" />
-                  <path d="M9 5l3-3 3 3" />
-                  <path d="M15 19l3-3-3-3" />
-                  <path d="M19 9l-3 3-3 3" />
-                  <line x1="2" y1="12" x2="22" y2="12" />
-                  <line x1="12" y1="2" x2="12" y2="22" />
-                </svg>
-                <p className="text-xs text-gray-500">
-                  Arrastra un elemento desde el panel izquierdo
-                </p>
-              </div>
-            )}
           </div>
           <div className="border-t border-gray-200 px-4 py-3 flex items-center justify-center gap-3 shrink-0">
             <button

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createServiceClient } from '@/lib/supabase/server';
+import { blockchainEvidenceConfig } from '@/lib/blockchain-evidence/config';
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -593,4 +594,43 @@ export async function loadPasskeyPosture(service = createServiceClient()): Promi
     .limit(100);
   if (result.error) return [];
   return (result.data ?? []) as PlatformRow[];
+}
+
+export async function loadBlockchainEvidence(service = createServiceClient()): Promise<PlatformRow[]> {
+  const result = await service
+    .from('document_blockchain_evidence')
+    .select('id,tenant_id,document_id,status,verification_status,bitcoin_block_height,submitted_at,verified_at,upgrade_attempts,verification_error_code,proof_version,updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(100);
+  if (result.error) return [];
+  return (result.data ?? []) as PlatformRow[];
+}
+
+export async function loadBlockchainEvidenceOverview(service = createServiceClient()) {
+  const [evidence, attempts] = await Promise.all([
+    service.from('document_blockchain_evidence').select('status,submitted_at,anchored_at,verified_at,upgrade_attempts,proof_sha256,created_at').limit(5000),
+    service.from('document_blockchain_calendar_attempts').select('calendar_origin,result,operation,occurred_at').order('occurred_at', { ascending: false }).limit(5000),
+  ]);
+  const rows = evidence.error ? [] : (evidence.data || []);
+  const durations = rows.filter((row) => row.submitted_at && row.verified_at).map((row) => new Date(row.verified_at).getTime() - new Date(row.submitted_at).getTime()).filter((value) => value >= 0);
+  const failedAttempts = attempts.error ? [] : (attempts.data || []).filter((row) => row.result === 'FAILED');
+  const config = blockchainEvidenceConfig();
+  return {
+    metrics: [
+      metric('Evidencias creadas', rows.length, 'blue', 'Versiones finales con manifest'),
+      metric('Pendientes', rows.filter((row) => ['GENERATED', 'SUBMITTED', 'PENDING_BITCOIN', 'ANCHORED'].includes(row.status)).length, 'amber', 'Aún sin verificación final'),
+      metric('Verificadas', rows.filter((row) => row.status === 'VERIFIED').length, 'green', 'Anclaje Bitcoin verificado'),
+      metric('Fallidas', rows.filter((row) => row.status.includes('FAILED') || row.status === 'INVALID_PROOF' || row.status === 'STORAGE_ERROR').length, 'red', 'Requieren retry o revisión'),
+      metric('Reintentos', rows.reduce((sum, row) => sum + Number(row.upgrade_attempts || 0), 0), 'slate', 'Intentos de upgrade acumulados'),
+      metric('Errores de calendario', failedAttempts.length, 'red', 'Operaciones fallidas por calendario'),
+      metric('Media hasta verificación (min)', durations.length ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length / 60000) : 0, 'slate', 'Sólo evidencias verificadas'),
+    ],
+    configuration: [{
+      proveedor: 'OpenTimestamps CLI',
+      calendarios: config.calendars.map((url) => new URL(url).origin).join(', '),
+      modo_bitcoin: config.bitcoinVerificationMode,
+      habilitado: config.enabled,
+      ultimo_upgrade: attempts.data?.[0]?.occurred_at || null,
+    }] as PlatformRow[],
+  };
 }

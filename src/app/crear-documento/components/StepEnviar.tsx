@@ -21,6 +21,20 @@ import {
   Globe2,
   Flag,
   Tag,
+  PenLine,
+  User,
+  MapPin,
+  AlignLeft,
+  Calendar,
+  Hash,
+  CheckSquare,
+  Image,
+  DollarSign,
+  List,
+  ChevronDown,
+  ScrollText,
+  Fingerprint,
+  type LucideIcon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -98,6 +112,27 @@ const ADDITIONAL_METADATA_TYPE_LABEL: Record<string, string> = {
   email: 'Correo',
   identifier: 'Identificador',
   reference: 'Referencia',
+};
+
+const REQUESTED_FIELD_ICONS: Record<string, LucideIcon> = {
+  Firma: PenLine,
+  'Nombre Completo': User,
+  RFC: FileText,
+  CURP: User,
+  'Correo Electrónico': Mail,
+  'Número Telefónico': Phone,
+  Dirección: MapPin,
+  Texto: AlignLeft,
+  Fecha: Calendar,
+  Hora: Clock,
+  Número: Hash,
+  Casilla: CheckSquare,
+  Imagen: Image,
+  Moneda: DollarSign,
+  'Botones de opción': List,
+  Desplegable: ChevronDown,
+  'Cadena original': ScrollText,
+  'Sello digital': Fingerprint,
 };
 
 function formatAdditionalMetadataValue(value: string | boolean) {
@@ -583,6 +618,7 @@ export const StepEnviar = forwardRef<
           selloDigital: effectiveSecurity?.selloDigital ?? false,
           selloUbicacion: effectiveSecurity?.selloUbicacion || 'calce',
           estampaAutenticacion: effectiveSecurity?.estampaAutenticacion ?? false,
+          blockchainEvidence: effectiveSecurity?.blockchainEvidence ?? false,
           legalHoldEnabled: effectiveSecurity?.legalHoldEnabled ?? false,
           legalHoldReason: effectiveSecurity?.legalHoldReason || null,
           urgente: effectiveSecurity?.urgente ?? false,
@@ -823,7 +859,7 @@ export const StepEnviar = forwardRef<
     placedFields.forEach((f) => {
       const pid = f.participantId || 'sin-asignar';
       if (!fieldsByParticipant[pid]) {
-        fieldsByParticipant[pid] = { name: f.participantName || 'Sin asignar', fields: [] };
+        fieldsByParticipant[pid] = { name: f.participantName || 'Asignado al documento', fields: [] };
       }
       if (!fieldsByParticipant[pid].fields.includes(f.label)) {
         fieldsByParticipant[pid].fields.push(f.label);
@@ -1375,14 +1411,18 @@ export const StepEnviar = forwardRef<
                         </span>
                       </div>
                       <ul className="ml-9 flex flex-wrap gap-2">
-                        {participantFields.map((label) => (
-                          <li
-                            key={label}
-                            className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-600 text-slate-600"
-                          >
-                            {label}
-                          </li>
-                        ))}
+                        {participantFields.map((label) => {
+                          const FieldIcon = REQUESTED_FIELD_ICONS[label] ?? Tag;
+                          return (
+                            <li
+                              key={label}
+                              className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-600 text-slate-600"
+                            >
+                              <FieldIcon size={13} strokeWidth={1.9} className="text-slate-500" />
+                              <span>{label}</span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   );

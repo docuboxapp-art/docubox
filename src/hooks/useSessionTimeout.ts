@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 const WARNING_BEFORE_MS = 2 * 60 * 1000;
 const ACTIVITY_DEBOUNCE_MS = 1_000;
 const BROADCAST_CHANNEL_NAME = 'docubox-session';
+const SIGN_OUT_FALLBACK_MS = 2_000;
 
 const SESSION_BOOTSTRAP_PATHS = ['/login', '/auth/', '/register-device'];
 
@@ -103,10 +104,16 @@ export function useSessionTimeout(
       // A closed BroadcastChannel must not prevent local sign-out.
     }
 
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     try {
-      await createClient().auth.signOut();
+      const signOut = createClient().auth.signOut({ scope: 'local' });
+      const fallback = new Promise<void>((resolve) => {
+        fallbackTimer = setTimeout(resolve, SIGN_OUT_FALLBACK_MS);
+      });
+      await Promise.race([signOut.then(() => undefined).catch(() => undefined), fallback]);
     } finally {
-      window.location.assign('/login');
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      window.location.assign('/login?reason=session-expired');
     }
   }, [clearTimers, onBeforeSignOut, onHideWarning]);
 
@@ -144,19 +151,28 @@ export function useSessionTimeout(
     });
 
     if (error) {
-      // Keep the last trusted countdown. A failed sync must never extend a session.
-      return;
+      // A failed validation must never leave an apparently active session behind.
+      console.warn('[session-policy] Client validation failed; closing the local session.', {
+        code: error.code,
+        message: error.message,
+      });
+      await executeSignOut('inactivity');
+      return false;
     }
 
     const policy = parsePolicy(data);
-    if (!policy) return;
+    if (!policy) {
+      await executeSignOut('inactivity');
+      return false;
+    }
 
     if (!policy.active) {
-      void executeSignOut(policy.reason === 'ABSOLUTE_TIMEOUT' ? 'absolute' : 'inactivity');
-      return;
+      await executeSignOut(policy.reason === 'ABSOLUTE_TIMEOUT' ? 'absolute' : 'inactivity');
+      return false;
     }
 
     scheduleTimers(policy);
+    return true;
   }, [executeSignOut, scheduleTimers, sessionPolicyEnabled]);
 
   const recordHumanActivity = useCallback(() => {
@@ -213,7 +229,7 @@ export function useSessionTimeout(
       clearTimers();
       onHideWarning();
       onBeforeSignOut?.();
-      createClient().auth.signOut().finally(() => window.location.assign('/login'));
+      createClient().auth.signOut({ scope: 'local' }).finally(() => window.location.assign('/login?reason=session-expired'));
     };
 
     return () => {
@@ -222,12 +238,12 @@ export function useSessionTimeout(
     };
   }, [clearTimers, onBeforeSignOut, onHideWarning, sessionPolicyEnabled]);
 
-  const continueSession = useCallback(() => {
-    void synchronizePolicy(true);
+  const continueSession = useCallback(async () => {
+    return synchronizePolicy(true);
   }, [synchronizePolicy]);
 
-  const signOutNow = useCallback(() => {
-    void executeSignOut('inactivity');
+  const signOutNow = useCallback(async () => {
+    await executeSignOut('inactivity');
   }, [executeSignOut]);
 
   return { continueSession, signOutNow };

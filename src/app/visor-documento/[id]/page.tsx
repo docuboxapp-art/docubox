@@ -834,6 +834,7 @@ export default function VisorDocumentoPage() {
   const [certificationE2eEnabled, setCertificationE2eEnabled] = useState(false);
   const [certificationLoading, setCertificationLoading] = useState(false);
   const [certificationError, setCertificationError] = useState('');
+  const [blockchainEvidence, setBlockchainEvidence] = useState<Record<string, any> | null>(null);
   const [certificationDownload, setCertificationDownload] = useState<
     | 'certificate'
     | 'package'
@@ -859,6 +860,20 @@ export default function VisorDocumentoPage() {
     padesVerified &&
     cryptographicCertification?.padesProfile === 'PAdES-B-T' &&
     cryptographicCertification.timestampStatus === 'valid';
+
+  useEffect(() => {
+    if (!docId || document?.estado !== 'completado') return;
+    let active = true;
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/documents/${docId}/blockchain-evidence`, { headers: await apiAuthHeaders(), cache: 'no-store' });
+        if (response.ok && active) setBlockchainEvidence((await response.json()).evidence || null);
+      } catch { /* Optional evidence does not interrupt the document viewer. */ }
+    };
+    load();
+    const timer = window.setInterval(load, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [docId, document?.estado]);
 
   useEffect(() => {
     if (!document?.id) return;
@@ -1614,8 +1629,6 @@ export default function VisorDocumentoPage() {
       const reqPayload = nom151Data.nubarium_request_payload as Record<string, unknown> | null;
       const respPayload = nom151Data.nubarium_response_payload as Record<string, unknown> | null;
 
-      const firmantes: Array<Record<string, unknown>> =
-        (reqPayload?.firmantes as Array<Record<string, unknown>>) || [];
       const fechaEmisionRaw = new Date(nom151Data.created_at);
       const fechaEmision = fechaEmisionRaw.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 
@@ -1677,7 +1690,7 @@ export default function VisorDocumentoPage() {
     <div class="header-top">
       <div>
         <h1>DOCUBOX — Constancia NOM-151-SCFI-2016</h1>
-        <div class="header-subtitle">Proveedor de Servicios de Certificación: Nubarium · Secretaría de Economía · México</div>
+        <div class="header-subtitle">Proveedor de Servicios de Certificación · Secretaría de Economía · México</div>
       </div>
       <div class="header-badge">NOM-151</div>
     </div>
@@ -1710,27 +1723,17 @@ export default function VisorDocumentoPage() {
   </div>
 
   <div class="section">
-    <div class="section-header"><span class="section-icon">📤</span><span class="section-title">Datos Enviados a Nubarium (Request)</span></div>
+    <div class="section-header"><span class="section-icon">📤</span><span class="section-title">Solicitud enviada al PSC</span></div>
     <div class="section-body">
-      <div class="row"><div class="label">Endpoint</div><div class="value mono">POST https://firma.nubarium.com/nom151/v1/obtener-nom151</div></div>
-      <div class="row"><div class="label">Número de Firmantes</div><div class="value">${firmantes.length}</div></div>
-      ${firmantes
-        .map(
-          (f, i) => `
-      <div class="firmante-row">
-        <div class="firmante-name">Firmante ${i + 1}: ${f.nombreCompleto || '—'}</div>
-        <div class="firmante-detail">Correo: ${f.correoElectronico || '—'} · Firma imagen: ${f.tieneFirmaImagen ? 'Sí (Autógrafa Digital)' : 'No (e.Firma SAT)'}</div>
-      </div>`
-        )
-        .join('')}
+      <div class="row"><div class="label">Servicio</div><div class="value">Servicio de certificación integrado con Docubox</div></div>
     </div>
   </div>
 
   <div class="section">
-    <div class="section-header"><span class="section-icon">📥</span><span class="section-title">Respuesta Recibida de Nubarium (Response)</span></div>
+    <div class="section-header"><span class="section-icon">📥</span><span class="section-title">Respuesta recibida del PSC</span></div>
     <div class="section-body">
       <div class="row"><div class="label">Código de Validación</div><div class="value mono">${nom151Data.nubarium_codigo_validacion}</div></div>
-      <div class="row"><div class="label">Hash Nubarium</div><div class="value mono">${nom151Data.nubarium_hash}</div></div>
+      <div class="row"><div class="label">Hash de la respuesta</div><div class="value mono">${nom151Data.nubarium_hash}</div></div>
       <div class="row"><div class="label">Estatus</div><div class="value"><span class="badge badge-green">${respPayload?.estatus || 'OK'}</span></div></div>
       <div class="row"><div class="label">Clave Mensaje</div><div class="value">${respPayload?.claveMensaje ?? 0} (0 = éxito)</div></div>
       <div class="row"><div class="label">Hash SHA-256 Constancia .asn1</div><div class="value mono">${nom151Data.constancia_sha256}</div></div>
@@ -1742,7 +1745,7 @@ export default function VisorDocumentoPage() {
     <div class="section-header"><span class="section-icon">🔐</span><span class="section-title">Integridad Criptográfica</span></div>
     <div class="section-body">
       <div class="row"><div class="label">Norma Aplicable</div><div class="value">NOM-151-SCFI-2016</div></div>
-      <div class="row"><div class="label">PSC Acreditado</div><div class="value">Nubarium — Secretaría de Economía</div></div>
+      <div class="row"><div class="label">PSC acreditado</div><div class="value">${nom151Data.psc_name || 'Proveedor de Servicios de Certificación'} — Secretaría de Economía</div></div>
       <div class="row"><div class="label">Algoritmo Hash</div><div class="value">SHA-256</div></div>
       <div class="row"><div class="label">Tipo de Constancia</div><div class="value">Conservación de Mensajes de Datos (.asn1)</div></div>
     </div>
@@ -1758,7 +1761,7 @@ export default function VisorDocumentoPage() {
 
   <div class="legal-box">
     <div class="legal-title">Fundamento Legal</div>
-    <div class="legal-text">Esta constancia acredita la conservación del mensaje de datos conforme a la NOM-151-SCFI-2016 emitida por la Secretaría de Economía. El archivo .asn1 contiene el sello de tiempo y la firma del PSC acreditado (Nubarium), garantizando la integridad e inalterabilidad del documento electrónico. Válido conforme a los Arts. 89-97 del Código de Comercio de México y la Ley de Firma Electrónica Avanzada (LFEA).</div>
+    <div class="legal-text">Esta constancia acredita la conservación del mensaje de datos conforme a la NOM-151-SCFI-2016 emitida por la Secretaría de Economía. El archivo .asn1 contiene el sello de tiempo y la firma del PSC acreditado, garantizando la integridad e inalterabilidad del documento electrónico. Válido conforme a los Arts. 89-97 del Código de Comercio de México y la Ley de Firma Electrónica Avanzada (LFEA).</div>
   </div>
 
   <div class="footer">
@@ -6846,16 +6849,6 @@ export default function VisorDocumentoPage() {
                                       </p>
                                     </div>
                                   )}
-                                  {nom151Data && (
-                                    <div className="flex items-start justify-between gap-3 border-t border-border/60 pt-2">
-                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Entorno del proveedor NOM-151
-                                      </span>
-                                      <span className="max-w-[190px] text-right text-[10px] font-medium text-muted-foreground">
-                                        {nom151Presentation.providerEnvironmentLabel}
-                                      </span>
-                                    </div>
-                                  )}
                                 </div>
                                 {cryptographicCertification.verificationStatus === 'valid' && (
                                   <>
@@ -7415,7 +7408,7 @@ export default function VisorDocumentoPage() {
                                         PSC
                                       </span>
                                       <span className="max-w-[190px] text-right text-xs text-foreground">
-                                        {nom151Data.psc_name || 'Nubarium / PSC World'}
+                                        {nom151Data.psc_name || 'Proveedor de Servicios de Certificación'}
                                       </span>
                                     </div>
                                     <div className="flex items-center justify-between gap-2">
@@ -7448,14 +7441,6 @@ export default function VisorDocumentoPage() {
                                       </span>
                                       <span className="text-right text-xs font-medium text-emerald-700">
                                         {nom151Presentation.integrityLabel}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
-                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Entorno del proveedor
-                                      </span>
-                                      <span className="max-w-[190px] text-right text-xs text-muted-foreground">
-                                        {nom151Presentation.providerEnvironmentLabel}
                                       </span>
                                     </div>
                                   </div>
@@ -7528,7 +7513,36 @@ export default function VisorDocumentoPage() {
                             </div>
                           </div>
 
-                          {/* ── 5. XML de Evidencia ── */}
+                          {blockchainEvidence && (
+                            <div className="rounded-xl border border-border bg-white shadow-sm">
+                              <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
+                                <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                                  Evidencia Blockchain
+                                </span>
+                                <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${blockchainEvidence.status === 'VERIFIED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'INVALID_PROOF', 'STORAGE_ERROR'].includes(blockchainEvidence.status) ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                  {blockchainEvidence.status === 'VERIFIED' ? 'Verificado' : 'Pendiente'}
+                                </span>
+                              </div>
+                              <div className="space-y-3 p-4">
+                                <div className="flex items-start gap-2">
+                                  {blockchainEvidence.status === 'VERIFIED' ? <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" /> : ['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'INVALID_PROOF', 'STORAGE_ERROR'].includes(blockchainEvidence.status) ? <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-600" /> : <Clock size={18} className="mt-0.5 shrink-0 text-amber-600" />}
+                                  <div>
+                                    <p className="text-sm font-semibold text-foreground">{blockchainEvidence.status === 'VERIFIED' ? 'Anclaje Bitcoin verificado' : ['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'INVALID_PROOF', 'STORAGE_ERROR'].includes(blockchainEvidence.status) ? 'No fue posible completar el anclaje' : 'Esperando anclaje Bitcoin'}</p>
+                                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">La prueba OpenTimestamps se procesa sin publicar el documento ni datos personales en blockchain.</p>
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <a href={`/verify/blockchain/${blockchainEvidence.public_token}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"><Shield size={14} />Verificar</a>
+                                  {blockchainEvidence.proof_sha256 && <a href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/proof`} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"><Download size={14} />Descargar .ots</a>}
+                                  {blockchainEvidence.status === 'VERIFIED' && <a href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/certificate`} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:opacity-90"><Download size={14} />Ver constancia</a>}
+                                  {blockchainEvidence.status === 'VERIFIED' && <a href={`/api/documents/${docId}/blockchain-evidence/package`} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"><Download size={14} />Paquete de evidencia</a>}
+                                  {['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED', 'STORAGE_ERROR'].includes(blockchainEvidence.status) && <button type="button" onClick={async () => { const response = await fetch(`/api/documents/${docId}/blockchain-evidence`, { method: 'POST', headers: await apiAuthHeaders() }); if (response.ok) setBlockchainEvidence((await response.json()).evidence); }} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"><RefreshCw size={14} />Reintentar</button>}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ── 6. XML de Evidencia ── */}
                         </>
                       )}
                       {activeTab === 'auditoria' && (

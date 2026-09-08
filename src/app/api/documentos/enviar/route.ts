@@ -349,6 +349,7 @@ export async function POST(req: NextRequest) {
       selloDigital,
       selloUbicacion,
       estampaAutenticacion,
+      blockchainEvidence,
       legalHoldEnabled,
       legalHoldReason,
       urgente,
@@ -566,7 +567,6 @@ export async function POST(req: NextRequest) {
     }
 
     const participantesConPortal = (participantes || []).map((participant: any) => {
-      if (participant.isCurrentUser) return participant;
       const portalToken = participant.portal_token || randomUUID();
       return {
         ...participant,
@@ -627,6 +627,7 @@ export async function POST(req: NextRequest) {
       sello_digital: selloDigital ?? false,
       sello_ubicacion: selloUbicacion === 'libre' ? 'libre' : 'calce',
       estampa_autenticacion: estampaAutenticacion ?? false,
+      blockchain_evidence_enabled: blockchainEvidence ?? false,
       metadatos_adicionales: metadatosAdicionales ?? false,
     };
     if (hasAdditionalMetadata) {
@@ -1083,7 +1084,7 @@ export async function POST(req: NextRequest) {
       const emailParticipants: EmailInvitationParticipant[] = (
         participantesConVisibilidad || []
       ).filter((p: EmailInvitationParticipant) => {
-        if (!p.visible || !p.email || p.isCurrentUser) return false;
+        if (!p.visible || !p.email) return false;
         if (!p.email.includes('@')) return false;
         return isEmailNotificationEnabled(p.tipoNotificacion);
       });
@@ -1097,7 +1098,7 @@ export async function POST(req: NextRequest) {
       );
 
       const { data: senderProfile } = await supabaseAdmin
-        .from('profiles')
+        .from('user_profiles')
         .select('full_name')
         .eq('id', user.id)
         .maybeSingle();

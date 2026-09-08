@@ -6929,33 +6929,6 @@ export default function MiPerfilPage() {
         <div className="flex min-h-[calc(100vh-104px)] w-full flex-col md:flex-row">
           {/* Internal profile navigation */}
           <aside className="flex w-full flex-shrink-0 flex-col border-b border-slate-200 bg-white md:w-60 md:border-b-0 md:border-r 2xl:w-64 dark:border-slate-700 dark:bg-slate-900">
-            <div className="hidden border-b border-slate-200 px-4 py-5 md:block dark:border-slate-700">
-              <p className="text-[11px] font-700 uppercase text-slate-400">
-                Configuración de cuenta
-              </p>
-              <div className="mt-3 flex items-center gap-3">
-                {profile.avatarUrl ? (
-                  <img
-                    src={profile.avatarUrl}
-                    alt="Foto de perfil"
-                    className="h-10 w-10 rounded-full border border-slate-200 object-cover"
-                  />
-                ) : (
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary text-sm font-700 text-white">
-                    {(profile.nombre.charAt(0) || user?.email?.charAt(0) || '?').toUpperCase()}
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-700 text-slate-900 dark:text-slate-100">
-                    {nombreCompleto || user?.email?.split('@')[0] || 'Mi perfil'}
-                  </p>
-                  <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-                    {profile.correo || user?.email}
-                  </p>
-                </div>
-              </div>
-            </div>
-
             <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:overflow-x-visible md:p-3">
               {sidebarItems.map((item) => {
                 const isActive = activeSection === item.id;

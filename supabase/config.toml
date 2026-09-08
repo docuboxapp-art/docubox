@@ -385,6 +385,9 @@ deno_version = 2
 # Public capability/verification functions validate their own high-entropy
 # token or immutable public identifier. Every other function keeps JWT
 # verification enabled by default.
+[functions.send-email-notifications]
+verify_jwt = true
+
 [functions.form-submit]
 verify_jwt = false
 

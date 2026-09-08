@@ -51,15 +51,6 @@ const DEFAULT_WIDGETS: WidgetDef[] = [
   { id: 'quickactions', label: 'Acciones Rápidas', column: 'right', order: 2 },
 ];
 
-const formatDisplayName = (name: string) =>
-  name
-    .trim()
-    .toLocaleLowerCase('es-MX')
-    .replace(
-      /(^|[\s-])([a-záéíóúüñ])/g,
-      (_, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase('es-MX')}`
-    );
-
 // ── Donut chart ───────────────────────────────────────────────────────────────
 
 function DonutChart({ used, total }: { used: number; total: number }) {
@@ -112,7 +103,6 @@ export default function DocumentsDashboardPage() {
   const supabase = createClient();
 
   const [greeting, setGreeting] = useState('');
-  const [userName, setUserName] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     docsUsed: 0,
@@ -151,15 +141,9 @@ export default function DocumentsDashboardPage() {
       // Load user profile for name
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('full_name, dashboard_layout')
+        .select('dashboard_layout')
         .eq('id', user.id)
         .single();
-
-      if (profile?.full_name) {
-        // Show only first name
-        const firstName = profile.full_name.trim().split(' ')[0];
-        setUserName(formatDisplayName(firstName));
-      }
 
       // Load saved layout
       if (profile?.dashboard_layout) {
@@ -637,7 +621,7 @@ export default function DocumentsDashboardPage() {
                   {loadingData ? (
                     <span className="inline-block h-7 w-48 animate-pulse rounded bg-slate-200" />
                   ) : (
-                    `${greeting}, ${userName || 'Usuario'}`
+                    greeting
                   )}
                 </h1>
                 <p className="mt-1 text-sm text-slate-500">

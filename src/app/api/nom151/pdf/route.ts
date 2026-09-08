@@ -23,13 +23,6 @@ function formatDate(input: unknown) {
   }).format(date)} UTC`;
 }
 
-function maskEmail(input: unknown) {
-  const email = value(input, '');
-  const index = email.indexOf('@');
-  if (index < 1) return email || 'No disponible';
-  return `${email.slice(0, Math.min(2, index))}${'*'.repeat(Math.max(3, index - 2))}${email.slice(index)}`;
-}
-
 export async function GET(request: NextRequest) {
   const documentId = request.nextUrl.searchParams.get('documento_id');
   if (!documentId) return NextResponse.json({ error: 'documento_id requerido' }, { status: 400 });
@@ -73,9 +66,6 @@ export async function GET(request: NextRequest) {
 
     const requestPayload = (certificate.nubarium_request_payload || {}) as Record<string, unknown>;
     const responsePayload = (certificate.nubarium_response_payload || {}) as Record<string, unknown>;
-    const signers = Array.isArray(requestPayload.firmantes)
-      ? requestPayload.firmantes as Array<Record<string, unknown>>
-      : [];
     const folio = value(document.documento_id || document.folio_interno || document.id);
     const verificationUrl = `${getPublicAppUrl()}/verificar-documento?folio=${encodeURIComponent(folio)}`;
     const pscUrl = 'https://validatuconstancia.pscworld.com/';
@@ -104,12 +94,8 @@ export async function GET(request: NextRequest) {
         : document.file_size
           ? `${Number(document.file_size).toLocaleString('es-MX')} bytes`
           : 'No disponible',
-      provider: value(certificate.psc_name || certificate.provider, 'Nubarium'),
-      endpoint: 'Integración backend Docubox con Nubarium',
-      signers: signers.map((signer) => ({
-        name: value(signer.nombreCompleto || signer.nombre, 'Firmante'),
-        email: maskEmail(signer.correoElectronico || signer.email),
-      })),
+      provider: value(certificate.psc_name, 'Proveedor de Servicios de Certificación'),
+      endpoint: 'Servicio de certificación integrado con Docubox',
       providerStatus: value(responsePayload.estatus || responsePayload.status, 'OK'),
       messageKey: `${value(responsePayload.claveMensaje ?? responsePayload.clave_mensaje ?? 0)} (0 = \u00e9xito)`,
       providerHash: value(certificate.nubarium_hash),

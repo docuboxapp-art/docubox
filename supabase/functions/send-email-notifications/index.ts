@@ -13,6 +13,9 @@ const APP_URL = (Deno.env.get("NEXT_PUBLIC_SITE_URL") ?? "https://docubox-docubo
 
 // Logo URLs — served from the public assets of the deployed app
 const LOGO_LIGHT = `${APP_URL}/assets/images/docubox-logo-2026.png`;
+const PARTICIPANT_INVITATION_ICON_CID = "participant-invitation-mail-icon";
+const PARTICIPANT_INVITATION_ICON_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAABeElEQVRoge2YsU7DMBCGDUsfoSoMLDxaCUysvBcglkARHYBOMMID8AKhXfshC1eKrEY5O44TxH1SR/v+/+7qi84YRVEURdkDcACcAytgTX7WwCtwCUxMCMARsGA8vAPHUvGHwCPjY2G7QmLggvFSSAx8eoduganJDDAFbjwtH5KDW+/QE3CSRXUNGxNYelq2po2G0lXuRWrvwXSvX7VPSKyBHWWf1eA36zZGI10NWDbAlX2tEme9aMp6VwNNl9r+PO0565sUBtoCRFVDkPWlTVBnAyHBAsSLk0IKAzGBG+4OTgQpDcSK6GKe1AZCBXVtP/oyIBk6zmDZZTjSp4GQARQ7EMlhQFgNcdYHMSCoRtTgI7cBd8fuj/vlfkXshyBDGEgJamBg0AoMDP+xApV3JvtGwluw1alMG26dV+camJnMADPgztPyIjlod5FjZS4xMAHeGB+leJrbRSrwwHi4D25j9z1zBjwD3wOIrlzseY6FmqIoimL+JD/oT+NN2Lp21wAAAABJRU5ErkJggg==";
 // LOGO_LIGHT → Logo oscuro sobre fondo BLANCO (para encabezado blanco de correos y fondos claros)
 // LOGO_WHITE → Logo blanco sobre fondo OSCURO (para el footer oscuro #111827)
 
@@ -24,7 +27,7 @@ const corsHeaders = {
 
 type EmailType =
   | "signature_request" | "document_completed" | "certificate_expiry" | "document_expired"
-  | "action_required" | "participant_invitation" | "participation_reminder"
+  | "action_required" | "participant_invitation" | "creator_participation_invitation" | "participation_reminder"
   | "participation_completed" | "owner_participant_signed" | "owner_participant_approved"
   | "owner_participant_cancelled" | "owner_participant_rejected" | "new_device_login" | "login_otp";
 
@@ -68,7 +71,7 @@ interface EmailPayload {
 
 const EMAIL_TYPES = new Set<EmailType>([
   "signature_request", "document_completed", "certificate_expiry", "document_expired",
-  "action_required", "participant_invitation", "participation_reminder", "participation_completed",
+  "action_required", "participant_invitation", "creator_participation_invitation", "participation_reminder", "participation_completed",
   "owner_participant_signed", "owner_participant_approved", "owner_participant_cancelled",
   "owner_participant_rejected", "new_device_login", "login_otp",
 ]);
@@ -533,7 +536,7 @@ function buildParticipantInvitationHtml(payload: EmailPayload): string {
             <td style="vertical-align:middle;padding-right:16px;width:56px;">
               <!-- Icono inline para evitar recursos externos bloqueados en clientes de correo -->
               <table role="presentation" cellpadding="0" cellspacing="0" width="52" height="52" style="width:52px;height:52px;background-color:#1E6BFF;border-radius:8px;">
-                <tr><td align="center" valign="middle" style="color:#ffffff;font-family:Arial,sans-serif;font-size:24px;line-height:52px;text-align:center;">&#9993;</td></tr>
+                <tr><td align="center" valign="middle" style="height:52px;text-align:center;vertical-align:middle;"><img src="cid:${PARTICIPANT_INVITATION_ICON_CID}" alt="" width="24" height="24" style="display:block;width:24px;height:24px;margin:0 auto;border:0;" /></td></tr>
               </table>
             </td>
             <td style="vertical-align:middle;">
@@ -653,7 +656,7 @@ function buildParticipantInvitationHtml(payload: EmailPayload): string {
   return wrapEmail("Tienes un documento pendiente de firma — Docubox", bodyRows);
 }
 
-function buildParticipantInvitationV2Html(payload: EmailPayload): string {
+function buildParticipantInvitationV2Html(payload: EmailPayload, creatorIsParticipant = false): string {
   const {
     recipientName,
     documentName,
@@ -666,11 +669,14 @@ function buildParticipantInvitationV2Html(payload: EmailPayload): string {
   } = payload;
   const year = new Date().getFullYear();
   const ctaUrl = documentUrl || `${APP_URL}/mis-participaciones`;
-  const infoRows =
-    buildInfoRow("Documento", documentName || "Sin nombre") +
-    buildInfoRow("Invitado por", senderName || "Un usuario") +
-    buildInfoRow("Tu participaci\u00f3n", participantRole || "Participante") +
-    buildInfoRow("M\u00e9todo", signatureMethod || "Firma electr\u00f3nica");
+  const infoRows = creatorIsParticipant
+    ? buildInfoRow("Documento", documentName || "Sin nombre") +
+      buildInfoRow("Tu participaci\u00f3n", participantRole || "Participante") +
+      buildInfoRow("M\u00e9todo", signatureMethod || "Firma electr\u00f3nica")
+    : buildInfoRow("Documento", documentName || "Sin nombre") +
+      buildInfoRow("Invitado por", senderName || "Un usuario") +
+      buildInfoRow("Tu participaci\u00f3n", participantRole || "Participante") +
+      buildInfoRow("M\u00e9todo", signatureMethod || "Firma electr\u00f3nica");
 
   const bodyRows = `
     ${buildHeader()}
@@ -681,16 +687,16 @@ function buildParticipantInvitationV2Html(payload: EmailPayload): string {
             <td style="vertical-align:middle;padding-right:16px;width:52px;">
               <table role="presentation" cellpadding="0" cellspacing="0" width="48" height="48" style="width:48px;height:48px;background-color:#1E6BFF;border-radius:8px;">
                 <tr>
-                  <td align="center" valign="middle" style="color:#ffffff;font-family:Arial,sans-serif;font-size:22px;font-weight:700;text-align:center;vertical-align:middle;">&#9993;</td>
+                  <td align="center" valign="middle" style="height:48px;text-align:center;vertical-align:middle;"><img src="cid:${PARTICIPANT_INVITATION_ICON_CID}" alt="" width="24" height="24" style="display:block;width:24px;height:24px;margin:0 auto;border:0;" /></td>
                 </tr>
               </table>
             </td>
             <td style="vertical-align:middle;">
               <h2 style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;color:#1e3a8a;font-size:20px;margin:0 0 2px;font-weight:700;line-height:1.3;">
-                Invitaci\u00f3n a participar
+                ${creatorIsParticipant ? "Tu participaci\u00f3n está pendiente" : "Invitaci\u00f3n a participar"}
               </h2>
               <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;color:#3b82f6;font-size:13px;margin:0;line-height:1.5;">
-                Tienes un documento pendiente en Docubox
+                ${creatorIsParticipant ? "Tu documento requiere tu participaci\u00f3n" : "Tienes un documento pendiente en Docubox"}
               </p>
             </td>
           </tr>
@@ -703,7 +709,9 @@ function buildParticipantInvitationV2Html(payload: EmailPayload): string {
           Hola <strong>${recipientName || "Usuario"}</strong>,
         </p>
         <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;color:#6b7280;font-size:15px;line-height:1.7;margin:0 0 20px;">
-          <strong>${senderName || "Un usuario"}</strong> te invita a revisar y completar tu participaci\u00f3n en el siguiente documento.
+          ${creatorIsParticipant
+            ? "Creaste este documento y tambi\u00e9n tienes una participaci\u00f3n pendiente. Compl\u00e9tala para que el proceso pueda avanzar."
+            : `<strong>${senderName || "Un usuario"}</strong> te invita a revisar y completar tu participaci\u00f3n en el siguiente documento.`}
         </p>
         ${buildInfoTable(infoRows)}
         ${documentDescription ? `
@@ -714,16 +722,20 @@ function buildParticipantInvitationV2Html(payload: EmailPayload): string {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:8px;margin:0 0 20px;">
             <tr><td style="padding:14px 16px;font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:14px;color:#78350f;line-height:1.6;">${personalMessage}</td></tr>
           </table>` : ""}
-        ${buildCTA("Revisar documento", ctaUrl, "#1E6BFF")}
+        ${buildCTA(creatorIsParticipant ? "Completar mi participaci\u00f3n" : "Revisar documento", ctaUrl, "#1E6BFF")}
         <p style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:12px;color:#6b7280;margin:14px 0 0;line-height:1.6;word-break:break-all;">
           Si el bot\u00f3n no funciona, abre este enlace:<br><a href="${ctaUrl}" style="color:#1E6BFF;">${ctaUrl}</a>
         </p>
-        ${buildNoteBanner("Si no esperabas esta invitaci\u00f3n, puedes ignorar este correo. No compartas el enlace con otras personas.", "#eff6ff", "#1e40af")}
+        ${buildNoteBanner(creatorIsParticipant ? "Usa este enlace personal para completar tu propia participaci\u00f3n. No lo compartas con otras personas." : "Si no esperabas esta invitaci\u00f3n, puedes ignorar este correo. No compartas el enlace con otras personas.", "#eff6ff", "#1e40af")}
       </td>
     </tr>
     ${buildFooter(year)}`;
 
-  return wrapEmail("Invitaci\u00f3n a participar - Docubox", bodyRows);
+  return wrapEmail(creatorIsParticipant ? "Tu participaci\u00f3n está pendiente - Docubox" : "Invitaci\u00f3n a participar - Docubox", bodyRows);
+}
+
+function buildCreatorParticipationInvitationHtml(payload: EmailPayload): string {
+  return buildParticipantInvitationV2Html(payload, true);
 }
 
 function buildParticipationReminderHtml(payload: EmailPayload): string {
@@ -1130,6 +1142,8 @@ function getSubject(type: EmailType, documentName?: string, participationStatus?
       return `Acción requerida: ${name}`;
     case "participant_invitation":
       return `Invitación a participar: ${name}`;
+    case "creator_participation_invitation":
+      return `Completa tu participación: ${name}`;
     case "participation_reminder":
       return `Recordatorio de participaci\u00f3n: ${name}`;
     case "participation_completed": {
@@ -1165,6 +1179,8 @@ function buildHtml(payload: EmailPayload): string {
       return buildActionRequiredHtml(payload);
     case "participant_invitation":
       return buildParticipantInvitationV2Html(payload);
+    case "creator_participation_invitation":
+      return buildCreatorParticipationInvitationHtml(payload);
     case "participation_reminder":
       return buildParticipationReminderHtml(payload);
     case "participation_completed":
@@ -1255,6 +1271,8 @@ serve(async (req) => {
     const sanitizedDocumentName = rawPayload.documentName?.replace(/[\r\n]+/g, " ");
     const subject = rawPayload.type === "participant_invitation"
       ? `Invitaci\u00f3n a participar: ${sanitizedDocumentName || "Sin nombre"}`
+      : rawPayload.type === "creator_participation_invitation"
+        ? `Completa tu participaci\u00f3n: ${sanitizedDocumentName || "Sin nombre"}`
       : getSubject(
           rawPayload.type,
           sanitizedDocumentName,
@@ -1278,6 +1296,14 @@ serve(async (req) => {
         to: [payload.to],
         subject,
         html,
+        attachments: (payload.type === "participant_invitation" || payload.type === "creator_participation_invitation")
+          ? [{
+              content: PARTICIPANT_INVITATION_ICON_BASE64,
+              filename: "docubox-mail-icon.png",
+              content_id: PARTICIPANT_INVITATION_ICON_CID,
+              content_type: "image/png",
+            }]
+          : undefined,
       }),
     });
 

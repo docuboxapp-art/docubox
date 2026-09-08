@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 const DOCUMENTS_BUCKET = 'documents';
 const CERTIFICATION_BUCKET = 'certification-artifacts';
 const NOM151_BUCKET = 'nom151-constancias';
+const BLOCKCHAIN_EVIDENCE_BUCKET = 'blockchain-evidence';
 
 type Row = Record<string, unknown>;
 
@@ -21,11 +22,7 @@ export type DocumentPurgeResult = {
   storageObjectCount: number;
 };
 
-function tombstoneDisplayMetadata(
-  document: Row,
-  storageObjectCount: number,
-  method: PurgeMethod
-) {
+function tombstoneDisplayMetadata(document: Row, storageObjectCount: number, method: PurgeMethod) {
   const documentName = String(document.nombre || '').trim();
   const documentTypeRelation = document.tipo_documento;
   const documentType = String(
@@ -98,46 +95,61 @@ export async function collectDocumentBundleStorage(
   addPath(byBucket, DOCUMENTS_BUCKET, document.sealed_pdf_path);
   addPath(byBucket, DOCUMENTS_BUCKET, document.file_url);
 
-  const [versions, encryption, certifications, nom151, signatures, forms, certCases] =
-    await Promise.all([
-      queryRows(service, 'document_versions', 'storage_path,file_url', 'document_id', documentId),
-      queryRows(
-        service,
-        'document_encryption_metadata',
-        'storage_bucket,storage_path',
-        'document_id',
-        documentId
-      ),
-      queryRows(
-        service,
-        'document_certifications',
-        'id,certificate_pdf_path,certified_pdf_path,technical_package_path,source_storage_bucket,source_storage_path,provider_metadata',
-        'document_id',
-        documentId
-      ),
-      queryRows(
-        service,
-        'nom151_constancias_doc',
-        'constancia_path,constancia_storage_path,source_storage_bucket,source_storage_path',
-        'documento_id',
-        documentId
-      ),
-      queryRows(
-        service,
-        'signature_evidence',
-        'storage_image_path,storage_strokes_path,storage_frames_paths,storage_selfie_path,digital_seal_path',
-        'document_id',
-        documentId
-      ),
-      queryRows(service, 'form_responses', 'pdf_output_path', 'document_id', documentId),
-      queryRows(
-        service,
-        'certification_cases',
-        'id,original_storage_path',
-        'source_document_id',
-        documentId
-      ),
-    ]);
+  const [
+    versions,
+    encryption,
+    certifications,
+    nom151,
+    signatures,
+    forms,
+    certCases,
+    blockchainEvidence,
+  ] = await Promise.all([
+    queryRows(service, 'document_versions', 'storage_path,file_url', 'document_id', documentId),
+    queryRows(
+      service,
+      'document_encryption_metadata',
+      'storage_bucket,storage_path',
+      'document_id',
+      documentId
+    ),
+    queryRows(
+      service,
+      'document_certifications',
+      'id,certificate_pdf_path,certified_pdf_path,technical_package_path,source_storage_bucket,source_storage_path,provider_metadata',
+      'document_id',
+      documentId
+    ),
+    queryRows(
+      service,
+      'nom151_constancias_doc',
+      'constancia_path,constancia_storage_path,source_storage_bucket,source_storage_path',
+      'documento_id',
+      documentId
+    ),
+    queryRows(
+      service,
+      'signature_evidence',
+      'storage_image_path,storage_strokes_path,storage_frames_paths,storage_selfie_path,digital_seal_path',
+      'document_id',
+      documentId
+    ),
+    queryRows(service, 'form_responses', 'pdf_output_path', 'document_id', documentId),
+    queryRows(
+      service,
+      'certification_cases',
+      'id,original_storage_path',
+      'source_document_id',
+      documentId
+    ),
+    queryRows(
+      service,
+      'document_blockchain_evidence',
+      'id,manifest_storage_path,proof_storage_path,certificate_storage_path',
+      'document_id',
+      documentId
+    ),
+  ]);
 
   for (const version of versions) {
     addPath(byBucket, DOCUMENTS_BUCKET, version.storage_path);
@@ -159,7 +171,10 @@ export async function collectDocumentBundleStorage(
 
   const certificationIds = certifications.map((item) => String(item.id || '')).filter(Boolean);
   const caseIds = certCases.map((item) => String(item.id || '')).filter(Boolean);
-  const [timestamps, certificationFiles] = await Promise.all([
+  const blockchainEvidenceIds = blockchainEvidence
+    .map((item) => String(item.id || ''))
+    .filter(Boolean);
+  const [timestamps, certificationFiles, blockchainProofVersions] = await Promise.all([
     certificationIds.length
       ? service
           .from('timestamp_records')
@@ -172,9 +187,16 @@ export async function collectDocumentBundleStorage(
           .select('storage_bucket,storage_path')
           .in('certification_id', caseIds)
       : Promise.resolve({ data: [], error: null }),
+    blockchainEvidenceIds.length
+      ? service
+          .from('document_blockchain_proof_versions')
+          .select('storage_path')
+          .in('evidence_id', blockchainEvidenceIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   if (timestamps.error) throw timestamps.error;
   if (certificationFiles.error) throw certificationFiles.error;
+  if (blockchainProofVersions.error) throw blockchainProofVersions.error;
 
   for (const timestamp of (timestamps.data || []) as Row[]) {
     addPath(byBucket, CERTIFICATION_BUCKET, timestamp.request_storage_path);
@@ -201,6 +223,14 @@ export async function collectDocumentBundleStorage(
   for (const item of certCases) addPath(byBucket, DOCUMENTS_BUCKET, item.original_storage_path);
   for (const item of (certificationFiles.data || []) as Row[]) {
     addPath(byBucket, String(item.storage_bucket || CERTIFICATION_BUCKET), item.storage_path);
+  }
+  for (const item of blockchainEvidence) {
+    addPath(byBucket, BLOCKCHAIN_EVIDENCE_BUCKET, item.manifest_storage_path);
+    addPath(byBucket, BLOCKCHAIN_EVIDENCE_BUCKET, item.proof_storage_path);
+    addPath(byBucket, BLOCKCHAIN_EVIDENCE_BUCKET, item.certificate_storage_path);
+  }
+  for (const item of (blockchainProofVersions.data || []) as Row[]) {
+    addPath(byBucket, BLOCKCHAIN_EVIDENCE_BUCKET, item.storage_path);
   }
 
   return [...byBucket.entries()].flatMap(([bucket, paths]) =>

@@ -121,19 +121,20 @@ const placementData = {
   evidenceChainDisplay: '||DOCUBOX_EVIDENCE|1.0||',
 };
 
-async function createSourcePdf(withContent, pageCount = 1) {
+async function createSourcePdf(withContent, pageCount = 1, contentY = 80) {
   const pdf = await PDFDocument.create();
   const font = withContent ? await pdf.embedFont(StandardFonts.Helvetica) : null;
   for (let index = 0; index < pageCount; index += 1) {
     const page = pdf.addPage([612, 792]);
     if (font) {
-      page.drawText(`Contenido original de la página ${index + 1}`, { x: 50, y: 80, font, size: 12 });
+      page.drawText(`Contenido original de la página ${index + 1}`, { x: 50, y: contentY, font, size: 12 });
     }
   }
   return pdf.save({ useObjectStreams: false });
 }
 
 test('adds a discrete verification band on each page and the completed stamp only on the final page', async () => {
+  const verificationStampSource = await readFile('src/lib/certification/pdf.ts', 'utf8');
   const result = await pdfModule.applyDocumentVerificationStamp(
     await createSourcePdf(true, 2),
     {
@@ -145,8 +146,13 @@ test('adds a discrete verification band on each page and the completed stamp onl
   const stamped = await PDFDocument.load(result);
 
   assert.equal(stamped.getPageCount(), 2);
-  assert.equal(stamped.getPage(0).getHeight(), 820, 'La primera página reserva una franja delgada.');
-  assert.equal(stamped.getPage(1).getHeight(), 870, 'La última página reserva espacio compacto para fecha, URL y QR.');
+  assert.equal(stamped.getPage(0).getHeight(), 792, 'La primera página conserva el tamaño original.');
+  assert.equal(stamped.getPage(1).getHeight(), 792, 'La última página conserva el tamaño original.');
+  assert.match(verificationStampSource, /`Completado el: \$\{completion\}`/);
+  assert.match(
+    verificationStampSource,
+    /`Verificar la integridad de este documento: \$\{verificationUrl\}`/
+  );
 });
 
 test('does not claim a completed signature or add a QR before the workflow is completed', async () => {
@@ -160,7 +166,7 @@ test('does not claim a completed signature or add a QR before the workflow is co
   );
   const stamped = await PDFDocument.load(result);
 
-  assert.equal(stamped.getPage(0).getHeight(), 820);
+  assert.equal(stamped.getPage(0).getHeight(), 792);
 });
 
 test('uses an empty final page for the foot placement', async () => {
@@ -179,8 +185,19 @@ test('adds a page when the final page contains drawing commands', async () => {
   assert.equal((await PDFDocument.load(result)).getPageCount(), 2);
 });
 
-test('anchors the foot placement as a compact bottom block', async () => {
+test('uses the blank foot area when the final page content remains above it', async () => {
+  const result = await pdfModule.applyCryptographicPlacementAtFoot(
+    await createSourcePdf(true, 1, 650),
+    placementData
+  );
+  assert.equal((await PDFDocument.load(result)).getPageCount(), 1);
+});
+
+test('anchors the block at the foot or at the top of a new page as needed', async () => {
   const pdfSource = await readFile('src/lib/certification/pdf.ts', 'utf8');
   assert.match(pdfSource, /const bottomMargin = Math\.max\(12, height \* 0\.018\)/);
-  assert.match(pdfSource, /let y = bottomMargin \+ requiredHeight/);
+  assert.match(
+    pdfSource,
+    /let y = usesLastPage \? bottomMargin \+ requiredHeight : height - topMargin/
+  );
 });

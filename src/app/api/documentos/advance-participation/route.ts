@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     // Fetch sender (owner) profile
     const { data: ownerProfile } = await supabaseAdmin
-      .from('profiles')
+      .from('user_profiles')
       .select('full_name, email')
       .eq('id', doc.owner_id)
       .maybeSingle();

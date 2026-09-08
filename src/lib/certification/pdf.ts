@@ -1,6 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { PDFArray, PDFDocument, PDFPage, PDFFont, rgb } from 'pdf-lib';
+import {
+  decodePDFRawStream,
+  PDFArray,
+  PDFContentStream,
+  PDFDocument,
+  PDFPage,
+  PDFFont,
+  PDFRawStream,
+  rgb,
+} from 'pdf-lib';
 import QRCode from 'qrcode';
 import { embedDocuboxPdfFonts } from '@/lib/pdf/embedded-fonts';
 
@@ -101,6 +110,9 @@ const green = rgb(0.02, 0.61, 0.42);
 const paleBlue = rgb(0.94, 0.96, 1);
 const paleGreen = rgb(0.93, 0.99, 0.96);
 const paleGray = rgb(0.96, 0.97, 0.99);
+const footerInk = rgb(0.15, 0.17, 0.21);
+const footerMuted = rgb(0.36, 0.38, 0.43);
+const footerLine = rgb(0.78, 0.8, 0.84);
 
 export function abbreviateBase64(value: string) {
   if (value.length <= 240) return value;
@@ -177,34 +189,31 @@ function drawSimpleVerificationStamp(
   footerHeight: number,
 ) {
   const { width } = page.getSize();
-  const margin = Math.max(12, width * 0.026);
-  const size = Math.max(5.6, Math.min(6.8, width / 96));
+  const margin = Math.max(14, width * 0.026);
+  const size = Math.max(4.9, Math.min(5.4, width / 116));
   const pageText = `Página ${pageNumber} de ${totalPages}`;
   const documentText = `ID documento: ${documentUuid}`;
   const documentWidth = regular.widthOfTextAtSize(documentText, size);
 
-  page.drawRectangle({
-    x: 0,
-    y: 0,
-    width,
-    height: footerHeight,
-    color: rgb(0.985, 0.988, 0.994),
-    borderColor: line,
-    borderWidth: 0.6,
+  page.drawLine({
+    start: { x: 0, y: footerHeight },
+    end: { x: width, y: footerHeight },
+    thickness: 0.35,
+    color: footerLine,
   });
   page.drawText(pageText, {
     x: margin,
-    y: footerHeight / 2 - size * 0.35,
+    y: footerHeight / 2 - size * 0.42,
     size,
     font: bold,
-    color: ink,
+    color: footerInk,
   });
   page.drawText(documentText, {
     x: Math.max(margin + 120, width - margin - documentWidth),
-    y: footerHeight / 2 - size * 0.35,
+    y: footerHeight / 2 - size * 0.42,
     size,
     font: regular,
-    color: ink,
+    color: footerInk,
   });
 }
 
@@ -221,56 +230,56 @@ function drawCompletedVerificationStamp(
   footerHeight: number,
 ) {
   const { width } = page.getSize();
-  const margin = Math.max(12, width * 0.026);
-  const qrSize = Math.min(48, footerHeight - 18, width * 0.1);
+  const margin = Math.max(14, width * 0.026);
+  const qrSize = Math.min(32, footerHeight - 12, width * 0.07);
   const qrX = width - margin - qrSize;
-  const textWidth = qrX - margin - 14;
-  const labelSize = Math.max(5, Math.min(5.8, width / 116));
+  const textWidth = qrX - margin - 10;
+  const labelSize = Math.max(4.6, Math.min(5.1, width / 120));
   const pageText = `Página ${pageNumber} de ${totalPages}`;
   const documentText = `ID documento: ${documentUuid}`;
   const completion = formatVerificationCompletion(completedAt);
-  const instruction = 'Para verificar la autenticidad, integridad y estado de este documento, escanee el código QR o visite:';
-  const instructionLines = wrapText(instruction, regular, labelSize, textWidth).slice(0, 1);
-  let urlSize = labelSize;
-  while (regular.widthOfTextAtSize(verificationUrl, urlSize) > textWidth && urlSize > 4.3) {
+  const verificationText = `Verificar la integridad de este documento: ${verificationUrl}`;
+  let urlSize = Math.min(4.7, labelSize);
+  while (
+    regular.widthOfTextAtSize(verificationText, urlSize) > textWidth &&
+    urlSize > 3.8
+  ) {
     urlSize -= 0.2;
   }
 
-  page.drawRectangle({
-    x: 0,
-    y: 0,
-    width,
-    height: footerHeight,
-    color: rgb(0.985, 0.988, 0.994),
-    borderColor: line,
-    borderWidth: 0.6,
+  page.drawLine({
+    start: { x: 0, y: footerHeight },
+    end: { x: width, y: footerHeight },
+    thickness: 0.35,
+    color: footerLine,
   });
-  let y = footerHeight - 10;
-  page.drawText(pageText, { x: margin, y, size: labelSize, font: bold, color: ink });
-  y -= 10;
-  page.drawText(documentText, { x: margin, y, size: labelSize, font: regular, color: ink });
+  let y = footerHeight - 8;
+  page.drawText(`${pageText} - ${documentText}`, { x: margin, y, size: labelSize, font: bold, color: footerInk });
   if (completion) {
-    y -= 10;
-    page.drawText(`Firmado completamente el: ${completion}`, {
+    y -= 9;
+    page.drawText(`Completado el: ${completion}`, {
       x: margin,
       y,
       size: labelSize,
       font: regular,
-      color: ink,
+      color: footerInk,
     });
   }
-  y -= 10;
-  instructionLines.forEach((value, index) => {
-    page.drawText(value, { x: margin, y: y - index * (labelSize + 1), size: labelSize, font: regular, color: secondary });
+  y -= 9;
+  page.drawText(verificationText, {
+    x: margin,
+    y,
+    size: urlSize,
+    font: regular,
+    color: footerMuted,
   });
-  y -= instructionLines.length * (labelSize + 1) + 1;
-  page.drawText(verificationUrl, { x: margin, y, size: urlSize, font: regular, color: blue });
-  page.drawImage(qr, { x: qrX, y: 9, width: qrSize, height: qrSize });
+  page.drawImage(qr, { x: qrX, y: 6, width: qrSize, height: qrSize });
 }
 
 /**
- * Adds an identification band before PAdES signing. Existing page content is
- * shifted upward so the stamp never overlays the original document.
+ * Adds an identification band before PAdES signing while preserving the
+ * original page dimensions. Existing content is compressed slightly upward so
+ * the stamp never overlays the original document.
  */
 export async function applyDocumentVerificationStamp(
   documentBytes: Uint8Array,
@@ -281,11 +290,11 @@ export async function applyDocumentVerificationStamp(
   const pages = pdf.getPages();
   const totalPages = pages.length;
   const completedAt = data.completedAt || null;
-  const regularStampHeight = 28;
-  const finalStampHeight = completedAt ? 78 : regularStampHeight;
+  const regularStampHeight = 16;
+  const finalStampHeight = completedAt ? 46 : regularStampHeight;
   const completedQr = completedAt
     ? await pdf.embedPng(Buffer.from(
-      (await QRCode.toDataURL(data.verificationUrl, { errorCorrectionLevel: 'M', margin: 1, width: 240 }))
+      (await QRCode.toDataURL(data.verificationUrl, { errorCorrectionLevel: 'M', margin: 1, width: 144 }))
         .split(',')[1],
       'base64',
     ))
@@ -295,8 +304,10 @@ export async function applyDocumentVerificationStamp(
     const isCompletedLastPage = Boolean(completedAt && completedQr && index === totalPages - 1);
     const footerHeight = isCompletedLastPage ? finalStampHeight : regularStampHeight;
     const { width, height } = page.getSize();
-    page.setSize(width, height + footerHeight);
+    const contentScale = (height - footerHeight) / height;
+    page.scaleContent(1, contentScale);
     page.translateContent(0, footerHeight);
+    page.resetPosition();
 
     if (isCompletedLastPage && completedQr && completedAt) {
       drawCompletedVerificationStamp(
@@ -857,9 +868,194 @@ export async function applyCryptographicPlacements(
   return pdf.save({ useObjectStreams: false });
 }
 
-function pageHasNoDrawingContent(page: PDFPage) {
+type PdfMatrix = [number, number, number, number, number, number];
+
+const identityPdfMatrix: PdfMatrix = [1, 0, 0, 1, 0, 0];
+
+function multiplyPdfMatrices(left: PdfMatrix, right: PdfMatrix): PdfMatrix {
+  return [
+    left[0] * right[0] + left[2] * right[1],
+    left[1] * right[0] + left[3] * right[1],
+    left[0] * right[2] + left[2] * right[3],
+    left[1] * right[2] + left[3] * right[3],
+    left[0] * right[4] + left[2] * right[5] + left[4],
+    left[1] * right[4] + left[3] * right[5] + left[5],
+  ];
+}
+
+function transformedPdfY(matrix: PdfMatrix, x: number, y: number) {
+  return matrix[1] * x + matrix[3] * y + matrix[5];
+}
+
+function decodedPageContent(page: PDFPage) {
   const contents = page.node.Contents();
-  return !contents || (contents instanceof PDFArray && contents.size() === 0);
+  if (!contents) return '';
+
+  const streams = contents instanceof PDFArray
+    ? Array.from({ length: contents.size() }, (_, index) => contents.lookup(index))
+    : [contents];
+
+  try {
+    return streams.map((stream) => {
+      if (stream instanceof PDFRawStream) {
+        return Buffer.from(decodePDFRawStream(stream).decode()).toString('latin1');
+      }
+      if (stream instanceof PDFContentStream) {
+        return Buffer.from(stream.getUnencodedContents()).toString('latin1');
+      }
+      throw new Error('Unsupported PDF content stream.');
+    }).join('\n');
+  } catch {
+    return null;
+  }
+}
+
+function lowestPaintedY(page: PDFPage) {
+  const source = decodedPageContent(page);
+  if (source === null) return null;
+  if (!source.trim()) return Number.POSITIVE_INFINITY;
+
+  const tokens = source.match(
+    /%[^\r\n]*|\((?:\\[\s\S]|[^\\)])*\)|<[0-9A-Fa-f\s]*>|\/[^\s<>{}\[\]()%]+|[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?|[A-Za-z*'"]+/g,
+  ) || [];
+  const operands: Array<number | string> = [];
+  const graphicsStack: PdfMatrix[] = [];
+  let ctm: PdfMatrix = [...identityPdfMatrix];
+  let textMatrix: PdfMatrix = [...identityPdfMatrix];
+  let textLineMatrix: PdfMatrix = [...identityPdfMatrix];
+  let fontSize = 0;
+  let leading = 0;
+  let pathMinimum = Number.POSITIVE_INFINITY;
+  let minimum = Number.POSITIVE_INFINITY;
+  let insideInlineImage = false;
+
+  const numbers = (count: number) => {
+    const values = operands.slice(-count);
+    return values.length === count && values.every((value) => typeof value === 'number')
+      ? values as number[]
+      : null;
+  };
+  const markPoint = (matrix: PdfMatrix, x: number, y: number) => {
+    minimum = Math.min(minimum, transformedPdfY(matrix, x, y));
+  };
+  const markPathPoint = (x: number, y: number) => {
+    pathMinimum = Math.min(pathMinimum, transformedPdfY(ctm, x, y));
+  };
+  const markUnitBox = () => {
+    markPoint(ctm, 0, 0);
+    markPoint(ctm, 1, 0);
+    markPoint(ctm, 0, 1);
+    markPoint(ctm, 1, 1);
+  };
+  const markText = () => {
+    const combined = multiplyPdfMatrices(ctm, textMatrix);
+    const baseline = transformedPdfY(combined, 0, 0);
+    const verticalScale = Math.hypot(combined[1], combined[3]);
+    minimum = Math.min(minimum, baseline - Math.max(1, fontSize * verticalScale * 0.3));
+  };
+
+  for (const token of tokens) {
+    if (token.startsWith('%')) continue;
+    if (insideInlineImage) {
+      if (token === 'EI') insideInlineImage = false;
+      continue;
+    }
+    const numericValue = Number(token);
+    if (Number.isFinite(numericValue)) {
+      operands.push(numericValue);
+      continue;
+    }
+    if (token.startsWith('/') || token.startsWith('(') || token.startsWith('<')) {
+      operands.push(token);
+      continue;
+    }
+
+    if (token === 'q') {
+      graphicsStack.push([...ctm]);
+    } else if (token === 'Q') {
+      ctm = graphicsStack.pop() || [...identityPdfMatrix];
+    } else if (token === 'cm') {
+      const values = numbers(6);
+      if (values) ctm = multiplyPdfMatrices(ctm, values as PdfMatrix);
+    } else if (token === 'BT') {
+      textMatrix = [...identityPdfMatrix];
+      textLineMatrix = [...identityPdfMatrix];
+    } else if (token === 'Tm') {
+      const values = numbers(6);
+      if (values) {
+        textMatrix = values as PdfMatrix;
+        textLineMatrix = [...textMatrix];
+      }
+    } else if (token === 'Td' || token === 'TD') {
+      const values = numbers(2);
+      if (values) {
+        const translation: PdfMatrix = [1, 0, 0, 1, values[0], values[1]];
+        textLineMatrix = multiplyPdfMatrices(textLineMatrix, translation);
+        textMatrix = [...textLineMatrix];
+        if (token === 'TD') leading = -values[1];
+      }
+    } else if (token === 'TL') {
+      const values = numbers(1);
+      if (values) leading = values[0];
+    } else if (token === 'Tf') {
+      const values = numbers(1);
+      if (values) fontSize = Math.abs(values[0]);
+    } else if (token === 'T*') {
+      textLineMatrix = multiplyPdfMatrices(textLineMatrix, [1, 0, 0, 1, 0, -leading]);
+      textMatrix = [...textLineMatrix];
+    } else if (token === 'Tj' || token === 'TJ') {
+      markText();
+    } else if (token === "'" || token === '"') {
+      textLineMatrix = multiplyPdfMatrices(textLineMatrix, [1, 0, 0, 1, 0, -leading]);
+      textMatrix = [...textLineMatrix];
+      markText();
+    } else if (token === 'm' || token === 'l') {
+      const values = numbers(2);
+      if (values) markPathPoint(values[0], values[1]);
+    } else if (token === 're') {
+      const values = numbers(4);
+      if (values) {
+        const [x, y, width, height] = values;
+        markPathPoint(x, y);
+        markPathPoint(x + width, y);
+        markPathPoint(x, y + height);
+        markPathPoint(x + width, y + height);
+      }
+    } else if (token === 'c') {
+      const values = numbers(6);
+      if (values) {
+        markPathPoint(values[0], values[1]);
+        markPathPoint(values[2], values[3]);
+        markPathPoint(values[4], values[5]);
+      }
+    } else if (token === 'v' || token === 'y') {
+      const values = numbers(4);
+      if (values) {
+        markPathPoint(values[0], values[1]);
+        markPathPoint(values[2], values[3]);
+      }
+    } else if (['S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*'].includes(token)) {
+      minimum = Math.min(minimum, pathMinimum);
+      pathMinimum = Number.POSITIVE_INFINITY;
+    } else if (token === 'n') {
+      pathMinimum = Number.POSITIVE_INFINITY;
+    } else if (token === 'Do') {
+      markUnitBox();
+    } else if (token === 'BI') {
+      markUnitBox();
+      insideInlineImage = true;
+    } else if (token === 'sh') {
+      minimum = 0;
+    }
+    operands.length = 0;
+  }
+
+  return minimum;
+}
+
+function pageHasBlankFootSpace(page: PDFPage, requiredBottomSpace: number) {
+  const lowestY = lowestPaintedY(page);
+  return lowestY !== null && lowestY >= requiredBottomSpace;
 }
 
 export async function applyCryptographicPlacementAtFoot(
@@ -869,15 +1065,12 @@ export async function applyCryptographicPlacementAtFoot(
   const pdf = await PDFDocument.load(documentBytes, { ignoreEncryption: false });
   const { bold, mono } = await embedDocuboxPdfFonts(pdf);
   const lastPage = pdf.getPage(pdf.getPageCount() - 1);
-  const targetPage = pageHasNoDrawingContent(lastPage)
-    ? lastPage
-    : pdf.addPage([lastPage.getWidth(), lastPage.getHeight()]);
-  const { width, height } = targetPage.getSize();
+  const { width, height } = lastPage.getSize();
   const margin = Math.max(16, width * 0.035);
   const contentWidth = width - margin * 2;
-  const bodySize = Math.max(3.4, Math.min(4.3, width / 150));
-  const titleSize = Math.max(5.6, Math.min(6.4, width / 110));
-  const lineHeight = bodySize * 1.24;
+  const bodySize = Math.max(4.2, Math.min(4.9, width / 132));
+  const titleSize = Math.max(6.2, Math.min(7, width / 98));
+  const lineHeight = bodySize * 1.28;
   const sectionGap = 6;
   const sections = [
     {
@@ -897,7 +1090,16 @@ export async function applyCryptographicPlacementAtFoot(
   const sectionHeight = (section: (typeof sections)[number]) => 8 + titleSize + 6 + section.lines.length * lineHeight;
   const requiredHeight = sections.reduce((total, section) => total + sectionHeight(section), 0) + sectionGap;
   const bottomMargin = Math.max(12, height * 0.018);
-  let y = bottomMargin + requiredHeight;
+  const placementClearance = Math.max(8, height * 0.012);
+  const usesLastPage = pageHasBlankFootSpace(
+    lastPage,
+    bottomMargin + requiredHeight + placementClearance,
+  );
+  const targetPage = usesLastPage
+    ? lastPage
+    : pdf.addPage([width, height]);
+  const topMargin = Math.max(18, height * 0.028);
+  let y = usesLastPage ? bottomMargin + requiredHeight : height - topMargin;
 
   for (const [index, section] of sections.entries()) {
     targetPage.drawLine({

@@ -75,7 +75,9 @@
     "crypto:onboard:nom151-trust": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/onboard-nom151-psc-trust.ts",
     "crypto:bootstrap:gcp-certificate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/bootstrap-google-kms-development-certificate.ts",
     "crypto:bootstrap:hsm-production-certificate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/bootstrap-google-hsm-production-certificate.ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:blockchain-evidence": "node --test tests/blockchain-evidence.test.mjs",
+    "qa:blockchain-certificate": "esbuild scripts/render-blockchain-certificate-fixture.ts --bundle --platform=node --format=esm --packages=external --outfile=.tmp/render-blockchain-certificate-fixture.mjs && node .tmp/render-blockchain-certificate-fixture.mjs"
   },
   "overrides": {
     "esbuild": "0.28.2"

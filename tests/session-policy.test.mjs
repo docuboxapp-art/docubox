@@ -44,9 +44,20 @@ test('middleware validates authenticated browser and API traffic server-side', (
   assert.match(middleware, /enforce_docubox_session_policy/);
   assert.match(middleware, /p_record_user_activity: false/);
   assert.match(middleware, /SESSION_EXPIRED/);
-  assert.match(middleware, /await supabase\.auth\.signOut\(\)/);
+  assert.match(middleware, /unavailableSessionPolicyResponse/);
+  assert.match(middleware, /SESSION_POLICY_UNAVAILABLE/);
+  assert.match(middleware, /await supabase\.auth\.signOut\(\{ scope: 'local' \}\)/);
   assert.match(middleware, /SESSION_POLICY_BOOTSTRAP_API_ROUTES/);
   assert.match(middleware, /'\/api\/auth\/totp\/check'/);
+});
+
+test('timeout modal actions visibly resolve or close the current browser session', () => {
+  assert.match(timeoutHook, /SIGN_OUT_FALLBACK_MS/);
+  assert.match(timeoutHook, /await Promise\.race/);
+  assert.match(timeoutHook, /Client validation failed; closing the local session/);
+  assert.match(timeoutHook, /await executeSignOut\('inactivity'\)/);
+  assert.match(timeoutHook, /const continueSession = useCallback\(async/);
+  assert.match(timeoutHook, /createClient\(\)\.auth\.signOut\(\{ scope: 'local' \}\)/);
 });
 
 test('session expiry is auditable and protected from direct table access', () => {

@@ -219,6 +219,13 @@ export const platformNavigation: PlatformNavGroup[] = [
         'Constancias y confianza productiva separada.'
       ),
       item(
+        'Blockchain Evidence',
+        'signatures/blockchain',
+        'document.integrity.read',
+        Blocks,
+        'Pruebas OpenTimestamps, anclajes Bitcoin y reintentos.'
+      ),
+      item(
         'Integridad',
         'integrity',
         'document.integrity.read',

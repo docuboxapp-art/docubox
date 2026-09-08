@@ -312,6 +312,7 @@ function CrearDocumentoPageInner() {
           selloDigital: data.sello_digital === true,
           selloUbicacion: data.sello_ubicacion === 'libre' ? 'libre' : 'calce',
           estampaAutenticacion: data.estampa_autenticacion === true,
+          blockchainEvidence: data.blockchain_evidence_enabled === true,
           metadatosAdicionales: data.metadatos_adicionales === true,
         });
         if (data.participation_order) setParticipationOrder(data.participation_order);
@@ -502,6 +503,7 @@ function CrearDocumentoPageInner() {
           selloDigital: securitySummary?.selloDigital ?? false,
           selloUbicacion: securitySummary?.selloUbicacion || 'calce',
           estampaAutenticacion: securitySummary?.estampaAutenticacion ?? false,
+          blockchainEvidence: securitySummary?.blockchainEvidence ?? false,
           metadatosAdicionales: securitySummary?.metadatosAdicionales ?? false,
           additionalMetadata: docConfig.additionalMetadata,
           camposSolicitados: placedFields.map((f) => ({
@@ -737,8 +739,16 @@ function CrearDocumentoPageInner() {
         </div>
       </section>
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1480px] px-4 py-5 lg:px-6 lg:py-6">
+      <main
+        className={`min-h-0 flex-1 ${
+          currentStepLabel === 'Ajustes' ? 'overflow-hidden' : 'overflow-y-auto'
+        }`}
+      >
+        <div
+          className={`mx-auto w-full max-w-[1480px] px-4 py-5 lg:px-6 lg:py-6 ${
+            currentStepLabel === 'Ajustes' ? 'h-full min-h-0' : ''
+          }`}
+        >
           {currentStep === 1 && (
             <StepSubir
               file={file}

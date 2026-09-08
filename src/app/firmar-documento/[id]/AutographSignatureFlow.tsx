@@ -2183,10 +2183,118 @@ function CameraBiometricModal({
   );
 }
 
+// ─── Mobile signature handoff ────────────────────────────────────────────────
+function MobileSignatureModal({
+  documentId,
+  userToken,
+  isDark,
+  onBack,
+  onSignatureCaptured,
+}: {
+  documentId: string;
+  userToken: string;
+  isDark: boolean;
+  onBack: () => void;
+  onSignatureCaptured: (capture: { signatureDataUrl: string; strokes: any[]; sessionEvidence?: SessionEvidence; deviceFingerprint?: DeviceFingerprint }) => void;
+}) {
+  const [token, setToken] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [status, setStatus] = useState<'creating' | 'waiting' | 'received' | 'error'>('creating');
+  const [error, setError] = useState<string | null>(null);
+  const [capture, setCapture] = useState<{ signatureDataUrl: string; strokes: any[]; sessionEvidence?: SessionEvidence; deviceFingerprint?: DeviceFingerprint } | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(10 * 60);
+
+  const createSession = useCallback(async () => {
+    setStatus('creating');
+    setError(null);
+    setToken(null);
+    setQrDataUrl(null);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/firma/mobile-signature/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || userToken}` },
+        body: JSON.stringify({ documentId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'No fue posible generar el enlace móvil.');
+      const mobileUrl = `${window.location.origin}/firma-movil/${data.token}`;
+      setToken(data.token);
+      setQrDataUrl(await QRCode.toDataURL(mobileUrl, { errorCorrectionLevel: 'M', margin: 1, width: 256 }));
+      setSecondsLeft(Math.max(0, Math.floor((new Date(data.expiresAt).getTime() - Date.now()) / 1000)));
+      setStatus('waiting');
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : 'No fue posible generar el enlace móvil.');
+      setStatus('error');
+    }
+  }, [documentId, userToken]);
+
+  useEffect(() => { createSession(); }, [createSession]);
+
+  useEffect(() => {
+    if (!token || status !== 'waiting') return;
+    const timer = window.setInterval(() => setSecondsLeft((current) => Math.max(0, current - 1)), 1000);
+    const poll = window.setInterval(async () => {
+      try {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch(`/api/firma/mobile-signature/result?token=${encodeURIComponent(token)}`, {
+          headers: { Authorization: `Bearer ${session?.access_token || userToken}` },
+          cache: 'no-store',
+        });
+        if (response.status === 404 || response.status === 410) {
+          setError('El enlace móvil venció. Genera uno nuevo para continuar.');
+          setStatus('error');
+          return;
+        }
+        const data = await response.json();
+        if (response.ok && data.status === 'completed' && data.capture?.signatureDataUrl && Array.isArray(data.capture?.strokes)) {
+          setCapture(data.capture);
+          setStatus('received');
+        }
+      } catch {
+        // The QR remains valid; transient polling errors must not interrupt the signer.
+      }
+    }, 2500);
+    return () => { window.clearInterval(timer); window.clearInterval(poll); };
+  }, [status, token, userToken]);
+
+  const minutes = Math.floor(secondsLeft / 60);
+  const seconds = secondsLeft % 60;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-label="Firmar desde el móvil">
+      <div className={`w-full max-w-xl overflow-hidden rounded-xl border shadow-2xl ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+        <div className={`border-b px-5 py-4 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
+          <div className="flex items-center gap-2"><Smartphone size={18} className="text-primary" /><h2 className="text-base font-semibold">Firmar desde el móvil</h2></div>
+          <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Escanea el código QR para dibujar tu firma en el teléfono.</p>
+        </div>
+        <div className="p-5">
+          {status === 'creating' && <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="animate-spin" size={18} /> Generando enlace seguro…</div>}
+          {status === 'waiting' && qrDataUrl && <div className="grid gap-5 sm:grid-cols-[auto_1fr] sm:items-center">
+            <div className="mx-auto rounded-lg border border-slate-200 bg-white p-3"><img src={qrDataUrl} alt="Código QR para firmar desde el móvil" className="h-48 w-48" /></div>
+            <div className="space-y-3 text-sm text-slate-600">
+              <p>El enlace es temporal, exclusivo para esta firma y expira en <strong className="text-slate-900">{minutes}:{seconds.toString().padStart(2, '0')}</strong>.</p>
+              <p>Al terminar en el móvil, vuelve aquí para continuar con la validación.</p>
+              <button type="button" onClick={createSession} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><RefreshCw size={14} /> Generar un QR nuevo</button>
+            </div>
+          </div>}
+          {status === 'received' && <div className="py-5 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><Check size={23} /></div><p className="mt-3 font-semibold">Firma recibida</p><p className="mt-1 text-sm text-slate-500">El trazo se conservará para el cálculo de hash y la evidencia de firma.</p></div>}
+          {status === 'error' && <div className="py-5 text-center"><AlertTriangle className="mx-auto text-amber-500" size={26} /><p className="mt-3 text-sm text-slate-600">{error}</p><button type="button" onClick={createSession} className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><RefreshCw size={14} /> Generar un QR nuevo</button></div>}
+        </div>
+        <div className={`flex justify-end gap-2 border-t px-5 py-4 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
+          <button type="button" onClick={onBack} className={`rounded-lg border px-4 py-2 text-sm font-medium ${isDark ? 'border-gray-600 text-gray-300' : 'border-slate-200 text-slate-600'}`}>Volver</button>
+          {status === 'received' && <button type="button" onClick={() => capture && onSignatureCaptured(capture)} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">Continuar con validación</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main AutographSignatureFlow Component ────────────────────────────────────
 export default function AutographSignatureFlow({ documentId, userId, userToken, userEmail, userName, documentName, isDark, onComplete, onNoticeAccepted }: Props) {
   // Flow steps: notice → pad → biometric → biometric_device → otp → sending → constancia
-  const [flowStep, setFlowStep] = useState<'notice' | 'pad' | 'biometric' | 'biometric_camera' | 'biometric_qr' | 'otp' | 'sending' | 'constancia'>('notice');
+  const [flowStep, setFlowStep] = useState<'notice' | 'signature_method' | 'pad' | 'mobile_signature' | 'biometric' | 'biometric_camera' | 'biometric_qr' | 'otp' | 'sending' | 'constancia'>('notice');
 
   // Evidence collection
   const [sessionEvidence, setSessionEvidence] = useState<SessionEvidence | null>(null);
@@ -2198,7 +2306,7 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
   const [hasStrokes, setHasStrokes] = useState(false);
   const [padReady, setPadReady] = useState(false);
   const [penColor, setPenColor] = useState<string>('#0a0a0f');
-  const [strokeSize, setStrokeSize] = useState<'thin' | 'medium' | 'thick'>('medium');
+  const [strokeSize, setStrokeSize] = useState<'thin' | 'medium' | 'thick'>('thin');
 
   // ── Persisted signature data (survives pad unmount) ────────────────────────
   const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string | null>(null);
@@ -2764,7 +2872,7 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
             type="button"
             onClick={() => {
               onNoticeAccepted?.();
-              setFlowStep('pad');
+              setFlowStep('signature_method');
             }}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
           >
@@ -2776,16 +2884,39 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
     );
   }
 
+  // Step: choose where the autograph is drawn
+  if (flowStep === 'signature_method') {
+    return (
+      <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+        <div className={`border-b px-4 py-3 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
+          <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>¿Dónde deseas plasmar tu firma?</p>
+          <p className={`mt-1 text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Elige un equipo para capturar el mismo trazo y evidencia de firma.</p>
+        </div>
+        <div className="grid gap-3 p-4 sm:grid-cols-2">
+          <button type="button" onClick={() => setFlowStep('pad')} className={`group flex items-start gap-3 rounded-lg border p-4 text-left transition-colors ${isDark ? 'border-gray-600 hover:border-primary hover:bg-gray-750' : 'border-slate-200 hover:border-primary hover:bg-primary/[0.03]'}`}>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Monitor size={20} /></span>
+            <span><span className={`block text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>Firmar en este equipo</span><span className={`mt-1 block text-xs leading-5 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Abre un espacio amplio para dibujar con mouse, lápiz o pantalla táctil.</span></span>
+          </button>
+          <button type="button" onClick={() => setFlowStep('mobile_signature')} className={`group flex items-start gap-3 rounded-lg border p-4 text-left transition-colors ${isDark ? 'border-gray-600 hover:border-primary hover:bg-gray-750' : 'border-slate-200 hover:border-primary hover:bg-primary/[0.03]'}`}>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Smartphone size={20} /></span>
+            <span><span className={`block text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>Firmar desde el móvil</span><span className={`mt-1 block text-xs leading-5 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Escanea un QR temporal para dibujar la firma desde tu teléfono.</span></span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Step: Pad
   if (flowStep === 'pad') {
     return (
-      <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-label="Dibujar firma">
+      <div className={`max-h-[calc(100dvh-2rem)] w-full max-w-5xl overflow-y-auto rounded-xl border shadow-2xl ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
         <div className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'border-gray-700 bg-gray-750' : 'border-slate-200 bg-slate-50'}`}>
           <div className="flex items-center gap-2">
             <PenLine size={14} className="text-primary" />
             <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>Firma autógrafa digital — Dibujar</p>
           </div>
-          {hasStrokes && <span className="text-xs text-green-600 font-medium">Trazo detectado</span>}
+          <div className="flex items-center gap-3"><button type="button" onClick={() => setFlowStep('signature_method')} className={`text-xs font-medium ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-slate-500 hover:text-slate-700'}`}>Cambiar método</button>{hasStrokes && <span className="text-xs text-green-600 font-medium">Trazo detectado</span>}</div>
         </div>
         <div className="p-4 space-y-3">
           <div className="flex gap-3">
@@ -2797,7 +2928,7 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
               <canvas
                 ref={canvasRef}
                 className="w-full cursor-crosshair block"
-                style={{ height: '200px', touchAction: 'none' }}
+                style={{ height: 'min(52dvh, 420px)', touchAction: 'none' }}
               />
               {!hasStrokes && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -2893,6 +3024,25 @@ export default function AutographSignatureFlow({ documentId, userId, userToken, 
           </div>
         </div>
       </div>
+      </div>
+    );
+  }
+
+  if (flowStep === 'mobile_signature') {
+    return (
+      <MobileSignatureModal
+        documentId={documentId}
+        userToken={userToken}
+        isDark={isDark}
+        onBack={() => setFlowStep('signature_method')}
+        onSignatureCaptured={(capture) => {
+          setSavedSignatureDataUrl(capture.signatureDataUrl);
+          setSavedSignatureStrokes(capture.strokes);
+          if (capture.sessionEvidence) setSessionEvidence(capture.sessionEvidence);
+          if (capture.deviceFingerprint) setDeviceFingerprint(capture.deviceFingerprint);
+          setFlowStep('biometric');
+        }}
+      />
     );
   }
 

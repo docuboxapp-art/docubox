@@ -34,7 +34,6 @@ export interface Nom151CertificateData {
   documentSize: string;
   provider: string;
   endpoint: string;
-  signers: Array<{ name: string; email: string }>;
   providerStatus: string;
   messageKey: string;
   providerHash: string;
@@ -335,8 +334,6 @@ export async function createNom151Certificate(data: Nom151CertificateData) {
   section('Solicitud enviada al PSC');
   row('Proveedor', data.provider);
   row('Endpoint', data.endpoint, { valueSize: 6.7 });
-  row('N\u00famero de firmantes', String(data.signers.length));
-  data.signers.forEach((signer, index) => row(`Firmante ${index + 1}`, `${signer.name} \u00b7 ${signer.email}`));
   y -= 14;
 
   section('Respuesta del PSC');

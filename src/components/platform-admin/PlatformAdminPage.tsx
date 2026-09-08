@@ -6,6 +6,8 @@ import {
   loadAuditEvents,
   loadApprovals,
   loadBackups,
+  loadBlockchainEvidence,
+  loadBlockchainEvidenceOverview,
   loadCertifications,
   loadCertificates,
   loadDeadLetterJobs,
@@ -186,6 +188,7 @@ const canonicalModuleKeys: Record<string, string> = {
   'signatures/pades': 'firma-certificacion/pades',
   'signatures/tsa': 'firma-certificacion/tsa',
   'signatures/nom151': 'firma-certificacion/nom151',
+  'signatures/blockchain': 'firma-certificacion/blockchain',
   integrity: 'operacion/documentos',
   identity: 'identidad/verificaciones',
   'identity/ocr': 'identidad/ocr',
@@ -589,6 +592,30 @@ async function renderModule(key: string) {
           ]}
         />
       );
+    case 'firma-certificacion/blockchain': {
+      const [overview, evidence] = await Promise.all([loadBlockchainEvidenceOverview(), loadBlockchainEvidence()]);
+      return (
+        <div className="space-y-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{overview.metrics.map((item) => <MetricCard key={item.label} metric={item} />)}</div>
+          <DataTable rows={overview.configuration} columns={[{ key: 'proveedor', label: 'Proveedor' }, { key: 'calendarios', label: 'Calendarios' }, { key: 'modo_bitcoin', label: 'Verificador Bitcoin' }, { key: 'habilitado', label: 'Habilitado' }, { key: 'ultimo_upgrade', label: 'Último upgrade' }]} />
+          <DataTable
+            rows={evidence}
+            columns={[
+            { key: 'id', label: 'Evidencia', mono: true },
+            { key: 'tenant_id', label: 'Tenant', mono: true },
+            { key: 'document_id', label: 'Documento', mono: true },
+            { key: 'status', label: 'Estado' },
+            { key: 'verification_status', label: 'Verificación' },
+            { key: 'bitcoin_block_height', label: 'Bloque' },
+            { key: 'proof_version', label: 'Proof' },
+            { key: 'upgrade_attempts', label: 'Reintentos' },
+            { key: 'verification_error_code', label: 'Error' },
+            { key: 'updated_at', label: 'Actualización' },
+            ]}
+          />
+        </div>
+      );
+    }
     case 'firma-certificacion/certificados':
       return (
         <DataTable

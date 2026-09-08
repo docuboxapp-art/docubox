@@ -20,7 +20,7 @@ function getSupabase(): SupabaseClient {
 
 type EmailType =
   | 'signature_request' | 'document_completed' | 'certificate_expiry' | 'document_expired'
-  | 'action_required' | 'participant_invitation' | 'participation_reminder'
+  | 'action_required' | 'participant_invitation' | 'creator_participation_invitation' | 'participation_reminder'
   | 'participation_completed' | 'owner_participant_signed' | 'owner_participant_approved'
   | 'owner_participant_cancelled' | 'owner_participant_rejected' | 'new_device_login' | 'login_otp';
 
@@ -347,6 +347,7 @@ export async function sendParticipantInvitationEmails(params: {
     tipoNotificacion?: string[];
     mensajePersonalizado?: string;
     documentUrl?: string;
+    isCurrentUser?: boolean;
   }>;
   documentName: string;
   documentDescription?: string;
@@ -381,7 +382,7 @@ export async function sendParticipantInvitationEmails(params: {
       const participantDocumentUrl = p.documentUrl || documentUrl;
 
       return sendEmailNotification({
-        type: 'participant_invitation',
+        type: p.isCurrentUser ? 'creator_participation_invitation' : 'participant_invitation',
         to: p.email!,
         recipientName: p.name,
         documentName,
