@@ -74,7 +74,12 @@ def _run(args: list[str], cwd: str, allow_pending: bool = False) -> tuple[str, i
     timeout = min(max(int(os.environ.get("OPENTIMESTAMPS_TIMEOUT_MS", "30000")), 5000), 120000)
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "otsclient.ots", *args],
+            [
+                sys.executable,
+                "-c",
+                "from otsclient.ots import main; main()",
+                *args,
+            ],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -248,14 +253,18 @@ def health() -> dict[str, Any]:
         except Exception:
             pass
     try:
-        with tempfile.TemporaryDirectory(prefix="docubox-ots-") as directory:
-            version, _ = _run(["--version"], directory)
+        import otsclient
+        import otsclient.ots  # noqa: F401
+
+        version = f"opentimestamps-client {otsclient.__version__}"
         available = True
         error_code = None
-    except OtsRuntimeError as error:
+        diagnostic = None
+    except Exception as error:
         version = ""
         available = False
-        error_code = error.code
+        error_code = "OTS_CLIENT_UNAVAILABLE"
+        diagnostic = f"{type(error).__name__}: {str(error)[:160]}"
     return {
         "health": {
             "available": available,
@@ -263,6 +272,7 @@ def health() -> dict[str, Any]:
             "calendarsReachable": reachable,
             "calendarsConfigured": len(calendars),
             "errorCode": error_code,
+            "diagnostic": diagnostic,
         }
     }
 
