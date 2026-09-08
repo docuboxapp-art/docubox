@@ -9,7 +9,9 @@ export async function POST(req: NextRequest) {
     if (!authorization.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
-    const { data: { user } } = await createAnonClient().auth.getUser(authorization.slice(7));
+    const {
+      data: { user },
+    } = await createAnonClient().auth.getUser(authorization.slice(7));
     if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     const { count: activeCount } = await supabase
@@ -29,6 +31,7 @@ export async function POST(req: NextRequest) {
       .from('mobile_upload_sessions')
       .insert({
         token: sessionToken,
+        token_hash: crypto.createHash('sha256').update(sessionToken).digest('hex'),
         user_id: user.id,
         status: 'pending',
         expires_at: expiresAt.toISOString(),
@@ -40,7 +43,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ token: sessionToken, expiresAt: expiresAt.toISOString(), sessionId: data.id });
+    return NextResponse.json({
+      token: sessionToken,
+      expiresAt: expiresAt.toISOString(),
+      sessionId: data.id,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+let supabaseAdmin: SupabaseClient<any> | null = null;
+
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceRoleKey) {
+    throw new Error('Supabase service credentials are not configured.');
+  }
+  return supabaseAdmin ??= createClient(url, serviceRoleKey);
+}
 
 const OTP_EXPIRY_MINUTES = 10;
 const TABLE = 'signature_otps';
@@ -16,6 +22,7 @@ const PASSWORD_RESET_TOKEN_DOC_ID = '00000000-0000-0000-0000-000000000002';
 // POST /api/auth/password-reset-otp — send OTP to email
 export async function POST(req: NextRequest) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     const { email } = await req.json();
     if (!email) {
       return NextResponse.json({ error: 'El correo es requerido' }, { status: 400 });
@@ -161,6 +168,7 @@ export async function POST(req: NextRequest) {
 // PUT /api/auth/password-reset-otp — verify OTP
 export async function PUT(req: NextRequest) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     const { email, otpCode } = await req.json();
     if (!email || !otpCode) {
       return NextResponse.json({ error: 'Correo y código son requeridos' }, { status: 400 });
@@ -221,6 +229,7 @@ export async function PUT(req: NextRequest) {
 // PATCH /api/auth/password-reset-otp — update password using reset token
 export async function PATCH(req: NextRequest) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     const { email, resetToken, newPassword } = await req.json();
     if (!email || !resetToken || !newPassword) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });

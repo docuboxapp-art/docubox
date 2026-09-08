@@ -1,1388 +1,1432 @@
 import { createClient } from '@supabase/supabase-js';
-import { dbSchemaMap as s } from './dbSchemaMap';
+import { createServiceClient } from '@/lib/supabase/server';
+import {
+  DOCUMENT_INTELLIGENCE_DISABLED_MESSAGE,
+  isDocumentIntelligenceEnabled,
+} from './documentIntelligenceFeature';
+import type { LuciaIntent, RouteContext } from './luciaIntentClassifier';
+import type { LuciaAuthorizationContext } from './luciaAuthorization';
+import type { LuciaDataAvailability, LuciaModuleStatus } from './moduleCapabilities';
+import {
+  EMBEDDING_MODEL,
+  estimateAiCost,
+  LUCIA_PROMPT_VERSION,
+  redactSensitiveText,
+} from './security';
 
-// Use service role for server-side queries (bypasses RLS for authorized reads)
-function getServiceClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+const DOCUMENT_FIELDS =
+  'id,nombre,estado,created_at,updated_at,fecha_vencimiento,es_urgente,owner_id,carpeta_id,tipo_documento_id';
+
+function allowedIds(auth: LuciaAuthorizationContext, documentId?: string | null) {
+  if (auth.denied_reason) return [];
+  if (documentId) return auth.allowed_document_ids.includes(documentId) ? [documentId] : [];
+  return [...new Set(auth.allowed_document_ids)].slice(0, 1_000);
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-/** Verify user is a member of the workspace */
-export async function verifyWorkspaceMembership(
+function isAuthorizedWorkspace(
+  auth: LuciaAuthorizationContext,
   workspaceId: string,
-  userId: string
-): Promise<boolean> {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from(s.workspaceMembersTable)
-    .select(s.memberUserField)
-    .eq(s.memberWorkspaceField, workspaceId)
-    .eq(s.memberUserField, userId)
-    .maybeSingle();
-  return !error && !!data;
+  userId?: string
+) {
+  if (auth.denied_reason || auth.workspace_id !== workspaceId) return false;
+  if (auth.is_public_token_flow) return true;
+  return Boolean(userId && auth.user_id === userId && auth.membership_status === 'active');
 }
 
-// ── buildUserContext ───────────────────────────────────────────────────────
+function isManager(auth: LuciaAuthorizationContext) {
+  return auth.permissions.includes('read_workspace');
+}
 
-/**
- * Builds a comprehensive authorized context for the authenticated user
- * within the given workspace. Queries real Supabase tables.
- */
-export async function buildUserContext(userId: string, workspaceId: string) {
-  const supabase = getServiceClient();
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+function withSource(source: string, value: unknown) {
+  return { source, rows: Array.isArray(value) ? value : value ? [value] : [] };
+}
 
-  const context: Record<string, any> = {};
+function requestedSensitiveField(question: string) {
+  const normalized = question.toLocaleLowerCase('es-MX');
+  if (normalized.includes('curp')) return 'curp';
+  if (normalized.includes('rfc')) return 'rfc';
+  if (normalized.includes('teléfono') || normalized.includes('telefono')) return 'telefono';
+  if (
+    normalized.includes('domicilio') ||
+    normalized.includes('dirección') ||
+    normalized.includes('direccion')
+  )
+    return 'domicilio';
+  return null;
+}
 
-  // ── 1. User profile (including sensitive fields) ─────────────────────────
-  try {
+export async function buildUserContext(
+  userId: string,
+  workspaceId: string,
+  intent: LuciaIntent,
+  authorization: LuciaAuthorizationContext,
+  question = ''
+) {
+  if (!isAuthorizedWorkspace(authorization, workspaceId, userId)) return {};
+  const supabase = createServiceClient();
+  const context: Record<string, unknown> = {};
+
+  const { data: workspace } = await supabase
+    .from('workspaces')
+    .select('id,name,workspace_type')
+    .eq('id', workspaceId)
+    .maybeSingle();
+  if (workspace) context.workspace = { ...workspace, role: authorization.role };
+
+  if (intent === 'user_profile') {
     const { data: profile } = await supabase
-      .from(s.usersTable)
-      .select(`
-        ${s.userIdField},
-        ${s.userFullNameField},
-        ${s.userNombreField},
-        ${s.userApellidoPaternoField},
-        ${s.userApellidoMaternoField},
-        ${s.userEmailField},
-        ${s.userAvatarField},
-        ${s.userAccountTypeField},
-        ${s.userRfcField},
-        ${s.userCurpField},
-        ${s.userPhoneField},
-        ${s.userRegimenFiscalField},
-        ${s.userCodigoPostalField},
-        ${s.userEstadoField},
-        ${s.userMunicipioField},
-        ${s.userColoniaField},
-        ${s.userCalleField},
-        ${s.userNumExteriorField},
-        ${s.userNumInteriorField},
-        ${s.userCreatedAtField},
-        updated_at
-      `)
-      .eq(s.userIdField, userId)
+      .from('user_profiles')
+      .select('id,full_name,nombre,apellido_paterno,account_type')
+      .eq('id', userId)
       .maybeSingle();
-    if (profile) context.userProfile = profile;
-  } catch (e) {
-    console.error('[buildUserContext] profile error:', e);
+    if (profile) context.profile = profile;
   }
 
-  // ── 2. Workspace + membership role ──────────────────────────────────────
-  try {
-    const { data: workspace } = await supabase
-      .from(s.workspacesTable)
-      .select(`
-        ${s.workspaceIdField},
-        ${s.workspaceNameField},
-        ${s.workspaceTypeField},
-        ${s.workspaceOwnerField},
-        ${s.workspaceCreatedAtField}
-      `)
-      .eq(s.workspaceIdField, workspaceId)
+  if (intent === 'user_profile_sensitive') {
+    const requestedField = requestedSensitiveField(question);
+    if (!requestedField) return context;
+    const fields =
+      requestedField === 'domicilio'
+        ? 'id,calle,num_exterior,num_interior,colonia,municipio,estado,codigo_postal'
+        : `id,${requestedField}`;
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select(fields)
+      .eq('id', userId)
       .maybeSingle();
-
-    const { data: membership } = await supabase
-      .from(s.workspaceMembersTable)
-      .select(`${s.memberRoleField}, ${s.memberJoinedAtField}`)
-      .eq(s.memberWorkspaceField, workspaceId)
-      .eq(s.memberUserField, userId)
-      .maybeSingle();
-
-    if (workspace) {
-      context.workspace = {
-        ...workspace,
-        userRole: membership?.[s.memberRoleField] ?? null,
-        joinedAt: membership?.[s.memberJoinedAtField] ?? null,
-        isOwner: workspace[s.workspaceOwnerField] === userId,
+    if (profile) {
+      context.profile = {
+        ...(profile as unknown as Record<string, unknown>),
+        requested_field: requestedField,
       };
     }
-  } catch (e) {
-    console.error('[buildUserContext] workspace error:', e);
   }
 
-  // ── 3. Subscription / usage ──────────────────────────────────────────────
-  try {
-    const { data: sub } = await supabase
-      .from(s.subscriptionsTable)
-      .select(`
-        ${s.subscriptionStatusField},
-        ${s.subscriptionDocsUsedField},
-        ${s.subscriptionDocsLimitField},
-        ${s.subscriptionPeriodStartField},
-        ${s.subscriptionPeriodEndField},
-        plan:${s.subscriptionPlanField}(
-          ${s.planNameField},
-          ${s.planSlugField},
-          ${s.planDocsIncludedField},
-          ${s.planFeaturesField}
-        )
-      `)
-      .eq(s.subscriptionWorkspaceField, workspaceId)
-      .eq(s.subscriptionUserField, userId)
-      .eq(s.subscriptionStatusField, 'active')
-      .order(s.subscriptionPeriodStartField, { ascending: false })
+  if (['billing_usage', 'reports_summary', 'home_summary'].includes(intent)) {
+    const { data: subscription } = await supabase
+      .from('subscriptions')
+      .select(
+        'status,documents_used,documents_limit,current_period_start,current_period_end,plan:plan_id(name,slug,documents_included)'
+      )
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .order('current_period_start', { ascending: false })
       .limit(1)
       .maybeSingle();
-
-    const { count: docsThisMonth } = await supabase
-      .from(s.documentsTable)
-      .select('id', { count: 'exact', head: true })
-      .eq(s.documentWorkspaceField, workspaceId)
-      .eq(s.documentCreatedByField, userId)
-      .gte(s.documentCreatedAtField, startOfMonth)
-      .is('deleted_at', null);
-
-    const { count: docsSentToSign } = await supabase
-      .from(s.documentsTable)
-      .select('id', { count: 'exact', head: true })
-      .eq(s.documentWorkspaceField, workspaceId)
-      .eq(s.documentCreatedByField, userId)
-      .in(s.documentStatusField, ['en_proceso', 'pendiente_firma'])
-      .is('deleted_at', null);
-
-    const { count: docsCompleted } = await supabase
-      .from(s.documentsTable)
-      .select('id', { count: 'exact', head: true })
-      .eq(s.documentWorkspaceField, workspaceId)
-      .eq(s.documentCreatedByField, userId)
-      .eq(s.documentStatusField, 'completado')
-      .is('deleted_at', null);
-
-    const { count: docsPending } = await supabase
-      .from(s.documentsTable)
-      .select('id', { count: 'exact', head: true })
-      .eq(s.documentWorkspaceField, workspaceId)
-      .eq(s.documentCreatedByField, userId)
-      .eq(s.documentStatusField, 'borrador')
-      .is('deleted_at', null);
-
+    const documentIds = allowedIds(authorization);
+    const { data: docs } = documentIds.length
+      ? await supabase.from('documentos').select('id,estado,created_at').in('id', documentIds)
+      : { data: [] as Array<{ id: string; estado: string; created_at: string }> };
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
     context.usage = {
-      subscription: sub ?? null,
-      documentsCreatedThisMonth: docsThisMonth ?? 0,
-      documentsSentToSignature: docsSentToSign ?? 0,
-      documentsCompleted: docsCompleted ?? 0,
-      documentsPending: docsPending ?? 0,
+      source: 'subscriptions+documentos',
+      subscription,
+      documents_created_this_month: (docs || []).filter(
+        (doc) => new Date(doc.created_at).getTime() >= monthStart
+      ).length,
+      documents_completed: (docs || []).filter((doc) => doc.estado === 'completado').length,
+      documents_pending: (docs || []).filter((doc) => doc.estado !== 'completado').length,
+      total_documents_visible: (docs || []).length,
     };
-  } catch (e) {
-    console.error('[buildUserContext] usage error:', e);
-  }
-
-  // ── 4. Documents created by user ─────────────────────────────────────────
-  try {
-    const { data: createdDocs } = await supabase
-      .from(s.documentsTable)
-      .select(`
-        ${s.documentIdField},
-        ${s.documentTitleField},
-        ${s.documentStatusField},
-        ${s.documentCreatedAtField},
-        ${s.documentUpdatedAtField},
-        ${s.documentExpiryField},
-        ${s.documentEsUrgenteField},
-        tipo:${s.documentTipoDocumentoField}(${s.tipoDocumentoNameField}),
-        grupo:${s.documentGrupoTipoField}(${s.grupoTipoNameField}),
-        carpeta:${s.documentFolderField}(${s.carpetaNameField})
-      `)
-      .eq(s.documentWorkspaceField, workspaceId)
-      .eq(s.documentCreatedByField, userId)
-      .is('deleted_at', null)
-      .order(s.documentCreatedAtField, { ascending: false })
-      .limit(20);
-    context.createdDocuments = createdDocs ?? [];
-  } catch (e) {
-    console.error('[buildUserContext] createdDocs error:', e);
-  }
-
-  // ── 5 & 6. Documents assigned to user + participations ───────────────────
-  try {
-    const { data: participations } = await supabase
-      .from(s.participationTable)
-      .select(`
-        ${s.participationDocumentField},
-        ${s.participationTypeField},
-        ${s.participationSignedField},
-        ${s.participationSignedAtField},
-        ${s.participationApprovedField},
-        ${s.participationApprovedAtField},
-        ${s.participationObservacionesField},
-        ${s.participationCreatedAtField}
-      `)
-      .eq(s.participationUserIdField, userId)
-      .order(s.participationCreatedAtField, { ascending: false })
-      .limit(50);
-
-    if (participations && participations.length > 0) {
-      const docIds = [...new Set(participations.map((p: any) => p[s.participationDocumentField]))];
-
-      const { data: assignedDocs } = await supabase
-        .from(s.documentsTable)
-        .select(`
-          ${s.documentIdField},
-          ${s.documentTitleField},
-          ${s.documentStatusField},
-          ${s.documentCreatedAtField},
-          ${s.documentExpiryField},
-          ${s.documentEsUrgenteField},
-          tipo:${s.documentTipoDocumentoField}(${s.tipoDocumentoNameField}),
-          grupo:${s.documentGrupoTipoField}(${s.grupoTipoNameField})
-        `)
-        .in(s.documentIdField, docIds)
-        .eq(s.documentWorkspaceField, workspaceId)
-        .is('deleted_at', null)
-        .limit(30);
-
-      const assignedWithParticipation = (assignedDocs ?? []).map((doc: any) => {
-        const participation = participations.find(
-          (p: any) => p[s.participationDocumentField] === doc[s.documentIdField]
-        );
-        return {
-          ...doc,
-          participationRole: participation?.[s.participationTypeField] ?? null,
-          firmada: participation?.[s.participationSignedField] ?? false,
-          firmadaAt: participation?.[s.participationSignedAtField] ?? null,
-          aprobada: participation?.[s.participationApprovedField] ?? false,
-          aprobadaAt: participation?.[s.participationApprovedAtField] ?? null,
-          pendingAction: getPendingAction(participation, doc),
-        };
-      });
-
-      context.assignedDocuments = assignedWithParticipation;
-      context.participations = participations;
-    } else {
-      context.assignedDocuments = [];
-      context.participations = [];
-    }
-  } catch (e) {
-    console.error('[buildUserContext] assignedDocs error:', e);
-  }
-
-  // ── 7. Document types assigned ───────────────────────────────────────────
-  try {
-    const assignedDocs: any[] = context.assignedDocuments ?? [];
-    const typeSet = new Set<string>();
-    const groupSet = new Set<string>();
-    for (const doc of assignedDocs) {
-      if (doc.tipo?.nombre) typeSet.add(doc.tipo.nombre);
-      if (doc.grupo?.nombre) groupSet.add(doc.grupo.nombre);
-    }
-    const createdDocs: any[] = context.createdDocuments ?? [];
-    for (const doc of createdDocs) {
-      if (doc.tipo?.nombre) typeSet.add(doc.tipo.nombre);
-      if (doc.grupo?.nombre) groupSet.add(doc.grupo.nombre);
-    }
-    context.documentTypesAssigned = {
-      types: Array.from(typeSet),
-      groups: Array.from(groupSet),
-    };
-  } catch (e) {
-    console.error('[buildUserContext] documentTypes error:', e);
-  }
-
-  // ── 8. Pending actions ───────────────────────────────────────────────────
-  try {
-    const assignedDocs: any[] = context.assignedDocuments ?? [];
-    const pendingSignatures = assignedDocs.filter(
-      (d: any) => d.participationRole === 'firmante' && !d.firmada
-    );
-    const pendingApprovals = assignedDocs.filter(
-      (d: any) => d.participationRole === 'aprobador' && !d.aprobada
-    );
-    const pendingReview = assignedDocs.filter(
-      (d: any) => d.participationRole === 'revisor' && !d.firmada && !d.aprobada
-    );
-    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const expiringSoon = assignedDocs.filter((d: any) => {
-      if (!d[s.documentExpiryField]) return false;
-      const exp = new Date(d[s.documentExpiryField]);
-      return exp >= now && exp <= sevenDaysFromNow;
-    });
-    const overdue = assignedDocs.filter((d: any) => {
-      if (!d[s.documentExpiryField]) return false;
-      return new Date(d[s.documentExpiryField]) < now;
-    });
-
-    context.pendingActions = {
-      pendingSignatures: pendingSignatures.map((d: any) => ({
-        id: d[s.documentIdField],
-        title: d[s.documentTitleField],
-        status: d[s.documentStatusField],
-        expiry: d[s.documentExpiryField],
-        urgent: d[s.documentEsUrgenteField],
-      })),
-      pendingApprovals: pendingApprovals.map((d: any) => ({
-        id: d[s.documentIdField],
-        title: d[s.documentTitleField],
-        status: d[s.documentStatusField],
-      })),
-      pendingReview: pendingReview.map((d: any) => ({
-        id: d[s.documentIdField],
-        title: d[s.documentTitleField],
-        status: d[s.documentStatusField],
-      })),
-      expiringSoon: expiringSoon.map((d: any) => ({
-        id: d[s.documentIdField],
-        title: d[s.documentTitleField],
-        expiry: d[s.documentExpiryField],
-      })),
-      overdue: overdue.map((d: any) => ({
-        id: d[s.documentIdField],
-        title: d[s.documentTitleField],
-        expiry: d[s.documentExpiryField],
-      })),
-    };
-  } catch (e) {
-    console.error('[buildUserContext] pendingActions error:', e);
-  }
-
-  // ── 9. Activity history ──────────────────────────────────────────────────
-  try {
-    const ownedDocIds = (context.createdDocuments ?? [])
-      .slice(0, 10)
-      .map((d: any) => d[s.documentIdField]);
-    const assignedDocIds = (context.assignedDocuments ?? [])
-      .slice(0, 10)
-      .map((d: any) => d[s.documentIdField]);
-    const allDocIds = [...new Set([...ownedDocIds, ...assignedDocIds])];
-
-    if (allDocIds.length > 0) {
-      const { data: activity } = await supabase
-        .from(s.activityLogTable)
-        .select(`
-          id,
-          ${s.activityDocumentField},
-          ${s.activityActorIdField},
-          ${s.activityActorNameField},
-          ${s.activityActorEmailField},
-          ${s.activityActionField},
-          ${s.activityCategoryField},
-          ${s.activityDetailsField},
-          ${s.activityCreatedAtField},
-          documento:${s.activityDocumentField}(${s.documentTitleField})
-        `)
-        .in(s.activityDocumentField, allDocIds)
-        .order(s.activityCreatedAtField, { ascending: false })
-        .limit(20);
-      context.activityHistory = activity ?? [];
-    } else {
-      context.activityHistory = [];
-    }
-  } catch (e) {
-    console.error('[buildUserContext] activityHistory error:', e);
-  }
-
-  // ── 10. Notifications (recent unread) ────────────────────────────────────
-  try {
-    const { data: notifs } = await supabase
-      .from(s.notificationsTable)
-      .select(`
-        ${s.notificationIdField},
-        ${s.notificationTypeField},
-        ${s.notificationTitleField},
-        ${s.notificationDescriptionField},
-        ${s.notificationPriorityField},
-        ${s.notificationReadField},
-        ${s.notificationCreatedAtField}
-      `)
-      .eq(s.notificationUserIdField, userId)
-      .order(s.notificationCreatedAtField, { ascending: false })
-      .limit(20);
-    context.notifications = notifs ?? [];
-    context.unreadNotificationsCount = (notifs ?? []).filter((n: any) => !n[s.notificationReadField]).length;
-  } catch (e) {
-    console.error('[buildUserContext] notifications error:', e);
-  }
-
-  // ── 11. Contacts ─────────────────────────────────────────────────────────
-  try {
-    const { data: contacts } = await supabase
-      .from(s.contactsTable)
-      .select(`
-        ${s.contactIdField},
-        ${s.contactNombreField},
-        ${s.contactApellidoPaternoField},
-        ${s.contactEmailField},
-        ${s.contactTelefonoField},
-        ${s.contactRfcField},
-        ${s.contactCreatedAtField}
-      `)
-      .eq(s.contactUserIdField, userId)
-      .order(s.contactCreatedAtField, { ascending: false })
-      .limit(30);
-    context.contacts = contacts ?? [];
-  } catch (e) {
-    console.error('[buildUserContext] contacts error:', e);
-  }
-
-  // ── 12. Plantillas ───────────────────────────────────────────────────────
-  try {
-    const { data: plantillas } = await supabase
-      .from(s.plantillasTable)
-      .select(`
-        ${s.plantillaIdField},
-        ${s.plantillaNameField},
-        ${s.plantillaDescriptionField},
-        ${s.plantillaCategoryField},
-        ${s.plantillaStatusField},
-        ${s.plantillaCreatedAtField}
-      `)
-      .eq(s.plantillaWorkspaceField, workspaceId)
-      .order(s.plantillaCreatedAtField, { ascending: false })
-      .limit(20);
-    context.plantillas = plantillas ?? [];
-  } catch (e) {
-    console.error('[buildUserContext] plantillas error:', e);
-  }
-
-  // ── 13. Form templates ───────────────────────────────────────────────────
-  try {
-    const { data: forms } = await supabase
-      .from(s.formTemplatesTable)
-      .select(`
-        ${s.formTemplateIdField},
-        ${s.formTemplateNameField},
-        ${s.formTemplateDescriptionField},
-        ${s.formTemplateStatusField},
-        ${s.formTemplateCreatedAtField}
-      `)
-      .eq(s.formTemplateWorkspaceField, workspaceId)
-      .order(s.formTemplateCreatedAtField, { ascending: false })
-      .limit(20);
-    context.formTemplates = forms ?? [];
-  } catch (e) {
-    console.error('[buildUserContext] formTemplates error:', e);
   }
 
   return context;
 }
 
-/** Helper: determine pending action label for a participation */
-function getPendingAction(participation: any, _doc: any): string | null {
-  if (!participation) return null;
-  const role = participation.tipo_participacion;
-  if (role === 'firmante' && !participation.firma_completada) return 'pendiente_de_firma';
-  if (role === 'aprobador' && !participation.aprobacion_completada) return 'pendiente_de_aprobacion';
-  if (role === 'revisor') return 'pendiente_de_revision';
+type StructuredOptions = {
+  documentId?: string;
+  versionId?: string;
+  expedienteId?: string;
+  extractedStatus?: string;
+  extractedUserName?: string;
+  mode?: string;
+  accessToken?: string;
+  routeContext?: RouteContext;
+};
+
+export type LuciaContextErrorCode =
+  | 'AUTHENTICATION_REQUIRED'
+  | 'TOKEN_EXPIRED'
+  | 'WORKSPACE_ACCESS_DENIED'
+  | 'ENTITLEMENT_REQUIRED'
+  | 'RESOURCE_ACCESS_DENIED'
+  | 'RESOURCE_NOT_FOUND'
+  | 'RESOURCE_NOT_FOUND_OR_DENIED'
+  | 'RESOURCE_NOT_INDEXED'
+  | 'MODULE_NOT_SUPPORTED'
+  | 'NO_DATA'
+  | 'SCHEMA_UNAVAILABLE'
+  | 'SUPABASE_RPC_ERROR'
+  | 'AI_PROVIDER_ERROR';
+
+export type LuciaSpecializedContext = {
+  module: string;
+  module_status?: LuciaModuleStatus;
+  data_availability?: LuciaDataAvailability;
+  message?: string;
+  resource_id: string | null;
+  workspace_id: string;
+  permission: { can_view: boolean; role: string | null; reason: string };
+  summary: Record<string, unknown>;
+  items: unknown[];
+  counts: Record<string, unknown>;
+  statuses: Record<string, unknown>;
+  pending_actions: unknown[];
+  evidence_sources: Array<{ source: string; source_id: string }>;
+  warnings: string[];
+  error_code: LuciaContextErrorCode | null;
+  row_count: number;
+  _context_meta?: { rpc: string; latency_ms: number };
+};
+
+const SPECIALIZED_CONTEXT_MODULES = new Set([
+  'organization',
+  'collaboration',
+  'expedientes',
+  'certifications',
+  'certified_notifications',
+  'batch_signatures',
+  'credit_titles',
+  'forms',
+  'reports',
+  'billing',
+]);
+
+const DOCUMENT_INTELLIGENCE_INTENTS = new Set<LuciaIntent>([
+  'document_intelligence_profile',
+  'document_classification',
+  'document_extracted_fields',
+  'document_obligations',
+  'document_completeness',
+  'document_metadata_suggestions',
+  'document_folder_suggestions',
+  'document_tag_suggestions',
+  'document_quality_score',
+  'document_version_comparison',
+  'document_evidence_sources',
+]);
+
+function intelligenceSchemaUnavailable(error: unknown) {
+  const code = String((error as { code?: unknown })?.code || '');
+  const message = String((error as { message?: unknown })?.message || '');
+  return code === '42P01' || code === 'PGRST205' || /does not exist|schema cache/i.test(message);
+}
+
+async function documentIntelligenceContext(
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext,
+  opts: StructuredOptions
+) {
+  const startedAt = Date.now();
+  const documentId = opts.documentId || opts.routeContext?.currentResourceIds.documentId || null;
+  const ids = allowedIds(authorization, documentId);
+  const empty = {
+    module: 'document_intelligence',
+    workspace_id: workspaceId,
+    resource_id: documentId,
+    permission: {
+      can_view: ids.length > 0,
+      role: authorization.role,
+      reason: ids.length ? 'DOCUMENT_ACL' : 'NO_AUTHORIZED_DOCUMENT',
+    },
+    profile: null,
+    fields: [],
+    obligations: [],
+    classifications: [],
+    completeness_checks: [],
+    evidence_sources: [],
+    row_count: 0,
+    error_code: null,
+    _context_meta: { rpc: 'document_intelligence_read_model', latency_ms: Date.now() - startedAt },
+  };
+  if (!isDocumentIntelligenceEnabled()) {
+    return {
+      ...empty,
+      permission: {
+        can_view: false,
+        role: authorization.role,
+        reason: 'DOCUMENT_INTELLIGENCE_DISABLED',
+      },
+      error_code: 'DOCUMENT_INTELLIGENCE_DISABLED' as const,
+      warnings: [DOCUMENT_INTELLIGENCE_DISABLED_MESSAGE],
+    };
+  }
+  if (!ids.length) return empty;
+
+  const service = createServiceClient();
+
+  let versionId: string | null | undefined = opts.versionId;
+  if (documentId && versionId === undefined) {
+    const latestVersion = await service
+      .from('document_versions')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('document_id', documentId)
+      .order('version_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestVersion.error) {
+      return {
+        ...empty,
+        error_code: 'SUPABASE_RPC_ERROR' as const,
+        warnings: ['No fue posible resolver la version documental vigente.'],
+      };
+    }
+    versionId = latestVersion.data?.id || null;
+  }
+  const scoped = (table: string, select: string) => {
+    let query = (service as any)
+      .from(table)
+      .select(select)
+      .eq('workspace_id', workspaceId)
+      .in('document_id', ids);
+    if (documentId && versionId !== undefined) {
+      query = versionId
+        ? query.eq('document_version_id', versionId)
+        : query.is('document_version_id', null);
+    }
+    return query;
+  };
+  const [profiles, fields, obligations, classifications, checks] = await Promise.all([
+    scoped(
+      'ai_document_profiles',
+      'id,document_id,document_version_id,detected_document_type,detected_document_category,title_suggestion,short_summary,executive_summary,language,confidence,quality_score,risk_score,completeness_score,status,extraction_status,source_chunk_ids,evidence,warnings,updated_at'
+    )
+      .order('updated_at', { ascending: false })
+      .limit(documentId ? 1 : 50),
+    scoped(
+      'ai_document_extracted_fields',
+      'id,document_id,document_version_id,field_key,field_label,field_value,normalized_value,value_type,confidence,page_number,chunk_id,evidence_text,status'
+    )
+      .not('value_type', 'in', '(rfc,curp,email,phone,address)')
+      .limit(documentId ? 100 : 50),
+    scoped(
+      'ai_document_obligations',
+      'id,document_id,document_version_id,obligation_type,description,due_date,recurrence_rule,priority,confidence,page_number,chunk_id,evidence_text,suggested_task,status'
+    ).limit(documentId ? 100 : 50),
+    scoped(
+      'ai_document_classifications',
+      'id,document_id,document_version_id,classification_type,classification_value,confidence,reason,evidence'
+    ).limit(documentId ? 100 : 100),
+    scoped(
+      'ai_document_completeness_checks',
+      'id,document_id,document_version_id,check_key,check_label,status,severity,description,recommendation,evidence'
+    ).limit(documentId ? 50 : 50),
+  ]);
+  const results = [profiles, fields, obligations, classifications, checks];
+  const schemaFailure = results.find((result) => intelligenceSchemaUnavailable(result.error));
+  if (schemaFailure) {
+    return {
+      ...empty,
+      error_code: 'SCHEMA_UNAVAILABLE' as const,
+      warnings: ['La migracion de inteligencia documental aun no esta disponible en este entorno.'],
+      _context_meta: {
+        rpc: 'document_intelligence_read_model',
+        latency_ms: Date.now() - startedAt,
+      },
+    };
+  }
+  if (results.some((result) => result.error)) {
+    return {
+      ...empty,
+      error_code: 'SUPABASE_RPC_ERROR' as const,
+      warnings: ['No fue posible consultar la inteligencia documental.'],
+      _context_meta: {
+        rpc: 'document_intelligence_read_model',
+        latency_ms: Date.now() - startedAt,
+      },
+    };
+  }
+  const profileRows = profiles.data || [];
+  const fieldRows = fields.data || [];
+  const obligationRows = obligations.data || [];
+  const classificationRows = classifications.data || [];
+  const checkRows = checks.data || [];
+  const evidenceSources = [
+    ...profileRows.map((row: any) => ({
+      source: 'ai_document_profiles',
+      source_id: row.id,
+      source_type: 'document_profile',
+      document_id: row.document_id,
+      document_version_id: row.document_version_id,
+      chunk_id: null,
+      page_number: null,
+      confidence: row.confidence,
+    })),
+    ...fieldRows
+      .filter((row: any) => row.chunk_id)
+      .map((row: any) => ({
+        source: 'ai_document_extracted_fields',
+        source_id: row.id,
+        source_type: 'extracted_field',
+        document_id: row.document_id,
+        document_version_id: row.document_version_id,
+        chunk_id: row.chunk_id,
+        page_number: row.page_number,
+        confidence: row.confidence,
+      })),
+    ...obligationRows
+      .filter((row: any) => row.chunk_id)
+      .map((row: any) => ({
+        source: 'ai_document_obligations',
+        source_id: row.id,
+        source_type: 'obligation',
+        document_id: row.document_id,
+        document_version_id: row.document_version_id,
+        chunk_id: row.chunk_id,
+        page_number: row.page_number,
+        confidence: row.confidence,
+      })),
+    ...classificationRows.map((row: any) => ({
+      source: 'ai_document_classifications',
+      source_id: row.id,
+      source_type: 'classification',
+      document_id: row.document_id,
+      document_version_id: row.document_version_id,
+      chunk_id: row.evidence?.[0]?.chunk_id || null,
+      page_number: row.evidence?.[0]?.page_number || null,
+      confidence: row.confidence,
+    })),
+  ];
+  return {
+    ...empty,
+    profile: profileRows[0] || null,
+    profiles: documentId ? undefined : profileRows,
+    fields: fieldRows,
+    obligations: obligationRows,
+    classifications: classificationRows,
+    completeness_checks: checkRows,
+    evidence_sources: evidenceSources,
+    row_count:
+      profileRows.length +
+      fieldRows.length +
+      obligationRows.length +
+      classificationRows.length +
+      checkRows.length,
+    _context_meta: { rpc: 'document_intelligence_read_model', latency_ms: Date.now() - startedAt },
+  };
+}
+
+const DEVELOPMENT_CONTEXT_MESSAGE = 'Módulo en construcción; datos operativos aún no disponibles.';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function uuidOrNull(value?: string | null) {
+  return value && UUID_PATTERN.test(value) ? value : null;
+}
+
+function routeSection(routeContext?: RouteContext) {
+  return routeContext?.route.split('/').filter(Boolean)[1]?.slice(0, 80) || null;
+}
+
+function specializedContextError(
+  moduleKey: string,
+  workspaceId: string,
+  errorCode: LuciaContextErrorCode,
+  reason: string,
+  rpc: string,
+  latencyMs: number,
+  routeContext?: RouteContext
+): LuciaSpecializedContext {
+  const developmentSchemaUnavailable =
+    errorCode === 'SCHEMA_UNAVAILABLE' && routeContext?.moduleStatus === 'in_development';
+  return {
+    module: moduleKey,
+    ...(developmentSchemaUnavailable
+      ? {
+          module_status: 'in_development' as const,
+          data_availability: 'schema_unavailable' as const,
+          message: DEVELOPMENT_CONTEXT_MESSAGE,
+        }
+      : {}),
+    resource_id: null,
+    workspace_id: workspaceId,
+    permission: { can_view: false, role: null, reason },
+    summary: {},
+    items: [],
+    counts: {},
+    statuses: {},
+    pending_actions: [],
+    evidence_sources: [],
+    warnings: [],
+    error_code: errorCode,
+    row_count: 0,
+    _context_meta: { rpc, latency_ms: latencyMs },
+  };
+}
+
+function mapRpcError(error: { code?: string; message?: string }) {
+  if (error.code === '42501') return 'RESOURCE_ACCESS_DENIED' as const;
+  if (['42883', '42P01', '42703', 'PGRST202'].includes(error.code || '')) {
+    return 'SCHEMA_UNAVAILABLE' as const;
+  }
+  return 'SUPABASE_RPC_ERROR' as const;
+}
+
+async function specializedModuleContext(
+  moduleKey: string,
+  workspaceId: string,
+  opts: StructuredOptions
+): Promise<LuciaSpecializedContext> {
+  const startedAt = Date.now();
+  if (!opts.accessToken) {
+    return specializedContextError(
+      moduleKey,
+      workspaceId,
+      'TOKEN_EXPIRED',
+      'authenticated_access_token_required',
+      'none',
+      0,
+      opts.routeContext
+    );
+  }
+
+  const resources = opts.routeContext?.currentResourceIds || {};
+  const section = routeSection(opts.routeContext);
+  const definitions: Record<string, { rpc: string; params: Record<string, unknown> }> = {
+    organization: {
+      rpc: 'get_lucia_organization_context',
+      params: {
+        p_workspace_id: workspaceId,
+        p_section: section,
+        p_resource_id: uuidOrNull(resources.personId || resources.memberId),
+      },
+    },
+    collaboration: {
+      rpc: 'get_lucia_collaboration_context',
+      params: {
+        p_workspace_id: workspaceId,
+        p_section: section,
+        p_resource_id: uuidOrNull(resources.resourceId),
+      },
+    },
+    expedientes: {
+      rpc: 'get_lucia_case_file_context',
+      params: {
+        p_workspace_id: workspaceId,
+        p_case_file_id: uuidOrNull(opts.expedienteId || resources.expedienteId),
+      },
+    },
+    certifications: {
+      rpc: 'get_lucia_certification_context',
+      params: {
+        p_workspace_id: workspaceId,
+        p_certification_id: uuidOrNull(resources.certificationId),
+      },
+    },
+    certified_notifications: {
+      rpc: 'get_lucia_certified_notification_context',
+      params: {
+        p_workspace_id: workspaceId,
+        p_notification_id: uuidOrNull(resources.notificationId),
+      },
+    },
+    batch_signatures: {
+      rpc: 'get_lucia_batch_signature_context',
+      params: {
+        p_workspace_id: workspaceId,
+        p_batch_id: uuidOrNull(resources.batchId),
+      },
+    },
+    credit_titles: {
+      rpc: 'get_lucia_credit_title_context',
+      params: {
+        p_workspace_id: workspaceId,
+        p_credit_title_id: uuidOrNull(resources.creditTitleId),
+      },
+    },
+    forms: {
+      rpc: 'get_lucia_form_context',
+      params: {
+        p_workspace_id: workspaceId,
+        p_form_id: uuidOrNull(resources.formId),
+      },
+    },
+    reports: {
+      rpc: 'get_lucia_report_context',
+      params: {
+        p_workspace_id: workspaceId,
+        p_report_scope: opts.routeContext?.uiState.view === 'workspace' ? 'workspace' : 'personal',
+        p_filters: {
+          ...(opts.extractedStatus ? { status: opts.extractedStatus } : {}),
+        },
+      },
+    },
+    billing: {
+      rpc: 'get_lucia_billing_context',
+      params: { p_workspace_id: workspaceId },
+    },
+  };
+
+  const definition = definitions[moduleKey];
+  if (!definition) {
+    return specializedContextError(
+      moduleKey,
+      workspaceId,
+      'MODULE_NOT_SUPPORTED',
+      'specialized_context_not_registered',
+      'none',
+      Date.now() - startedAt,
+      opts.routeContext
+    );
+  }
+
+  const scoped = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${opts.accessToken}` } } }
+  );
+  const { data, error } = await scoped.rpc(definition.rpc, definition.params);
+  const latencyMs = Date.now() - startedAt;
+  if (error) {
+    return specializedContextError(
+      moduleKey,
+      workspaceId,
+      mapRpcError(error),
+      'specialized_context_rpc_failed',
+      definition.rpc,
+      latencyMs,
+      opts.routeContext
+    );
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return specializedContextError(
+      moduleKey,
+      workspaceId,
+      'SCHEMA_UNAVAILABLE',
+      'invalid_specialized_context_contract',
+      definition.rpc,
+      latencyMs,
+      opts.routeContext
+    );
+  }
+
+  const specializedData = data as LuciaSpecializedContext;
+  const developmentSchemaUnavailable =
+    specializedData.error_code === 'SCHEMA_UNAVAILABLE' &&
+    opts.routeContext?.moduleStatus === 'in_development';
+  return {
+    ...specializedData,
+    ...(developmentSchemaUnavailable
+      ? {
+          module_status: 'in_development' as const,
+          data_availability: 'schema_unavailable' as const,
+          message: DEVELOPMENT_CONTEXT_MESSAGE,
+        }
+      : opts.routeContext?.moduleStatus === 'in_development'
+        ? {
+            module_status: opts.routeContext.moduleStatus,
+            data_availability: opts.routeContext.dataAvailability,
+          }
+        : {}),
+    _context_meta: { rpc: definition.rpc, latency_ms: latencyMs },
+  };
+}
+
+export function getSpecializedContextError(context: unknown) {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return null;
+  const errorCode = (context as Partial<LuciaSpecializedContext>).error_code;
+  return errorCode || null;
+}
+
+async function documentContext(
+  authorization: LuciaAuthorizationContext,
+  opts: StructuredOptions,
+  intent: LuciaIntent
+) {
+  const ids = allowedIds(
+    authorization,
+    opts.documentId || opts.routeContext?.currentResourceIds.documentId
+  );
+  if (!ids.length) return null;
+  const supabase = createServiceClient();
+  let documentsQuery = supabase
+    .from('documentos')
+    .select(DOCUMENT_FIELDS)
+    .in('id', ids)
+    .is('deleted_at', null);
+  if (opts.extractedStatus) documentsQuery = documentsQuery.eq('estado', opts.extractedStatus);
+  const { data: documents } = await documentsQuery
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  const result: Record<string, unknown> = {
+    module_key: opts.routeContext?.moduleKey,
+    documents: withSource('documentos', documents),
+  };
+  if (
+    ['signature_status', 'participations_summary', 'requests_summary', 'document_review'].includes(
+      intent
+    ) ||
+    opts.routeContext?.moduleKey === 'document_viewer'
+  ) {
+    const { data } = await supabase
+      .from('participation_responses')
+      .select(
+        'id,documento_id,participante_nombre,tipo_participacion,firma_completada,firma_completada_at,aprobacion_completada,aprobacion_completada_at,created_at'
+      )
+      .in('documento_id', ids)
+      .limit(100);
+    result.participations = withSource('participation_responses', data);
+  }
+  if (intent === 'document_versions' || opts.routeContext?.route.endsWith('/versiones')) {
+    const { data } = await supabase
+      .from('document_versions')
+      .select('id,document_id,version_number,status,created_at,created_by')
+      .in('document_id', ids)
+      .order('version_number', { ascending: false })
+      .limit(50);
+    result.versions = withSource('document_versions', data);
+  }
+  if (
+    ['document_review', 'document_metadata'].includes(intent) ||
+    opts.routeContext?.moduleKey === 'document_viewer'
+  ) {
+    const { data } = await supabase
+      .from('document_activity_log')
+      .select('id,documento_id,actor_nombre,action,category,details,created_at')
+      .in('documento_id', ids)
+      .order('created_at', { ascending: false })
+      .limit(40);
+    result.activity = withSource('document_activity_log', data);
+  }
+  return result;
+}
+
+async function taskContext(
+  userId: string,
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext
+) {
+  const supabase = createServiceClient();
+  const { data } = await supabase
+    .from('tareas')
+    .select(
+      'id,title,tipo,prioridad,estado,riesgo,due_date,document_id,expediente_id,is_overdue,is_blocked,is_critical,created_at'
+    )
+    .eq('workspace_id', workspaceId)
+    .or(`assigned_to.eq.${userId},created_by.eq.${userId}`)
+    .order('due_date', { ascending: true, nullsFirst: false })
+    .limit(50);
+  const allowed = new Set(authorization.allowed_document_ids);
+  const rows = (data || []).filter((task) => !task.document_id || allowed.has(task.document_id));
+  return { tasks: withSource('tareas', rows) };
+}
+
+async function formContext(
+  userId: string,
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext,
+  includeResponses: boolean
+) {
+  const supabase = createServiceClient();
+  let query = supabase
+    .from('form_templates')
+    .select('id,name,description,status,created_by,created_at,updated_at')
+    .eq('workspace_id', workspaceId);
+  if (!isManager(authorization)) query = query.eq('created_by', userId);
+  const { data: forms } = await query.order('created_at', { ascending: false }).limit(30);
+  const result: Record<string, unknown> = { forms: withSource('form_templates', forms) };
+  if (includeResponses && forms?.length) {
+    const formIds = forms.map((form) => form.id);
+    const { data: responses } = await supabase
+      .from('form_responses')
+      .select('id,template_id,document_id,submitted_at')
+      .in('template_id', formIds)
+      .limit(100);
+    const allowed = new Set(authorization.allowed_document_ids);
+    const visible = (responses || []).filter(
+      (response) => !response.document_id || allowed.has(response.document_id)
+    );
+    result.response_summary = {
+      source: 'form_responses',
+      total: visible.length,
+      by_template: formIds.map((id) => ({
+        template_id: id,
+        count: visible.filter((response) => response.template_id === id).length,
+      })),
+    };
+  }
+  return result;
+}
+
+async function expedienteContext(
+  userId: string,
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext,
+  opts: StructuredOptions
+) {
+  const supabase = createServiceClient();
+  let caseIds: string[] = [];
+  if (isManager(authorization)) {
+    const { data } = await supabase
+      .from('case_files')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .limit(100);
+    caseIds = (data || []).map((row) => row.id);
+  } else {
+    const [{ data: owned }, { data: participations }] = await Promise.all([
+      supabase
+        .from('case_files')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('owner_user_id', userId)
+        .limit(100),
+      supabase
+        .from('case_file_participants')
+        .select('case_file_id')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .limit(100),
+    ]);
+    caseIds = [
+      ...new Set([
+        ...(owned || []).map((row) => row.id),
+        ...(participations || []).map((row) => row.case_file_id),
+      ]),
+    ];
+  }
+  const requestedId = opts.expedienteId || opts.routeContext?.currentResourceIds.expedienteId;
+  if (requestedId) caseIds = caseIds.includes(requestedId) ? [requestedId] : [];
+  if (!caseIds.length) return null;
+
+  const [{ data: cases }, { data: requirements }, { data: links }, { data: events }] =
+    await Promise.all([
+      supabase
+        .from('case_files')
+        .select(
+          'id,folio,title,case_type,status,priority,progress,target_close_at,closure_status,created_at,updated_at'
+        )
+        .in('id', caseIds)
+        .limit(30),
+      supabase
+        .from('case_file_requirements')
+        .select('id,case_file_id,title,category,is_required,sort_order')
+        .in('case_file_id', caseIds)
+        .limit(100),
+      supabase
+        .from('case_file_documents')
+        .select('id,case_file_id,source_document_id,requirement_id,document_name,status,created_at')
+        .in('case_file_id', caseIds)
+        .limit(100),
+      supabase
+        .from('case_file_audit_events')
+        .select('id,case_file_id,actor_label,action,affected_object_type,result,occurred_at')
+        .in('case_file_id', caseIds)
+        .order('occurred_at', { ascending: false })
+        .limit(50),
+    ]);
+  const allowed = new Set(authorization.allowed_document_ids);
+  return {
+    case_files: withSource('case_files', cases),
+    requirements: withSource('case_file_requirements', requirements),
+    document_links: withSource(
+      'case_file_documents',
+      (links || []).filter((row) => !row.source_document_id || allowed.has(row.source_document_id))
+    ),
+    audit: withSource('case_file_audit_events', events),
+  };
+}
+
+async function certifiedNotificationContext(
+  authorization: LuciaAuthorizationContext,
+  opts: StructuredOptions
+) {
+  const ids = allowedIds(authorization);
+  if (!ids.length) return null;
+  const supabase = createServiceClient();
+  let query = supabase
+    .from('certified_notifications')
+    .select(
+      'id,source_document_id,folio,subject,category,status,evidence_level,due_at,published_at,completed_at,last_event_label,created_at'
+    )
+    .in('source_document_id', ids);
+  const notificationId = opts.routeContext?.currentResourceIds.notificationId;
+  if (notificationId) query = query.eq('id', notificationId);
+  const { data: notifications } = await query.order('created_at', { ascending: false }).limit(30);
+  if (!notifications?.length) return null;
+  const notificationIds = notifications.map((row) => row.id);
+  const [{ data: recipients }, { data: events }, { data: certificates }] = await Promise.all([
+    supabase
+      .from('notification_recipients')
+      .select('id,notification_id,name,role,status,authenticated_at,accessed_at,acknowledged_at')
+      .in('notification_id', notificationIds)
+      .limit(100),
+    supabase
+      .from('notification_evidence_events')
+      .select('id,notification_id,event_type,label,actor_label,occurred_at')
+      .in('notification_id', notificationIds)
+      .order('occurred_at', { ascending: false })
+      .limit(100),
+    supabase
+      .from('notification_certificates')
+      .select('id,notification_id,certificate_type,status,created_at')
+      .in('notification_id', notificationIds)
+      .limit(50),
+  ]);
+  return {
+    notifications: withSource('certified_notifications', notifications),
+    recipients: withSource('notification_recipients', recipients),
+    evidence_events: withSource('notification_evidence_events', events),
+    certificates: withSource('notification_certificates', certificates),
+  };
+}
+
+async function certificationContext(
+  userId: string,
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext,
+  opts: StructuredOptions
+) {
+  const supabase = createServiceClient();
+  const documentIds = allowedIds(authorization);
+  let casesQuery = supabase
+    .from('certification_cases')
+    .select(
+      'id,human_folio,source_type,source_document_id,title,service_key,purpose_key,status,provider_mode,file_classification,malware_status,warnings,error_code,created_at,updated_at'
+    )
+    .eq('workspace_id', workspaceId);
+  if (!isManager(authorization)) casesQuery = casesQuery.eq('created_by', userId);
+  const { data: cases } = await casesQuery.order('created_at', { ascending: false }).limit(30);
+  const visibleCases = (cases || []).filter(
+    (item) => !item.source_document_id || documentIds.includes(item.source_document_id)
+  );
+  const requested = opts.routeContext?.currentResourceIds.certificationId;
+  const filteredCases = requested
+    ? visibleCases.filter((item) => item.id === requested)
+    : visibleCases;
+  const { data: certifications } = documentIds.length
+    ? await supabase
+        .from('document_certifications')
+        .select('id,document_id,status,document_version,created_at,completed_at,error_code')
+        .in('document_id', documentIds)
+        .order('created_at', { ascending: false })
+        .limit(30)
+    : { data: [] as unknown[] };
+  return {
+    cases: withSource('certification_cases', filteredCases),
+    document_certifications: withSource('document_certifications', certifications),
+  };
+}
+
+async function batchSignatureContext(
+  userId: string,
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext,
+  opts: StructuredOptions
+) {
+  const supabase = createServiceClient();
+  let query = supabase
+    .from('bulk_signature_campaigns')
+    .select(
+      'id,name,campaign_type,status,priority,total_items,completed_items,pending_items,failed_items,participant_count,scheduled_at,expires_at,created_at,updated_at'
+    )
+    .eq('workspace_id', workspaceId);
+  if (!isManager(authorization)) query = query.eq('owner_user_id', userId);
+  const requested = opts.routeContext?.currentResourceIds.batchId;
+  if (requested) query = query.eq('id', requested);
+  const { data: campaigns } = await query.order('created_at', { ascending: false }).limit(30);
+  if (!campaigns?.length) return { campaigns: withSource('bulk_signature_campaigns', []) };
+  const campaignIds = campaigns.map((row) => row.id);
+  const [{ data: items }, { data: imports }] = await Promise.all([
+    supabase
+      .from('bulk_campaign_items')
+      .select(
+        'id,campaign_id,document_id,status,progress,error_code,error_message,attempt_count,last_activity_at'
+      )
+      .in('campaign_id', campaignIds)
+      .limit(200),
+    supabase
+      .from('bulk_campaign_imports')
+      .select('id,campaign_id,file_name,status,total_rows,valid_rows,invalid_rows,created_at')
+      .in('campaign_id', campaignIds)
+      .limit(50),
+  ]);
+  const allowed = new Set(authorization.allowed_document_ids);
+  return {
+    campaigns: withSource('bulk_signature_campaigns', campaigns),
+    items: withSource(
+      'bulk_campaign_items',
+      (items || []).filter((row) => !row.document_id || allowed.has(row.document_id))
+    ),
+    imports: withSource('bulk_campaign_imports', imports),
+  };
+}
+
+async function creditTitleContext(
+  userId: string,
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext,
+  opts: StructuredOptions
+) {
+  const supabase = createServiceClient();
+  let query = supabase
+    .from('credit_titles')
+    .select(
+      'id,folio,status,nominal_amount,outstanding_balance,currency,maturity_date,current_holder_name,source_document_id,representation_document_id,issued_at,created_at,updated_at'
+    )
+    .eq('workspace_id', workspaceId);
+  if (!isManager(authorization)) query = query.eq('created_by', userId);
+  const requested = opts.routeContext?.currentResourceIds.creditTitleId;
+  if (requested) query = query.eq('id', requested);
+  const { data: titles } = await query.order('created_at', { ascending: false }).limit(30);
+  const allowed = new Set(authorization.allowed_document_ids);
+  const visible = (titles || []).filter(
+    (row) =>
+      (!row.source_document_id || allowed.has(row.source_document_id)) &&
+      (!row.representation_document_id || allowed.has(row.representation_document_id))
+  );
+  const titleIds = visible.map((row) => row.id);
+  const [{ data: events }, { data: portfolios }] = titleIds.length
+    ? await Promise.all([
+        supabase
+          .from('title_events')
+          .select('id,title_id,event_type,sequence_no,occurred_at')
+          .in('title_id', titleIds)
+          .order('occurred_at', { ascending: false })
+          .limit(100),
+        supabase
+          .from('portfolio_titles')
+          .select('portfolio_id,title_id,added_at')
+          .in('title_id', titleIds)
+          .limit(100),
+      ])
+    : [{ data: [] }, { data: [] }];
+  return {
+    titles: withSource('credit_titles', visible),
+    events: withSource('title_events', events),
+    portfolio_links: withSource('portfolio_titles', portfolios),
+  };
+}
+
+async function organizationContext(
+  userId: string,
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext
+) {
+  const supabase = createServiceClient();
+  if (!isManager(authorization)) {
+    const { data } = await supabase
+      .from('workspace_members')
+      .select('id,user_id,role,status,joined_at')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
+      .limit(1);
+    return { current_membership: withSource('workspace_members', data) };
+  }
+  const [{ data: members }, { data: roles }, { data: units }] = await Promise.all([
+    supabase
+      .from('workspace_members')
+      .select('id,user_id,role,status,joined_at')
+      .eq('workspace_id', workspaceId)
+      .limit(100),
+    supabase
+      .from('organization_roles')
+      .select('id,name,description,system_key,is_system')
+      .eq('workspace_id', workspaceId)
+      .limit(50),
+    supabase
+      .from('organization_units')
+      .select('id,parent_id,name,status,leader_member_id')
+      .eq('workspace_id', workspaceId)
+      .limit(100),
+  ]);
+  return {
+    members: withSource('workspace_members', members),
+    roles: withSource('organization_roles', roles),
+    units: withSource('organization_units', units),
+  };
+}
+
+async function collaborationContext(
+  userId: string,
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext
+) {
+  const supabase = createServiceClient();
+  let spaceIds: string[] = [];
+  if (isManager(authorization)) {
+    const { data } = await supabase
+      .from('collaboration_spaces')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .limit(100);
+    spaceIds = (data || []).map((row) => row.id);
+  } else {
+    const { data } = await supabase
+      .from('collaboration_space_members')
+      .select('space_id')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .limit(100);
+    spaceIds = (data || []).map((row) => row.space_id);
+  }
+  if (!spaceIds.length) return { spaces: withSource('collaboration_spaces', []) };
+  const [{ data: spaces }, { data: requests }, { data: events }] = await Promise.all([
+    supabase
+      .from('collaboration_spaces')
+      .select('id,name,space_type,status,confidentiality,case_file_id,created_at,updated_at')
+      .in('id', spaceIds)
+      .limit(50),
+    supabase
+      .from('collaboration_document_requests')
+      .select('id,space_id,case_file_id,folio,title,status,responsible_user_id,due_at,created_at')
+      .in('space_id', spaceIds)
+      .limit(100),
+    supabase
+      .from('collaboration_activity_events')
+      .select('id,space_id,event_type,resource_type,summary,occurred_at')
+      .in('space_id', spaceIds)
+      .order('occurred_at', { ascending: false })
+      .limit(100),
+  ]);
+  return {
+    spaces: withSource('collaboration_spaces', spaces),
+    requests: withSource('collaboration_document_requests', requests),
+    activity: withSource('collaboration_activity_events', events),
+  };
+}
+
+export async function buildStructuredContext(
+  question: string,
+  intent: LuciaIntent,
+  userId: string,
+  workspaceId: string,
+  authorization: LuciaAuthorizationContext,
+  opts: StructuredOptions = {}
+) {
+  void question;
+  const moduleKey = opts.routeContext?.moduleKey;
+  if (intent === 'public_token_help') {
+    if (!authorization.is_public_token_flow || authorization.denied_reason) return null;
+    return {
+      token_grant: {
+        source: 'resolved_public_capability',
+        grant_id: authorization.token_grant_id,
+        permissions: authorization.permissions,
+        resource_ids: authorization.allowed_resource_ids,
+      },
+    };
+  }
+  if (!isAuthorizedWorkspace(authorization, workspaceId, userId)) return null;
+
+  if (intent === 'module_design_help' && opts.routeContext?.moduleStatus === 'in_development') {
+    return {
+      module: opts.routeContext.moduleKey,
+      module_status: opts.routeContext.moduleStatus,
+      data_availability: opts.routeContext.dataAvailability,
+      message: DEVELOPMENT_CONTEXT_MESSAGE,
+      purpose: opts.routeContext.purpose,
+      entities: opts.routeContext.entities,
+      planned_data_sources: opts.routeContext.dataSources,
+      allowed_guidance: opts.routeContext.availableActions,
+      security_constraints: opts.routeContext.sensitiveFields,
+      operational_data: false,
+    };
+  }
+
+  if (DOCUMENT_INTELLIGENCE_INTENTS.has(intent)) {
+    return documentIntelligenceContext(workspaceId, authorization, opts);
+  }
+
+  if (moduleKey && SPECIALIZED_CONTEXT_MODULES.has(moduleKey)) {
+    return specializedModuleContext(moduleKey, workspaceId, opts);
+  }
+
+  if (
+    ['home_summary', 'reports_summary'].includes(intent) ||
+    moduleKey === 'home' ||
+    moduleKey === 'reports'
+  ) {
+    const docs = await documentContext(authorization, opts, 'document_search');
+    const tasks = await taskContext(userId, workspaceId, authorization);
+    return { documents: docs, ...tasks };
+  }
+  if (
+    [
+      'document_search',
+      'document_metadata',
+      'document_versions',
+      'document_review',
+      'signature_status',
+      'participations_summary',
+      'requests_summary',
+    ].includes(intent) ||
+    ['documents', 'document_viewer', 'signing', 'participations', 'requests'].includes(
+      moduleKey || ''
+    )
+  )
+    return documentContext(authorization, opts, intent);
+  if (intent === 'tasks_summary' || moduleKey === 'tasks')
+    return taskContext(userId, workspaceId, authorization);
+
+  const supabase = createServiceClient();
+  if (intent === 'contacts_search' || moduleKey === 'contacts') {
+    const { data } = await supabase
+      .from('contacts')
+      .select('id,nombre,apellido_paterno,created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    return { contacts: withSource('contacts', data) };
+  }
+  if (intent === 'templates_help' || moduleKey === 'templates' || moduleKey === 'create_document') {
+    let query = supabase
+      .from('plantillas')
+      .select('id,name,description,category,status,created_by,created_at')
+      .eq('workspace_id', workspaceId);
+    if (!isManager(authorization)) query = query.eq('created_by', userId);
+    const { data } = await query.order('created_at', { ascending: false }).limit(30);
+    return { templates: withSource('plantillas', data) };
+  }
+  if (['forms_help', 'forms_responses_summary'].includes(intent) || moduleKey === 'forms') {
+    return formContext(userId, workspaceId, authorization, intent === 'forms_responses_summary');
+  }
+  if (
+    ['expediente_summary', 'expediente_requirements'].includes(intent) ||
+    moduleKey === 'expedientes'
+  ) {
+    return expedienteContext(userId, workspaceId, authorization, opts);
+  }
+  if (intent === 'notifications_summary' || moduleKey === 'notifications') {
+    const { data } = await supabase
+      .from('notifications')
+      .select('id,type,title,description,priority,read,created_at,entity_type,entity_id')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    const allowed = new Set(authorization.allowed_document_ids);
+    return {
+      notifications: withSource(
+        'notifications',
+        (data || []).filter(
+          (row) => row.entity_type !== 'document' || !row.entity_id || allowed.has(row.entity_id)
+        )
+      ),
+    };
+  }
+  if (intent === 'certified_notification_status' || moduleKey === 'certified_notifications') {
+    return certifiedNotificationContext(authorization, opts);
+  }
+  if (intent === 'certification_status' || moduleKey === 'certifications') {
+    return certificationContext(userId, workspaceId, authorization, opts);
+  }
+  if (intent === 'batch_signature_status' || moduleKey === 'batch_signatures') {
+    return batchSignatureContext(userId, workspaceId, authorization, opts);
+  }
+  if (intent === 'credit_title_status' || moduleKey === 'credit_titles') {
+    return creditTitleContext(userId, workspaceId, authorization, opts);
+  }
+  if (intent === 'organization_permissions' || moduleKey === 'organization') {
+    return organizationContext(userId, workspaceId, authorization);
+  }
+  if (intent === 'collaboration_summary' || moduleKey === 'collaboration') {
+    return collaborationContext(userId, workspaceId, authorization);
+  }
+  if (intent === 'configuration_security' || moduleKey === 'configuration_security') {
+    return {
+      security: {
+        source: 'authorization_context',
+        role: authorization.role,
+        membership_status: authorization.membership_status,
+        permissions: authorization.permissions,
+      },
+    };
+  }
+  if (intent === 'billing_usage' || moduleKey === 'billing') {
+    const { data: subscription } = await supabase
+      .from('subscriptions')
+      .select(
+        'id,status,documents_used,documents_limit,current_period_start,current_period_end,plan:plan_id(id,name,slug,documents_included)'
+      )
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .order('current_period_start', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const { data: ledger } = isManager(authorization)
+      ? await supabase
+          .from('organization_usage_ledger')
+          .select('id,metric_key,quantity,unit,source_type,occurred_at')
+          .eq('workspace_id', workspaceId)
+          .order('occurred_at', { ascending: false })
+          .limit(50)
+      : { data: [] as unknown[] };
+    return {
+      subscription: withSource('subscriptions', subscription),
+      usage: withSource('organization_usage_ledger', ledger),
+    };
+  }
+  if (intent === 'integrations_help' || moduleKey === 'integrations') {
+    const { data } = await supabase
+      .from('user_module_preferences')
+      .select('id,active_module_id,updated_at')
+      .eq('user_id', userId)
+      .maybeSingle();
+    return { activation: withSource('user_module_preferences', data) };
+  }
   return null;
 }
 
-// ── Structured Query Functions ─────────────────────────────────────────────
-
-export async function getDocumentCreator(workspaceId: string, documentId: string) {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from(s.documentsTable)
-    .select(`
-      ${s.documentIdField},
-      ${s.documentTitleField},
-      ${s.documentCreatedAtField},
-      owner:${s.documentCreatedByField}(${s.userIdField}, ${s.userFullNameField}, ${s.userNombreField}, ${s.userApellidoPaternoField}, ${s.userEmailField})
-    `)
-    .eq(s.documentIdField, documentId)
-    .eq(s.documentWorkspaceField, workspaceId)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
-export async function getDocumentsByStatus(workspaceId: string, status: string) {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from(s.documentsTable)
-    .select(`
-      ${s.documentIdField},
-      ${s.documentTitleField},
-      ${s.documentStatusField},
-      ${s.documentCreatedAtField},
-      ${s.documentExpiryField},
-      owner:${s.documentCreatedByField}(${s.userFullNameField}, ${s.userNombreField}, ${s.userEmailField})
-    `)
-    .eq(s.documentWorkspaceField, workspaceId)
-    .eq(s.documentStatusField, status)
-    .is('deleted_at', null)
-    .order(s.documentCreatedAtField, { ascending: false })
-    .limit(20);
-  if (error) throw error;
-  return data || [];
-}
-
-export async function getDocumentsPendingSignature(workspaceId: string, userId: string) {
-  const supabase = getServiceClient();
-  const { data: participations, error: pErr } = await supabase
-    .from(s.participationTable)
-    .select(`
-      ${s.participationDocumentField},
-      ${s.participationEmailField},
-      ${s.participationNameField},
-      ${s.participationTypeField},
-      ${s.participationSignedField}
-    `)
-    .eq(s.participationUserIdField, userId)
-    .eq(s.participationSignedField, false)
-    .eq(s.participationTypeField, 'firmante');
-  if (pErr) throw pErr;
-  if (!participations || participations.length === 0) return [];
-
-  const docIds = participations.map((p: any) => p[s.participationDocumentField]);
-  const { data: docs, error: dErr } = await supabase
-    .from(s.documentsTable)
-    .select(`
-      ${s.documentIdField},
-      ${s.documentTitleField},
-      ${s.documentStatusField},
-      ${s.documentCreatedAtField},
-      ${s.documentExpiryField}
-    `)
-    .in(s.documentIdField, docIds)
-    .eq(s.documentWorkspaceField, workspaceId)
-    .is('deleted_at', null)
-    .limit(20);
-  if (dErr) throw dErr;
-  return docs || [];
-}
-
-export async function getDocumentsCreatedByUser(workspaceId: string, targetUserName: string) {
-  const supabase = getServiceClient();
-  const { data: users, error: uErr } = await supabase
-    .from(s.usersTable)
-    .select(`${s.userIdField}, ${s.userFullNameField}, ${s.userNombreField}, ${s.userEmailField}`)
-    .or(`${s.userFullNameField}.ilike.%${targetUserName}%,${s.userNombreField}.ilike.%${targetUserName}%,${s.userEmailField}.ilike.%${targetUserName}%`);
-  if (uErr) throw uErr;
-  if (!users || users.length === 0) return [];
-
-  const userIds = users.map((u: any) => u[s.userIdField]);
-  const { data, error } = await supabase
-    .from(s.documentsTable)
-    .select(`
-      ${s.documentIdField},
-      ${s.documentTitleField},
-      ${s.documentStatusField},
-      ${s.documentCreatedAtField},
-      owner:${s.documentCreatedByField}(${s.userFullNameField}, ${s.userNombreField}, ${s.userEmailField})
-    `)
-    .in(s.documentCreatedByField, userIds)
-    .eq(s.documentWorkspaceField, workspaceId)
-    .is('deleted_at', null)
-    .order(s.documentCreatedAtField, { ascending: false })
-    .limit(20);
-  if (error) throw error;
-  return data || [];
-}
-
-export async function getDocumentsExpiringSoon(workspaceId: string, daysAhead = 7) {
-  const supabase = getServiceClient();
-  const now = new Date();
-  const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
-  const { data, error } = await supabase
-    .from(s.documentsTable)
-    .select(`
-      ${s.documentIdField},
-      ${s.documentTitleField},
-      ${s.documentStatusField},
-      ${s.documentExpiryField},
-      owner:${s.documentCreatedByField}(${s.userFullNameField}, ${s.userNombreField}, ${s.userEmailField})
-    `)
-    .eq(s.documentWorkspaceField, workspaceId)
-    .eq(s.documentHasExpiryField, true)
-    .gte(s.documentExpiryField, now.toISOString())
-    .lte(s.documentExpiryField, future.toISOString())
-    .is('deleted_at', null)
-    .order(s.documentExpiryField, { ascending: true })
-    .limit(20);
-  if (error) throw error;
-  return data || [];
-}
-
-export async function getDocumentParticipants(workspaceId: string, documentId: string) {
-  const supabase = getServiceClient();
-  const { data: doc, error: dErr } = await supabase
-    .from(s.documentsTable)
-    .select(`${s.documentIdField}, ${s.documentTitleField}, ${s.documentParticipantsJsonField}`)
-    .eq(s.documentIdField, documentId)
-    .eq(s.documentWorkspaceField, workspaceId)
-    .maybeSingle();
-  if (dErr) throw dErr;
-  if (!doc) return null;
-
-  const { data: responses, error: rErr } = await supabase
-    .from(s.participationTable)
-    .select(`
-      ${s.participationEmailField},
-      ${s.participationNameField},
-      ${s.participationTypeField},
-      ${s.participationSignedField},
-      ${s.participationSignedAtField},
-      ${s.participationApprovedField}
-    `)
-    .eq(s.participationDocumentField, documentId);
-  if (rErr) throw rErr;
-  return { document: doc, participations: responses || [] };
-}
-
-export async function getDocumentsByExpediente(workspaceId: string, carpetaId: string) {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from(s.documentsTable)
-    .select(`
-      ${s.documentIdField},
-      ${s.documentTitleField},
-      ${s.documentStatusField},
-      ${s.documentCreatedAtField},
-      owner:${s.documentCreatedByField}(${s.userFullNameField}, ${s.userNombreField}, ${s.userEmailField})
-    `)
-    .eq(s.documentWorkspaceField, workspaceId)
-    .eq(s.documentFolderField, carpetaId)
-    .is('deleted_at', null)
-    .order(s.documentCreatedAtField, { ascending: false })
-    .limit(30);
-  if (error) throw error;
-  return data || [];
-}
-
-export async function searchDocumentMetadata(
-  workspaceId: string,
-  filters: { query?: string; status?: string; ownerId?: string; carpetaId?: string }
-) {
-  const supabase = getServiceClient();
-  let q = supabase
-    .from(s.documentsTable)
-    .select(`
-      ${s.documentIdField},
-      ${s.documentTitleField},
-      ${s.documentStatusField},
-      ${s.documentCreatedAtField},
-      ${s.documentExpiryField},
-      ${s.documentDescriptionField},
-      owner:${s.documentCreatedByField}(${s.userFullNameField}, ${s.userNombreField}, ${s.userEmailField})
-    `)
-    .eq(s.documentWorkspaceField, workspaceId)
-    .is('deleted_at', null);
-
-  if (filters.query) {
-    q = q.or(
-      `${s.documentTitleField}.ilike.%${filters.query}%,${s.documentDescriptionField}.ilike.%${filters.query}%`
-    );
-  }
-  if (filters.status) q = q.eq(s.documentStatusField, filters.status);
-  if (filters.ownerId) q = q.eq(s.documentCreatedByField, filters.ownerId);
-  if (filters.carpetaId) q = q.eq(s.documentFolderField, filters.carpetaId);
-
-  const { data, error } = await q.order(s.documentCreatedAtField, { ascending: false }).limit(20);
-  if (error) throw error;
-  return data || [];
-}
-
-export async function getDocumentActivityHistory(workspaceId: string, documentId?: string) {
-  const supabase = getServiceClient();
-  let query = supabase
-    .from(s.activityLogTable)
-    .select(`
-      id,
-      ${s.activityDocumentField},
-      ${s.activityActorIdField},
-      ${s.activityActorNameField},
-      ${s.activityActorEmailField},
-      ${s.activityActionField},
-      ${s.activityCategoryField},
-      ${s.activityDetailsField},
-      ${s.activityCreatedAtField},
-      documento:${s.activityDocumentField}(
-        id,
-        ${s.documentTitleField},
-        ${s.documentWorkspaceField}
-      )
-    `)
-    .order(s.activityCreatedAtField, { ascending: false })
-    .limit(20);
-
-  if (documentId) {
-    query = query.eq(s.activityDocumentField, documentId);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  if (!data || data.length === 0) return [];
-
-  const filtered = documentId
-    ? data
-    : data.filter((row: any) => row.documento?.workspace_id === workspaceId);
-  return filtered;
-}
-
-/** Get notifications for a user */
-export async function getUserNotifications(userId: string) {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from(s.notificationsTable)
-    .select(`
-      ${s.notificationIdField},
-      ${s.notificationTypeField},
-      ${s.notificationTitleField},
-      ${s.notificationDescriptionField},
-      ${s.notificationPriorityField},
-      ${s.notificationReadField},
-      ${s.notificationCreatedAtField}
-    `)
-    .eq(s.notificationUserIdField, userId)
-    .order(s.notificationCreatedAtField, { ascending: false })
-    .limit(30);
-  if (error) throw error;
-  return data || [];
-}
-
-/** Get contacts for a user */
-export async function getUserContacts(userId: string) {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from(s.contactsTable)
-    .select(`
-      ${s.contactIdField},
-      ${s.contactNombreField},
-      ${s.contactApellidoPaternoField},
-      ${s.contactEmailField},
-      ${s.contactTelefonoField},
-      ${s.contactRfcField},
-      ${s.contactCreatedAtField}
-    `)
-    .eq(s.contactUserIdField, userId)
-    .order(s.contactCreatedAtField, { ascending: false })
-    .limit(50);
-  if (error) throw error;
-  return data || [];
-}
-
-/** Get plantillas for a workspace */
-export async function getWorkspacePlantillas(workspaceId: string) {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from(s.plantillasTable)
-    .select(`
-      ${s.plantillaIdField},
-      ${s.plantillaNameField},
-      ${s.plantillaDescriptionField},
-      ${s.plantillaCategoryField},
-      ${s.plantillaStatusField},
-      ${s.plantillaFieldsField},
-      ${s.plantillaCreatedAtField}
-    `)
-    .eq(s.plantillaWorkspaceField, workspaceId)
-    .order(s.plantillaCreatedAtField, { ascending: false })
-    .limit(20);
-  if (error) throw error;
-  return data || [];
-}
-
-/** Get form templates for a workspace */
-export async function getWorkspaceFormTemplates(workspaceId: string) {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from(s.formTemplatesTable)
-    .select(`
-      ${s.formTemplateIdField},
-      ${s.formTemplateNameField},
-      ${s.formTemplateDescriptionField},
-      ${s.formTemplateStatusField},
-      ${s.formTemplateCreatedAtField}
-    `)
-    .eq(s.formTemplateWorkspaceField, workspaceId)
-    .order(s.formTemplateCreatedAtField, { ascending: false })
-    .limit(20);
-  if (error) throw error;
-  return data || [];
-}
-
-/**
- * Generates an OpenAI embedding vector for a given text.
- */
 async function generateQueryEmbedding(text: string): Promise<number[] | null> {
-  try {
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'text-embedding-3-small',
-        input: text.slice(0, 8000),
-      }),
-    });
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('[generateQueryEmbedding] OpenAI error:', err);
-      return null;
-    }
-    const json = await response.json();
-    return json?.data?.[0]?.embedding ?? null;
-  } catch (e) {
-    console.error('[generateQueryEmbedding] fetch error:', e);
-    return null;
-  }
+  const response = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({ model: EMBEDDING_MODEL, input: text.slice(0, 8_000) }),
+  });
+  if (!response.ok) return null;
+  const json = await response.json();
+  return json?.data?.[0]?.embedding || null;
 }
 
-export async function searchDocumentContent(
-  workspaceId: string,
-  question: string,
-  documentId?: string
-): Promise<any[]> {
-  const supabase = getServiceClient();
+const RAG_MODULES = new Set([
+  'documents',
+  'document_viewer',
+  'expedientes',
+  'templates',
+  'forms',
+  'certifications',
+  'certified_notifications',
+  'batch_signatures',
+  'credit_titles',
+]);
 
-  const embedding = await generateQueryEmbedding(question);
-
-  if (embedding) {
-    const { data: vectorResults, error: rpcError } = await supabase.rpc(
-      'match_document_chunks',
-      {
-        query_embedding: embedding,
-        p_workspace_id: workspaceId,
-        p_document_id: documentId ?? null,
-        match_threshold: 0.65,
-        match_count: 8,
-      }
-    );
-
-    if (!rpcError && vectorResults && vectorResults.length > 0) {
-      console.log(`[searchDocumentContent] Vector search returned ${vectorResults.length} chunks`);
-      return vectorResults;
-    }
-
-    if (rpcError) {
-      console.error('[searchDocumentContent] RPC error:', rpcError);
-    } else {
-      console.log('[searchDocumentContent] Vector search returned 0 results, falling back to keyword search');
-    }
-  }
-
-  try {
-    let q = supabase
-      .from(s.chunksTable)
-      .select(`
-        ${s.chunkDocumentField},
-        ${s.chunkContentField},
-        ${s.chunkPageField},
-        ${s.chunkIndexField},
-        ${s.chunkWorkspaceField}
-      `)
-      .eq(s.chunkWorkspaceField, workspaceId);
-
-    if (documentId) q = q.eq(s.chunkDocumentField, documentId);
-
-    const keywords = question
-      .toLowerCase()
-      .replace(/[^a-záéíóúüñ\s]/gi, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 3)
-      .slice(0, 5)
-      .join(' & ');
-
-    if (keywords) {
-      const { data: ftData, error: ftError } = await q
-        .textSearch(s.chunkContentField, keywords, { type: 'plain' })
-        .limit(8);
-
-      if (!ftError && ftData && ftData.length > 0) {
-        console.log(`[searchDocumentContent] Full-text search returned ${ftData.length} chunks`);
-        return ftData;
-      }
-    }
-
-    const { data: likeData } = await supabase
-      .from(s.chunksTable)
-      .select(`${s.chunkDocumentField}, ${s.chunkContentField}, ${s.chunkPageField}, ${s.chunkIndexField}`)
-      .eq(s.chunkWorkspaceField, workspaceId)
-      .ilike(s.chunkContentField, `%${question.slice(0, 40)}%`)
-      .limit(8);
-
-    return likeData || [];
-  } catch (fallbackErr) {
-    console.error('[searchDocumentContent] Fallback error:', fallbackErr);
-    return [];
-  }
-}
-
-export async function isDocumentEmbedded(workspaceId: string, documentId: string): Promise<boolean> {
-  const supabase = getServiceClient();
-  const { count } = await supabase
-    .from(s.chunksTable)
-    .select('id', { count: 'exact', head: true })
-    .eq(s.chunkDocumentField, documentId)
-    .eq(s.chunkWorkspaceField, workspaceId);
-  return (count ?? 0) > 0;
-}
-
-/**
- * Builds structured context for a given intent.
- */
-export async function buildStructuredContext(
-  question: string,
-  intent: string,
-  userId: string,
-  workspaceId: string,
-  opts: {
-    documentId?: string;
-    expedienteId?: string;
-    extractedStatus?: string;
-    extractedUserName?: string;
-    mode?: string;
-  } = {}
-): Promise<any> {
-  const { documentId, expedienteId, extractedStatus, extractedUserName, mode } = opts;
-
-  // For user-centric intents, structured context comes from buildUserContext
-  const USER_CONTEXT_INTENTS = new Set([
-    'user_profile',
-    'user_profile_sensitive',
-    'user_usage',
-    'billing_status',
-    'user_created_documents',
-    'user_assigned_documents',
-    'user_participations',
-    'document_types_assigned',
-    'pending_tasks',
-    'notifications_search',
-    'contacts_search',
-    'templates_help',
-    'forms_help',
-    'configuration_security',
-    'reports_analysis',
-  ]);
-
-  if (USER_CONTEXT_INTENTS.has(intent)) {
-    return null;
-  }
-
-  if (mode === 'rag') {
-    return null;
-  }
-
-  try {
-    switch (intent) {
-      case 'activity_history': {
-        return await getDocumentActivityHistory(workspaceId, documentId);
-      }
-      case 'metadata_search': {
-        if (documentId) {
-          return await getDocumentCreator(workspaceId, documentId);
-        } else if (extractedUserName) {
-          return await getDocumentsCreatedByUser(workspaceId, extractedUserName);
-        } else {
-          return await searchDocumentMetadata(workspaceId, { query: question.slice(0, 80) });
-        }
-      }
-      case 'document_status_search': {
-        if (extractedStatus === 'vencido') {
-          return await getDocumentsExpiringSoon(workspaceId, 0);
-        } else if (extractedStatus) {
-          return await getDocumentsByStatus(workspaceId, extractedStatus);
-        } else {
-          return await searchDocumentMetadata(workspaceId, { query: question.slice(0, 80) });
-        }
-      }
-      case 'signature_status': {
-        if (documentId) {
-          return await getDocumentParticipants(workspaceId, documentId);
-        } else {
-          return await getDocumentsPendingSignature(workspaceId, userId);
-        }
-      }
-      case 'expediente_search': {
-        if (expedienteId) {
-          return await getDocumentsByExpediente(workspaceId, expedienteId);
-        } else {
-          return await searchDocumentMetadata(workspaceId, { query: question.slice(0, 80) });
-        }
-      }
-      case 'signing_help': case 'external_participant_help': case 'general_help': case 'configuration_security': case 'reports_analysis': {
-        // These are help/info intents — no structured DB query needed
-        return null;
-      }
-      default: {
-        if (documentId) {
-          return await getDocumentCreator(workspaceId, documentId);
-        } else {
-          return await searchDocumentMetadata(workspaceId, { query: question.slice(0, 80) });
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[buildStructuredContext] error:', err);
-    return null;
-  }
-}
-
-/**
- * Builds RAG context (document chunks) for a given question.
- */
 export async function buildRagContext(
   question: string,
   workspaceId: string,
-  documentId?: string
-): Promise<any[]> {
-  try {
-    const chunks = await searchDocumentContent(workspaceId, question, documentId);
-    console.log(`[buildRagContext] Retrieved ${chunks.length} chunks (documentId: ${documentId ?? 'all'})`);
-    return chunks;
-  } catch (err) {
-    console.error('[buildRagContext] error:', err);
+  authorization: LuciaAuthorizationContext,
+  options: {
+    documentId?: string;
+    versionId?: string;
+    accessToken?: string;
+    intent: LuciaIntent;
+    routeContext?: RouteContext;
+  }
+) {
+  if (DOCUMENT_INTELLIGENCE_INTENTS.has(options.intent) && !isDocumentIntelligenceEnabled()) {
     return [];
   }
+  if (
+    !['document_content_search', 'document_summary', ...DOCUMENT_INTELLIGENCE_INTENTS].includes(
+      options.intent
+    )
+  )
+    return [];
+  if (options.routeContext && !RAG_MODULES.has(options.routeContext.moduleKey)) return [];
+  const routeDocumentId = options.routeContext?.currentResourceIds.documentId;
+  const ids = allowedIds(authorization, options.documentId);
+  if (!ids.length && routeDocumentId) {
+    ids.push(...allowedIds(authorization, routeDocumentId));
+  }
+  if (!ids.length || authorization.workspace_id !== workspaceId) return [];
+
+  const select =
+    'id,document_id,document_version_id,document_hash,workspace_id,content,page_number,chunk_index,metadata';
+  if (authorization.is_public_token_flow) {
+    const { data } = await createServiceClient()
+      .from('ai_document_chunks')
+      .select(select)
+      .eq('workspace_id', workspaceId)
+      .in('document_id', ids)
+      .limit(8);
+    return data || [];
+  }
+  if (!options.accessToken) return [];
+
+  const scoped = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${options.accessToken}` } } }
+  );
+  let fallbackQuery = scoped
+    .from('ai_document_chunks')
+    .select(select)
+    .eq('workspace_id', workspaceId)
+    .in('document_id', ids);
+  if (options.versionId) {
+    fallbackQuery = fallbackQuery.eq('document_version_id', options.versionId);
+  }
+  const { data } = await fallbackQuery.limit(8);
+  const authorizedChunks = data || [];
+  if (
+    !authorizedChunks.length ||
+    options.intent === 'document_summary' ||
+    DOCUMENT_INTELLIGENCE_INTENTS.has(options.intent) ||
+    options.versionId
+  ) {
+    return authorizedChunks;
+  }
+
+  const embedding = await generateQueryEmbedding(question);
+  if (!embedding) return authorizedChunks;
+  const { data: matches, error } = await scoped.rpc('match_document_chunks', {
+    query_embedding: embedding,
+    p_workspace_id: workspaceId,
+    p_document_id: options.documentId || routeDocumentId || null,
+    p_allowed_document_ids: ids,
+    match_threshold: 0.65,
+    match_count: 8,
+  });
+  return !error && matches?.length ? matches : authorizedChunks;
 }
 
-/** Build authorized AI context string from query results */
-export function buildAuthorizedAIContext(results: {
-  structuredData?: any;
-  ragChunks?: any[];
-  intent: string;
-  userContext?: any;
-}): string {
-  const parts: string[] = [];
-
-  if (results.intent === 'user_profile' && results.userContext) {
-    const uc = results.userContext;
-    const profile = uc.userProfile ?? {};
-    const workspace = uc.workspace ?? {};
-    const sub = uc.usage?.subscription ?? null;
-    const name = profile.full_name || [profile.nombre, profile.apellido_paterno].filter(Boolean).join(' ') || profile.email || 'Desconocido';
-    const planName = sub?.plan?.name ?? 'Sin plan activo';
-    const planSlug = sub?.plan?.slug ?? '';
-    parts.push(`## Perfil del usuario
-- Nombre: ${name}
-- Email: ${profile.email ?? 'N/D'}
-- RFC: ${profile.rfc ?? 'N/D'}
-- CURP: ${profile.curp ?? 'N/D'}
-- Teléfono: ${profile.telefono ?? 'N/D'}
-- Tipo de cuenta: ${profile.account_type ?? 'personal'}
-- Miembro desde: ${profile.created_at ? new Date(profile.created_at).toLocaleDateString('es-MX') : 'N/D'}
-- Workspace activo: ${workspace.name ?? 'N/D'}
-- Rol en workspace: ${workspace.userRole ?? 'N/D'}
-- Plan activo: ${planName}${planSlug ? ` (${planSlug})` : ''}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'user_profile_sensitive' && results.userContext) {
-    const profile = results.userContext.userProfile ?? {};
-    const name = profile.full_name || [profile.nombre, profile.apellido_paterno].filter(Boolean).join(' ') || profile.email || 'Desconocido';
-    const domicilio = [
-      profile.calle ? `${profile.calle} ${profile.num_exterior ?? ''}${profile.num_interior ? ' Int. ' + profile.num_interior : ''}`.trim() : null,
-      profile.colonia,
-      profile.municipio,
-      profile.estado,
-      profile.codigo_postal ? `C.P. ${profile.codigo_postal}` : null,
-    ].filter(Boolean).join(', ');
-    parts.push(`## Datos personales y fiscales del usuario
-- Nombre: ${name}
-- Email: ${profile.email ?? 'N/D'}
-- RFC: ${profile.rfc ?? 'N/D'}
-- CURP: ${profile.curp ?? 'N/D'}
-- Teléfono: ${profile.telefono ?? 'N/D'}
-- Régimen fiscal: ${profile.regimen_fiscal ?? 'N/D'}
-- Domicilio fiscal: ${domicilio || 'N/D'}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'user_usage' && results.userContext) {
-    const uc = results.userContext;
-    const usage = uc.usage ?? {};
-    const sub = usage.subscription ?? null;
-    const workspace = uc.workspace ?? {};
-    parts.push(`## Consumo del usuario en workspace "${workspace.name ?? 'N/D'}"
-- Documentos creados este mes: ${usage.documentsCreatedThisMonth ?? 0}
-- Documentos enviados a firma: ${usage.documentsSentToSignature ?? 0}
-- Documentos completados/firmados: ${usage.documentsCompleted ?? 0}
-- Documentos en borrador: ${usage.documentsPending ?? 0}
-- Límite del plan: ${sub?.documents_limit ?? sub?.plan?.documents_included ?? 'N/D'} documentos
-- Documentos usados (total): ${sub?.documents_used ?? 'N/D'}
-- Plan activo: ${sub?.plan?.name ?? 'Sin plan activo'}
-- Estado de suscripción: ${sub?.status ?? 'N/D'}
-- Período actual: ${sub?.current_period_start ? new Date(sub.current_period_start).toLocaleDateString('es-MX') : 'N/D'} — ${sub?.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('es-MX') : 'N/D'}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'billing_status' && results.userContext) {
-    const uc = results.userContext;
-    const usage = uc.usage ?? {};
-    const sub = usage.subscription ?? null;
-    const workspace = uc.workspace ?? {};
-    parts.push(`## Facturación y suscripción en workspace "${workspace.name ?? 'N/D'}"
-- Plan activo: ${sub?.plan?.name ?? 'Sin plan activo'}
-- Estado: ${sub?.status ?? 'N/D'}
-- Documentos usados: ${sub?.documents_used ?? 'N/D'} / ${sub?.documents_limit ?? sub?.plan?.documents_included ?? 'N/D'}
-- Documentos creados este mes: ${usage.documentsCreatedThisMonth ?? 0}
-- Período: ${sub?.current_period_start ? new Date(sub.current_period_start).toLocaleDateString('es-MX') : 'N/D'} — ${sub?.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('es-MX') : 'N/D'}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'user_created_documents' && results.userContext) {
-    const docs: any[] = results.userContext.createdDocuments ?? [];
-    const workspace = results.userContext.workspace ?? {};
-    if (docs.length === 0) {
-      return `## Documentos creados por el usuario\n\nNo encontré documentos creados por ti en el workspace "${workspace.name ?? 'N/D'}".`;
-    }
-    const lines = docs.map((d: any, i: number) => {
-      const tipo = d.tipo?.nombre ?? d.grupo?.nombre ?? 'Sin tipo';
-      const carpeta = d.carpeta?.nombre ? ` | Carpeta: ${d.carpeta.nombre}` : '';
-      const fecha = d.created_at ? new Date(d.created_at).toLocaleDateString('es-MX') : 'N/D';
-      return `${i + 1}. **${d.nombre ?? 'Sin título'}** — Estado: ${d.estado ?? 'N/D'} | Tipo: ${tipo} | Creado: ${fecha}${carpeta}`;
-    });
-    parts.push(`## Documentos creados por el usuario en workspace "${workspace.name ?? 'N/D'}" (${docs.length} documentos)\n\n${lines.join('\n')}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'user_assigned_documents' && results.userContext) {
-    const docs: any[] = results.userContext.assignedDocuments ?? [];
-    const workspace = results.userContext.workspace ?? {};
-    if (docs.length === 0) {
-      return `## Documentos asignados al usuario\n\nNo encontré documentos asignados a ti en el workspace "${workspace.name ?? 'N/D'}".`;
-    }
-    const lines = docs.map((d: any, i: number) => {
-      const tipo = d.tipo?.nombre ?? d.grupo?.nombre ?? 'Sin tipo';
-      const rol = d.participationRole ?? 'participante';
-      const pendingAction = d.pendingAction ? ` | Acción: ${d.pendingAction.replace(/_/g, ' ')}` : '';
-      const urgente = d.es_urgente ? ' 🔴 URGENTE' : '';
-      return `${i + 1}. **${d.nombre ?? 'Sin título'}** — Rol: ${rol} | Estado: ${d.estado ?? 'N/D'} | Tipo: ${tipo}${pendingAction}${urgente}`;
-    });
-    parts.push(`## Documentos asignados al usuario en workspace "${workspace.name ?? 'N/D'}" (${docs.length} documentos)\n\n${lines.join('\n')}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'user_participations' && results.userContext) {
-    const assignedDocs: any[] = results.userContext.assignedDocuments ?? [];
-    const workspace = results.userContext.workspace ?? {};
-    if (assignedDocs.length === 0) {
-      return `## Participaciones del usuario\n\nNo encontré participaciones activas en el workspace "${workspace.name ?? 'N/D'}".`;
-    }
-    const byRole: Record<string, any[]> = {};
-    for (const doc of assignedDocs) {
-      const role = doc.participationRole ?? 'otro';
-      if (!byRole[role]) byRole[role] = [];
-      byRole[role].push(doc);
-    }
-    const roleLines: string[] = [];
-    for (const [role, docs] of Object.entries(byRole)) {
-      const signed = docs.filter((d: any) => d.firmada || d.aprobada).length;
-      const pending = docs.length - signed;
-      roleLines.push(`- Como **${role}**: ${docs.length} documento(s) — ${signed} completado(s), ${pending} pendiente(s)`);
-    }
-    const pendingSign = assignedDocs.filter((d: any) => d.participationRole === 'firmante' && !d.firmada);
-    const pendingApprove = assignedDocs.filter((d: any) => d.participationRole === 'aprobador' && !d.aprobada);
-    parts.push(`## Participaciones del usuario en workspace "${workspace.name ?? 'N/D'}"\n\n${roleLines.join('\n')}`);
-    if (pendingSign.length > 0) {
-      const signLines = pendingSign.map((d: any, i: number) => `  ${i + 1}. ${d.nombre ?? 'Sin título'} — Estado: ${d.estado ?? 'N/D'}`).join('\n');
-      parts.push(`### Documentos pendientes de tu firma:\n${signLines}`);
-    }
-    if (pendingApprove.length > 0) {
-      const approveLines = pendingApprove.map((d: any, i: number) => `  ${i + 1}. ${d.nombre ?? 'Sin título'}`).join('\n');
-      parts.push(`### Documentos pendientes de tu aprobación:\n${approveLines}`);
-    }
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'document_types_assigned' && results.userContext) {
-    const types = results.userContext.documentTypesAssigned ?? { types: [], groups: [] };
-    const workspace = results.userContext.workspace ?? {};
-    if (types.types.length === 0 && types.groups.length === 0) {
-      return `## Tipos de documentos asignados\n\nNo encontré tipos de documentos específicos asignados en el workspace "${workspace.name ?? 'N/D'}".`;
-    }
-    const typeList = types.types.length > 0 ? `Tipos específicos: ${types.types.join(', ')}` : '';
-    const groupList = types.groups.length > 0 ? `Grupos/categorías: ${types.groups.join(', ')}` : '';
-    parts.push(`## Tipos de documentos asignados en workspace "${workspace.name ?? 'N/D'}"\n\n${[typeList, groupList].filter(Boolean).join('\n')}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'pending_tasks' && results.userContext) {
-    const pending = results.userContext.pendingActions ?? {};
-    const workspace = results.userContext.workspace ?? {};
-    const totalPending =
-      (pending.pendingSignatures?.length ?? 0) +
-      (pending.pendingApprovals?.length ?? 0) +
-      (pending.pendingReview?.length ?? 0);
-    if (totalPending === 0 && (pending.expiringSoon?.length ?? 0) === 0 && (pending.overdue?.length ?? 0) === 0) {
-      return `## Tareas pendientes\n\nNo tienes tareas pendientes en el workspace "${workspace.name ?? 'N/D'}". ¡Todo al día!`;
-    }
-    const sections: string[] = [];
-    if (pending.overdue?.length > 0) {
-      const lines = pending.overdue.map((d: any, i: number) =>
-        `  ${i + 1}. **${d.title ?? 'Sin título'}** — Venció: ${d.expiry ? new Date(d.expiry).toLocaleDateString('es-MX') : 'N/D'}`
-      ).join('\n');
-      sections.push(`### 🔴 Documentos vencidos (${pending.overdue.length}):\n${lines}`);
-    }
-    if (pending.pendingSignatures?.length > 0) {
-      const lines = pending.pendingSignatures.map((d: any, i: number) =>
-        `  ${i + 1}. **${d.title ?? 'Sin título'}** — Estado: ${d.status ?? 'N/D'}${d.urgent ? ' 🔴 URGENTE' : ''}`
-      ).join('\n');
-      sections.push(`### ✍️ Pendientes de tu firma (${pending.pendingSignatures.length}):\n${lines}`);
-    }
-    if (pending.pendingApprovals?.length > 0) {
-      const lines = pending.pendingApprovals.map((d: any, i: number) =>
-        `  ${i + 1}. **${d.title ?? 'Sin título'}**`
-      ).join('\n');
-      sections.push(`### ✅ Pendientes de tu aprobación (${pending.pendingApprovals.length}):\n${lines}`);
-    }
-    if (pending.pendingReview?.length > 0) {
-      const lines = pending.pendingReview.map((d: any, i: number) =>
-        `  ${i + 1}. **${d.title ?? 'Sin título'}**`
-      ).join('\n');
-      sections.push(`### 👁️ Pendientes de tu revisión (${pending.pendingReview.length}):\n${lines}`);
-    }
-    if (pending.expiringSoon?.length > 0) {
-      const lines = pending.expiringSoon.map((d: any, i: number) =>
-        `  ${i + 1}. **${d.title ?? 'Sin título'}** — Vence: ${d.expiry ? new Date(d.expiry).toLocaleDateString('es-MX') : 'N/D'}`
-      ).join('\n');
-      sections.push(`### ⚠️ Próximos a vencer (${pending.expiringSoon.length}):\n${lines}`);
-    }
-    parts.push(`## Tareas pendientes en workspace "${workspace.name ?? 'N/D'}"\n\n${sections.join('\n\n')}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'notifications_search' && results.userContext) {
-    const notifs: any[] = results.userContext.notifications ?? [];
-    const unread = results.userContext.unreadNotificationsCount ?? 0;
-    if (notifs.length === 0) {
-      return `## Notificaciones\n\nNo encontré notificaciones registradas.`;
-    }
-    const lines = notifs.slice(0, 10).map((n: any, i: number) => {
-      const fecha = n.created_at ? new Date(n.created_at).toLocaleDateString('es-MX') : 'N/D';
-      const leida = n.read ? '✓' : '🔵 Sin leer';
-      return `${i + 1}. [${leida}] **${n.title}** — ${n.description ?? ''} (${fecha})`;
-    });
-    parts.push(`## Notificaciones (${unread} sin leer de ${notifs.length} total)\n\n${lines.join('\n')}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'contacts_search' && results.userContext) {
-    const contacts: any[] = results.userContext.contacts ?? [];
-    if (contacts.length === 0) {
-      return `## Contactos\n\nNo encontré contactos registrados.`;
-    }
-    const lines = contacts.slice(0, 15).map((c: any, i: number) => {
-      const nombre = [c.nombre, c.apellido_paterno].filter(Boolean).join(' ');
-      return `${i + 1}. **${nombre}** — ${c.email ?? 'Sin email'}${c.telefono ? ` | Tel: ${c.telefono}` : ''}`;
-    });
-    parts.push(`## Contactos (${contacts.length} registrados)\n\n${lines.join('\n')}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'templates_help' && results.userContext) {
-    const plantillas: any[] = results.userContext.plantillas ?? [];
-    if (plantillas.length === 0) {
-      return `## Plantillas\n\nNo encontré plantillas en este workspace.`;
-    }
-    const lines = plantillas.map((p: any, i: number) =>
-      `${i + 1}. **${p.name}** — Categoría: ${p.category ?? 'N/D'} | Estado: ${p.status ?? 'N/D'}`
-    );
-    parts.push(`## Plantillas disponibles (${plantillas.length})\n\n${lines.join('\n')}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'forms_help' && results.userContext) {
-    const forms: any[] = results.userContext.formTemplates ?? [];
-    if (forms.length === 0) {
-      return `## Formularios\n\nNo encontré formularios en este workspace.`;
-    }
-    const lines = forms.map((f: any, i: number) =>
-      `${i + 1}. **${f.name}** — Estado: ${f.status ?? 'N/D'}`
-    );
-    parts.push(`## Formularios disponibles (${forms.length})\n\n${lines.join('\n')}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'activity_history') {
-    const records = Array.isArray(results.structuredData) ? results.structuredData : [];
-    if (records.length === 0) {
-      return '## Historial de actividad\n\nNo se encontraron registros de historial para este documento o workspace con los permisos actuales.';
-    }
-    const lines = records.map((r: any, i: number) => {
-      const fecha = r.created_at
-        ? new Date(r.created_at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })
-        : 'Fecha desconocida';
-      const actor = r.actor_nombre || r.actor_email || 'Usuario desconocido';
-      const accion = r.action || 'acción desconocida';
-      const docTitle = r.documento?.nombre ? ` en "${r.documento.nombre}"` : '';
-      const details = r.details ? ` — ${JSON.stringify(r.details)}` : '';
-      return `${i + 1}. [${fecha}] ${actor} — ${accion}${docTitle}${details}`;
-    });
-    parts.push(`## Historial de actividad\n\n${lines.join('\n')}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'configuration_security' && results.userContext) {
-    const uc = results.userContext;
-    const workspace = uc.workspace ?? {};
-    const parts: string[] = [];
-    parts.push(`## Configuración del workspace "${workspace.name ?? 'N/D'}"
-- Nombre del workspace: ${workspace.name ?? 'N/D'}
-- Tipo: ${workspace.workspace_type ?? 'N/D'}
-- Tu rol: ${workspace.userRole ?? 'N/D'}
-- Eres propietario: ${workspace.isOwner ? 'Sí' : 'No'}
-- Miembro desde: ${workspace.joinedAt ? new Date(workspace.joinedAt).toLocaleDateString('es-MX') : 'N/D'}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.intent === 'reports_analysis' && results.userContext) {
-    const uc = results.userContext;
-    const usage = uc.usage ?? {};
-    const workspace = uc.workspace ?? {};
-    const parts: string[] = [];
-    parts.push(`## Datos de uso y reportes en workspace "${workspace.name ?? 'N/D'}"
-- Documentos creados este mes: ${usage.documentsCreatedThisMonth ?? 0}
-- Documentos enviados a firma: ${usage.documentsSentToSignature ?? 0}
-- Documentos completados: ${usage.documentsCompleted ?? 0}
-- Documentos en borrador: ${usage.documentsPending ?? 0}
-- Total documentos creados: ${(uc.createdDocuments ?? []).length}
-- Total participaciones: ${(uc.assignedDocuments ?? []).length}`);
-    return parts.join('\n\n');
-  }
-
-  if (results.structuredData) {
-    const json = JSON.stringify(results.structuredData, null, 2);
-    parts.push(`## Datos estructurados del workspace\n\`\`\`json\n${json}\n\`\`\``);
-  }
-
-  if (results.ragChunks && results.ragChunks.length > 0) {
-    const chunks = results.ragChunks
-      .map((c: any, i: number) => `[Fragmento ${i + 1} - Página ${c.page_number ?? '?'}]\n${c.content}`)
-      .join('\n\n');
-    parts.push(`## Contenido documental recuperado\n${chunks}`);
-  }
-
-  if (parts.length === 0) {
-    return 'No se encontró información relevante en el workspace para esta consulta.';
-  }
-
-  return parts.join('\n\n');
-}
-
-/** Save AI query log */
 export async function saveQueryLog(log: {
-  workspaceId: string;
-  userId: string;
+  workspaceId?: string | null;
+  userId?: string | null;
   sessionId?: string;
   question: string;
   intent: string;
   scope: string;
-  documentId?: string;
-  contextUsed: any;
+  route?: string | null;
+  documentIds?: string[];
+  chunkIds?: string[];
+  sourceIds?: string[];
+  tokenGrantId?: string | null;
+  contextUsed: Record<string, unknown>;
   responseText: string;
-  tokensUsed?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   durationMs?: number;
+  errorCode?: string | null;
+  hasEvidence: boolean;
 }) {
-  const supabase = getServiceClient();
-  await supabase.from(s.queryLogsTable).insert({
-    workspace_id: log.workspaceId,
-    user_id: log.userId,
-    session_id: log.sessionId || null,
-    question: log.question,
-    intent: log.intent,
-    scope: log.scope,
-    document_id: log.documentId || null,
-    context_used: log.contextUsed,
-    response_text: log.responseText.slice(0, 5000),
-    tokens_used: log.tokensUsed || null,
-    duration_ms: log.durationMs || null,
-  });
+  const inputTokens = log.inputTokens || null;
+  const outputTokens = log.outputTokens || null;
+  const estimatedCost = estimateAiCost(inputTokens, outputTokens);
+  await createServiceClient()
+    .from('ai_query_logs')
+    .insert({
+      workspace_id: log.workspaceId,
+      user_id: log.userId || null,
+      session_id: log.sessionId || null,
+      question: redactSensitiveText(log.question, 1_000),
+      intent: log.intent,
+      scope: log.scope,
+      route: log.route || null,
+      document_id: log.documentIds?.[0] || null,
+      document_ids: log.documentIds || [],
+      chunk_ids: log.chunkIds || [],
+      source_ids: log.sourceIds || [],
+      token_grant_id: log.tokenGrantId || null,
+      context_used: log.contextUsed,
+      response_text: redactSensitiveText(log.responseText, 2_000),
+      provider: 'OPEN_AI',
+      model: 'gpt-4o-mini',
+      prompt_version: LUCIA_PROMPT_VERSION,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      tokens_used: (inputTokens || 0) + (outputTokens || 0) || null,
+      estimated_cost_usd: estimatedCost,
+      duration_ms: log.durationMs || null,
+      error_code: log.errorCode || null,
+      has_evidence: log.hasEvidence,
+    });
 }

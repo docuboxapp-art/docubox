@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 import {
   captureEncryptionKey,
   decryptCapture,
@@ -12,7 +13,7 @@ import {
 async function storedDocumentFront(
   supabase: ReturnType<typeof createServiceClient>,
   userId: string,
-  key: Buffer,
+  key: Buffer
 ) {
   const { data: capture } = await supabase
     .from('id_capture_logs')
@@ -23,7 +24,11 @@ async function storedDocumentFront(
     .limit(1)
     .maybeSingle();
   if (capture?.anverso_b64) {
-    try { return decryptCapture(capture.anverso_b64, key); } catch { /* legacy row */ }
+    try {
+      return decryptCapture(capture.anverso_b64, key);
+    } catch {
+      /* legacy row */
+    }
   }
 
   const { data: result } = await supabase
@@ -41,13 +46,18 @@ async function storedDocumentFront(
     .eq('id', result.enrollment_token_id)
     .maybeSingle();
   if (!enrollment?.anverso_encrypted) return null;
-  try { return decryptCapture(enrollment.anverso_encrypted, key); } catch { return null; }
+  try {
+    return decryptCapture(enrollment.anverso_encrypted, key);
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const token = String(body.token || '');
+    const tokenHash = hashCapabilityToken(token);
     const selfie = normalizeImageBase64(body.selfieData);
     let front = normalizeImageBase64(body.anversoData);
     let back = normalizeImageBase64(body.reversoData);
@@ -57,21 +67,28 @@ export async function POST(request: NextRequest) {
     }
 
     const key = captureEncryptionKey();
-    if (!key) return NextResponse.json({ error: 'El cifrado biometrico no esta configurado.' }, { status: 503 });
+    if (!key)
+      return NextResponse.json(
+        { error: 'El cifrado biometrico no esta configurado.' },
+        { status: 503 }
+      );
     const providerUrl = process.env.IDENTITY_VERIFICATION_GATEWAY_URL;
     const providerToken = process.env.IDENTITY_VERIFICATION_GATEWAY_TOKEN;
     if (!providerUrl || !providerToken) {
-      return NextResponse.json({
-        error: 'El proveedor de identidad y prueba de vida no esta configurado.',
-        code: 'IDENTITY_PROVIDER_NOT_CONFIGURED',
-      }, { status: 503 });
+      return NextResponse.json(
+        {
+          error: 'El proveedor de identidad y prueba de vida no esta configurado.',
+          code: 'IDENTITY_PROVIDER_NOT_CONFIGURED',
+        },
+        { status: 503 }
+      );
     }
 
     const supabase = createServiceClient();
     const { data: session } = await supabase
       .from('mobile_upload_sessions')
       .select('*')
-      .eq('token', token)
+      .eq('token_hash', tokenHash)
       .eq('status', 'pending')
       .gt('expires_at', new Date().toISOString())
       .maybeSingle();
@@ -80,11 +97,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (!validImageBase64(front)) {
-      front = await storedDocumentFront(supabase, session.user_id, key) || '';
+      front = (await storedDocumentFront(supabase, session.user_id, key)) || '';
     }
     if (!validImageBase64(back)) back = front;
     if (!validImageBase64(front) || !validImageBase64(back)) {
-      return NextResponse.json({ error: 'Se requiere una identificacion valida.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Se requiere una identificacion valida.' },
+        { status: 400 }
+      );
     }
 
     const providerResponse = await fetch(providerUrl, {
@@ -100,7 +120,7 @@ export async function POST(request: NextRequest) {
       }),
       signal: AbortSignal.timeout(60_000),
     });
-    const provider = await providerResponse.json().catch(() => ({})) as Record<string, any>;
+    const provider = (await providerResponse.json().catch(() => ({}))) as Record<string, any>;
     if (!providerResponse.ok) {
       return NextResponse.json({ error: 'No fue posible validar la identidad.' }, { status: 502 });
     }
@@ -111,20 +131,27 @@ export async function POST(request: NextRequest) {
     const faceScore = Number(faceValidation.score || 0);
     const threshold = Number(process.env.IDENTITY_FACE_MATCH_THRESHOLD || 80);
     const fields = provider.document_fields || {};
-    const providerCurp = String(fields.curp || '').trim().toUpperCase() || null;
+    const providerCurp =
+      String(fields.curp || '')
+        .trim()
+        .toUpperCase() || null;
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('curp,full_name')
       .eq('id', session.user_id)
       .maybeSingle();
-    const profileCurp = String(profile?.curp || '').trim().toUpperCase() || null;
+    const profileCurp =
+      String(profile?.curp || '')
+        .trim()
+        .toUpperCase() || null;
     const curpMatch = providerCurp && profileCurp ? providerCurp === profileCurp : null;
-    const identityMatch = provider.status === 'VALID'
-      && documentValidation.valid === true
-      && faceValidation.match === true
-      && faceScore >= threshold
-      && liveness.passed === true
-      && curpMatch !== false;
+    const identityMatch =
+      provider.status === 'VALID' &&
+      documentValidation.valid === true &&
+      faceValidation.match === true &&
+      faceScore >= threshold &&
+      liveness.passed === true &&
+      curpMatch !== false;
     const providerAudit = {
       provider: provider.provider || 'CONFIGURED_GATEWAY',
       provider_reference: provider.verification_id || null,
@@ -136,12 +163,14 @@ export async function POST(request: NextRequest) {
       liveness_method: liveness.method || null,
     };
 
-    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-      || request.headers.get('x-real-ip') || null;
+    const ipAddress =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      null;
     const { data: captureLog, error: captureError } = await supabase
       .from('id_capture_logs')
       .insert({
-        session_token: token,
+        session_token: tokenHash,
         user_id: session.user_id,
         document_id: session.metadata.document_id,
         has_enrollment: session.metadata.has_enrollment === true,
@@ -166,7 +195,10 @@ export async function POST(request: NextRequest) {
       .select('id')
       .single();
     if (captureError || !captureLog) {
-      return NextResponse.json({ error: 'No fue posible registrar la evidencia biometrica.' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'No fue posible registrar la evidencia biometrica.' },
+        { status: 500 }
+      );
     }
 
     const nextStatus = identityMatch ? 'completed' : 'identity_failed';
@@ -198,7 +230,10 @@ export async function POST(request: NextRequest) {
       .select('id')
       .maybeSingle();
     if (sessionError || !updatedSession) {
-      return NextResponse.json({ error: 'La sesion ya fue procesada o no pudo cerrarse.' }, { status: 409 });
+      return NextResponse.json(
+        { error: 'La sesion ya fue procesada o no pudo cerrarse.' },
+        { status: 409 }
+      );
     }
 
     await supabase.rpc('append_legal_evidence_event', {
@@ -212,17 +247,26 @@ export async function POST(request: NextRequest) {
       p_idempotency_key: `identity-capture:${captureLog.id}`,
     });
 
-    return NextResponse.json({
-      success: identityMatch,
-      identity_match: identityMatch,
-      nubarium_similitud: faceScore,
-      nubarium_aprobado: identityMatch,
-      curp_match: curpMatch,
-      curp_extracted: providerCurp,
-      capture_log_id: captureLog.id,
-    }, { status: identityMatch ? 200 : 422 });
+    return NextResponse.json(
+      {
+        success: identityMatch,
+        identity_match: identityMatch,
+        nubarium_similitud: faceScore,
+        nubarium_aprobado: identityMatch,
+        curp_match: curpMatch,
+        curp_extracted: providerCurp,
+        capture_log_id: captureLog.id,
+      },
+      { status: identityMatch ? 200 : 422 }
+    );
   } catch (error) {
-    console.error('[submit-id-capture] Failed:', error instanceof Error ? error.message : 'unknown');
-    return NextResponse.json({ error: 'No fue posible procesar la prueba de vida.' }, { status: 500 });
+    console.error(
+      '[submit-id-capture] Failed:',
+      error instanceof Error ? error.message : 'unknown'
+    );
+    return NextResponse.json(
+      { error: 'No fue posible procesar la prueba de vida.' },
+      { status: 500 }
+    );
   }
 }

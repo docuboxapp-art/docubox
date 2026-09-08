@@ -80,6 +80,13 @@ test('viewer file variants expose a structured pending PAdES state', () => {
   assert.match(viewerRoute, /Estamos preparando la versión firmada y certificada/);
 });
 
+test('viewer keeps the original PDF visible until PAdES-B-T is verified', () => {
+  assert.match(viewerPage, /const requestedFileVariant = 'original';/);
+  assert.match(viewerPage, /requestedArchivo === 'original' \|\| !padesBtVerified/);
+  assert.match(viewerPage, /file_url: `\/api\/documentos\/\$\{encodeURIComponent\(document\.id\)\}\/viewer-file\?variant=original`/);
+  assert.match(viewerPage, /if \(!padesBtVerified\)/);
+});
+
 test('authorized viewer still reads valid encrypted documents through verified decryption', () => {
   assert.match(viewerRoute, /await readDocumentStorageObject\(\{/);
   assert.match(viewerRoute, /expectedPlaintextSha256:/);
@@ -106,6 +113,7 @@ test('final viewer delivery cannot be cached as an older signed artifact', () =>
   assert.match(viewerRoute, /'Surrogate-Control', 'no-store'/);
   assert.match(viewerRoute, /'Vary', 'Authorization, Cookie'/);
   assert.match(viewerRoute, /response\.headers\.set\('ETag', `"sha256-\$\{responseSha256\}"`\)/);
-  assert.match(viewerRoute, /_firmado_PAdES-B-T\.pdf/);
-  assert.match(viewerPage, /a\.download = `\$\{safeName\}_firmado_PAdES-B-T\.pdf`/);
+  assert.match(viewerRoute, /_firmado\.pdf/);
+  assert.match(viewerPage, /a\.download = `\$\{safeName\}_firmado\.pdf`/);
+  assert.doesNotMatch(viewerRoute, /_firmado_PAdES-B-T/);
 });

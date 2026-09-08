@@ -11,6 +11,11 @@ import {
   createNotificationServer,
   createNotificationsForUsersServer,
 } from '@/lib/notificationsInApp.server';
+import {
+  hasEffectiveParticipation,
+  type ParticipationResponseRecord,
+  type SignatureEvidenceRecord,
+} from '@/lib/documents/participant-visibility';
 
 /**
  * POST /api/documentos/update-estado
@@ -19,7 +24,7 @@ import {
  * so that both owners AND participants can trigger state changes (reject, cancel, en_espera).
  *
  * Body:
- *   action: 'rechazar' | 'cancelar' | 'en_espera'
+ *   action: 'rechazar' | 'cancelar' | 'desinvitar' | 'en_espera'
  *   documentoId: string (UUID)
  *   motivo?: string
  *   descripcion?: string
@@ -59,7 +64,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { action, documentoId, motivo, descripcion } = body;
+    const { action, documentoId, motivo, descripcion, participantId, participantEmail } = body;
 
     if (!action || !documentoId) {
       return NextResponse.json({ error: 'Faltan parámetros requeridos' }, { status: 400 });
@@ -98,7 +103,7 @@ export async function POST(req: NextRequest) {
       isWorkspaceManager = Boolean(membership);
     }
 
-    if (!isOwner && !isParticipant) {
+    if (!isOwner && !isParticipant && !isWorkspaceManager) {
       return NextResponse.json(
         { error: 'Sin permisos para modificar este documento' },
         { status: 403 }
@@ -122,6 +127,183 @@ export async function POST(req: NextRequest) {
       .eq('id', user.id)
       .maybeSingle();
     const actorName = actorProfile?.full_name || user.email || 'Un participante';
+
+    if (action === 'desinvitar') {
+      if (!isOwner && !isWorkspaceManager) {
+        return NextResponse.json(
+          { error: 'Solo el propietario o un administrador autorizado puede desinvitar participantes.' },
+          { status: 403 }
+        );
+      }
+
+      const activeDocumentStates = new Set([
+        'pendiente',
+        'en_proceso',
+        'en_espera',
+        'sent',
+        'in_progress',
+        'waiting_signatures',
+      ]);
+      if (!activeDocumentStates.has(String(doc.estado || '').toLowerCase())) {
+        return NextResponse.json(
+          { error: 'Sólo se pueden desinvitar participantes de un documento activo.' },
+          { status: 409 }
+        );
+      }
+
+      const normalizedParticipantEmail = String(participantEmail || '').trim().toLowerCase();
+      const participantIndex = participantes.findIndex(
+        (participant: any) =>
+          (participantId && (participant.id === participantId || participant.user_id === participantId))
+          || (normalizedParticipantEmail
+            && String(participant.email || '').trim().toLowerCase() === normalizedParticipantEmail)
+      );
+      if (participantIndex < 0) {
+        return NextResponse.json({ error: 'Participante no encontrado.' }, { status: 404 });
+      }
+
+      const participant = participantes[participantIndex];
+      if (participant.isCurrentUser || participant.user_id === doc.owner_id) {
+        return NextResponse.json(
+          { error: 'El propietario no puede desinvitarse del documento.' },
+          { status: 409 }
+        );
+      }
+      if (participant.current_access === false) {
+        return NextResponse.json({
+          success: true,
+          alreadyRevoked: true,
+          hadEffectiveParticipation: participant.historical_participation === true,
+          participant: {
+            id: participant.id || null,
+            email: participant.email || null,
+          },
+        });
+      }
+
+      const [responsesResult, evidenceResult] = await Promise.all([
+        supabase
+          .from('participation_responses')
+          .select(
+            'participante_id,participante_email,firma_data,firma_completada,aprobacion_completada,terminos_aceptados'
+          )
+          .eq('documento_id', documentoId),
+        supabase
+          .from('signature_evidence')
+          .select('captured_by,participant_email')
+          .eq('document_id', documentoId),
+      ]);
+      if (responsesResult.error || evidenceResult.error) {
+        return NextResponse.json(
+          { error: 'No fue posible comprobar la participación histórica.' },
+          { status: 500 }
+        );
+      }
+
+      const hadEffectiveParticipation = hasEffectiveParticipation(
+        participant,
+        (responsesResult.data || []) as ParticipationResponseRecord[],
+        (evidenceResult.data || []) as SignatureEvidenceRecord[]
+      );
+      const revokedParticipant = {
+        ...participant,
+        sub_estado: hadEffectiveParticipation
+          ? participant.sub_estado
+          : 'revocado',
+        participation_status: hadEffectiveParticipation
+          ? participant.participation_status || participant.sub_estado || participant.status
+          : 'REVOKED',
+        current_access: false,
+        historical_participation: hadEffectiveParticipation,
+        visible: hadEffectiveParticipation,
+        participant_relationship_status: 'REVOKED',
+        access_revoked_at: now,
+        access_revoked_by: user.id,
+        access_revoke_reason: motivo || 'OWNER_UNINVITED_PARTICIPANT',
+        portal_token_invalidated_at: now,
+        recordatorios_cancelados_at: now,
+      };
+      const updatedParticipantes = participantes.map((entry: any, index: number) =>
+        index === participantIndex ? revokedParticipant : entry
+      );
+
+      const { error: updateError } = await supabase
+        .from('documentos')
+        .update({ participantes: updatedParticipantes })
+        .eq('id', documentoId);
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+
+      const { error: auditError } = await supabase
+        .from('document_lifecycle_audit_events')
+        .insert({
+          workspace_id: doc.workspace_id || null,
+          document_id: documentoId,
+          actor_id: user.id,
+          actor_email: user.email || null,
+          action: hadEffectiveParticipation
+            ? 'PARTICIPANT_HISTORY_RETAINED_AFTER_REVOKE'
+            : 'PARTICIPANT_UNINVITED',
+          previous_state: {
+            participant_id: participant.id || null,
+            participant_email: participant.email || null,
+            current_access: participant.current_access !== false,
+            participation_status: participant.participation_status || participant.sub_estado || null,
+          },
+          new_state: {
+            participant_relationship_status: 'REVOKED',
+            current_access: false,
+            historical_participation: hadEffectiveParticipation,
+            visible: hadEffectiveParticipation,
+          },
+          reason: motivo || 'OWNER_UNINVITED_PARTICIPANT',
+          result: 'success',
+          request_id: req.headers.get('x-request-id') || null,
+          ip_address: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+          user_agent: req.headers.get('user-agent') || null,
+          metadata: { had_effective_participation: hadEffectiveParticipation },
+        });
+      if (auditError) {
+        console.error('[update-estado] Could not audit participant revocation:', auditError.message);
+      }
+
+      if (participant.user_id && participant.user_id !== user.id) {
+        createNotificationServer({
+          userId: participant.user_id,
+          type: 'alert',
+          eventType: 'participant.access.revoked',
+          category: 'WORKFLOW',
+          severity: 'warning',
+          title: 'Tu acceso al documento fue revocado',
+          description: hadEffectiveParticipation
+            ? `Ya no puedes realizar acciones en "${docNombre}". Tu participación anterior se conserva.`
+            : `Ya no formas parte del flujo de "${docNombre}".`,
+          priority: 'media',
+          workspaceId: doc.workspace_id,
+          actorUserId: user.id,
+          entityType: 'document',
+          entityId: documentoId,
+          actionUrl: '/mis-participaciones',
+          actionLabel: 'Ver mis participaciones',
+          deduplicationKey: `participant.access.revoked:${documentoId}:${participant.user_id}`,
+          metadata: {
+            documentoId,
+            documentName: docNombre,
+            hadEffectiveParticipation,
+          },
+        }).catch(() => {});
+      }
+
+      return NextResponse.json({
+        success: true,
+        hadEffectiveParticipation,
+        participant: {
+          id: participant.id || null,
+          email: participant.email || null,
+        },
+      });
+    }
 
     if (action === 'rechazar') {
       const updatePayload: Record<string, any> = { estado: 'rechazado' };
@@ -331,6 +513,63 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         );
       }
+      const [responsesResult, evidenceResult] = await Promise.all([
+        supabase
+          .from('participation_responses')
+          .select(
+            'participante_id,participante_email,firma_data,firma_completada,aprobacion_completada,terminos_aceptados'
+          )
+          .eq('documento_id', documentoId),
+        supabase
+          .from('signature_evidence')
+          .select('captured_by,participant_email')
+          .eq('document_id', documentoId),
+      ]);
+      if (responsesResult.error || evidenceResult.error) {
+        return NextResponse.json(
+          { error: 'No fue posible comprobar la participación histórica antes de cancelar.' },
+          { status: 500 }
+        );
+      }
+
+      const responses = (responsesResult.data || []) as ParticipationResponseRecord[];
+      const evidence = (evidenceResult.data || []) as SignatureEvidenceRecord[];
+      const participantOutcomes = participantes.map((participant: any) => {
+        const hadEffectiveParticipation = hasEffectiveParticipation(participant, responses, evidence);
+        if (hadEffectiveParticipation) {
+          return {
+            participant: {
+              ...participant,
+              current_access: false,
+              historical_participation: true,
+              visible: true,
+              participant_relationship_status: 'CANCELLED_BY_DOCUMENT',
+              participation_status: participant.sub_estado ?? participant.status ?? 'participacion_realizada',
+              workflow_cancelled_at: now,
+            },
+            hadEffectiveParticipation,
+          };
+        }
+
+        return {
+          participant: {
+            ...participant,
+            sub_estado: 'cancelo',
+            current_access: false,
+            historical_participation: false,
+            visible: false,
+            participant_relationship_status: 'CANCELLED_BY_DOCUMENT',
+            participation_status: 'CANCELLED_BY_DOCUMENT',
+            access_revoked_at: now,
+            access_revoked_by: user.id,
+            access_revoke_reason: 'DOCUMENT_CANCELLED',
+            portal_token_invalidated_at: now,
+          },
+          hadEffectiveParticipation,
+        };
+      });
+      const updatedParticipantes = participantOutcomes.map(({ participant }) => participant);
+
       const { error: updateError } = await supabase
         .from('documentos')
         .update({
@@ -338,35 +577,46 @@ export async function POST(req: NextRequest) {
           cancelacion_motivo: motivo ?? null,
           cancelacion_descripcion: descripcion ?? null,
           cancelado_at: now,
+          participantes: updatedParticipantes,
         })
         .eq('id', documentoId);
-
       if (updateError) {
         return NextResponse.json({ error: updateError.message }, { status: 500 });
       }
 
-      const terminalStates = [
-        'firmo',
-        'firmado',
-        'rechazo',
-        'rechazado',
-        'aprobo',
-        'aprobado',
-        'cancelo',
-        'cancelado',
-      ];
-      const updatedParticipantes = participantes.map((p: any) => {
-        const currentSub = (p.sub_estado ?? '').toLowerCase();
-        if (!terminalStates.includes(currentSub)) {
-          return { ...p, sub_estado: 'cancelo' };
+      const auditEvents = participantOutcomes.map(({ participant, hadEffectiveParticipation }) => ({
+        workspace_id: doc.workspace_id || null,
+        document_id: documentoId,
+        actor_id: user.id,
+        actor_email: user.email || null,
+        action: hadEffectiveParticipation
+          ? 'PARTICIPANT_HISTORY_RETAINED_AFTER_CANCEL'
+          : 'PARTICIPANT_ACCESS_REVOKED_BY_DOCUMENT_CANCEL',
+        previous_state: {
+          participant_id: participant.id || null,
+          participant_email: participant.email || null,
+        },
+        new_state: {
+          participant_relationship_status: 'CANCELLED_BY_DOCUMENT',
+          current_access: false,
+          historical_participation: hadEffectiveParticipation,
+          visible: hadEffectiveParticipation,
+        },
+        reason: motivo ?? 'DOCUMENT_CANCELLED',
+        result: 'success',
+        request_id: req.headers.get('x-request-id') || null,
+        ip_address: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+        user_agent: req.headers.get('user-agent') || null,
+        metadata: { had_effective_participation: hadEffectiveParticipation },
+      }));
+      if (auditEvents.length > 0) {
+        const { error: auditError } = await supabase
+          .from('document_lifecycle_audit_events')
+          .insert(auditEvents);
+        if (auditError) {
+          console.error('[update-estado] Could not audit participant cancellation outcomes:', auditError.message);
         }
-        return p;
-      });
-
-      await supabase
-        .from('documentos')
-        .update({ participantes: updatedParticipantes })
-        .eq('id', documentoId);
+      }
 
       // ── In-app: notify owner (if a participant cancelled) ─────────────────
       if (doc.owner_id && doc.owner_id !== user.id) {
@@ -396,9 +646,15 @@ export async function POST(req: NextRequest) {
       }
 
       // ── In-app: notify all participants ───────────────────────────────────
-      const participantUserIds = participantes
-        .filter((p: any) => p.user_id && p.user_id !== user.id && p.user_id !== doc.owner_id)
-        .map((p: any) => p.user_id);
+      const participantUserIds = participantOutcomes
+        .filter(
+          ({ participant, hadEffectiveParticipation }) =>
+            hadEffectiveParticipation
+            && participant.user_id
+            && participant.user_id !== user.id
+            && participant.user_id !== doc.owner_id
+        )
+        .map(({ participant }) => participant.user_id);
 
       if (participantUserIds.length > 0) {
         createNotificationsForUsersServer(participantUserIds, {

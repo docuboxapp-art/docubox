@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { PDFDocument, PDFPage, PDFFont, rgb } from 'pdf-lib';
+import { PDFArray, PDFDocument, PDFPage, PDFFont, rgb } from 'pdf-lib';
 import QRCode from 'qrcode';
 import { embedDocuboxPdfFonts } from '@/lib/pdf/embedded-fonts';
 
@@ -70,6 +70,9 @@ export interface CryptographicPlacementPdfData {
   documentChainSha256: string;
   documentSealBase64: string;
   documentSealSha256: string;
+  documentSealAlgorithm: 'RSA-PSS-SHA256' | 'RSA-PKCS1-SHA256';
+  documentSealStatus: DocumentSealStatus;
+  documentKeySizeBits: number;
   documentKeyVersion: string;
   evidenceChainDisplay: string;
   timestamp?: {
@@ -79,6 +82,12 @@ export interface CryptographicPlacementPdfData {
     serialNumber: string;
     tokenSha256: string;
   };
+}
+
+export interface VerificationStampPdfData {
+  documentUuid: string;
+  verificationUrl: string;
+  completedAt?: string | null;
 }
 
 const PAGE_WIDTH = 612;
@@ -132,6 +141,191 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
   }
   if (current) lines.push(current);
   return lines;
+}
+
+function formatVerificationCompletion(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Chihuahua',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+    timeZoneName: 'shortOffset',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const offsetMatch = (values.timeZoneName || '').match(/(?:GMT|UTC)([+-])(\d{1,2})(?::?(\d{2}))?/);
+  const offset = offsetMatch
+    ? `UTC${offsetMatch[1]}${Number(offsetMatch[2])}${offsetMatch[3] && offsetMatch[3] !== '00' ? `:${offsetMatch[3]}` : ''}`
+    : 'UTC-7';
+
+  return `${values.day}/${values.month}/${values.year}, ${values.hour}:${values.minute}:${values.second} ${offset}`;
+}
+
+function drawSimpleVerificationStamp(
+  page: PDFPage,
+  regular: PDFFont,
+  bold: PDFFont,
+  pageNumber: number,
+  totalPages: number,
+  documentUuid: string,
+  footerHeight: number,
+) {
+  const { width } = page.getSize();
+  const margin = Math.max(12, width * 0.026);
+  const size = Math.max(5.6, Math.min(6.8, width / 96));
+  const pageText = `Página ${pageNumber} de ${totalPages}`;
+  const documentText = `ID documento: ${documentUuid}`;
+  const documentWidth = regular.widthOfTextAtSize(documentText, size);
+
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width,
+    height: footerHeight,
+    color: rgb(0.985, 0.988, 0.994),
+    borderColor: line,
+    borderWidth: 0.6,
+  });
+  page.drawText(pageText, {
+    x: margin,
+    y: footerHeight / 2 - size * 0.35,
+    size,
+    font: bold,
+    color: ink,
+  });
+  page.drawText(documentText, {
+    x: Math.max(margin + 120, width - margin - documentWidth),
+    y: footerHeight / 2 - size * 0.35,
+    size,
+    font: regular,
+    color: ink,
+  });
+}
+
+function drawCompletedVerificationStamp(
+  page: PDFPage,
+  regular: PDFFont,
+  bold: PDFFont,
+  qr: Awaited<ReturnType<PDFDocument['embedPng']>>,
+  pageNumber: number,
+  totalPages: number,
+  documentUuid: string,
+  verificationUrl: string,
+  completedAt: string,
+  footerHeight: number,
+) {
+  const { width } = page.getSize();
+  const margin = Math.max(12, width * 0.026);
+  const qrSize = Math.min(48, footerHeight - 18, width * 0.1);
+  const qrX = width - margin - qrSize;
+  const textWidth = qrX - margin - 14;
+  const labelSize = Math.max(5, Math.min(5.8, width / 116));
+  const pageText = `Página ${pageNumber} de ${totalPages}`;
+  const documentText = `ID documento: ${documentUuid}`;
+  const completion = formatVerificationCompletion(completedAt);
+  const instruction = 'Para verificar la autenticidad, integridad y estado de este documento, escanee el código QR o visite:';
+  const instructionLines = wrapText(instruction, regular, labelSize, textWidth).slice(0, 1);
+  let urlSize = labelSize;
+  while (regular.widthOfTextAtSize(verificationUrl, urlSize) > textWidth && urlSize > 4.3) {
+    urlSize -= 0.2;
+  }
+
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width,
+    height: footerHeight,
+    color: rgb(0.985, 0.988, 0.994),
+    borderColor: line,
+    borderWidth: 0.6,
+  });
+  let y = footerHeight - 10;
+  page.drawText(pageText, { x: margin, y, size: labelSize, font: bold, color: ink });
+  y -= 10;
+  page.drawText(documentText, { x: margin, y, size: labelSize, font: regular, color: ink });
+  if (completion) {
+    y -= 10;
+    page.drawText(`Firmado completamente el: ${completion}`, {
+      x: margin,
+      y,
+      size: labelSize,
+      font: regular,
+      color: ink,
+    });
+  }
+  y -= 10;
+  instructionLines.forEach((value, index) => {
+    page.drawText(value, { x: margin, y: y - index * (labelSize + 1), size: labelSize, font: regular, color: secondary });
+  });
+  y -= instructionLines.length * (labelSize + 1) + 1;
+  page.drawText(verificationUrl, { x: margin, y, size: urlSize, font: regular, color: blue });
+  page.drawImage(qr, { x: qrX, y: 9, width: qrSize, height: qrSize });
+}
+
+/**
+ * Adds an identification band before PAdES signing. Existing page content is
+ * shifted upward so the stamp never overlays the original document.
+ */
+export async function applyDocumentVerificationStamp(
+  documentBytes: Uint8Array,
+  data: VerificationStampPdfData,
+) {
+  const pdf = await PDFDocument.load(documentBytes, { ignoreEncryption: false });
+  const { regular, bold } = await embedDocuboxPdfFonts(pdf);
+  const pages = pdf.getPages();
+  const totalPages = pages.length;
+  const completedAt = data.completedAt || null;
+  const regularStampHeight = 28;
+  const finalStampHeight = completedAt ? 78 : regularStampHeight;
+  const completedQr = completedAt
+    ? await pdf.embedPng(Buffer.from(
+      (await QRCode.toDataURL(data.verificationUrl, { errorCorrectionLevel: 'M', margin: 1, width: 240 }))
+        .split(',')[1],
+      'base64',
+    ))
+    : null;
+
+  pages.forEach((page, index) => {
+    const isCompletedLastPage = Boolean(completedAt && completedQr && index === totalPages - 1);
+    const footerHeight = isCompletedLastPage ? finalStampHeight : regularStampHeight;
+    const { width, height } = page.getSize();
+    page.setSize(width, height + footerHeight);
+    page.translateContent(0, footerHeight);
+
+    if (isCompletedLastPage && completedQr && completedAt) {
+      drawCompletedVerificationStamp(
+        page,
+        regular,
+        bold,
+        completedQr,
+        index + 1,
+        totalPages,
+        data.documentUuid,
+        data.verificationUrl,
+        completedAt,
+        footerHeight,
+      );
+      return;
+    }
+
+    drawSimpleVerificationStamp(
+      page,
+      regular,
+      bold,
+      index + 1,
+      totalPages,
+      data.documentUuid,
+      footerHeight,
+    );
+  });
+
+  return pdf.save({ useObjectStreams: false });
 }
 
 function roundedCard(page: PDFPage, x: number, y: number, width: number, height: number, fill = rgb(1, 1, 1), border = line) {
@@ -451,7 +645,7 @@ export async function generateIntegrityCertificatePdf(data: IntegrityCertificate
   drawHeader(page2, logo, bold, regular, 'Anexo tecnico');
   page2.drawText('ANEXO TECNICO DE VALIDACION', { x: MARGIN, y: 690, size: 16, font: bold, color: ink });
   page2.drawText('Resumen legible de las cadenas y sellos. Los valores integros se incluyen en el anexo final.', { x: MARGIN, y: 672, size: 7.5, font: regular, color: secondary });
-  drawTechnicalBlock(page2, regular, bold, 529, 1, 'CADENA ORIGINAL DOCUBOX', 'Objeto canonico que representa el documento certificado.', data.documentChainDisplay, blue);
+  drawTechnicalBlock(page2, regular, bold, 529, 1, 'CADENA ORIGINAL DOCUBOX', 'Cadena UTF-8 exacta utilizada para generar el sello del documento.', data.documentChainDisplay, blue);
   const documentSealId = data.documentSeal.seal_uuid;
   drawTechnicalBlock(page2, regular, bold, 392, 2, 'SELLO DIGITAL DOCUBOX', 'Firma RSA-PSS SHA-256 emitida mediante una llave KMS.', `IDENTIFICADOR=${documentSealId}\nESTADO=${data.documentSeal.status}\nHUELLA_CADENA=${data.documentSeal.document_chain_sha256.toUpperCase()}\nHUELLA_SELLO=${data.documentSeal.seal_sha256.toUpperCase()}\nALGORITMO=${data.documentSeal.signature_algorithm} / RSA-${data.documentSeal.key_size_bits}\nLLAVE=${data.documentSeal.signing_key_version}`, green);
   drawTechnicalBlock(page2, regular, bold, 255, 3, 'CADENA DE EVIDENCIA', 'Manifiesto canonico del paquete de evidencia y la bitacora.', data.evidenceChainDisplay, blue);
@@ -552,8 +746,80 @@ function cryptographicPlacementContent(type: CryptographicPlacementType, data: C
   const sealId = `SDL-DBX-${new Date(data.certifiedAt).getUTCFullYear()}-${data.documentUuid.replace(/-/g, '').slice(0, 8).toUpperCase()}-0001`;
   return {
     title: 'SELLO DIGITAL DOCUBOX',
-    content: `IDENTIFICADOR=${sealId}\nHUELLA_CADENA=${data.documentChainSha256.toUpperCase()}\nHUELLA_SELLO=${data.documentSealSha256.toUpperCase()}\nALGORITMO=RSA-PSS-SHA256 / RSA-3072\nLLAVE=${data.documentKeyVersion}\nGENERADO=${formatUtc(data.certifiedAt)}\nSELLO=${data.documentSealBase64}`,
+    content: `${data.documentSealBase64}\nALGORITMO=${data.documentSealAlgorithm} / RSA-${data.documentKeySizeBits}\nLLAVE=${data.documentKeyVersion}\nESTADO_DE_VERIFICACION=${sealStatusPresentation(data.documentSealStatus).label}\nIDENTIFICADOR=${sealId}\nHUELLA_CADENA=${data.documentChainSha256.toUpperCase()}\nHUELLA_SELLO=${data.documentSealSha256.toUpperCase()}\nGENERADO=${formatUtc(data.certifiedAt)}`,
   };
+}
+
+function drawCryptographicPlacementBlock(
+  page: PDFPage,
+  regular: PDFFont,
+  bold: PDFFont,
+  mono: PDFFont,
+  type: CryptographicPlacementType,
+  data: CryptographicPlacementPdfData,
+  box: { x: number; y: number; width: number; height: number },
+  includeReferenceTitle: boolean,
+) {
+  const { x, y, width, height } = box;
+  const padding = Math.max(6, Math.min(12, width * 0.022));
+  const { title, content } = cryptographicPlacementContent(type, data);
+
+  page.drawRectangle({
+    x,
+    y,
+    width,
+    height,
+    color: rgb(1, 1, 1),
+    borderColor: rgb(0.55, 0.7, 0.96),
+    borderWidth: 0.8,
+    opacity: 0.98,
+  });
+  const contentInset = includeReferenceTitle ? padding + 3 : padding;
+  const titleSize = includeReferenceTitle ? Math.max(6.5, Math.min(9, height * 0.09)) : 0;
+  if (includeReferenceTitle) {
+    page.drawRectangle({ x, y, width: 3, height, color: blue });
+    page.drawText(title, {
+      x: x + contentInset,
+      y: y + height - padding - titleSize,
+      size: titleSize,
+      font: bold,
+      color: rgb(0.08, 0.24, 0.56),
+      maxWidth: width - padding * 2 - 3,
+    });
+  }
+
+  const contentWidth = width - contentInset - padding;
+  const contentTopOffset = includeReferenceTitle ? titleSize + 7 : 0;
+  const availableHeight = height - padding * 2 - contentTopOffset;
+  let bodySize = Math.max(3.2, Math.min(9.5, height * 0.08));
+  let lineHeight = bodySize * 1.28;
+  let lines = wrapTechnicalText(content, mono, bodySize, contentWidth);
+  while (lines.length * lineHeight > availableHeight && bodySize > 2.4) {
+    bodySize = Math.max(2.4, bodySize - 0.2);
+    lineHeight = bodySize * 1.28;
+    lines = wrapTechnicalText(content, mono, bodySize, contentWidth);
+  }
+  if (lines.length * lineHeight > availableHeight) {
+    throw new Error(`El campo ${title} no tiene altura suficiente para mostrar el valor completo.`);
+  }
+  lines.forEach((lineText, index) => {
+    page.drawText(lineText, {
+      x: x + contentInset,
+      y: y + height - padding - contentTopOffset - index * lineHeight,
+      size: bodySize,
+      font: mono,
+      color: ink,
+    });
+  });
+  if (lines.length === 0) {
+    page.drawText('Valor generado al completar la certificacion.', {
+      x: x + contentInset,
+      y: y + padding,
+      size: 5,
+      font: regular,
+      color: secondary,
+    });
+  }
 }
 
 export async function applyCryptographicPlacements(
@@ -573,37 +839,88 @@ export async function applyCryptographicPlacements(
     const page = pdf.getPage(pageIndex);
     const { width: pageWidth, height: pageHeight } = page.getSize();
     const blockWidth = Math.max(90, pageWidth * Math.max(8, Math.min(96, Number(placement.width || 40))) / 100);
-    const blockHeight = Math.max(42, pageHeight * Math.max(4, Math.min(50, Number(placement.height || 10))) / 100);
+    const blockHeight = Math.min(
+      pageHeight,
+      pageHeight * Math.max(4, Math.min(90, Number(placement.height || 10))) / 100
+    );
     const x = Math.max(0, Math.min(pageWidth - blockWidth, pageWidth * Math.max(0, Number(placement.x || 0)) / 100));
     const top = pageHeight * Math.max(0, Number(placement.y || 0)) / 100;
     const y = Math.max(0, Math.min(pageHeight - blockHeight, pageHeight - top - blockHeight));
-    const padding = Math.max(5, Math.min(10, blockWidth * 0.018));
-    const { title, content } = cryptographicPlacementContent(type, data);
-
-    page.drawRectangle({ x, y, width: blockWidth, height: blockHeight, color: rgb(1, 1, 1), borderColor: rgb(0.55, 0.7, 0.96), borderWidth: 0.8, opacity: 0.97 });
-    page.drawRectangle({ x, y, width: 3, height: blockHeight, color: blue });
-    const titleSize = Math.max(5.5, Math.min(9, blockHeight * 0.105));
-    page.drawText(title, { x: x + padding + 3, y: y + blockHeight - padding - titleSize, size: titleSize, font: bold, color: rgb(0.08, 0.24, 0.56), maxWidth: blockWidth - padding * 2 - 3 });
-    const bodySize = Math.max(3.6, Math.min(6.5, blockHeight * 0.065));
-    const lineHeight = bodySize * 1.3;
-    const availableHeight = blockHeight - padding * 2 - titleSize - 5;
-    const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
-    const lines = wrapTechnicalText(content, mono, bodySize, blockWidth - padding * 2 - 3).slice(0, maxLines);
-    lines.forEach((lineText, index) => {
-      page.drawText(lineText, { x: x + padding + 3, y: y + blockHeight - padding - titleSize - 7 - index * lineHeight, size: bodySize, font: mono, color: ink });
-    });
-    if (lines.length === 0) {
-      page.drawText('Valor generado al completar la certificacion.', { x: x + padding + 3, y: y + padding, size: 5, font: regular, color: secondary });
-    }
+    drawCryptographicPlacementBlock(page, regular, bold, mono, type, data, {
+      x,
+      y,
+      width: blockWidth,
+      height: blockHeight,
+    }, false);
   }
 
   return pdf.save({ useObjectStreams: false });
 }
 
-export async function appendCertificatePages(documentBytes: Uint8Array, certificateBytes: Uint8Array) {
-  const documentPdf = await PDFDocument.load(documentBytes, { ignoreEncryption: false });
-  const certificatePdf = await PDFDocument.load(certificateBytes);
-  const pages = await documentPdf.copyPages(certificatePdf, certificatePdf.getPageIndices());
-  pages.forEach((page) => documentPdf.addPage(page));
-  return documentPdf.save({ useObjectStreams: false });
+function pageHasNoDrawingContent(page: PDFPage) {
+  const contents = page.node.Contents();
+  return !contents || (contents instanceof PDFArray && contents.size() === 0);
+}
+
+export async function applyCryptographicPlacementAtFoot(
+  documentBytes: Uint8Array,
+  data: CryptographicPlacementPdfData,
+) {
+  const pdf = await PDFDocument.load(documentBytes, { ignoreEncryption: false });
+  const { bold, mono } = await embedDocuboxPdfFonts(pdf);
+  const lastPage = pdf.getPage(pdf.getPageCount() - 1);
+  const targetPage = pageHasNoDrawingContent(lastPage)
+    ? lastPage
+    : pdf.addPage([lastPage.getWidth(), lastPage.getHeight()]);
+  const { width, height } = targetPage.getSize();
+  const margin = Math.max(16, width * 0.035);
+  const contentWidth = width - margin * 2;
+  const bodySize = Math.max(3.4, Math.min(4.3, width / 150));
+  const titleSize = Math.max(5.6, Math.min(6.4, width / 110));
+  const lineHeight = bodySize * 1.24;
+  const sectionGap = 6;
+  const sections = [
+    {
+      title: 'CADENA ORIGINAL DOCUBOX',
+      lines: wrapTechnicalText(data.documentChainDisplay, mono, bodySize, contentWidth),
+    },
+    {
+      title: 'SELLO DIGITAL DOCUBOX',
+      lines: wrapTechnicalText(
+        `${data.documentSealBase64}\nAlgoritmo: ${data.documentSealAlgorithm} - RSA ${data.documentKeySizeBits} bits - Llave: ${data.documentKeyVersion} - Estado: ${sealStatusPresentation(data.documentSealStatus).label}`,
+        mono,
+        bodySize,
+        contentWidth,
+      ),
+    },
+  ];
+  const sectionHeight = (section: (typeof sections)[number]) => 8 + titleSize + 6 + section.lines.length * lineHeight;
+  const requiredHeight = sections.reduce((total, section) => total + sectionHeight(section), 0) + sectionGap;
+  const bottomMargin = Math.max(12, height * 0.018);
+  let y = bottomMargin + requiredHeight;
+
+  for (const [index, section] of sections.entries()) {
+    targetPage.drawLine({
+      start: { x: margin, y },
+      end: { x: width - margin, y },
+      thickness: 0.45,
+      color: index === 0 ? rgb(0.28, 0.48, 0.92) : line,
+    });
+    y -= 8;
+    targetPage.drawText(section.title, {
+      x: margin,
+      y,
+      size: titleSize,
+      font: bold,
+      color: rgb(0.08, 0.24, 0.56),
+    });
+    y -= titleSize + 6;
+    for (const value of section.lines) {
+      targetPage.drawText(value, { x: margin, y, size: bodySize, font: mono, color: ink });
+      y -= lineHeight;
+    }
+    if (index < sections.length - 1) y -= sectionGap;
+  }
+
+  return pdf.save({ useObjectStreams: false });
 }

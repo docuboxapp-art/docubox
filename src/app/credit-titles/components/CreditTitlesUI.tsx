@@ -1,5 +1,6 @@
 'use client';
 
+import type React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -12,6 +13,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { STATUS_META, type PromissoryNoteStatus } from '@/lib/credit-titles/schema';
+import { DEVELOPMENT_MODULE_MESSAGE } from '@/lib/product/developmentModules';
 
 const navItems = [
   { href: '/credit-titles', label: 'Resumen', icon: LayoutDashboard },
@@ -62,7 +64,15 @@ export function CreditTitlesWorkspace({ children }: { children: React.ReactNode 
             El registro electronico es la fuente de verdad. El PDF es su representacion verificable.
           </div>
         </aside>
-        <main className="min-w-0 px-4 py-5 sm:px-5 md:py-6 lg:px-7">{children}</main>
+        <main className="min-w-0 px-4 py-5 sm:px-5 md:py-6 lg:px-7">
+          <div
+            role="status"
+            className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+          >
+            <span className="font-600">Módulo en construcción.</span> {DEVELOPMENT_MODULE_MESSAGE}
+          </div>
+          {children}
+        </main>
       </div>
     </div>
   );
@@ -80,7 +90,12 @@ export function CreditTitlesHeader({
   return (
     <header className="mb-5 flex flex-col gap-4 border-b border-slate-200 pb-5 dark:border-border sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="text-2xl font-600 text-slate-950 dark:text-foreground">{title}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-600 text-slate-950 dark:text-foreground">{title}</h1>
+          <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-600 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            En construcción
+          </span>
+        </div>
         <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-muted-foreground">
           {description}
         </p>

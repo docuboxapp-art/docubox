@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 export async function POST(req: NextRequest) {
   try {
     const supabase = createServiceClient();
     const body = await req.json();
     const { token, fileName, fileType, fileSize, fileData } = body;
+    const tokenHash = hashCapabilityToken(String(token || ''));
 
     if (!/^[a-f0-9]{64}$/i.test(String(token || '')) || !fileName || !fileData) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
@@ -26,7 +28,7 @@ export async function POST(req: NextRequest) {
     const { data: session, error: sessionError } = await supabase
       .from('mobile_upload_sessions')
       .select('*')
-      .eq('token', token)
+      .eq('token_hash', tokenHash)
       .eq('status', 'pending')
       .gt('expires_at', new Date().toISOString())
       .single();
@@ -40,8 +42,10 @@ export async function POST(req: NextRequest) {
     if (fileBuffer.byteLength === 0 || fileBuffer.byteLength > 25 * 1024 * 1024) {
       return NextResponse.json({ error: 'El archivo excede el limite permitido' }, { status: 413 });
     }
-    const safeFileName = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 180);
-    const storagePath = `uploads/${token}/${safeFileName}`;
+    const safeFileName = String(fileName)
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 180);
+    const storagePath = `uploads/${session.id}/${safeFileName}`;
 
     const { error: uploadError } = await supabase.storage
       .from('mobile-uploads')
@@ -66,7 +70,7 @@ export async function POST(req: NextRequest) {
         file_data: storagePath, // store path, not base64
         updated_at: new Date().toISOString(),
       })
-      .eq('token', token);
+      .eq('id', session.id);
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });

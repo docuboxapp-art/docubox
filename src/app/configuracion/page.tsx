@@ -3,14 +3,22 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
-import { Bell, Globe, Users, ShieldCheck, Key, Palette, Check, Mail, Smartphone, Loader2, Plus, Trash2, Copy, Webhook, Eye, EyeOff, AlertCircle, CheckCircle, Clock, Filter, Download, Building2, Lock, Edit3, X, Save, Activity, Image, Upload, Search, Info, Zap, Globe2, Link2, Fingerprint,  } from 'lucide-react';
+import { Bell, Globe, Users, ShieldCheck, Key, Palette, Check, Mail, Smartphone, Loader2, Plus, Trash2, Copy, Webhook, Eye, EyeOff, AlertCircle, CheckCircle, Clock, Filter, Download, Building2, Lock, Edit3, X, Save, Activity, Image, Upload, Search, Info, Zap, Globe2, Link2, Fingerprint, FileText } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
+import { TemplateDocumentSettingsPanel } from '@/components/templates/TemplateDocumentSettingsPanel';
+import { WorkspaceManagementSection } from '@/components/workspaces/WorkspaceManagementSection';
+import {
+  DEFAULT_TEMPLATE_DOCUMENT_SETTINGS,
+  readTemplateDocumentSettings,
+  type TemplateDocumentSettings,
+  writeTemplateDocumentSettings,
+} from '@/lib/templates/document-settings';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Section = 'delegacion' | 'auditoria' | 'integraciones' | 'regional' | 'notificaciones' | 'almacenamiento';
+type Section = 'espacios-trabajo' | 'delegacion' | 'auditoria' | 'integraciones' | 'regional' | 'notificaciones' | 'almacenamiento' | 'plantillas';
 
 interface ToggleProps {
   enabled: boolean;
@@ -80,6 +88,26 @@ function ToggleSwitch({ enabled, onChange, disabled }: ToggleProps) {
   );
 }
 
+function SettingsSectionHeader({
+  title,
+  description,
+  actions,
+}: {
+  title: string;
+  description: string;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <header className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between dark:border-slate-700">
+      <div className="min-w-0">
+        <h1 className="text-2xl font-700 text-slate-950 dark:text-white">{title}</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </header>
+  );
+}
+
 // ─── Permission definitions ───────────────────────────────────────────────────
 
 const PERMISSION_MODULES = [
@@ -124,11 +152,12 @@ const DATE_FORMATS = [
 // ─── Sidebar items ────────────────────────────────────────────────────────────
 
 const sidebarItems: { id: Section; label: string; icon: React.ElementType; description: string }[] = [
+  { id: 'espacios-trabajo', label: 'Espacios de trabajo', icon: Building2, description: 'Gestiona espacios, miembros e invitaciones' },
   { id: 'notificaciones', label: 'Notificaciones', icon: Bell, description: 'Canales, eventos y frecuencia de alertas' },
-  { id: 'delegacion', label: 'Delegación y Roles', icon: Users, description: 'Perfiles de permisos granulares por workspace' },
   { id: 'auditoria', label: 'Auditoría y Reportes', icon: ShieldCheck, description: 'Visor filtrable de eventos de seguridad' },
   { id: 'integraciones', label: 'Integraciones y API', icon: Key, description: 'API keys y webhooks por workspace' },
   { id: 'almacenamiento', label: 'Almacenamiento', icon: Globe2, description: 'Conecta Google Drive, OneDrive y Dropbox' },
+  { id: 'plantillas', label: 'Plantillas', icon: FileText, description: 'Valores predeterminados para las nuevas plantillas' },
   { id: 'regional', label: 'Regional y Marca', icon: Globe, description: 'Zona horaria, formato y marca blanca' },
 ];
 
@@ -203,6 +232,11 @@ export default function ConfiguracionPage() {
   const [logoUploading, setLogoUploading] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Template defaults state ────────────────────────────────────────────────
+  const [templateDocumentSettings, setTemplateDocumentSettings] =
+    useState<TemplateDocumentSettings>(DEFAULT_TEMPLATE_DOCUMENT_SETTINGS);
+  const [templateSettingsSaved, setTemplateSettingsSaved] = useState(false);
+
   const currentWsId = activeWorkspace?.id || workspaces[0]?.id || null;
 
   // ── Load audit events ───────────────────────────────────────────────────────
@@ -261,12 +295,18 @@ export default function ConfiguracionPage() {
     } catch { /* silent */ }
   }, [currentWsId]);
 
+  const loadTemplateDocumentSettings = useCallback(() => {
+    const settings = readTemplateDocumentSettings(currentWsId);
+    window.requestAnimationFrame(() => setTemplateDocumentSettings(settings));
+  }, [currentWsId]);
+
   useEffect(() => {
     if (activeSection === 'auditoria') loadAuditEvents();
     if (activeSection === 'integraciones') loadApiKeys();
     if (activeSection === 'delegacion') loadPermProfiles();
     if (activeSection === 'regional') loadRegional();
-  }, [activeSection, loadAuditEvents, loadApiKeys, loadPermProfiles, loadRegional]);
+    if (activeSection === 'plantillas') loadTemplateDocumentSettings();
+  }, [activeSection, loadAuditEvents, loadApiKeys, loadPermProfiles, loadRegional, loadTemplateDocumentSettings]);
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -410,6 +450,14 @@ export default function ConfiguracionPage() {
     }, 600);
   };
 
+  const handleSaveTemplateDocumentSettings = (settings: TemplateDocumentSettings) => {
+    const normalized = { ...settings, margins: { ...settings.margins } };
+    writeTemplateDocumentSettings(currentWsId, normalized);
+    setTemplateDocumentSettings(normalized);
+    setTemplateSettingsSaved(true);
+    setTimeout(() => setTemplateSettingsSaved(false), 3000);
+  };
+
   const handleSaveNotifications = () => {
     setNotifSaving(true);
     setTimeout(() => {
@@ -504,23 +552,20 @@ export default function ConfiguracionPage() {
 
   const renderNotificaciones = () => (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Bell size={24} className="text-primary" />
-            Notificaciones
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">Configura cómo y cuándo recibes alertas de la plataforma.</p>
-        </div>
-        <button
-          onClick={handleSaveNotifications}
-          disabled={notifSaving}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-600 hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
-        >
-          {notifSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-          Guardar preferencias
-        </button>
-      </div>
+      <SettingsSectionHeader
+        title="Notificaciones"
+        description="Configura cómo y cuándo recibes alertas de la plataforma."
+        actions={
+          <button
+            onClick={handleSaveNotifications}
+            disabled={notifSaving}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+          >
+            {notifSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            Guardar preferencias
+          </button>
+        }
+      />
 
       {notifSaved && (
         <div className="flex items-center gap-2 px-4 py-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm font-500">
@@ -606,29 +651,26 @@ export default function ConfiguracionPage() {
 
   const renderDelegacion = () => (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Users size={24} className="text-primary" />
-            Delegación y Roles Administrativos
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">Crea perfiles de permisos granulares por workspace. Cada perfil puede tener acceso solo a los módulos que necesita.</p>
-        </div>
-        <button
-          onClick={() => {
-            setEditingProfile(null);
-            setNewProfileName('');
-            setNewProfileDesc('');
-            setNewProfilePerms({});
-            setProfileError('');
-            setShowNewProfileModal(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-600 hover:bg-primary/90 transition-colors flex-shrink-0"
-        >
-          <Plus size={15} />
-          Nuevo perfil
-        </button>
-      </div>
+      <SettingsSectionHeader
+        title="Delegación y roles administrativos"
+        description="Crea perfiles de permisos granulares por espacio de trabajo."
+        actions={
+          <button
+            onClick={() => {
+              setEditingProfile(null);
+              setNewProfileName('');
+              setNewProfileDesc('');
+              setNewProfilePerms({});
+              setProfileError('');
+              setShowNewProfileModal(true);
+            }}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-600 text-white transition-colors hover:bg-primary/90"
+          >
+            <Plus size={15} />
+            Nuevo perfil
+          </button>
+        }
+      />
 
       {/* Info banner */}
       <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
@@ -800,15 +842,10 @@ export default function ConfiguracionPage() {
 
   const renderAuditoria = () => (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <ShieldCheck size={24} className="text-primary" />
-            Auditoría y Reportes
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">Visor filtrable de eventos de seguridad. Filtra por usuario, acción y rango de fecha.</p>
-        </div>
-        <button
+      <SettingsSectionHeader
+        title="Auditoría y reportes"
+        description="Consulta y filtra eventos de seguridad por usuario, acción y fecha."
+        actions={<button
           onClick={() => {
             const csv = ['Fecha,Hora,Evento,Usuario,IP,Dispositivo']
               .concat(filteredAudit.map(ev => {
@@ -831,12 +868,12 @@ export default function ConfiguracionPage() {
             a.click();
             URL.revokeObjectURL(url);
           }}
-          className="flex items-center gap-2 px-4 py-2 border border-border text-foreground rounded-lg text-sm font-600 hover:bg-gray-50 transition-colors flex-shrink-0"
+          className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50"
         >
           <Download size={14} />
           Exportar CSV
-        </button>
-      </div>
+        </button>}
+      />
 
       {/* Filters */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
@@ -978,15 +1015,10 @@ export default function ConfiguracionPage() {
 
   const renderIntegraciones = () => (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Key size={24} className="text-primary" />
-            Integraciones y API Keys
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">Gestiona API keys y webhooks por workspace para integrar sistemas externos.</p>
-        </div>
-      </div>
+      <SettingsSectionHeader
+        title="Integraciones y API keys"
+        description="Gestiona API keys y webhooks para conectar sistemas externos."
+      />
 
       {/* API Keys section */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
@@ -1233,23 +1265,20 @@ export default function ConfiguracionPage() {
 
   const renderRegional = () => (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Globe size={24} className="text-primary" />
-            Regional y Marca Blanca
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">Configura zona horaria, formato de fecha y la identidad visual de tu workspace.</p>
-        </div>
-        <button
-          onClick={handleSaveRegional}
-          disabled={regionalSaving}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-600 hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
-        >
-          {regionalSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-          Guardar configuración
-        </button>
-      </div>
+      <SettingsSectionHeader
+        title="Regional y marca blanca"
+        description="Configura zona horaria, formato de fecha e identidad visual del espacio de trabajo."
+        actions={
+          <button
+            onClick={handleSaveRegional}
+            disabled={regionalSaving}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+          >
+            {regionalSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            Guardar configuración
+          </button>
+        }
+      />
 
       {regionalSaved && (
         <div className="flex items-center gap-2 px-4 py-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm font-500">
@@ -1435,13 +1464,40 @@ export default function ConfiguracionPage() {
     </div>
   );
 
+  const renderPlantillas = () => (
+    <div className="flex flex-col gap-6">
+      <SettingsSectionHeader
+        title="Configuración de plantillas"
+        description="Define los valores predeterminados que se aplicarán al crear nuevas plantillas."
+      />
+
+      {templateSettingsSaved && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-500 text-emerald-700">
+          <CheckCircle size={15} />Configuración de plantillas guardada correctamente.
+        </div>
+      )}
+
+      <div className="max-w-xl">
+        <TemplateDocumentSettingsPanel
+          key={JSON.stringify(templateDocumentSettings)}
+          initialSettings={templateDocumentSettings}
+          onSave={handleSaveTemplateDocumentSettings}
+          title="Valores predeterminados"
+          description="Se aplican a las nuevas plantillas de este espacio de trabajo."
+        />
+      </div>
+    </div>
+  );
+
   const renderContent = () => {
     switch (activeSection) {
+      case 'espacios-trabajo': return <WorkspaceManagementSection />;
       case 'notificaciones': return renderNotificaciones();
       case 'delegacion': return renderDelegacion();
       case 'auditoria': return renderAuditoria();
       case 'integraciones': return renderIntegraciones();
       case 'almacenamiento': return renderAlmacenamiento();
+      case 'plantillas': return renderPlantillas();
       case 'regional': return renderRegional();
       default: return null;
     }
@@ -1495,16 +1551,10 @@ export default function ConfiguracionPage() {
 
     return (
       <div className="flex flex-col gap-6">
-        {/* Header */}
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-            <Globe2 size={22} className="text-blue-600" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Almacenamiento en la nube</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Conecta servicios de almacenamiento para importar y exportar documentos</p>
-          </div>
-        </div>
+        <SettingsSectionHeader
+          title="Almacenamiento en la nube"
+          description="Conecta servicios para importar y exportar documentos."
+        />
 
         {/* Info */}
         <div className="bg-gray-50 border border-border rounded-xl px-4 py-3">
@@ -1552,45 +1602,44 @@ export default function ConfiguracionPage() {
     );
   };
 
-  const activeItem = sidebarItems.find(s => s.id === activeSection);
-
   return (
     <AppLayout noPadding>
-      <div className="flex min-h-[calc(100vh-128px)]">
-        <div className="flex flex-col md:flex-row w-full flex-1">
-          {/* Internal Sidebar — horizontal tabs on mobile, vertical sidebar on md+ */}
-          <aside className="w-full md:w-52 2xl:w-64 flex-shrink-0 bg-white border-b md:border-b-0 md:border-r border-border flex flex-col">
-            <nav className="flex flex-row md:flex-col overflow-x-auto md:overflow-x-visible space-x-1 md:space-x-0 md:space-y-0.5 pt-2 md:pt-3 px-2 pb-2 md:pb-4 scrollbar-thin">
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-104px)] bg-[#F5F7FA] md:-my-6 dark:bg-slate-950">
+        <div className="flex min-h-[calc(100vh-104px)] w-full flex-col md:flex-row">
+          <aside className="flex w-full flex-shrink-0 flex-col border-b border-slate-200 bg-white md:w-60 md:border-b-0 md:border-r 2xl:w-64 dark:border-slate-700 dark:bg-slate-900">
+            <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:overflow-x-visible md:p-3">
               {sidebarItems.map((item) => {
                 const isActive = activeSection === item.id;
                 return (
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`flex-shrink-0 md:w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 text-left whitespace-nowrap ${
-                      isActive ? 'bg-primary/10 text-primary font-600 shadow-sm' : 'text-foreground hover:bg-gray-100 hover:text-primary'
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`flex h-10 flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-left text-sm transition-colors md:w-full ${
+                      isActive
+                        ? 'bg-blue-50 font-600 text-primary dark:bg-blue-950/50 dark:text-blue-300'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
                     }`}
                   >
-                    <item.icon size={15} className={`flex-shrink-0 ${isActive ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <item.icon size={16} className={`flex-shrink-0 ${isActive ? 'text-primary dark:text-blue-300' : 'text-slate-400 dark:text-slate-500'}`} />
                     <span>{item.label}</span>
                   </button>
                 );
               })}
-              <div className="my-2 border-t border-border" />
+              <div className="my-2 border-t border-slate-200 dark:border-slate-700" />
               <Link
                 href="/configuracion/verificacion-identidad"
-                className="flex flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm text-foreground transition-all duration-150 hover:bg-gray-100 hover:text-primary md:w-full"
+                className="flex h-10 flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-left text-sm text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950 md:w-full dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
               >
-                <Fingerprint size={15} className="flex-shrink-0 text-muted-foreground" />
+                <Fingerprint size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
                 <span>Verificación de identidad</span>
               </Link>
             </nav>
           </aside>
 
-          {/* Main Content */}
-          <div className="flex-1 overflow-auto bg-background px-4 md:px-6 py-5">
-            {renderContent()}
-          </div>
+          <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 md:px-7 md:py-6 xl:px-8 dark:[&_.bg-gray-50]:bg-slate-800 dark:[&_.bg-gray-100]:bg-slate-800 dark:[&_.bg-white]:bg-slate-900 dark:[&_.border-border]:border-slate-700 [&_.rounded-xl]:rounded-lg">
+            <div className="mx-auto w-full max-w-[1240px]">{renderContent()}</div>
+          </main>
         </div>
       </div>
     </AppLayout>

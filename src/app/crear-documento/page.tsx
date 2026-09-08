@@ -290,6 +290,30 @@ function CrearDocumentoPageInner() {
         if (data.participantes && Array.isArray(data.participantes)) {
           setParticipants(data.participantes);
         }
+        if (data.campos_solicitados && Array.isArray(data.campos_solicitados)) {
+          setPlacedFields(data.campos_solicitados.map((field: any) => ({ ...field, icon: null })));
+        }
+        setSecuritySummary({
+          vencimientoEnabled: data.tiene_vencimiento === true,
+          fechaVencimiento: data.fecha_vencimiento || '',
+          recordatorioFrecuencia: data.recordatorio_frecuencia || '',
+          codigoAccesoEnabled: data.tiene_codigo_acceso === true,
+          codigoAcceso: '',
+          proteccionAdicionalEnabled: data.proteccion_firmado === true,
+          impedirImpresion: data.impedir_impresion === true,
+          evitarCopiaTexto: data.evitar_copia_texto === true,
+          impedirModificacion: data.impedir_modificacion === true,
+          impedirExtraccion: data.impedir_extraccion === true,
+          evitarMontaje: data.evitar_montaje === true,
+          legalHoldEnabled: data.legal_hold === true,
+          legalHoldReason: data.legal_hold_reason || '',
+          urgente: data.es_urgente === true,
+          publico: data.es_publico === true,
+          selloDigital: data.sello_digital === true,
+          selloUbicacion: data.sello_ubicacion === 'libre' ? 'libre' : 'calce',
+          estampaAutenticacion: data.estampa_autenticacion === true,
+          metadatosAdicionales: data.metadatos_adicionales === true,
+        });
         if (data.participation_order) setParticipationOrder(data.participation_order);
         if (data.participant_mode) setParticipantMode(data.participant_mode as ParticipantMode);
         if (data.ultimo_paso) setCurrentStep(data.ultimo_paso);
@@ -330,6 +354,14 @@ function CrearDocumentoPageInner() {
     }
     if (currentStepLabel === 'Ajustes') {
       if (ajustesFixarCampos && !ajustesHasFirma) return false;
+      if (securitySummary?.selloDigital && securitySummary.selloUbicacion === 'libre') {
+        const hasVisibleCertificationField = placedFields.some(
+          (field) =>
+            field.placementKind === 'cryptographic' &&
+            (field.cryptographicType === 'document_chain' || field.cryptographicType === 'document_seal')
+        );
+        if (!hasVisibleCertificationField) return false;
+      }
       return true;
     }
     return true;
@@ -674,36 +706,39 @@ function CrearDocumentoPageInner() {
         </nav>
       </div>
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1480px] px-4 py-5 lg:px-6 lg:py-6">
-          <div className="mb-5 flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <CurrentStepIcon size={19} />
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-xl font-700 text-slate-950">{currentStepLabel}</h1>
-                  <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">
-                    Paso {currentStep} de {STEPS.length}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-slate-500">{currentStepDescription}</p>
-              </div>
+      <section className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-4 lg:px-6">
+        <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <CurrentStepIcon size={19} />
             </div>
-            <div className="w-full sm:w-60">
-              <div className="flex items-center justify-between text-xs font-600 text-slate-500">
-                <span>Progreso</span>
-                <span>{completionPercent}%</span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-700 text-slate-950">{currentStepLabel}</h1>
+                <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">
+                  Paso {currentStep} de {STEPS.length}
+                </span>
               </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-300"
-                  style={{ width: `${completionPercent}%` }}
-                />
-              </div>
+              <p className="mt-1 text-sm text-slate-500">{currentStepDescription}</p>
             </div>
           </div>
+          <div className="w-full sm:w-60">
+            <div className="flex items-center justify-between text-xs font-600 text-slate-500">
+              <span>Progreso</span>
+              <span>{completionPercent}%</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{ width: `${completionPercent}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[1480px] px-4 py-5 lg:px-6 lg:py-6">
           {currentStep === 1 && (
             <StepSubir
               file={file}

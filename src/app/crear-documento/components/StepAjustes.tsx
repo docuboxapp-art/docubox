@@ -32,9 +32,9 @@ import {
   MapPin,
   ShieldCheck,
   Fingerprint,
-  Link2,
-  Timer,
   ScrollText,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import type {
   CryptographicElementType,
@@ -46,6 +46,7 @@ import type {
 import { PARTICIPANT_COLORS, PARTICIPANT_COLORS_HEX } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { InfoTooltip } from './SharedComponents';
 
 // ── Participant user data cache ───────────────────────────────────────────────
 interface ParticipantUserData {
@@ -969,7 +970,7 @@ function PlacedFieldWidget({
     {
       document_chain: {
         eyebrow: 'CADENA ORIGINAL DOCUBOX',
-        text: '||DOCUBOX_DOCUMENT|1.0| ... Se genera al completar ... ||',
+        text: '||DBX|1.0|UUID|FOLIO|VERSION|HASH_DOCUMENTO|HASH_MANIFIESTO|FECHA_UTC||',
       },
       document_seal: {
         eyebrow: 'SELLO DIGITAL DOCUBOX',
@@ -1019,7 +1020,7 @@ function PlacedFieldWidget({
             style={{ whiteSpace: 'nowrap' }}
           >
             {/* Font family selector — hidden for Firma */}
-            {!isFirma && !isCryptographic && (
+            {!isFirma && (
               <select
                 value={fontFamily}
                 onChange={(e) => {
@@ -1041,7 +1042,7 @@ function PlacedFieldWidget({
             )}
 
             {/* Font size — hidden for Firma */}
-            {!isFirma && !isCryptographic && (
+            {!isFirma && (
               <select
                 value={fontSize}
                 onChange={(e) => {
@@ -1061,10 +1062,10 @@ function PlacedFieldWidget({
               </select>
             )}
 
-            {!isFirma && !isCryptographic && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
+            {!isFirma && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
 
             {/* Bold — hidden for Firma */}
-            {!isFirma && !isCryptographic && (
+            {!isFirma && (
               <button
                 type="button"
                 onClick={() => {
@@ -1081,7 +1082,7 @@ function PlacedFieldWidget({
                 B
               </button>
             )}
-            {!isFirma && !isCryptographic && (
+            {!isFirma && (
               <button
                 type="button"
                 onClick={() => {
@@ -1098,7 +1099,7 @@ function PlacedFieldWidget({
                 I
               </button>
             )}
-            {!isFirma && !isCryptographic && (
+            {!isFirma && (
               <button
                 type="button"
                 onClick={() => {
@@ -1116,7 +1117,7 @@ function PlacedFieldWidget({
               </button>
             )}
 
-            {!isFirma && !isCryptographic && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
+            {!isFirma && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
 
             {/* Delete */}
             <button
@@ -1143,10 +1144,10 @@ function PlacedFieldWidget({
               </svg>
             </button>
 
-            {!isCryptographic && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
+            <div className="w-px h-4 bg-gray-200 mx-0.5" />
 
             {/* Tag / Label config icon */}
-            {!isCryptographic && (
+            <>
               <button
                 type="button"
                 onClick={(e) => {
@@ -1154,11 +1155,11 @@ function PlacedFieldWidget({
                   setShowLabelConfigModal(true);
                 }}
                 className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:bg-gray-100 transition-colors"
-                title="Configuración del campo"
+                title={isCryptographic ? 'Etiqueta de referencia en el editor' : 'Configuración del campo'}
               >
                 <Tag size={12} />
               </button>
-            )}
+            </>
 
             {/* Settings / Type config icon — hidden for Imagen and Casilla */}
             {!isCasilla &&
@@ -1212,7 +1213,16 @@ function PlacedFieldWidget({
               <ShieldCheck size={9} className="shrink-0" />
               <span className="truncate">{cryptoPreview.eyebrow}</span>
             </div>
-            <p className="mt-1 overflow-hidden font-mono text-[6px] leading-[1.35] text-slate-600">
+            <p
+              className="mt-1 overflow-hidden leading-[1.35] text-slate-600"
+              style={{
+                fontFamily,
+                fontSize: `${Math.max(5, Math.min(10, fontSize * 0.62))}px`,
+                fontWeight: bold ? 'bold' : 'normal',
+                fontStyle: italic ? 'italic' : 'normal',
+                textDecoration: underline ? 'underline' : 'none',
+              }}
+            >
               {cryptoPreview.text}
             </p>
           </div>
@@ -2015,6 +2025,7 @@ export function StepAjustes({
   const [camposParticipanteOpen, setCamposParticipanteOpen] = useState(true);
   const [camposGeneralesOpen, setCamposGeneralesOpen] = useState(true);
   const [sellosCadenaOpen, setSellosCadenaOpen] = useState(true);
+  const [isPreviewFocused, setIsPreviewFocused] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [displayZoom, setDisplayZoom] = useState(100);
   // Map participantId -> user data fetched from DB
@@ -2025,7 +2036,8 @@ export function StepAjustes({
   const docSheetRef = useRef<HTMLDivElement>(null);
   const cryptoPlacementEnabled =
     !!securitySettings?.selloDigital && securitySettings.selloUbicacion === 'libre';
-  const canPlaceFields = fixarCampos || !!isCondicional || cryptoPlacementEnabled;
+  const standardFieldPlacementEnabled = fixarCampos || !!isCondicional;
+  const canPlaceFields = standardFieldPlacementEnabled || cryptoPlacementEnabled;
   const standardPlacedFields = placedFields.filter(
     (field) => field.placementKind !== 'cryptographic'
   );
@@ -2271,34 +2283,25 @@ export function StepAjustes({
     type: CryptographicElementType;
   }> = [
     {
-      icon: <ScrollText size={15} className="text-blue-500" />,
+      icon: <ScrollText size={15} className="text-gray-400" />,
       label: 'Cadena original',
       type: 'document_chain',
     },
     {
-      icon: <Fingerprint size={15} className="text-blue-500" />,
+      icon: <Fingerprint size={15} className="text-gray-400" />,
       label: 'Sello digital',
       type: 'document_seal',
-    },
-    {
-      icon: <Timer size={15} className="text-blue-500" />,
-      label: 'Estampa de tiempo',
-      type: 'timestamp',
-    },
-    {
-      icon: <Link2 size={15} className="text-blue-500" />,
-      label: 'Cadena de evidencia',
-      type: 'evidence_chain',
     },
   ];
 
   const getCryptographicDimensions = (type: CryptographicElementType) => {
-    if (type === 'document_chain' || type === 'evidence_chain') return { width: 72, height: 12 };
-    if (type === 'document_seal') return { width: 54, height: 14 };
+    if (type === 'document_chain') return { width: 76, height: 16 };
+    if (type === 'document_seal') return { width: 76, height: 25 };
     return { width: 42, height: 9 };
   };
 
   const handleClickPlaceCrypto = (label: string, cryptographicType: CryptographicElementType) => {
+    if (!cryptoPlacementEnabled) return;
     if (placedFields.some((field) => field.cryptographicType === cryptographicType)) return;
     const { width, height } = getCryptographicDimensions(cryptographicType);
     setPlacedFields((prev) => [
@@ -2308,7 +2311,7 @@ export function StepAjustes({
         label,
         icon: null,
         x: Math.max(2, 50 - width / 2),
-        y: Math.max(2, 50 - height / 2),
+        y: cryptographicType === 'document_chain' ? 24 : 54,
         width,
         height,
         page: currentPage,
@@ -2322,6 +2325,7 @@ export function StepAjustes({
   };
 
   const handleClickPlace = (label: string, required?: boolean) => {
+    if (!standardFieldPlacementEnabled) return;
     // Restrict Firma field to one per participant
     if (label === 'Firma') {
       const participantId = selectedParticipant?.id;
@@ -2383,6 +2387,11 @@ export function StepAjustes({
         cryptographicType?: CryptographicElementType;
       };
       if (
+        (data.placementKind === 'cryptographic' && !cryptoPlacementEnabled) ||
+        (data.placementKind !== 'cryptographic' && !standardFieldPlacementEnabled)
+      )
+        return;
+      if (
         data.placementKind === 'cryptographic' &&
         data.cryptographicType &&
         placedFields.some((field) => field.cryptographicType === data.cryptographicType)
@@ -2428,9 +2437,18 @@ export function StepAjustes({
   };
 
   return (
-    <div className="w-full flex gap-6">
+    <div
+      className={`flex w-full gap-6 ${
+        isPreviewFocused ? 'fixed inset-0 z-50 bg-slate-100 p-4' : ''
+      }`}
+    >
       {/* LEFT PANEL — scrollable independently */}
-      <div className="w-[38%] flex flex-col gap-4 overflow-y-auto max-h-[calc(100vh-220px)]">
+      <div
+        className={`flex w-[38%] flex-col gap-4 overflow-y-auto ${
+          isPreviewFocused ? 'h-full' : ''
+        }`}
+        style={isPreviewFocused ? undefined : { maxHeight: 'calc(100vh - 220px)' }}
+      >
         {/* Field settings */}
         <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
           <div className="mb-4">
@@ -2464,8 +2482,24 @@ export function StepAjustes({
               <span className="mt-0.5 block text-xs leading-5 text-slate-500">
                 Coloca firmas, texto y otros datos en la vista previa.
               </span>
+              {(fixarCampos || isCondicional) && (
+                <span className="mt-1 block text-xs font-semibold leading-5 text-red-600">
+                  Los participantes deberán completar todos los campos asignados en el documento.
+                </span>
+              )}
             </span>
-            <Info size={14} className="mt-0.5 shrink-0 text-slate-400" />
+            <InfoTooltip
+              showOnParentHover
+              text={
+                <>
+                  <span className="block font-semibold text-white">Campos por participante</span>
+                  <span className="mt-1 block">
+                    Define los campos obligatorios para cada participante, el cual verá y
+                    completará únicamente los campos que tenga asignados.
+                  </span>
+                </>
+              }
+            />
           </label>
           {isCondicional ? (
             <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex gap-2">
@@ -2478,23 +2512,13 @@ export function StepAjustes({
                 </p>
               </div>
             </div>
-          ) : fixarCampos ? (
-            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex gap-2">
-              <Info size={16} className="text-blue-500 shrink-0" />
-              <div>
-                <p className="text-sm font-600 text-blue-700">Campos obligatorios</p>
-                <p className="mt-0.5 text-xs leading-5 text-blue-600">
-                  Los participantes deberán completar todos los campos asignados en el documento.
-                </p>
-              </div>
-            </div>
           ) : null}
         </div>
 
-        {/* Campos por Participante — only visible when fixarCampos is active */}
-        {(fixarCampos || isCondicional) && (
+        {/* Campos por participante */}
+        {standardFieldPlacementEnabled && (
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <div className="mb-4">
+            <div className="mb-3">
               <h2 className="text-base font-700 text-slate-950">Campos por participante</h2>
               <p className="mt-1 text-sm leading-5 text-slate-500">
                 Selecciona una persona y coloca los campos que deberá completar.
@@ -2506,7 +2530,7 @@ export function StepAjustes({
               <button
                 type="button"
                 onClick={() => setParticipantDropdownOpen((v) => !v)}
-                className="flex items-center gap-1.5 border rounded-lg px-3 py-2 bg-white hover:bg-gray-50 transition-colors w-full"
+                className="grid w-full grid-cols-[10px_minmax(0,1fr)_14px] items-center gap-2.5 rounded-lg border bg-white px-3 py-2 text-left transition-colors hover:bg-gray-50"
                 style={{ borderColor: selectedColorHex }}
               >
                 <div
@@ -2704,18 +2728,15 @@ export function StepAjustes({
         )}
 
         {cryptoPlacementEnabled && (
-          <div className="rounded-lg border border-blue-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <div className="mb-4 flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                <ShieldCheck size={18} />
-              </div>
-              <div>
-                <h2 className="text-base font-700 text-slate-950">Sellos y cadena</h2>
-                <p className="mt-1 text-sm leading-5 text-slate-500">
-                  Coloca la evidencia visible. Los valores criptográficos se generan al completar el
-                  documento.
-                </p>
-              </div>
+          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <div className="mb-4">
+              <h2 className="text-base font-700 text-slate-950">
+                Cadena original y sello digital
+              </h2>
+              <p className="mt-1 text-sm leading-5 text-slate-500">
+                Coloca al menos uno de los campos en el documento. Sus valores reales se generan
+                y firman al completar el proceso.
+              </p>
             </div>
 
             <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -2759,7 +2780,7 @@ export function StepAjustes({
               <div className="mt-4 border-t border-slate-100 pt-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-sm font-bold text-slate-900">Elementos colocados</h3>
-                  <span className="text-xs text-slate-400">Máximo uno de cada tipo</span>
+                  <span className="text-xs text-slate-400">Se requiere al menos un campo</span>
                 </div>
                 <div className="space-y-1.5">
                   {placedFields
@@ -2828,7 +2849,10 @@ export function StepAjustes({
       </div>
 
       {/* RIGHT PANEL — document preview, fixed height, no scroll on the sheet itself */}
-      <div className="flex-1 flex flex-col min-h-0" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+      <div
+        className={`flex min-h-0 flex-1 flex-col ${isPreviewFocused ? 'h-full' : ''}`}
+        style={isPreviewFocused ? undefined : { maxHeight: 'calc(100vh - 220px)' }}
+      >
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-full overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
             <h2 className="text-base font-700 text-slate-950">Vista previa del documento</h2>
@@ -2838,6 +2862,23 @@ export function StepAjustes({
                   Arrastra los elementos al documento
                 </span>
               )}
+              <button
+                type="button"
+                onClick={() => setIsPreviewFocused((value) => !value)}
+                title={
+                  isPreviewFocused
+                    ? 'Mostrar todos los ajustes'
+                    : 'Enfocar configuración y vista previa'
+                }
+                aria-label={
+                  isPreviewFocused
+                    ? 'Mostrar todos los ajustes'
+                    : 'Enfocar configuración y vista previa'
+                }
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+              >
+                {isPreviewFocused ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+              </button>
               <button
                 onClick={() => {
                   const next = Math.max(50, zoomLevel - 25);

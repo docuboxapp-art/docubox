@@ -6,6 +6,7 @@ import { WorkspaceProvider } from '@/contexts/WorkspaceContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { SidebarProvider } from '@/contexts/SidebarContext';
 import { AppModulesProvider } from '@/contexts/AppModulesContext';
+import { LuciaAssistantProvider } from '@/contexts/LuciaAssistantContext';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -49,7 +50,9 @@ export default function RootLayout({
           <WorkspaceProvider>
             <ThemeProvider>
               <SidebarProvider>
-                <AppModulesProvider>{children}</AppModulesProvider>
+                <AppModulesProvider>
+                  <LuciaAssistantProvider>{children}</LuciaAssistantProvider>
+                </AppModulesProvider>
               </SidebarProvider>
             </ThemeProvider>
           </WorkspaceProvider>

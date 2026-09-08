@@ -288,6 +288,7 @@ interface DeletionHistoryEntry {
   status: 'TRASHED' | 'PENDING' | 'STORAGE_REMOVED' | 'COMPLETED' | 'FAILED';
   requested_at: string | null;
   completed_at?: string | null;
+  failure_code?: string | null;
 }
 
 const DELETION_HISTORY_PAGE_SIZE = 5;
@@ -1922,6 +1923,7 @@ function MisDocumentosContent() {
   const [deletingFromTrash, setDeletingFromTrash] = useState(false);
   const [deletionHistory, setDeletionHistory] = useState<DeletionHistoryEntry[]>([]);
   const [deletionHistoryPage, setDeletionHistoryPage] = useState(1);
+  const [isDeletionHistoryOpen, setIsDeletionHistoryOpen] = useState(false);
 
   const [statusCounts, setStatusCounts] = useState<StatusCounts>({
     borrador: 0,
@@ -1984,14 +1986,12 @@ function MisDocumentosContent() {
     documentIds?: string[];
     docName: string;
     isEmptyAll: boolean;
-    confirmationText: string;
     directDelete?: boolean;
   }>({
     open: false,
     docId: null,
     docName: '',
     isEmptyAll: false,
-    confirmationText: '',
   });
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -3532,8 +3532,9 @@ function MisDocumentosContent() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) return;
-      const response = await fetch('/api/documentos/eliminaciones', {
+      const response = await fetch(`/api/documentos/eliminaciones?refresh=${Date.now()}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: 'no-store',
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error || 'No fue posible cargar el historial.');
@@ -4101,14 +4102,13 @@ function MisDocumentosContent() {
   };
 
   const openConfirmDelete = (docId: string, docName: string) =>
-    setConfirmDelete({ open: true, docId, docName, isEmptyAll: false, confirmationText: '' });
+    setConfirmDelete({ open: true, docId, docName, isEmptyAll: false });
   const openConfirmDirectDelete = (docId: string, docName: string) =>
     setConfirmDelete({
       open: true,
       docId,
       docName,
       isEmptyAll: false,
-      confirmationText: '',
       directDelete: true,
     });
   const openConfirmEmptyAll = () =>
@@ -4117,7 +4117,6 @@ function MisDocumentosContent() {
       docId: null,
       docName: '',
       isEmptyAll: true,
-      confirmationText: '',
     });
 
   const openConfirmSelectedPurge = (documentIds: string[]) =>
@@ -4127,7 +4126,6 @@ function MisDocumentosContent() {
       documentIds,
       docName: '',
       isEmptyAll: false,
-      confirmationText: '',
     });
 
   const handleConfirmPermanentDelete = async () => {
@@ -4148,15 +4146,15 @@ function MisDocumentosContent() {
         },
         body: JSON.stringify(
           confirmDelete.isEmptyAll
-            ? { empty_all: true, confirmation: confirmDelete.confirmationText }
+            ? { empty_all: true, confirmation: true }
             : confirmDelete.documentIds?.length
               ? {
                   document_ids: confirmDelete.documentIds,
-                  confirmation: confirmDelete.confirmationText,
+                  confirmation: true,
                 }
               : {
                   document_id: confirmDelete.docId,
-                  confirmation: confirmDelete.confirmationText,
+                  confirmation: true,
                   direct_delete: confirmDelete.directDelete === true,
                 }
         ),
@@ -4197,7 +4195,6 @@ function MisDocumentosContent() {
         docId: null,
         docName: '',
         isEmptyAll: false,
-        confirmationText: '',
       });
     }
   };
@@ -5340,7 +5337,8 @@ function MisDocumentosContent() {
             <Lock size={15} />
             Legal Hold activo
           </div>
-        ) : contextMenu.canCancel ? (
+        ) : null}
+        {contextMenu.canCancel ? (
           <button
             onClick={handleMenuCancelar}
             className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-orange-700 hover:bg-orange-50 transition-colors text-left"
@@ -5348,7 +5346,7 @@ function MisDocumentosContent() {
             <XCircle size={15} className="text-orange-600" />
             Cancelar documento
           </button>
-        ) : contextMenu.canDirectPurge ? (
+        ) : !contextMenu.legalHoldActive && contextMenu.canDirectPurge ? (
           <button
             onClick={() => {
               if (contextMenu.docId)
@@ -7081,38 +7079,6 @@ function MisDocumentosContent() {
                   )}
                 </div>
               </div>
-              {trashedFolders.length > 0 && (
-                <section className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-700 text-slate-800">
-                    <Folder size={16} className="text-amber-600" />
-                    Carpetas en Papelera
-                  </div>
-                  <div className="space-y-2">
-                    {trashedFolders.map((folder) => (
-                      <div
-                        key={folder.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-600 text-slate-800">{folder.name}</p>
-                          <p className="text-xs text-slate-500">
-                            Movida: {formatDateTime(folder.deletedAt)} · Restaurable hasta:{' '}
-                            {formatDateTime(folder.restoreUntil)}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => restoreTrashedFolder(folder)}
-                          className="flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-white px-2.5 text-xs font-600 text-primary hover:bg-primary/5"
-                        >
-                          <RotateCcw size={14} />
-                          Restaurar carpeta
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
               <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
                 {loadingFavorites ? (
                   <div className="flex items-center justify-center py-12 gap-3">
@@ -7169,7 +7135,6 @@ function MisDocumentosContent() {
                         <col style={{ width: '40px' }} />
                         <col style={{ width: `${papeleraColWidths.nombre}px` }} />
                         <col style={{ width: `${papeleraColWidths.tipo}px` }} />
-                        <col style={{ width: `${papeleraColWidths.eliminadoPor}px` }} />
                         <col style={{ width: `${papeleraColWidths.fechaEliminacion}px` }} />
                         <col style={{ width: `${papeleraColWidths.tamano}px` }} />
                         <col style={{ width: `${papeleraColWidths.retencion}px` }} />
@@ -8164,25 +8129,52 @@ function MisDocumentosContent() {
                   <h1 className="text-2xl font-700 text-slate-950">Papelera</h1>
                   <p className="mt-1 text-sm text-slate-500">Documentos eliminados recientemente</p>
                 </div>
-                {deletedDocuments.some((document) => document.purgeEligible) && (
-                  <button
-                    onClick={openConfirmEmptyAll}
-                    className="flex h-9 items-center gap-2 rounded-lg bg-red-600 px-3.5 text-sm font-700 text-white transition-colors hover:bg-red-700"
-                  >
-                    <Trash2 size={15} />
-                    Vaciar eliminables
-                  </button>
-                )}
               </div>
-              <details className="mb-3 rounded-lg border border-slate-200/90 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              {trashedFolders.length > 0 && (
+                <section className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-700 text-slate-800">
+                    <Folder size={16} className="text-amber-600" />
+                    Carpetas en Papelera
+                  </div>
+                  <div className="space-y-2">
+                    {trashedFolders.map((folder) => (
+                      <div
+                        key={folder.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-600 text-slate-800">{folder.name}</p>
+                          <p className="text-xs text-slate-500">
+                            Movida: {formatDateTime(folder.deletedAt)} · Restaurable hasta:{' '}
+                            {formatDateTime(folder.restoreUntil)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => restoreTrashedFolder(folder)}
+                          className="flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-white px-2.5 text-xs font-600 text-primary hover:bg-primary/5"
+                        >
+                          <RotateCcw size={14} />
+                          Restaurar carpeta
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+              <details
+                open={isDeletionHistoryOpen}
+                onToggle={(event) => setIsDeletionHistoryOpen(event.currentTarget.open)}
+                className="mb-3 rounded-lg border border-slate-200/90 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
+              >
                 <summary className="cursor-pointer text-sm font-700 text-slate-900">
                   Historial de eliminaciones
                   <span className="ml-2 text-xs font-400 text-slate-500">Últimos 30 días</span>
                 </summary>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-slate-500">
-                    Se muestran únicamente eliminaciones definitivas completadas durante los últimos
-                    30 días.
+                    Se muestran eliminaciones definitivas y los intentos que requieren revisión de
+                    los últimos 30 días.
                   </p>
                   <button
                     onClick={() => router.push('/mi-perfil?section=historial-eliminaciones')}
@@ -8276,6 +8268,11 @@ function MisDocumentosContent() {
                                 Completada: {formatDateTime(entry.completed_at)}
                               </p>
                             )}
+                            {entry.status === 'FAILED' && (
+                              <p className="mt-0.5 text-slate-500">
+                                La eliminación no se completó; el elemento se conserva para revisión.
+                              </p>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -8322,10 +8319,30 @@ function MisDocumentosContent() {
                   </>
                 ) : (
                   <p className="mt-3 text-xs text-slate-500">
-                    No hay eliminaciones permanentes durante los últimos 30 días.
+                    No hay eliminaciones definitivas ni intentos pendientes de revisión durante los
+                    últimos 30 días.
                   </p>
                 )}
               </details>
+              <details
+                open={!isDeletionHistoryOpen}
+                onToggle={(event) => setIsDeletionHistoryOpen(!event.currentTarget.open)}
+                className={
+                  isDeletionHistoryOpen
+                    ? 'rounded-lg border border-slate-200/90 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+                    : ''
+                }
+              >
+                <summary
+                  className={
+                    isDeletionHistoryOpen
+                      ? 'cursor-pointer text-sm font-700 text-slate-900'
+                      : 'hidden'
+                  }
+                >
+                  Papelera
+                </summary>
+                <div className={isDeletionHistoryOpen ? 'mt-3' : ''}>
               <div className="mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
                 <div className="flex flex-wrap items-center gap-2 p-3">
                   <div className="relative flex-1">
@@ -8789,6 +8806,8 @@ function MisDocumentosContent() {
                   </div>
                 )}
               </div>
+                </div>
+              </details>
               {confirmDelete.open && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center">
                   <div
@@ -8799,7 +8818,6 @@ function MisDocumentosContent() {
                         docId: null,
                         docName: '',
                         isEmptyAll: false,
-                        confirmationText: '',
                       })
                     }
                   />
@@ -8811,7 +8829,6 @@ function MisDocumentosContent() {
                           docId: null,
                           docName: '',
                           isEmptyAll: false,
-                          confirmationText: '',
                         })
                       }
                       className="absolute top-4 right-4 p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
@@ -8849,20 +8866,6 @@ function MisDocumentosContent() {
                         </>
                       )}
                     </p>
-                    <label className="mb-5 block text-sm text-slate-700">
-                      Escribe <span className="font-700">ELIMINAR</span> para continuar.
-                      <input
-                        value={confirmDelete.confirmationText}
-                        onChange={(event) =>
-                          setConfirmDelete((current) => ({
-                            ...current,
-                            confirmationText: event.target.value,
-                          }))
-                        }
-                        autoComplete="off"
-                        className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
-                      />
-                    </label>
                     <div className="flex items-center gap-3 justify-end">
                       <button
                         onClick={() =>
@@ -8871,7 +8874,6 @@ function MisDocumentosContent() {
                             docId: null,
                             docName: '',
                             isEmptyAll: false,
-                            confirmationText: '',
                           })
                         }
                         className="px-4 py-2 text-sm font-semibold text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
@@ -8880,9 +8882,7 @@ function MisDocumentosContent() {
                       </button>
                       <button
                         onClick={handleConfirmPermanentDelete}
-                        disabled={
-                          deletingFromTrash || confirmDelete.confirmationText !== 'ELIMINAR'
-                        }
+                        disabled={deletingFromTrash}
                         className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:cursor-wait disabled:opacity-60"
                       >
                         {deletingFromTrash

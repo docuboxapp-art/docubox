@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase
       .from('enrollment_tokens')
       .update({ started_at: new Date().toISOString() })
-      .eq('token', token)
+      .eq('token_hash', hashCapabilityToken(token))
       .is('started_at', null);
 
     if (error) {

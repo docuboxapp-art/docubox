@@ -76,8 +76,15 @@ export async function GET(request: NextRequest) {
     const isOwner = doc.owner_id === user.id;
     const participantes: any[] = doc.participantes || [];
     const userEmail = user.email?.toLowerCase() || '';
-    const isParticipant = participantes.some(
-      (p: any) => (p.email && p.email.toLowerCase() === userEmail) || p.id === user.id
+    const participantEntry = participantes.find(
+      (p: any) =>
+        (p.email && p.email.toLowerCase() === userEmail)
+        || p.id === user.id
+        || p.user_id === user.id
+    );
+    const isParticipant = Boolean(
+      participantEntry
+      && participantEntry.current_access !== false
     );
 
     if (!isOwner && !isParticipant) {

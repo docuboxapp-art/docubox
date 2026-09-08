@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 export async function GET(req: NextRequest) {
   try {
@@ -8,7 +9,9 @@ export async function GET(req: NextRequest) {
     if (!authorization.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
-    const { data: { user } } = await createAnonClient().auth.getUser(authorization.slice(7));
+    const {
+      data: { user },
+    } = await createAnonClient().auth.getUser(authorization.slice(7));
     if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     const { searchParams } = new URL(req.url);
     const token = searchParams.get('token');
@@ -20,7 +23,7 @@ export async function GET(req: NextRequest) {
     const { data: session, error: sessionError } = await supabase
       .from('mobile_upload_sessions')
       .select('*')
-      .eq('token', token)
+      .eq('token_hash', hashCapabilityToken(token))
       .eq('user_id', user.id)
       .eq('status', 'completed')
       .single();

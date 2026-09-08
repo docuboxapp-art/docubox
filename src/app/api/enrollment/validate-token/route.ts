@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabase
       .from('enrollment_tokens')
       .select('id, status, expires_at, user_id, curp, nombre, apellido_paterno')
-      .eq('token', token)
+      .eq('token_hash', hashCapabilityToken(token))
       .single();
 
     if (error || !data) {
@@ -35,14 +36,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Return user data for identity verification (only if token has user-linked data)
-    const userData = (data.user_id || data.curp || data.nombre)
-      ? {
-          userId: data.user_id || null,
-          curp: data.curp || null,
-          nombre: data.nombre || null,
-          apellidoPaterno: data.apellido_paterno || null,
-        }
-      : null;
+    const userData =
+      data.user_id || data.curp || data.nombre
+        ? {
+            userId: data.user_id || null,
+            curp: data.curp || null,
+            nombre: data.nombre || null,
+            apellidoPaterno: data.apellido_paterno || null,
+          }
+        : null;
 
     return NextResponse.json({ valid: true, userData });
   } catch (err) {

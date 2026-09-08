@@ -21,7 +21,18 @@ import {
   recordCertificationCheckpoint,
   type CertificationExecutionContext,
 } from './execution';
-import { abbreviateBase64, appendCertificatePages, applyCryptographicPlacements, generateIntegrityCertificatePdf } from './pdf';
+import {
+  abbreviateBase64,
+  applyDocumentVerificationStamp,
+  applyCryptographicPlacements,
+  applyCryptographicPlacementAtFoot,
+  generateIntegrityCertificatePdf,
+} from './pdf';
+import {
+  buildDocuboxDocumentChain,
+  isDocuboxDocumentChainPayload,
+  serializeDocuboxDocumentChain,
+} from './document-chain';
 import { createCertificationProviderSet, type CertificationProviderSet } from './providers';
 import { createStoredZip } from './zip';
 import { CertificationError, CertificationStatus, CertificationSummary, EvidenceItem } from './types';
@@ -56,6 +67,8 @@ type DocumentRow = {
   participantes: Array<Record<string, unknown>> | null;
   campos_solicitados: Array<Record<string, unknown>> | null;
   sello_digital: boolean | null;
+  sello_ubicacion: 'calce' | 'libre' | null;
+  estampa_autenticacion: boolean | null;
 };
 
 type CertificationRow = Record<string, any> & {
@@ -407,7 +420,7 @@ export async function createCertification(
   }
   const { data: documentData, error: documentError } = await supabase
     .from('documentos')
-    .select('id,documento_id,nombre,estado,owner_id,workspace_id,file_url,storage_path,file_name,file_type,file_size,file_hash_sha256,sealed_pdf_path,sealed_pdf_hash,created_at,fecha_completado,updated_at,participantes,campos_solicitados,sello_digital')
+    .select('id,documento_id,nombre,estado,owner_id,workspace_id,file_url,storage_path,file_name,file_type,file_size,file_hash_sha256,sealed_pdf_path,sealed_pdf_hash,created_at,fecha_completado,updated_at,participantes,campos_solicitados,sello_digital,sello_ubicacion,estampa_autenticacion')
     .eq('id', documentId)
     .maybeSingle();
   const document = documentData as DocumentRow | null;
@@ -724,41 +737,6 @@ export async function createCertification(
     const documentSealUuid = randomUUID();
     const verificationUrl = `${(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:4028').replace(/\/$/, '')}/verificar-certificacion/${certification.verification_uuid}`;
 
-    await transition(supabase, certification, 'BUILDING_DOCUMENT_CHAIN', userId);
-    const documentPayload = {
-      schema: 'DOCUBOX_DOCUMENT', schema_version: '1.0', certification_uuid: certificationUuid,
-      document_seal_uuid: documentSealUuid,
-      document_uuid: document.id, document_folio: document.documento_id, tenant_id: tenantId,
-      workspace_id: document.workspace_id, document_type: 'DOCUMENTO_FIRMADO', document_version: source.versionNumber,
-      document_status: 'COMPLETED', workflow_type: 'MIXED', created_at: new Date(document.created_at).toISOString(),
-      completed_at: completedAt, certification_started_at: certificationStartedAt,
-      document_body_sha256: documentBodySha256, document_size_bytes: documentBytes.byteLength,
-      page_count: pageCount, mime_type: 'application/pdf', audit_log_final_hash: auditLogFinalHash,
-      evidence_manifest_uuid: evidenceManifestUuid, verification_url: verificationUrl,
-      canonicalization_algorithm: 'JCS-RFC8785', digest_algorithm: 'SHA-256',
-      signature_algorithm: signingKeyMetadata.algorithm, signing_key_id: signingKeyMetadata.keyId, signing_key_version: signingKeyMetadata.keyVersion,
-    };
-    const documentChain = canonicalSha256(documentPayload);
-    const documentChainDisplay = displayChain('DOCUBOX_DOCUMENT', {
-      CERTIFICATION_UUID: certificationUuid, DOCUMENT_SEAL_UUID: documentSealUuid,
-      DOCUMENT_UUID: document.id, DOCUMENT_FOLIO: document.documento_id,
-      TENANT_ID: tenantId, WORKSPACE_ID: document.workspace_id, DOCUMENT_TYPE: 'DOCUMENTO_FIRMADO',
-      DOCUMENT_VERSION: source.versionNumber, DOCUMENT_STATUS: 'COMPLETED', WORKFLOW_TYPE: 'MIXED',
-      CREATED_AT: new Date(document.created_at).toISOString(), COMPLETED_AT: completedAt,
-      DOCUMENT_BODY_SHA256: upper(documentBodySha256), AUDIT_LOG_FINAL_HASH: upper(auditLogFinalHash),
-      DOCUMENT_SIZE_BYTES: documentBytes.byteLength, PAGE_COUNT: pageCount,
-      EVIDENCE_MANIFEST_UUID: evidenceManifestUuid, VERIFICATION_URL: verificationUrl,
-      CANONICALIZATION: 'JCS-RFC8785', DIGEST_ALGORITHM: 'SHA-256', SIGNATURE_ALGORITHM: signingKeyMetadata.algorithm,
-      SIGNING_KEY_VERSION: documentPayload.signing_key_version,
-    });
-
-    await transition(supabase, certification, 'SIGNING_DOCUMENT_CHAIN', userId);
-    const documentSeal = await providers.keyManagement.signDigest({
-      purpose: 'DOCUMENT_SEAL',
-      digestSha256: documentChain.sha256,
-      canonicalBytes: Buffer.from(documentChain.canonical, 'utf8'),
-    });
-
     await transition(supabase, certification, 'BUILDING_EVIDENCE_MANIFEST', userId);
     const workflowDefinitionSha256 = sha256Hex(canonicalizeRFC8785((document.participantes || []).map((participant) => ({
       id: participant.id || participant.participante_id || null,
@@ -766,10 +744,9 @@ export async function createCertification(
       order: participant.orden ?? null,
     })).sort((a, b) => String(a.id).localeCompare(String(b.id)))));
     const manifestPayload = {
-      schema: 'DOCUBOX_EVIDENCE_MANIFEST', schema_version: '1.0', evidence_manifest_uuid: evidenceManifestUuid,
+      schema: 'DOCUBOX_EVIDENCE_MANIFEST', schema_version: '1.1', evidence_manifest_uuid: evidenceManifestUuid,
       certification_uuid: certificationUuid, document_uuid: document.id, tenant_id: tenantId,
-      document_body_sha256: documentBodySha256, document_chain_sha256: documentChain.sha256,
-      document_seal_sha256: documentSeal.signatureSha256, audit_log_genesis_hash: auditLogGenesisHash,
+      document_body_sha256: documentBodySha256, audit_log_genesis_hash: auditLogGenesisHash,
       audit_log_final_hash: auditLogFinalHash, audit_merkle_root: auditMerkleRoot,
       workflow_definition_sha256: workflowDefinitionSha256, form_data_sha256: null,
       evidence_items: evidenceItems, evidence_count: evidenceItems.length,
@@ -789,6 +766,27 @@ export async function createCertification(
       tenant_id: tenantId, evidence_manifest_id: manifestRow.id, ...item,
     })));
     if (itemError) throw new CertificationError('EVIDENCE_ITEMS_WRITE_FAILED', itemError.message, 500);
+
+    // The exact visible UTF-8 chain is signed. Closing the evidence manifest
+    // first lets the chain include its digest without creating a hash cycle.
+    await transition(supabase, certification, 'BUILDING_DOCUMENT_CHAIN', userId);
+    const documentChain = buildDocuboxDocumentChain({
+      documentUuid: document.id,
+      folio: document.documento_id,
+      documentVersion: source.versionNumber,
+      documentSha256: documentBodySha256,
+      evidenceManifestSha256: manifest.sha256,
+      closedAtUtc: completedAt,
+    });
+    const documentPayload = documentChain.payload;
+    const documentChainDisplay = documentChain.text;
+
+    await transition(supabase, certification, 'SIGNING_DOCUMENT_CHAIN', userId);
+    const documentSeal = await providers.keyManagement.signDigest({
+      purpose: 'DOCUMENT_SEAL',
+      digestSha256: documentChain.sha256,
+      canonicalBytes: documentChain.bytes,
+    });
 
     await transition(supabase, certification, 'BUILDING_EVIDENCE_CHAIN', userId);
     const evidenceChainUuid = randomUUID();
@@ -924,24 +922,42 @@ export async function createCertification(
     const certificatePath = await storeArtifact(`${artifactRoot}/constancia-integridad-evidencia.pdf`, certificateBytes, 'application/pdf', 'constancia');
 
     await transition(supabase, certification, 'APPENDING_CERTIFICATE', userId);
-    const documentWithVisibleCertification = await applyCryptographicPlacements(
-      documentBytes,
-      (document.campos_solicitados || []) as any,
-      {
-        documentUuid: document.id,
-        certifiedAt: certificationStartedAt,
-        documentChainDisplay,
-        documentChainSha256: documentChain.sha256,
-        documentSealBase64: documentSeal.signatureBase64,
-        documentSealSha256: documentSeal.signatureSha256,
-        documentKeyVersion: documentSeal.keyVersion,
-        evidenceChainDisplay,
-      },
-    );
-    const appendedPdf = await appendCertificatePages(documentWithVisibleCertification, certificateBytes);
+    const visibleCertificationData = {
+      documentUuid: document.id,
+      certifiedAt: certificationStartedAt,
+      documentChainDisplay,
+      documentChainSha256: documentChain.sha256,
+      documentSealBase64: documentSeal.signatureBase64,
+      documentSealSha256: documentSeal.signatureSha256,
+      documentSealAlgorithm: documentSeal.algorithm,
+      documentSealStatus: documentSeal.status,
+      documentKeySizeBits: documentSeal.keySizeBits,
+      documentKeyVersion: documentSeal.keyVersion,
+      evidenceChainDisplay,
+    };
+    let documentWithVisibleCertification = documentBytes;
+    if (document.sello_digital) {
+      documentWithVisibleCertification = document.sello_ubicacion === 'libre'
+        ? await applyCryptographicPlacements(
+            documentBytes,
+            (document.campos_solicitados || []) as any,
+            visibleCertificationData,
+          )
+        : await applyCryptographicPlacementAtFoot(documentBytes, visibleCertificationData);
+    }
+    if (document.estampa_autenticacion) {
+      documentWithVisibleCertification = await applyDocumentVerificationStamp(
+        documentWithVisibleCertification,
+        {
+          documentUuid: document.id,
+          verificationUrl,
+          completedAt,
+        },
+      );
+    }
     await transition(supabase, certification, 'SIGNING_FINAL_PDF', userId);
     const preparedPdf = await providers.pdfSignature.preparePdf({
-      pdfBytes: appendedPdf,
+      pdfBytes: documentWithVisibleCertification,
       reason: 'Certificacion criptografica Docubox',
       signerName: 'Docubox',
       contactInfo: verificationUrl,
@@ -1113,7 +1129,7 @@ export async function createCertification(
       certification_root_sha256: certificationRoot.sha256,
     };
     const publicVerificationArtifacts = [
-      { name: 'document-chain.json', data: Buffer.from(documentChain.canonical, 'utf8'), contentType: 'application/json' },
+      { name: 'document-chain.json', data: Buffer.from(JSON.stringify(documentPayload, null, 2), 'utf8'), contentType: 'application/json' },
       { name: 'document-chain.txt', data: Buffer.from(documentChainDisplay, 'utf8'), contentType: 'text/plain' },
       { name: 'document-chain.sha256', data: Buffer.from(documentChain.sha256, 'ascii'), contentType: 'text/plain' },
       { name: 'document-seal.sig', data: Buffer.from(documentSeal.signatureBase64, 'base64'), contentType: 'application/octet-stream' },
@@ -1146,7 +1162,7 @@ export async function createCertification(
     const technicalPackage = createStoredZip([
       { name: 'certification-package/certification-report.json', data: JSON.stringify(report, null, 2) },
       { name: 'certification-package/certification-root.json', data: JSON.stringify(rootPayload, null, 2) },
-      { name: 'certification-package/document-chain.json', data: documentChain.canonical },
+      { name: 'certification-package/document-chain.json', data: JSON.stringify(documentPayload, null, 2) },
       { name: 'certification-package/document-chain.txt', data: documentChainDisplay },
       { name: 'certification-package/document-chain.sha256', data: documentChain.sha256 },
       { name: 'certification-package/document-seal.sig', data: Buffer.from(documentSeal.signatureBase64, 'base64') },
@@ -1483,24 +1499,51 @@ export async function getPublicCertification(supabase: SupabaseClient, verificat
 
   const documentKey = (keyRows || []).find((key) => key.kms_key_id === certification.document_signing_key_id && key.kms_key_version === certification.document_signing_key_version);
   const evidenceKey = (keyRows || []).find((key) => key.kms_key_id === certification.evidence_signing_key_id && key.kms_key_version === certification.evidence_signing_key_version);
-  const documentCanonical = canonicalizeRFC8785(certification.document_chain_canonical_json);
+  const isFunctionalDocumentChain = isDocuboxDocumentChainPayload(
+    certification.document_chain_canonical_json
+  );
+  const documentCanonical = isFunctionalDocumentChain
+    ? serializeDocuboxDocumentChain(certification.document_chain_canonical_json)
+    : canonicalizeRFC8785(certification.document_chain_canonical_json);
   const evidenceCanonical = canonicalizeRFC8785(certification.evidence_chain_canonical_json);
-  const documentHashMatch = sha256Hex(documentCanonical) === certification.document_chain_sha256;
+  const documentRepresentationMatch = !isFunctionalDocumentChain
+    || documentCanonical === certification.document_chain_display_text;
+  const documentHashMatch = documentRepresentationMatch
+    && sha256Hex(Buffer.from(documentCanonical, 'utf8')) === certification.document_chain_sha256;
   const evidenceHashMatch = sha256Hex(evidenceCanonical) === certification.evidence_chain_sha256;
   const manifestHashMatch = Boolean(manifestRow && sha256Hex(canonicalizeRFC8785(manifestRow.canonical_manifest_json)) === manifestRow.manifest_sha256 && manifestRow.manifest_sha256 === certification.evidence_manifest_sha256);
   const packageHashMatch = sha256Hex(canonicalizeRFC8785(certification.certification_package_canonical_json)) === certification.certification_package_sha256;
-  const verifySeal = (canonical: string, signatureBase64: string, publicKeyPem?: string) => {
+  const verifySeal = (
+    canonical: string,
+    signatureBase64: string,
+    publicKeyPem?: string,
+    algorithm?: string,
+  ) => {
     if (!signatureBase64 || !publicKeyPem) return false;
     try {
       return verify('sha256', Buffer.from(canonical, 'utf8'), {
-        key: createPublicKey(publicKeyPem), padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32,
+        key: createPublicKey(publicKeyPem),
+        padding: algorithm === 'RSA-PKCS1-SHA256'
+          ? constants.RSA_PKCS1_PADDING
+          : constants.RSA_PKCS1_PSS_PADDING,
+        ...(algorithm === 'RSA-PKCS1-SHA256' ? {} : { saltLength: 32 }),
       }, Buffer.from(signatureBase64, 'base64'));
     } catch {
       return false;
     }
   };
-  const documentSealValid = verifySeal(documentCanonical, certification.document_seal_base64, documentKey?.public_key_pem);
-  const evidenceSealValid = verifySeal(evidenceCanonical, certification.evidence_seal_base64, evidenceKey?.public_key_pem);
+  const documentSealValid = verifySeal(
+    documentCanonical,
+    certification.document_seal_base64,
+    documentKey?.public_key_pem,
+    documentKey?.algorithm,
+  );
+  const evidenceSealValid = verifySeal(
+    evidenceCanonical,
+    certification.evidence_seal_base64,
+    evidenceKey?.public_key_pem,
+    evidenceKey?.algorithm,
+  );
   const documentSealHashMatch = sha256Hex(Buffer.from(certification.document_seal_base64 || '', 'base64')) === certification.document_seal_sha256;
   const evidenceSealHashMatch = sha256Hex(Buffer.from(certification.evidence_seal_base64 || '', 'base64')) === certification.evidence_seal_sha256;
   let documentBodyHashMatch = false;

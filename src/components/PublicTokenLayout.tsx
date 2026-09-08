@@ -1,8 +1,4 @@
-'use client';
-
-import React, { useState } from 'react';
-import LucIAChat from './LucIAChat';
-import { Sparkles } from 'lucide-react';
+import React from 'react';
 
 interface PublicTokenLayoutProps {
   children: React.ReactNode;
@@ -25,8 +21,8 @@ interface PublicTokenLayoutProps {
  * - /captura-id-movil/[token]
  * - /subir-movil/[token]
  *
- * Mounts LucIAChat in mode="public-token" so it only consults
- * the resource associated with the token, never the full workspace.
+ * LucIA is mounted once by LuciaAssistantProvider, which resolves the
+ * current public capability without duplicating assistants in this shell.
  */
 export default function PublicTokenLayout({
   children,
@@ -34,35 +30,9 @@ export default function PublicTokenLayout({
   luciaScope,
   compactAssistant = false,
 }: PublicTokenLayoutProps) {
-  const [luciaOpen, setLuciaOpen] = useState(false);
+  void token;
+  void luciaScope;
+  void compactAssistant;
 
-  return (
-    <div className="min-h-screen w-full bg-background dark:bg-background">
-      {children}
-
-      {/* LucIA floating button for public token routes */}
-      {!luciaOpen && (
-        <button
-          onClick={() => setLuciaOpen(true)}
-          className={`fixed z-40 flex items-center justify-center bg-primary text-white shadow-lg transition-colors hover:bg-primary/90 ${
-            compactAssistant
-              ? 'bottom-5 right-5 h-11 w-11 rounded-lg border border-white/70'
-              : 'bottom-6 right-6 h-14 w-14 rounded-full hover:scale-105'
-          }`}
-          aria-label="Abrir asistente LucIA"
-          title="¿Necesitas ayuda? Pregúntale a LucIA"
-        >
-          <Sparkles className={compactAssistant ? 'h-5 w-5' : 'h-6 w-6'} />
-        </button>
-      )}
-
-      {/* LucIA in public-token mode — only accesses token-scoped resource */}
-      <LucIAChat
-        isOpen={luciaOpen}
-        onClose={() => setLuciaOpen(false)}
-        mode="public-token"
-        publicToken={token}
-      />
-    </div>
-  );
+  return <div className="min-h-screen w-full bg-background dark:bg-background">{children}</div>;
 }

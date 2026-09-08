@@ -13,24 +13,27 @@ test('deletion-history API defaults to the last thirty days and exposes an expli
   assert.match(historyRoute, /searchParams\.get\('scope'\) === 'all' \? 'all' : 'recent'/);
   assert.match(historyRoute, /recentSince\.setDate\(recentSince\.getDate\(\) - 30\)/);
   assert.match(historyRoute, /window_days: scope === 'recent' \? 30 : null/);
+  assert.match(historyRoute, /\.in\('status', \['COMPLETED', 'FAILED'\]\)/);
+  assert.match(historyRoute, /failure_code/);
 });
 
 test('trash announces the thirty-day history window and links to the full profile history', () => {
-  assert.match(trashPage, /Se muestran únicamente los últimos 30 días\./);
+  assert.match(trashPage, /intentos que requieren revisión/);
   assert.match(trashPage, /\/mi-perfil\?section=historial-eliminaciones/);
   assert.match(trashPage, /Ver todos/);
   assert.match(trashPage, /entry\.document_name \|\| 'Elemento eliminado'/);
   assert.match(trashPage, />Creación<\/span>/);
-  assert.match(trashPage, />En Papelera<\/span>/);
   assert.match(trashPage, /Forma de eliminación/);
   assert.match(trashPage, /Purgado desde Papelera/);
   assert.match(trashPage, /Movido a Papelera/);
-  assert.match(trashPage, /entry\.status === 'TRASHED'/);
+  assert.match(trashPage, /entry\.status === 'COMPLETED'/);
   assert.match(trashPage, /DELETION_HISTORY_PAGE_SIZE = 5/);
   assert.match(trashPage, /Mostrando \{deletionHistoryStart \+ 1\}/);
   assert.match(trashPage, /formatDateTime\(entry\.document_created_at\)/);
   assert.match(trashPage, /formatDateTime\(entry\.document_trashed_at\)/);
   assert.match(trashPage, /formatDateTime\(entry\.requested_at\)/);
+  assert.match(trashPage, /cache: 'no-store'/);
+  assert.match(trashPage, /entry\.status === 'FAILED'/);
 });
 
 test('trash has filter, ordering, list and card views, with icon-only row actions', () => {
@@ -56,8 +59,8 @@ test('profile provides the complete deletion-history table with filters', () => 
   assert.match(profilePage, /\/api\/documentos\/eliminaciones\?scope=all/);
   assert.match(profilePage, /Buscar por documento, referencia o motivo/);
   assert.match(profilePage, /entry\.document_name/);
-  assert.match(profilePage, /Todos los estados/);
-  assert.match(profilePage, /<option value="TRASHED">En Papelera<\/option>/);
+  assert.match(profilePage, /Eliminado permanentemente/);
+  assert.match(profilePage, /Requiere revisión/);
   assert.match(profilePage, />Cronología<\/th>/);
   assert.match(profilePage, /Sin cronología previa disponible/);
   assert.match(profilePage, /Solicitud del titular/);

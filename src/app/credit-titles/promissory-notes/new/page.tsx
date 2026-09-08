@@ -1,5 +1,6 @@
 'use client';
 
+import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -21,6 +22,10 @@ import AppLogo from '@/components/ui/AppLogo';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import type { PromissoryNoteKind, PromissoryNoteSummary } from '@/lib/credit-titles/schema';
+import {
+  DEVELOPMENT_DEMO_DATA_ENABLED,
+  DEVELOPMENT_MODULE_MESSAGE,
+} from '@/lib/product/developmentModules';
 
 type Draft = {
   kind: PromissoryNoteKind;
@@ -165,6 +170,14 @@ export default function NewPromissoryNotePage() {
       if (!response.ok) throw new Error(result.error || 'No fue posible crear el pagare.');
       router.push(`/credit-titles/promissory-notes/${result.data.id}`);
     } catch (caught) {
+      if (!DEVELOPMENT_DEMO_DATA_ENABLED) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : 'Este módulo todavía no tiene datos operativos disponibles en este entorno.'
+        );
+        return;
+      }
       const id = `local-${crypto.randomUUID()}`;
       const summary: PromissoryNoteSummary = {
         id,
@@ -278,6 +291,12 @@ export default function NewPromissoryNotePage() {
         </aside>
         <main className="min-w-0 px-4 py-6 md:px-8 md:py-8 lg:px-12">
           <div className="mx-auto max-w-5xl">
+            <div
+              role="status"
+              className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+            >
+              <span className="font-600">Módulo en construcción.</span> {DEVELOPMENT_MODULE_MESSAGE}
+            </div>
             <div className="mb-6">
               <p className="text-xs font-600 text-indigo-700">{steps[step].label}</p>
               <h1 className="mt-1 text-2xl font-600">{titles[step]}</h1>

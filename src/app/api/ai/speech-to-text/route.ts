@@ -1,71 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { transcription } from '@rocketnew/llm-sdk';
+import { buildLuciaAuthorizationContext } from '@/lib/ai/luciaAuthorization';
+import { saveQueryLog } from '@/lib/ai/luciaQueries';
+import {
+  AI_BODY_LIMITS,
+  AI_PROVIDER,
+  aiErrorResponse,
+  enforceAiRateLimits,
+  rejectOversizedRequest,
+  requireAiUser,
+  TRANSCRIPTION_MODEL,
+} from '@/lib/ai/security';
 
-const API_KEYS: Record<string, string | undefined> = {
-  OPEN_AI: process.env.OPENAI_API_KEY,
-};
-
-function formatErrorResponse(error: unknown, provider?: string) {
-  const statusCode = (error as any)?.statusCode || (error as any)?.status || 500;
-  const providerName = (error as any)?.llmProvider || provider || 'Unknown';
-
-  return {
-    error: `${providerName.toUpperCase()} API error: ${statusCode}`,
-    details: error instanceof Error ? error.message : String(error),
-    statusCode,
-  };
-}
+const AUDIO_TYPES = new Set(['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-wav']);
 
 export async function POST(request: NextRequest) {
-  let provider: string | undefined;
-
+  const startedAt = Date.now();
   try {
+    const { user } = await requireAiUser(request);
+    if (rejectOversizedRequest(request, AI_BODY_LIMITS.audio + 128 * 1024)) {
+      return NextResponse.json({ error: 'PAYLOAD_TOO_LARGE' }, { status: 413 });
+    }
     const formData = await request.formData();
-    provider = formData.get('provider')?.toString();
-    const model = formData.get('model')?.toString();
-    const parametersRaw = formData.get('parameters')?.toString() ?? '{}';
-    const fileEntry = formData.get('file');
-
-    if (!provider || !model || !(fileEntry instanceof File)) {
-      return NextResponse.json(
-        { error: 'Missing required fields: provider, model, file', details: 'Request validation failed (expected multipart/form-data with a named File part)' },
-        { status: 400 }
-      );
+    const provider = String(formData.get('provider') || '');
+    const model = String(formData.get('model') || '');
+    const workspaceId = String(formData.get('workspaceId') || '');
+    const file = formData.get('file');
+    if (provider !== AI_PROVIDER || model !== TRANSCRIPTION_MODEL) {
+      return NextResponse.json({ error: 'AI_MODEL_NOT_ALLOWED' }, { status: 400 });
+    }
+    if (!(file instanceof File) || !workspaceId) {
+      return NextResponse.json({ error: 'INVALID_TRANSCRIPTION_REQUEST' }, { status: 400 });
+    }
+    if (file.size > AI_BODY_LIMITS.audio || !AUDIO_TYPES.has(file.type)) {
+      return NextResponse.json({ error: 'INVALID_AUDIO_FILE' }, { status: 413 });
     }
 
-    let parameters: Record<string, any> = {};
-    try {
-      parameters = parametersRaw ? JSON.parse(parametersRaw) : {};
-    } catch {
-      return NextResponse.json(
-        { error: 'Invalid parameters', details: 'parameters must be valid JSON' },
-        { status: 400 }
-      );
+    const authorization = await buildLuciaAuthorizationContext({
+      user,
+      workspaceId,
+      currentRoute: '/',
+    });
+    if (authorization.denied_reason) {
+      return NextResponse.json({ error: authorization.denied_reason }, { status: 403 });
     }
-
-    const apiKey = API_KEYS[provider];
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: `${provider.toUpperCase()} API key is not configured`, details: 'The API key for this provider is missing in environment variables' },
-        { status: 400 }
-      );
-    }
-
-    const response = await transcription({
-      ...parameters,
-      model,
-      file: fileEntry,
-      api_key: apiKey,
+    await enforceAiRateLimits({
+      request,
+      route: '/api/ai/speech-to-text',
+      userId: user.id,
+      workspaceId,
+      limit: 12,
     });
 
-    return NextResponse.json(response);
+    const result = await transcription({
+      model: TRANSCRIPTION_MODEL,
+      file,
+      language: 'es',
+      api_key: process.env.OPENAI_API_KEY!,
+    });
+    await saveQueryLog({
+      workspaceId,
+      userId: user.id,
+      question: '[audio transcription request]',
+      intent: 'speech_to_text',
+      scope: 'workspace',
+      route: '/api/ai/speech-to-text',
+      contextUsed: { mime_type: file.type, size_bytes: file.size },
+      responseText: '[transcription omitted from audit log]',
+      durationMs: Date.now() - startedAt,
+      hasEvidence: true,
+    });
+    return NextResponse.json(result);
   } catch (error) {
-    const formatted = formatErrorResponse(error, provider);
-    console.error('API Route Error:', { error: formatted.error, details: formatted.details });
-    return NextResponse.json(
-      { error: formatted.error, details: formatted.details },
-      { status: formatted.statusCode }
-    );
+    const formatted = aiErrorResponse(error);
+    return NextResponse.json(formatted.body, { status: formatted.status });
   }
 }
-

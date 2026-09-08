@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 import { captureEncryptionKey, decryptCapture } from '@/lib/identity/capture-crypto';
 
 export async function POST(req: NextRequest) {
@@ -15,14 +16,10 @@ export async function POST(req: NextRequest) {
     const { data: session } = await supabase
       .from('mobile_upload_sessions')
       .select('user_id, metadata, status, expires_at')
-      .eq('token', token)
+      .eq('token_hash', hashCapabilityToken(token))
       .maybeSingle();
 
-    if (
-      !session ||
-      session.status !== 'pending' ||
-      new Date(session.expires_at) < new Date()
-    ) {
+    if (!session || session.status !== 'pending' || new Date(session.expires_at) < new Date()) {
       return NextResponse.json({ hasStoredId: false });
     }
 
@@ -33,7 +30,10 @@ export async function POST(req: NextRequest) {
 
     const key = captureEncryptionKey();
     if (!key) {
-      return NextResponse.json({ hasStoredId: false, error: 'Cifrado no configurado.' }, { status: 503 });
+      return NextResponse.json(
+        { hasStoredId: false, error: 'Cifrado no configurado.' },
+        { status: 503 }
+      );
     }
 
     // Check id_capture_logs first (most recent successful capture)
@@ -48,12 +48,15 @@ export async function POST(req: NextRequest) {
 
     if (idLog?.anverso_b64) {
       try {
-        return NextResponse.json({
-          hasStoredId: true,
-          anverso_b64: decryptCapture(idLog.anverso_b64, key),
-          curp_extracted: idLog.curp_extracted || null,
-          nombre_extracted: idLog.nombre_extracted || null,
-        }, { headers: { 'Cache-Control': 'no-store, private' } });
+        return NextResponse.json(
+          {
+            hasStoredId: true,
+            anverso_b64: decryptCapture(idLog.anverso_b64, key),
+            curp_extracted: idLog.curp_extracted || null,
+            nombre_extracted: idLog.nombre_extracted || null,
+          },
+          { headers: { 'Cache-Control': 'no-store, private' } }
+        );
       } catch {
         return NextResponse.json({ hasStoredId: false });
       }
@@ -76,12 +79,15 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
       if (enrollment?.anverso_encrypted) {
         try {
-          return NextResponse.json({
-            hasStoredId: true,
-            anverso_b64: decryptCapture(enrollment.anverso_encrypted, key),
-            curp_extracted: null,
-            nombre_extracted: null,
-          }, { headers: { 'Cache-Control': 'no-store, private' } });
+          return NextResponse.json(
+            {
+              hasStoredId: true,
+              anverso_b64: decryptCapture(enrollment.anverso_encrypted, key),
+              curp_extracted: null,
+              nombre_extracted: null,
+            },
+            { headers: { 'Cache-Control': 'no-store, private' } }
+          );
         } catch {
           return NextResponse.json({ hasStoredId: false });
         }

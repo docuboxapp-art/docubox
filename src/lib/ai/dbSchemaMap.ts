@@ -173,6 +173,18 @@ export const dbSchemaMap = {
   chunkEmbeddingField: 'embedding',
   chunkIndexField: 'chunk_index',
   chunkPageField: 'page_number',
+  chunkVersionField: 'document_version_id',
+  chunkDocumentHashField: 'document_hash',
+  chunkContentHashField: 'content_hash',
+
+  // ── Document Intelligence ─────────────────────────────────
+  documentProfilesTable: 'ai_document_profiles',
+  documentExtractedFieldsTable: 'ai_document_extracted_fields',
+  documentEntitiesTable: 'ai_document_entities',
+  documentObligationsTable: 'ai_document_obligations',
+  documentClassificationsTable: 'ai_document_classifications',
+  documentCompletenessChecksTable: 'ai_document_completeness_checks',
+  documentProcessingJobsTable: 'ai_document_processing_jobs',
 
   // ── AI Query Logs ──────────────────────────────────────────
   queryLogsTable: 'ai_query_logs',

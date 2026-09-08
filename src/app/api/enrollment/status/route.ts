@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,25 +15,34 @@ export async function GET(request: NextRequest) {
   const { data: enrollmentToken } = await supabase
     .from('enrollment_tokens')
     .select('id,status,expires_at,session_id')
-    .eq('token', token)
+    .eq('token_hash', hashCapabilityToken(token))
     .eq('session_id', sessionId)
     .maybeSingle();
-  if (!enrollmentToken) return NextResponse.json({ error: 'Enrolamiento no encontrado' }, { status: 404 });
-  if (new Date(enrollmentToken.expires_at).getTime() <= Date.now() && enrollmentToken.status !== 'completed') {
+  if (!enrollmentToken)
+    return NextResponse.json({ error: 'Enrolamiento no encontrado' }, { status: 404 });
+  if (
+    new Date(enrollmentToken.expires_at).getTime() <= Date.now() &&
+    enrollmentToken.status !== 'completed'
+  ) {
     return NextResponse.json({ status: 'expired' }, { status: 410 });
   }
 
   const { data: result } = await supabase
     .from('enrollment_results')
-    .select('id,status,nombre,apellido_paterno,apellido_materno,curp,rfc,fecha_nacimiento,sexo,tipo_identificacion,face_match_passed,created_at')
+    .select(
+      'id,status,nombre,apellido_paterno,apellido_materno,curp,rfc,fecha_nacimiento,sexo,tipo_identificacion,face_match_passed,created_at'
+    )
     .eq('enrollment_token_id', enrollmentToken.id)
     .eq('status', 'completed')
     .maybeSingle();
 
-  return NextResponse.json({
-    status: result ? 'completed' : enrollmentToken.status,
-    result: result || null,
-  }, {
-    headers: { 'Cache-Control': 'no-store, max-age=0' },
-  });
+  return NextResponse.json(
+    {
+      status: result ? 'completed' : enrollmentToken.status,
+      result: result || null,
+    },
+    {
+      headers: { 'Cache-Control': 'no-store, max-age=0' },
+    }
+  );
 }

@@ -2,8 +2,9 @@
 
 import { useState, useCallback } from 'react';
 import { speechToText } from '@/lib/ai/speechToText';
+import { createClient } from '@/lib/supabase/client';
 
-export function useSpeechToText(provider: string, model: string) {
+export function useSpeechToText(workspaceId?: string) {
   const [text, setText] = useState<string | null>(null);
   const [fullResponse, setFullResponse] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -17,7 +18,12 @@ export function useSpeechToText(provider: string, model: string) {
       setError(null);
 
       try {
-        const result = await speechToText(provider, model, file, parameters);
+        if (!workspaceId) throw new Error('Selecciona un espacio de trabajo para transcribir.');
+        const {
+          data: { session },
+        } = await createClient().auth.getSession();
+        if (!session?.access_token) throw new Error('La sesión expiró. Vuelve a iniciar sesión.');
+        const result = await speechToText(file, session.access_token, workspaceId, parameters);
         setText(result?.text ?? null);
         setFullResponse(result);
         return result;
@@ -27,7 +33,7 @@ export function useSpeechToText(provider: string, model: string) {
         setIsLoading(false);
       }
     },
-    [provider, model]
+    [workspaceId]
   );
 
   return { text, fullResponse, isLoading, error, transcribe };

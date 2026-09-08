@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { hashSecret } from '@/lib/ai/security';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,11 +16,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Strategy 1: token matches a portal_token stored in a participant's JSONB in documentos
-    const { data: allDocs, error: scanError } = await supabaseAdmin
+    const tokenHash = hashSecret(token);
+    const { data: matchingDocs, error: scanError } = await supabaseAdmin
       .from('documentos')
-      .select('id, nombre, participantes')
-      .not('participantes', 'is', null);
+      .select('id, nombre, estado, participantes')
+      .contains('participantes', [{ portal_token_hash: tokenHash }])
+      .limit(2);
 
     let participantEmail: string | null = null;
     let documentId: string | null = null;
@@ -31,12 +33,24 @@ export async function GET(req: NextRequest) {
     let participantTelefono: string | null = null;
     let participantTipoPersona: string | null = null;
 
-    if (!scanError && allDocs) {
-      for (const doc of allDocs) {
+    if (!scanError && matchingDocs) {
+      for (const doc of matchingDocs) {
         const parts = doc.participantes as any[];
         if (!Array.isArray(parts)) continue;
-        const match = parts.find((p: any) => p.portal_token === token);
+        const match = parts.find((p: any) => p.portal_token_hash === tokenHash);
         if (match) {
+          if (
+            doc.estado === 'cancelado' ||
+            match.portal_token_invalidated_at ||
+            (match.portal_token_expires_at &&
+              new Date(match.portal_token_expires_at).getTime() <= Date.now()) ||
+            match.current_access === false
+          ) {
+            return NextResponse.json(
+              { error: 'Este enlace ya no está disponible.' },
+              { status: 410 }
+            );
+          }
           participantEmail = match.email || match.correo || null;
           documentId = doc.id;
           documentName = doc.nombre || 'el documento';
@@ -51,7 +65,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Strategy 2: Look up in unregistered_participants table by email match
+    if (!documentId)
+      return NextResponse.json({ error: 'Token inválido o vencido' }, { status: 404 });
+
+    // Complete only the participant identified by the validated capability.
     if (participantEmail) {
       const { data: unregParticipant } = await supabaseAdmin
         .from('unregistered_participants')
@@ -62,10 +79,13 @@ export async function GET(req: NextRequest) {
       if (unregParticipant) {
         // Prefer data from unregistered_participants table
         participantNombre = unregParticipant.nombre || participantNombre;
-        participantApellidoPaterno = unregParticipant.apellido_paterno || participantApellidoPaterno;
-        participantApellidoMaterno = unregParticipant.apellido_materno || participantApellidoMaterno;
+        participantApellidoPaterno =
+          unregParticipant.apellido_paterno || participantApellidoPaterno;
+        participantApellidoMaterno =
+          unregParticipant.apellido_materno || participantApellidoMaterno;
         participantTelefono = unregParticipant.telefono || participantTelefono;
-        participantTipoPersona = unregParticipant.tipo_persona || participantTipoPersona || 'fisica';
+        participantTipoPersona =
+          unregParticipant.tipo_persona || participantTipoPersona || 'fisica';
       }
     }
 

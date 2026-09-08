@@ -70,7 +70,7 @@ export default function PublicCertificationVerificationPage() {
             </section>
             <section className="mt-6 grid gap-4 md:grid-cols-2">
               <ValidationCard icon={FileCheck2} title="Documento" rows={[['Huella del cuerpo', result.document.body_hash_match], ['PDF certificado', result.document.certified_pdf_hash_match]]} />
-              <ValidationCard icon={KeyRound} title="Cadena original" rows={[['Hash canonico', result.document_chain.hash_match], ['Sello KMS', result.document_chain.seal_valid], [`Llave ${result.document_chain.key_version}`, true]]} />
+              <ValidationCard icon={KeyRound} title="Cadena original" rows={[['Hash de cadena', result.document_chain.hash_match], ['Sello KMS', result.document_chain.seal_valid], [`Llave ${result.document_chain.key_version}`, true]]} />
               <ValidationCard icon={ShieldCheck} title="Cadena de evidencia" rows={[['Manifiesto', result.evidence_chain.manifest_hash_match], ['Sello KMS', result.evidence_chain.seal_valid], ['Bitacora encadenada', result.evidence_chain.audit_chain_valid]]} />
               <ValidationCard icon={Clock3} title="Estampa RFC 3161" rows={result.timestamp ? [[result.timestamp.standard, result.timestamp.status === 'VALID'], [new Date(result.timestamp.gen_time).toLocaleString('es-MX', { timeZone: 'UTC' }) + ' UTC', true]] : [['No disponible', false]]} />
             </section>

@@ -53,6 +53,52 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
     }
 
+    if (!documentId) {
+      return NextResponse.json({ error: 'Documento requerido' }, { status: 400 });
+    }
+
+    const { data: authorizedDocument, error: documentError } = await supabaseAdmin
+      .from('documentos')
+      .select('owner_id,workspace_id,estado,participantes')
+      .eq('id', documentId)
+      .maybeSingle();
+    if (documentError || !authorizedDocument) {
+      return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
+    }
+
+    let isWorkspaceManager = false;
+    if (authorizedDocument.owner_id !== user.id && authorizedDocument.workspace_id) {
+      const { data: membership } = await supabaseAdmin
+        .from('workspace_members')
+        .select('role')
+        .eq('workspace_id', authorizedDocument.workspace_id)
+        .eq('user_id', user.id)
+        .in('role', ['owner', 'admin'])
+        .maybeSingle();
+      isWorkspaceManager = Boolean(membership);
+    }
+    if (authorizedDocument.owner_id !== user.id && !isWorkspaceManager) {
+      return NextResponse.json({ error: 'Sin permisos para enviar recordatorios' }, { status: 403 });
+    }
+
+    const participantForReminder = (authorizedDocument.participantes as any[] | null)?.find(
+      (participant: any) =>
+        String(participant.email || '').trim().toLowerCase()
+        === String(participantEmail).trim().toLowerCase()
+    );
+    if (!participantForReminder || participantForReminder.current_access === false) {
+      return NextResponse.json(
+        { error: 'El participante ya no tiene acceso a este documento.' },
+        { status: 409 }
+      );
+    }
+    if (['completado', 'cancelado', 'rechazado', 'vencido', 'expirado'].includes(authorizedDocument.estado)) {
+      return NextResponse.json(
+        { error: 'No se pueden enviar recordatorios para un documento cerrado.' },
+        { status: 409 }
+      );
+    }
+
     // ── 1-per-day limit: check existing fecha_recordatorio in JSONB ──────────
     if (documentId) {
       const { data: docCheck } = await supabaseAdmin

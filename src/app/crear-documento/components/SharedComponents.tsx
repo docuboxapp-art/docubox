@@ -661,10 +661,55 @@ export function FavoriteEtiquetasMultiSelect({
   );
 }
 
-export function InfoTooltip({ text }: { text: string }) {
+export function InfoTooltip({
+  text,
+  showOnParentHover = false,
+}: {
+  text: React.ReactNode;
+  showOnParentHover?: boolean;
+}) {
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const parentHoverTimerRef = useRef<number | null>(null);
   const [show, setShow] = useState(false);
+  const [showFromParent, setShowFromParent] = useState(false);
+
+  useEffect(() => {
+    if (!showOnParentHover) {
+      setShowFromParent(false);
+      return;
+    }
+
+    const option = rootRef.current?.closest('label');
+    if (!option) return;
+
+    const clearParentHover = () => {
+      if (parentHoverTimerRef.current !== null) {
+        window.clearTimeout(parentHoverTimerRef.current);
+        parentHoverTimerRef.current = null;
+      }
+      setShowFromParent(false);
+    };
+    const scheduleParentHover = () => {
+      clearParentHover();
+      parentHoverTimerRef.current = window.setTimeout(() => {
+        setShowFromParent(true);
+        parentHoverTimerRef.current = null;
+      }, 1500);
+    };
+
+    option.addEventListener('pointerenter', scheduleParentHover);
+    option.addEventListener('pointerleave', clearParentHover);
+    return () => {
+      option.removeEventListener('pointerenter', scheduleParentHover);
+      option.removeEventListener('pointerleave', clearParentHover);
+      clearParentHover();
+    };
+  }, [showOnParentHover]);
+
+  const isVisible = show || showFromParent;
+
   return (
-    <span className="relative inline-flex items-center">
+    <span ref={rootRef} className="relative inline-flex items-center">
       <button
         type="button"
         onMouseEnter={() => setShow(true)}
@@ -676,10 +721,12 @@ export function InfoTooltip({ text }: { text: string }) {
       >
         <Info size={10} />
       </button>
-      {show && (
-        <span className="absolute left-5 top-1/2 -translate-y-1/2 z-50 w-52 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg pointer-events-none leading-relaxed">
+      {(isVisible || showOnParentHover) && (
+        <span
+          className={`absolute right-5 top-1/2 z-50 w-52 -translate-y-1/2 rounded-lg bg-gray-900 px-3 py-2 text-xs leading-relaxed text-white shadow-lg pointer-events-none transition-opacity duration-150 ${isVisible ? 'visible opacity-100' : 'invisible opacity-0'}`}
+        >
           {text}
-          <span className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-gray-900" />
+          <span className="absolute left-full top-1/2 -translate-y-1/2 border-4 border-transparent border-l-gray-900" />
         </span>
       )}
     </span>

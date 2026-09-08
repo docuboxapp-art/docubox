@@ -90,6 +90,8 @@ interface MyParticipation {
   camposSolicitados?: any[];
   supabaseId?: string;
   legalHoldActive?: boolean;
+  currentAccess?: boolean;
+  historicalParticipation?: boolean;
 }
 
 const TERMINAL_STATUSES = ['completado', 'vencido', 'rechazado', 'cancelado'];
@@ -951,6 +953,13 @@ function ParticipationCard({ req, isUrgentFilter }: ParticipationCardProps) {
 
           {/* Action buttons */}
           <div className="flex flex-col gap-2">
+            {req.currentAccess === false ? (
+              <div className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-600 text-slate-500">
+                <Ban size={14} />
+                Acceso revocado
+              </div>
+            ) : (
+              <>
             {/* Firmar button: show when document is active and participant hasn't completed */}
             {(req.status === 'en-progreso' || req.status === 'pendiente') &&
               !PARTICIPATED_STATUSES.includes(req.mySignatureStatus ?? '') &&
@@ -980,6 +989,8 @@ function ParticipationCard({ req, isUrgentFilter }: ParticipationCardProps) {
               <Eye size={14} />
               Ver Documento
             </button>
+              </>
+            )}
           </div>
 
           {/* Toggle participants */}
@@ -1211,6 +1222,13 @@ function ParticipationCardGrid({ req, isUrgentFilter }: ParticipationCardProps) 
 
       {/* Action buttons */}
       <div className="flex flex-col gap-2 mt-auto">
+        {req.currentAccess === false ? (
+          <div className="flex items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-600 text-slate-500">
+            <Ban size={14} />
+            Acceso revocado
+          </div>
+        ) : (
+          <>
         {/* Firmar button: show when document is active and participant hasn't completed */}
         {(req.status === 'en-progreso' || req.status === 'pendiente') &&
           !PARTICIPATED_STATUSES.includes(req.mySignatureStatus ?? '') &&
@@ -1240,6 +1258,8 @@ function ParticipationCardGrid({ req, isUrgentFilter }: ParticipationCardProps) 
           <Eye size={14} />
           Ver Documento
         </button>
+          </>
+        )}
       </div>
 
       {/* Toggle participants */}
@@ -1395,6 +1415,13 @@ function KanbanCard({ req, isUrgentFilter }: ParticipationCardProps) {
       <div className="mb-2">
         <ParticipationProgressBar req={req} size="small" />
       </div>
+      {req.currentAccess === false ? (
+        <div className="flex h-8 w-full items-center justify-center gap-1 rounded-md border border-slate-200 bg-slate-50 text-[10px] font-600 text-slate-500">
+          <Ban size={11} />
+          Acceso revocado
+        </div>
+      ) : (
+        <>
       {/* Firmar button for board card */}
       {(req.status === 'en-progreso' || req.status === 'pendiente') &&
         !PARTICIPATED_STATUSES.includes(req.mySignatureStatus ?? '') &&
@@ -1424,6 +1451,8 @@ function KanbanCard({ req, isUrgentFilter }: ParticipationCardProps) {
         <Eye size={12} />
         Ver Documento
       </button>
+        </>
+      )}
     </div>
   );
 }

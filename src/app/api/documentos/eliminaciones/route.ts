@@ -6,9 +6,9 @@ export const dynamic = 'force-dynamic';
 const privateHeaders = { 'Cache-Control': 'private, no-store, max-age=0' };
 
 const tombstoneSelect =
-  'id,document_id,workspace_id,reason,status,requested_at,storage_removed_at,completed_at,metadata';
+  'id,document_id,workspace_id,reason,status,requested_at,storage_removed_at,completed_at,failure_code,metadata';
 const folderTombstoneSelect =
-  'id,folder_id,owner_id,folder_name,folder_created_at,reason,status,requested_at,completed_at,metadata';
+  'id,folder_id,owner_id,folder_name,folder_created_at,reason,status,requested_at,completed_at,failure_code,metadata';
 
 function metadataTimestamp(metadata: Record<string, unknown>, key: string) {
   const value = metadata[key];
@@ -41,6 +41,7 @@ function publicTombstone(row: Record<string, unknown>) {
     requested_at: row.requested_at,
     storage_removed_at: row.storage_removed_at,
     completed_at: row.completed_at,
+    failure_code: row.failure_code,
     document_name: documentName || null,
     document_type: documentType || null,
     document_created_at: metadataTimestamp(metadata, 'document_created_at'),
@@ -65,6 +66,7 @@ function publicFolderTombstone(row: Record<string, unknown>) {
     requested_at: row.requested_at,
     storage_removed_at: null,
     completed_at: row.completed_at,
+    failure_code: row.failure_code,
     document_name: typeof row.folder_name === 'string' ? row.folder_name.slice(0, 255) : null,
     document_type: 'Carpeta',
     document_created_at:
@@ -112,7 +114,7 @@ export async function GET(request: NextRequest) {
           .from('document_deletion_tombstones')
           .select(tombstoneSelect)
           .eq('owner_id', user.id)
-          .eq('status', 'COMPLETED')
+          .in('status', ['COMPLETED', 'FAILED'])
           .order('requested_at', { ascending: false })
           .limit(500)
       ),
@@ -121,7 +123,7 @@ export async function GET(request: NextRequest) {
           .from('folder_deletion_tombstones')
           .select(folderTombstoneSelect)
           .eq('owner_id', user.id)
-          .eq('status', 'COMPLETED')
+          .in('status', ['COMPLETED', 'FAILED'])
           .order('requested_at', { ascending: false })
           .limit(500)
       ),
@@ -145,7 +147,7 @@ export async function GET(request: NextRequest) {
             .from('document_deletion_tombstones')
             .select(tombstoneSelect)
             .in('workspace_id', workspaceIds)
-            .eq('status', 'COMPLETED')
+            .in('status', ['COMPLETED', 'FAILED'])
             .order('requested_at', { ascending: false })
             .limit(500)
         )

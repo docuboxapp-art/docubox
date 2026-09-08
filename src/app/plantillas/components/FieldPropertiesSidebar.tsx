@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Settings } from 'lucide-react';
+import { X, Plus, Settings, Trash2 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,6 +23,9 @@ export interface InsertedField {
   imageWidth?: string;
   imageHeight?: string;
   checkboxDefault?: string;
+  scope?: 'general' | 'participant';
+  required?: boolean;
+  assignedParticipantId?: string | null;
 }
 
 interface FieldPropertiesSidebarProps {
@@ -31,6 +34,7 @@ interface FieldPropertiesSidebarProps {
   onUpdate: (id: string, updates: Partial<InsertedField>) => void;
   allFields?: InsertedField[];
   onSelectField?: (id: string) => void;
+  onDeleteField?: (id: string) => void;
 }
 
 // ─── Field types that support options ────────────────────────────────────────
@@ -86,7 +90,14 @@ function SelectField({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function FieldPropertiesSidebar({ field, onClose, onUpdate, allFields = [], onSelectField }: FieldPropertiesSidebarProps) {
+export function FieldPropertiesSidebar({
+  field,
+  onClose,
+  onUpdate,
+  allFields = [],
+  onSelectField,
+  onDeleteField,
+}: FieldPropertiesSidebarProps) {
   const [localName, setLocalName] = useState('');
   const [localShowLabel, setLocalShowLabel] = useState(false);
   const [localOptions, setLocalOptions] = useState<string[]>([]);
@@ -144,25 +155,39 @@ export function FieldPropertiesSidebar({ field, onClose, onUpdate, allFields = [
         ) : (
           <div className="p-3 space-y-1.5">
             {allFields.map((f) => (
-              <button
+              <div
                 key={f.id}
-                type="button"
-                onClick={() => onSelectField?.(f.id)}
-                className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-colors text-left group"
+                className="group flex w-full items-center rounded-lg border border-gray-100 transition-colors hover:border-blue-200 hover:bg-blue-50"
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <span className="text-sm text-gray-800 truncate block">
-                      {f.customName && f.customName !== f.label ? f.customName : f.label}
-                    </span>
-                    <span className="text-xs text-gray-400 truncate block">Tipo: {f.label}</span>
+                <button
+                  type="button"
+                  onClick={() => onSelectField?.(f.id)}
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2.5 text-left"
+                  title="Localizar campo en el documento"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="h-2 w-2 flex-shrink-0 rounded-full bg-blue-400" />
+                    <div className="min-w-0">
+                      <span className="block truncate text-sm text-gray-800">
+                        {f.customName && f.customName !== f.label ? f.customName : f.label}
+                      </span>
+                      <span className="block truncate text-xs text-gray-400">Tipo: {f.label}</span>
+                    </div>
                   </div>
-                </div>
-                <span className="text-xs text-gray-400 flex-shrink-0 group-hover:text-blue-500 whitespace-nowrap">
-                  Pág. {f.pageIndex + 1}
-                </span>
-              </button>
+                  <span className="flex-shrink-0 whitespace-nowrap text-xs text-gray-400 group-hover:text-blue-500">
+                    Pág. {f.pageIndex + 1}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteField?.(f.id)}
+                  className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                  title="Eliminar campo"
+                  aria-label={`Eliminar ${f.customName || f.label}`}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -429,6 +454,15 @@ export function FieldPropertiesSidebar({ field, onClose, onUpdate, allFields = [
             Tipo: <span className="font-medium text-gray-600">{field.label}</span>
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => onDeleteField?.(field.id)}
+          className="flex w-full items-center justify-center gap-2 rounded-md border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+        >
+          <Trash2 size={15} />
+          Eliminar campo
+        </button>
       </div>
     </aside>
   );

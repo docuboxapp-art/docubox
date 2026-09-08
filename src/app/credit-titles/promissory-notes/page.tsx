@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import type React from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronDown, FileText, MoreHorizontal, Plus, Search } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
@@ -13,6 +14,7 @@ import {
   STATUS_META,
   type PromissoryNoteSummary,
 } from '@/lib/credit-titles/schema';
+import { DEVELOPMENT_DEMO_DATA_ENABLED } from '@/lib/product/developmentModules';
 import {
   CreditTitlesHeader,
   CreditTitlesWorkspace,
@@ -20,17 +22,22 @@ import {
 } from '../components/CreditTitlesUI';
 
 export default function PromissoryNotesPage() {
+  return (
+    <Suspense fallback={null}>
+      <PromissoryNotesContent />
+    </Suspense>
+  );
+}
+
+function PromissoryNotesContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { activeWorkspace } = useWorkspace();
   const [items, setItems] = useState<PromissoryNoteSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [demoMode, setDemoMode] = useState(false);
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('all');
-
-  useEffect(() => {
-    const requestedStatus = new URLSearchParams(window.location.search).get('status');
-    if (requestedStatus) setStatus(requestedStatus);
-  }, []);
+  const [status, setStatus] = useState(() => searchParams.get('status') || 'all');
 
   useEffect(() => {
     if (!activeWorkspace?.id) return;
@@ -44,9 +51,15 @@ export default function PromissoryNotesPage() {
         .order('updated_at', { ascending: false });
       if (cancelled) return;
       if (error) {
-        const local = readLocal();
-        setItems(local.length ? local : DEMO_PROMISSORY_NOTES);
-      } else setItems((data || []).map(mapPromissoryNoteRow));
+        const local = DEVELOPMENT_DEMO_DATA_ENABLED ? readLocal() : [];
+        setItems(
+          DEVELOPMENT_DEMO_DATA_ENABLED ? (local.length ? local : DEMO_PROMISSORY_NOTES) : []
+        );
+        setDemoMode(DEVELOPMENT_DEMO_DATA_ENABLED);
+      } else {
+        setItems((data || []).map(mapPromissoryNoteRow));
+        setDemoMode(false);
+      }
       setLoading(false);
     };
     load();
@@ -83,6 +96,12 @@ export default function PromissoryNotesPage() {
             </button>
           }
         />
+        {demoMode && (
+          <div className="mb-4 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-slate-600">
+            <strong>Datos de ejemplo.</strong> Esta vista es únicamente visual y no representa
+            información operativa del espacio de trabajo.
+          </div>
+        )}
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
           <header className="border-b border-slate-200 p-4 dark:border-border">
             <div className="flex flex-col gap-3 lg:flex-row">

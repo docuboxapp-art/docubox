@@ -17,6 +17,12 @@ const lifecycleMigration = await read(
 const purgeMigration = await read(
   '../supabase/migrations/20260902002000_document_purge_evidence_tombstones.sql'
 );
+const draftPurgeMigration = await read(
+  '../supabase/migrations/20260905190000_allow_draft_purge_during_recovery_secure.sql'
+);
+const supersededDraftPurgeMigration = await read(
+  '../supabase/migrations/20260904180000_allow_draft_purge_during_recovery.sql'
+);
 const legalHoldRoute = await read('../src/app/api/documentos/[documentId]/legal-hold/route.ts');
 const legalHoldMigration = await read(
   '../supabase/migrations/20260902001000_enforce_document_legal_hold_transitions.sql'
@@ -37,9 +43,12 @@ test('single-document deletion requires owner or workspace-admin access', () => 
   assert.match(trashRoute, /documentAccessResponse\(error\)/);
 });
 
-test('the recovery period remains a deletion blocker', () => {
+test('the recovery period remains a deletion blocker for non-draft documents', () => {
   assert.match(lifecycle, /RECOVERY_PERIOD/);
-  assert.match(lifecycle, /canPurgeFromTrash: !withinRecoveryPeriod/);
+  assert.match(
+    lifecycle,
+    /withinRecoveryPeriod && !draftRecoveryIsOptional \? 'RECOVERY_PERIOD' : 'NONE'/
+  );
   assert.match(retention, /RECOVERY_PERIOD/);
 });
 
@@ -163,13 +172,37 @@ test('direct deletion is limited to draft, preparation or terminal non-active do
   assert.match(trashRoute, /DOCUMENT_DIRECT_PURGE_NOT_ALLOWED/);
 });
 
-test('a draft remains directly purgeable when it only has planned participants', () => {
-  assert.match(lifecycle, /canDirectPurgeDraft: isDraft/);
+test('a draft enters Papelera without a mandatory recovery lock', () => {
+  assert.match(lifecycle, /const draftRecoveryIsOptional = isDraft/);
+  assert.match(lifecycle, /canPurgeFromTrash: draftRecoveryIsOptional \|\| !withinRecoveryPeriod/);
+  assert.match(lifecycle, /canTrash: true/);
+});
+
+test('drafts keep a restore period but may be deleted permanently at any time', () => {
+  assert.match(lifecycle, /Drafts keep the normal 30-day restore window/);
+  assert.match(lifecycle, /blockingCode:\n\s+withinRecoveryPeriod && !draftRecoveryIsOptional/);
+  assert.doesNotMatch(trashRoute, /DRAFT_DIRECT_DELETE_REQUIRED/);
   assert.match(
-    lifecycle,
-    /canDirectPurge: directPurgeEligibleState && \(isDraft \|\| !activeParticipants\)/
+    draftPurgeMigration,
+    /pg_catalog\.lower\(pg_catalog\.coalesce\(v_document\.estado, ''\)\) NOT IN/
   );
-  assert.match(lifecycle, /if \(workflowActive\)/);
+  assert.match(
+    draftPurgeMigration,
+    /AND \(v_document\.restore_until IS NULL OR v_document\.restore_until > pg_catalog\.now\(\)\)/
+  );
+});
+
+test('the pending draft purge migration is superseded without deploying unsafe DDL', () => {
+  assert.doesNotMatch(supersededDraftPurgeMigration, /CREATE OR REPLACE FUNCTION/);
+  assert.match(supersededDraftPurgeMigration, /20260905190000_allow_draft_purge/);
+  assert.match(draftPurgeMigration, /SECURITY DEFINER/);
+  assert.match(draftPurgeMigration, /SET search_path = ''/);
+  assert.doesNotMatch(draftPurgeMigration, /SET search_path = public/);
+  assert.match(draftPurgeMigration, /document_purge_legal_hold/);
+  assert.match(draftPurgeMigration, /document_purge_retention_active/);
+  assert.match(draftPurgeMigration, /document_purge_recovery_period/);
+  assert.match(draftPurgeMigration, /TO service_role/);
+  assert.doesNotMatch(draftPurgeMigration, /certification_webhooks WHERE certification_id/);
 });
 
 test('deletion history is available without exposing deleted content or storage paths', () => {

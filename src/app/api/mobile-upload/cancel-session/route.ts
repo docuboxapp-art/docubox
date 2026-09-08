@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 /**
  * POST /api/mobile-upload/cancel-session
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
         status: 'cancelled',
         updated_at: new Date().toISOString(),
       })
-      .eq('token', token)
+      .eq('token_hash', hashCapabilityToken(token))
       .eq('status', 'pending');
 
     if (error) {

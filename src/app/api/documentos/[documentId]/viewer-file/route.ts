@@ -6,6 +6,7 @@ import { resolveLegacyDocumentStoragePath } from '@/lib/documents/internal-sourc
 import { readDocumentStorageObject } from '@/lib/crypto/document-encryption';
 import { DocumentEncryptionError } from '@/lib/crypto/document-encryption/errors';
 import { createCertificationProviderSet } from '@/lib/certification/providers';
+import { documentViewCookieName, hasDocumentViewAccess } from '@/lib/security/document-view-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -175,6 +176,27 @@ export async function GET(
 
     if (!owner && !participant && !workspaceManager) {
       return NextResponse.json({ error: 'No tienes acceso a este documento.' }, { status: 403 });
+    }
+
+    const securityResult = await service
+      .from('document_security_settings')
+      .select('codigo_acceso_enabled')
+      .eq('documento_id', document.id)
+      .maybeSingle();
+    if (securityResult.error) throw securityResult.error;
+    const requiresAccessCode = securityResult.data?.codigo_acceso_enabled === true;
+    if (requiresAccessCode && !owner && !workspaceManager) {
+      const cookieStore = await cookies();
+      const accessToken = cookieStore.get(documentViewCookieName(document.id))?.value;
+      if (!hasDocumentViewAccess(accessToken, document.id, user.id)) {
+        return NextResponse.json(
+          {
+            error: 'Introduce el código de acceso para visualizar este documento.',
+            code: 'DOCUMENT_ACCESS_CODE_REQUIRED',
+          },
+          { status: 423, headers: privateErrorHeaders }
+        );
+      }
     }
 
     const requestedVariant = request.nextUrl.searchParams.get('variant') || 'original';
@@ -380,7 +402,7 @@ export async function GET(
     const disposition =
       request.nextUrl.searchParams.get('download') === '1' ? 'attachment' : 'inline';
     const requestedFileName = requestsFinalPdf
-      ? `${String(document.nombre || document.file_name || 'documento').replace(/\.pdf$/i, '')}_firmado_PAdES-B-T.pdf`
+      ? `${String(document.nombre || document.file_name || 'documento').replace(/\.pdf$/i, '')}_firmado.pdf`
       : String(file.fileName || document.file_name || 'documento.pdf');
     const safeFileName = requestedFileName.replace(/[\r\n"]/g, '_');
     response.headers.set('Content-Disposition', `${disposition}; filename="${safeFileName}"`);

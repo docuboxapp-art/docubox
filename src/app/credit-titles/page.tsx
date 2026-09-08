@@ -1,5 +1,6 @@
 'use client';
 
+import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -21,6 +22,7 @@ import {
   mapPromissoryNoteRow,
   type PromissoryNoteSummary,
 } from '@/lib/credit-titles/schema';
+import { DEVELOPMENT_DEMO_DATA_ENABLED } from '@/lib/product/developmentModules';
 import {
   AmountSummary,
   CreditTitlesHeader,
@@ -48,9 +50,11 @@ export default function CreditTitlesDashboardPage() {
         .order('updated_at', { ascending: false });
       if (cancelled) return;
       if (error) {
-        const local = readLocal();
-        setItems(local.length ? local : DEMO_PROMISSORY_NOTES);
-        setDemoMode(true);
+        const local = DEVELOPMENT_DEMO_DATA_ENABLED ? readLocal() : [];
+        setItems(
+          DEVELOPMENT_DEMO_DATA_ENABLED ? (local.length ? local : DEMO_PROMISSORY_NOTES) : []
+        );
+        setDemoMode(DEVELOPMENT_DEMO_DATA_ENABLED);
       } else {
         setItems((data || []).map(mapPromissoryNoteRow));
         setDemoMode(false);
@@ -98,8 +102,10 @@ export default function CreditTitlesDashboardPage() {
         {demoMode && (
           <div className="mb-4 flex items-start gap-2 rounded-md border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs leading-5 text-slate-600 dark:border-indigo-900 dark:bg-indigo-950/20">
             <Landmark size={14} className="mt-0.5 shrink-0 text-indigo-700" />
-            Vista local de referencia. Al aplicar la migracion, cada titulo quedara aislado por
-            espacio de trabajo y protegido con RLS.
+            <span>
+              <strong>Datos de ejemplo.</strong> Esta vista es únicamente visual y no representa
+              información operativa del espacio de trabajo.
+            </span>
           </div>
         )}
 

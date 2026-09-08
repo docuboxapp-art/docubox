@@ -1,19 +1,21 @@
 const ENDPOINT = '/api/ai/speech-to-text';
 
 export async function speechToText(
-  provider: string,
-  model: string,
   file: Blob | File,
+  accessToken: string,
+  workspaceId: string,
   parameters: object = {}
 ) {
   const formData = new FormData();
-  formData.append('provider', provider);
-  formData.append('model', model);
+  formData.append('provider', 'OPEN_AI');
+  formData.append('model', 'gpt-4o-transcribe');
+  formData.append('workspaceId', workspaceId);
   formData.append('parameters', JSON.stringify(parameters));
   formData.append('file', file);
 
   const response = await fetch(ENDPOINT, {
     method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
     body: formData,
   });
 

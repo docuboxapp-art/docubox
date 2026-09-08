@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseAdmin } from '@supabase/supabase-js';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 const supabaseAdmin = createSupabaseAdmin(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,13 +30,24 @@ function parseUserAgent(ua: string): {
     deviceType = 'mobile';
   }
 
-  if (/windows nt 10/i.test(ua)) { os = 'Windows'; osVersion = '10'; }
-  else if (/windows nt 11/i.test(ua)) { os = 'Windows'; osVersion = '11'; }
-  else if (/windows nt 6\.3/i.test(ua)) { os = 'Windows'; osVersion = '8.1'; }
-  else if (/windows nt 6\.2/i.test(ua)) { os = 'Windows'; osVersion = '8'; }
-  else if (/windows nt 6\.1/i.test(ua)) { os = 'Windows'; osVersion = '7'; }
-  else if (/windows/i.test(ua)) { os = 'Windows'; }
-  else if (/mac os x ([\d_]+)/i.test(ua)) {
+  if (/windows nt 10/i.test(ua)) {
+    os = 'Windows';
+    osVersion = '10';
+  } else if (/windows nt 11/i.test(ua)) {
+    os = 'Windows';
+    osVersion = '11';
+  } else if (/windows nt 6\.3/i.test(ua)) {
+    os = 'Windows';
+    osVersion = '8.1';
+  } else if (/windows nt 6\.2/i.test(ua)) {
+    os = 'Windows';
+    osVersion = '8';
+  } else if (/windows nt 6\.1/i.test(ua)) {
+    os = 'Windows';
+    osVersion = '7';
+  } else if (/windows/i.test(ua)) {
+    os = 'Windows';
+  } else if (/mac os x ([\d_]+)/i.test(ua)) {
     os = 'macOS';
     const m = ua.match(/mac os x ([\d_]+)/i);
     osVersion = m ? m[1].replace(/_/g, '.') : '';
@@ -51,7 +63,9 @@ function parseUserAgent(ua: string): {
     os = 'iPadOS';
     const m = ua.match(/ipad.*os ([\d_]+)/i);
     osVersion = m ? m[1].replace(/_/g, '.') : '';
-  } else if (/linux/i.test(ua)) { os = 'Linux'; }
+  } else if (/linux/i.test(ua)) {
+    os = 'Linux';
+  }
 
   if (/edg\/([\d.]+)/i.test(ua)) {
     browser = 'Edge';
@@ -84,12 +98,27 @@ function parseUserAgent(ua: string): {
 
 async function getGeoFromIP(ip: string) {
   const defaultGeo = {
-    country: 'Unknown', countryCode: '', region: '', city: 'Unknown',
-    latitude: null as number | null, longitude: null as number | null,
-    timezone: '', isp: '', neighborhood: '', postcode: '', place_name: '',
+    country: 'Unknown',
+    countryCode: '',
+    region: '',
+    city: 'Unknown',
+    latitude: null as number | null,
+    longitude: null as number | null,
+    timezone: '',
+    isp: '',
+    neighborhood: '',
+    postcode: '',
+    place_name: '',
   };
 
-  if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+  if (
+    !ip ||
+    ip === '::1' ||
+    ip === '127.0.0.1' ||
+    ip.startsWith('192.168.') ||
+    ip.startsWith('10.') ||
+    ip.startsWith('172.')
+  ) {
     return { ...defaultGeo, city: 'Local/Private Network' };
   }
 
@@ -158,7 +187,8 @@ export async function POST(request: NextRequest) {
     const forwarded = request.headers.get('x-forwarded-for');
     const realIp = request.headers.get('x-real-ip');
     const cfIp = request.headers.get('cf-connecting-ip');
-    const ipAddress = cfIp || realIp || (forwarded ? forwarded.split(',')[0].trim() : null) || '127.0.0.1';
+    const ipAddress =
+      cfIp || realIp || (forwarded ? forwarded.split(',')[0].trim() : null) || '127.0.0.1';
 
     // Parse user agent
     const ua = userAgent || request.headers.get('user-agent') || '';
@@ -186,7 +216,7 @@ export async function POST(request: NextRequest) {
         enrollment_place_name: geo.place_name,
         enrollment_logged_at: now.toISOString(),
       })
-      .eq('token', enrollmentToken);
+      .eq('token_hash', hashCapabilityToken(enrollmentToken));
 
     if (error) {
       console.error('[log-enrollment] Error updating enrollment_tokens:', error);

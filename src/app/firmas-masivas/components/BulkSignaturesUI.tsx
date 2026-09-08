@@ -1,5 +1,6 @@
 'use client';
 
+import type React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -17,6 +18,7 @@ import {
   type BulkCampaignStatus,
   type BulkCampaignSummary,
 } from '@/lib/bulk-signatures/schema';
+import { DEVELOPMENT_MODULE_MESSAGE } from '@/lib/product/developmentModules';
 
 const navItems = [
   { href: '/firmas-masivas', label: 'Campanas', icon: LayoutDashboard },
@@ -65,7 +67,15 @@ export function BulkSignaturesWorkspace({ children }: { children: React.ReactNod
             evidencia.
           </div>
         </aside>
-        <main className="min-w-0 px-4 py-5 sm:px-5 md:py-6 lg:px-7">{children}</main>
+        <main className="min-w-0 px-4 py-5 sm:px-5 md:py-6 lg:px-7">
+          <div
+            role="status"
+            className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+          >
+            <span className="font-600">Módulo en construcción.</span> {DEVELOPMENT_MODULE_MESSAGE}
+          </div>
+          {children}
+        </main>
       </div>
     </div>
   );
@@ -83,7 +93,12 @@ export function BulkSignaturesHeader({
   return (
     <header className="mb-5 flex flex-col gap-4 border-b border-slate-200 pb-5 dark:border-border sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="text-2xl font-600 text-slate-950 dark:text-foreground">{title}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-600 text-slate-950 dark:text-foreground">{title}</h1>
+          <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-600 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            En construcción
+          </span>
+        </div>
         <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-muted-foreground">
           {description}
         </p>
@@ -144,8 +159,10 @@ export function DemoNotice() {
   return (
     <div className="mb-4 flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-slate-600 dark:border-blue-900 dark:bg-blue-950/20 dark:text-muted-foreground">
       <AlertTriangle size={14} className="mt-0.5 shrink-0 text-blue-700" />
-      Vista local de referencia. Al aplicar la migracion, las campanas quedaran aisladas por
-      workspace y protegidas con RLS.
+      <span>
+        <strong>Datos de ejemplo.</strong> Esta vista es únicamente visual y no representa
+        información operativa del espacio de trabajo.
+      </span>
     </div>
   );
 }

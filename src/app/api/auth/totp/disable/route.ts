@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { resolvePlatformAccess } from '@/lib/platform-admin/access';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+let supabaseAdmin: SupabaseClient<any> | null = null;
+
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceRoleKey) {
+    throw new Error('Supabase service credentials are not configured.');
+  }
+  return supabaseAdmin ??= createClient(url, serviceRoleKey);
+}
 
 async function logSecurityEvent(
   userId: string,
@@ -15,7 +21,7 @@ async function logSecurityEvent(
   metadata?: Record<string, unknown>
 ) {
   try {
-    await supabaseAdmin.from('auth_security_events').insert({
+    await getSupabaseAdmin().from('auth_security_events').insert({
       user_id: userId,
       event_type: eventType,
       description,
@@ -30,6 +36,7 @@ async function logSecurityEvent(
 
 export async function POST(req: NextRequest) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     const authHeader = req.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

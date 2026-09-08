@@ -107,7 +107,11 @@ export async function GET() {
 
     // Map to the shape expected by the frontend
     const solicitudes = (docs ?? []).map((doc: any) => {
-      const parts: any[] = doc.participantes ?? [];
+      const allParts: any[] = doc.participantes ?? [];
+      const parts = allParts.filter(
+        (participant: any) =>
+          participant.current_access !== false || participant.historical_participation === true
+      );
       const totalSigs = parts.length;
       // Count participants who have participated using sub_estado
       const doneSigs = parts.filter((p: any) => isTerminalSubEstado(p.sub_estado ?? p.status ?? '')).length;
@@ -162,6 +166,8 @@ export async function GET() {
         participantList: parts.map((p: any) => {
           const pSubEstado = p.sub_estado ?? p.status ?? 'en_revision';
           return {
+            id: p.id ?? null,
+            userId: p.user_id ?? null,
             name: p.nombre ?? p.name ?? p.email ?? 'Participante',
             email: p.email ?? '',
             phone: p.telefono ?? p.phone ?? undefined,
@@ -172,6 +178,10 @@ export async function GET() {
             acto: p.acto ?? p.action ?? undefined,
             rejectionMotivo: p.rejectionMotivo ?? undefined,
             rejectionDescripcion: p.rejectionDescripcion ?? undefined,
+            currentAccess: p.current_access !== false,
+            historicalParticipation: p.historical_participation === true,
+            relationshipStatus: p.participant_relationship_status ?? undefined,
+            isCurrentUser: p.isCurrentUser === true,
           };
         }),
         signaturesTotal: totalSigs,

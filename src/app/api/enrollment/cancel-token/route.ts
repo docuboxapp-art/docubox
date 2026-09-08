@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 /**
  * POST /api/enrollment/cancel-token
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
     const { error } = await supabase
       .from('enrollment_tokens')
       .update({ status: 'cancelled' })
-      .eq('token', token)
+      .eq('token_hash', hashCapabilityToken(token))
       .in('status', ['pending', 'started']);
 
     if (error) {

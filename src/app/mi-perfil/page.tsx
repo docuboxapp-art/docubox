@@ -127,6 +127,7 @@ interface DeletionHistoryEntry {
   status: 'TRASHED' | 'PENDING' | 'STORAGE_REMOVED' | 'COMPLETED' | 'FAILED';
   requested_at: string | null;
   completed_at?: string | null;
+  failure_code?: string | null;
 }
 
 interface VerificationStatus {
@@ -259,7 +260,6 @@ const REGIMENES_FISCALES = [
 
 const sidebarItems = [
   { id: 'informacion-personal', label: 'Información personal', icon: User },
-  { id: 'espacios-trabajo', label: 'Espacios de trabajo', icon: Building2 },
   { id: 'verificacion', label: 'Verificación', icon: ShieldCheck },
   { id: 'proteccion-acceso', label: 'Protección de acceso', icon: Lock },
   { id: 'firmas', label: 'Firmas', icon: PenTool },
@@ -1672,6 +1672,7 @@ export default function MiPerfilPage() {
         if (!session?.access_token) throw new Error('No autenticado.');
         const response = await fetch('/api/documentos/eliminaciones?scope=all', {
           headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: 'no-store',
         });
         const result = await response.json().catch(() => null);
         if (!response.ok) throw new Error(result?.error || 'No fue posible cargar el historial.');
@@ -6575,8 +6576,6 @@ export default function MiPerfilPage() {
     switch (activeSection) {
       case 'informacion-personal':
         return renderInformacionPersonal();
-      case 'espacios-trabajo':
-        return renderEspaciosTrabajo();
       case 'verificacion':
         return renderVerificacion();
       case 'proteccion-acceso':

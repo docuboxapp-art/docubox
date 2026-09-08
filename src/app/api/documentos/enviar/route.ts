@@ -347,6 +347,7 @@ export async function POST(req: NextRequest) {
       gruposFirma,
       publico,
       selloDigital,
+      selloUbicacion,
       estampaAutenticacion,
       legalHoldEnabled,
       legalHoldReason,
@@ -358,6 +359,30 @@ export async function POST(req: NextRequest) {
 
     if (!documentoId || !fileName || !fileHashSha256) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
+    }
+
+    if (selloDigital === true && selloUbicacion === 'libre') {
+      const cryptographicTypes = Array.isArray(camposSolicitados)
+        ? camposSolicitados
+            .filter((field: unknown) => {
+              if (!field || typeof field !== 'object') return false;
+              return (field as Record<string, unknown>).placementKind === 'cryptographic';
+            })
+            .map((field: Record<string, unknown>) => field.cryptographicType)
+        : [];
+      const hasVisibleCertificationField = cryptographicTypes.some(
+        (type) => type === 'document_chain' || type === 'document_seal'
+      );
+      if (!hasVisibleCertificationField) {
+        return NextResponse.json(
+          {
+            error:
+              'Coloca al menos una Cadena Original o un Sello Digital antes de enviar el documento.',
+            code: 'VISIBLE_CERTIFICATION_FIELD_REQUIRED',
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const requestedLegalHold = legalHoldEnabled === true;
@@ -542,9 +567,14 @@ export async function POST(req: NextRequest) {
 
     const participantesConPortal = (participantes || []).map((participant: any) => {
       if (participant.isCurrentUser) return participant;
+      const portalToken = participant.portal_token || randomUUID();
       return {
         ...participant,
-        portal_token: participant.portal_token || randomUUID(),
+        portal_token: portalToken,
+        portal_token_hash: createHash('sha256').update(portalToken).digest('hex'),
+        portal_token_expires_at:
+          participant.portal_token_expires_at ||
+          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       };
     });
 
@@ -595,6 +625,7 @@ export async function POST(req: NextRequest) {
       es_urgente: urgente === true,
       es_publico: publico ?? false,
       sello_digital: selloDigital ?? false,
+      sello_ubicacion: selloUbicacion === 'libre' ? 'libre' : 'calce',
       estampa_autenticacion: estampaAutenticacion ?? false,
       metadatos_adicionales: metadatosAdicionales ?? false,
     };
@@ -1092,12 +1123,14 @@ export async function POST(req: NextRequest) {
             actionUrl: getParticipantPortalUrl((p as any).portal_token || dbDocumentId),
             actionLabel: 'Revisar y firmar',
             deduplicationKey: `signature.requested:${dbDocumentId}:${(p as any).id || participantUserId}`,
-            title: urgente === true
-              ? 'Documento urgente: se requiere tu participación'
-              : 'Has sido invitado a participar en un documento',
-            description: urgente === true
-              ? `${senderName} te ha invitado a participar con prioridad en "${nombre || fileName}".`
-              : `${senderName} te ha invitado a participar en "${nombre || fileName}".`,
+            title:
+              urgente === true
+                ? 'Documento urgente: se requiere tu participación'
+                : 'Has sido invitado a participar en un documento',
+            description:
+              urgente === true
+                ? `${senderName} te ha invitado a participar con prioridad en "${nombre || fileName}".`
+                : `${senderName} te ha invitado a participar en "${nombre || fileName}".`,
             priority: 'alta',
             metadata: {
               documentoId: dbDocumentId,

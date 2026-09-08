@@ -1,346 +1,301 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { buildLuciaAuthorizationContext } from '@/lib/ai/luciaAuthorization';
+import { computeChunkContentHash } from '@/lib/ai/documentIntelligence';
+import { saveQueryLog } from '@/lib/ai/luciaQueries';
+import { readDocumentStorageObject } from '@/lib/crypto/document-encryption';
+import { resolveInternalDocumentSource } from '@/lib/documents/internal-source';
+import { createServiceClient } from '@/lib/supabase/server';
+import {
+  AI_BODY_LIMITS,
+  aiErrorResponse,
+  EMBEDDING_MODEL,
+  enforceAiRateLimits,
+  readLimitedJson,
+  requireAiUser,
+} from '@/lib/ai/security';
 
-const CHUNK_SIZE = 800;        // characters per chunk
-const CHUNK_OVERLAP = 150;     // overlap between consecutive chunks
-const EMBEDDING_MODEL = 'text-embedding-3-small'; // 1536 dimensions
-const EMBEDDING_BATCH = 20;    // chunks per OpenAI batch call
+const CHUNK_SIZE = 800;
+const CHUNK_OVERLAP = 150;
+const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function getServiceClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-}
-
-/**
- * Splits raw text into overlapping chunks.
- * Tries to break on sentence/paragraph boundaries when possible.
- */
-function chunkText(text: string): { content: string; chunkIndex: number }[] {
-  const chunks: { content: string; chunkIndex: number }[] = [];
+function chunkText(text: string) {
+  const chunks: Array<{ content: string; chunkIndex: number }> = [];
+  const cleaned = text
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
   let start = 0;
-  let index = 0;
-
-  // Normalise whitespace
-  const cleaned = text.replace(/\r\n/g, '\n').replace(/[ \t]{2,}/g, ' ').trim();
-
   while (start < cleaned.length) {
-    let end = start + CHUNK_SIZE;
-
+    let end = Math.min(start + CHUNK_SIZE, cleaned.length);
     if (end < cleaned.length) {
-      // Try to break at a paragraph or sentence boundary
-      const breakPoints = ['\n\n', '\n', '. ', '? ', '! ', '; '];
-      for (const bp of breakPoints) {
-        const idx = cleaned.lastIndexOf(bp, end);
-        if (idx > start + CHUNK_SIZE / 2) {
-          end = idx + bp.length;
+      for (const boundary of ['\n\n', '\n', '. ', '? ', '! ', '; ']) {
+        const index = cleaned.lastIndexOf(boundary, end);
+        if (index > start + CHUNK_SIZE / 2) {
+          end = index + boundary.length;
           break;
         }
       }
-    } else {
-      end = cleaned.length;
     }
-
     const content = cleaned.slice(start, end).trim();
-    if (content.length > 30) {
-      chunks.push({ content, chunkIndex: index++ });
-    }
-
-    start = end - CHUNK_OVERLAP;
-    if (start < 0) start = 0;
+    if (content.length > 30) chunks.push({ content, chunkIndex: chunks.length });
+    if (end >= cleaned.length) break;
+    start = Math.max(0, end - CHUNK_OVERLAP);
   }
-
   return chunks;
 }
 
-/**
- * Extracts plain text from a PDF buffer using a byte-level heuristic.
- * Extracts readable text from PDF Tj/TJ operators.
- */
-function extractTextFromPdfBuffer(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const decoder = new TextDecoder('latin1');
-  const raw = decoder.decode(bytes);
-
-  const textBlocks: string[] = [];
-
-  const tjRegex = /\(([^)]*)\)\s*Tj/g;
-  const tjArrayRegex = /\[([^\]]*)\]\s*TJ/g;
-
-  let match: RegExpExecArray | null;
-
-  while ((match = tjRegex.exec(raw)) !== null) {
-    const text = match[1]
-      .replace(/\\n/g, '\n')
-      .replace(/\\r/g, '\r')
-      .replace(/\\t/g, '\t')
-      .replace(/\\\(/g, '(')
-      .replace(/\\\)/g, ')')
-      .replace(/\\\\/g, '\\');
-    if (text.trim().length > 0) textBlocks.push(text);
+function extractPdfText(buffer: ArrayBuffer) {
+  const raw = new TextDecoder('latin1').decode(new Uint8Array(buffer));
+  const blocks: string[] = [];
+  for (const match of raw.matchAll(/\(([^)]*)\)\s*Tj/g)) blocks.push(match[1]);
+  for (const match of raw.matchAll(/\[([^\]]*)\]\s*TJ/g)) {
+    for (const nested of match[1].matchAll(/\(([^)]*)\)/g)) blocks.push(nested[1]);
   }
-
-  while ((match = tjArrayRegex.exec(raw)) !== null) {
-    const inner = match[1];
-    const strRegex = /\(([^)]*)\)/g;
-    let strMatch: RegExpExecArray | null;
-    while ((strMatch = strRegex.exec(inner)) !== null) {
-      const text = strMatch[1]
-        .replace(/\\n/g, '\n')
-        .replace(/\\r/g, '\r')
-        .replace(/\\\(/g, '(')
-        .replace(/\\\)/g, ')');
-      if (text.trim().length > 0) textBlocks.push(text);
-    }
-  }
-
-  const result = textBlocks.join(' ').replace(/\s{3,}/g, '\n\n').trim();
-
-  // Fallback: printable ASCII chars
-  if (result.length < 100) {
-    return raw
-      .split('')
-      .filter(c => c.charCodeAt(0) >= 32 && c.charCodeAt(0) < 127)
-      .join('')
-      .replace(/\s{3,}/g, '\n\n')
-      .trim()
-      .slice(0, 50000);
-  }
-
-  return result.slice(0, 100000);
+  return blocks
+    .join(' ')
+    .replace(/\\[nrt]/g, ' ')
+    .replace(/\\([()\\])/g, '$1')
+    .replace(/\s{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 100_000);
 }
 
-/**
- * Generates embeddings for an array of text strings using OpenAI Embeddings API (fetch).
- * Processes in batches to respect rate limits.
- */
-async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+async function generateEmbeddings(texts: string[]) {
   const embeddings: number[][] = [];
-
-  for (let i = 0; i < texts.length; i += EMBEDDING_BATCH) {
-    const batch = texts.slice(i, i + EMBEDDING_BATCH);
-
+  for (let index = 0; index < texts.length; index += 20) {
     const response = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
-      body: JSON.stringify({
-        model: EMBEDDING_MODEL,
-        input: batch,
-      }),
+      body: JSON.stringify({ model: EMBEDDING_MODEL, input: texts.slice(index, index + 20) }),
     });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`OpenAI Embeddings API error: ${response.status} — ${errText}`);
-    }
-
-    const json = await response.json();
-    for (const item of json.data) {
-      embeddings.push(item.embedding);
-    }
+    if (!response.ok) throw new Error('EMBEDDING_PROVIDER_FAILED');
+    const payload = await response.json();
+    embeddings.push(...payload.data.map((item: { embedding: number[] }) => item.embedding));
   }
-
   return embeddings;
 }
 
-// ── Route Handler ──────────────────────────────────────────────────────────
+type EmbedBody = {
+  documentId?: unknown;
+  workspaceId?: unknown;
+  forceReembed?: unknown;
+  provider?: unknown;
+  model?: unknown;
+  storagePath?: unknown;
+};
 
 export async function POST(request: NextRequest) {
-  console.log('[embed-document] START');
-
+  const startedAt = Date.now();
+  let activeJob: { id: string; service: ReturnType<typeof createServiceClient> } | null = null;
   try {
-    // ── 1. Auth ──────────────────────────────────────────────
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
-    const token = authHeader.replace('Bearer ', '');
-
-    const supabaseAuth = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Token inválido o sesión expirada' }, { status: 401 });
-    }
-
-    // ── 2. Parse body ────────────────────────────────────────
-    const body = await request.json();
-    const { documentId, workspaceId, storagePath, forceReembed = false } = body;
-
-    if (!documentId || !workspaceId) {
+    const { user } = await requireAiUser(request);
+    const body = await readLimitedJson<EmbedBody>(request, AI_BODY_LIMITS.embed);
+    if (body.provider || (body.model && body.model !== EMBEDDING_MODEL) || body.storagePath) {
       return NextResponse.json(
-        { error: 'Faltan campos requeridos: documentId, workspaceId' },
+        { error: 'CLIENT_PROVIDER_OR_STORAGE_OVERRIDE_FORBIDDEN' },
         { status: 400 }
       );
     }
+    const documentId = typeof body.documentId === 'string' ? body.documentId : '';
+    const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId : '';
+    if (!documentId || !workspaceId)
+      return NextResponse.json({ error: 'DOCUMENT_AND_WORKSPACE_REQUIRED' }, { status: 400 });
 
-    const supabase = getServiceClient();
-
-    // ── 3. Verify workspace membership ───────────────────────
-    const { data: member } = await supabase
-      .from('workspace_members')
-      .select('user_id')
-      .eq('workspace_id', workspaceId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (!member) {
-      return NextResponse.json({ error: 'No tienes acceso a este workspace' }, { status: 403 });
+    const authorization = await buildLuciaAuthorizationContext({
+      user,
+      workspaceId,
+      documentId,
+      currentRoute: `/visor-documento/${documentId}`,
+    });
+    if (authorization.denied_reason)
+      return NextResponse.json({ error: authorization.denied_reason }, { status: 403 });
+    if (!authorization.permissions.includes('manage_ai_index')) {
+      return NextResponse.json({ error: 'AI_INDEX_PERMISSION_REQUIRED' }, { status: 403 });
     }
+    await enforceAiRateLimits({
+      request,
+      route: '/api/ai/embed-document',
+      userId: user.id,
+      workspaceId,
+      limit: 6,
+      windowSeconds: 60,
+    });
 
-    // ── 4. Verify document belongs to workspace ───────────────
-    const { data: doc, error: docError } = await supabase
+    const supabase = createServiceClient();
+    const { data: document } = await supabase
       .from('documentos')
-      .select('id, nombre, file_name, workspace_id')
+      .select('id,nombre,file_name,file_type,workspace_id')
       .eq('id', documentId)
       .eq('workspace_id', workspaceId)
       .maybeSingle();
+    if (!document?.file_name)
+      return NextResponse.json({ error: 'DOCUMENT_FILE_NOT_FOUND' }, { status: 404 });
 
-    if (docError || !doc) {
-      return NextResponse.json({ error: 'Documento no encontrado en este workspace' }, { status: 404 });
-    }
+    const latestVersion = await supabase
+      .from('document_versions')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('document_id', documentId)
+      .order('version_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestVersion.error) throw latestVersion.error;
+    const source = await resolveInternalDocumentSource(supabase, user, {
+      workspaceId,
+      documentId,
+      versionId: latestVersion.data?.id || null,
+      variant: latestVersion.data?.id ? 'version' : 'original',
+    });
 
-    // ── 5. Check if already embedded (unless forceReembed) ───
-    if (!forceReembed) {
+    if (body.forceReembed !== true) {
       const { count } = await supabase
         .from('ai_document_chunks')
         .select('id', { count: 'exact', head: true })
         .eq('document_id', documentId)
-        .eq('workspace_id', workspaceId);
-
-      if (count && count > 0) {
-        console.log(`[embed-document] Already embedded: ${count} chunks for doc ${documentId}`);
+        .eq('document_hash', source.sha256);
+      if ((count || 0) > 0)
         return NextResponse.json({
           success: true,
-          message: 'Documento ya vectorizado',
+          alreadyEmbedded: true,
           chunksCount: count,
           documentId,
-          alreadyEmbedded: true,
         });
-      }
     }
 
-    // ── 6. Resolve storage path ──────────────────────────────
-    const filePath = storagePath || doc.file_name;
-    if (!filePath) {
-      return NextResponse.json(
-        { error: 'No se encontró la ruta del archivo PDF en el documento' },
-        { status: 422 }
-      );
+    const stored = await readDocumentStorageObject({
+      service: supabase,
+      storageBucket: 'documents',
+      storagePath: source.storagePath,
+      expectedPlaintextSha256: source.sha256,
+      userId: user.id,
+      accessEvent: 'DOCUMENT_DECRYPTED',
+    });
+    const bytes = stored.plaintext;
+    if (!bytes.length || bytes.length > MAX_DOCUMENT_BYTES) {
+      bytes.fill(0);
+      return NextResponse.json({ error: 'DOCUMENT_FILE_INVALID_OR_TOO_LARGE' }, { status: 413 });
     }
-
-    // ── 7. Download PDF from Supabase Storage ────────────────
-    console.log(`[embed-document] Downloading: ${filePath}`);
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from('documents')
-      .download(filePath);
-
-    if (downloadError || !fileData) {
-      console.error('[embed-document] Download error:', downloadError);
-      return NextResponse.json(
-        { error: `No se pudo descargar el archivo: ${downloadError?.message ?? 'unknown'}` },
-        { status: 422 }
-      );
+    const mimeType = source.fileType || stored.mimeType || document.file_type;
+    const extractionMethod =
+      mimeType === 'application/pdf' ? 'pdf_operator_heuristic' : 'plain_text';
+    if (mimeType !== 'application/pdf' && !mimeType.startsWith('text/')) {
+      bytes.fill(0);
+      return NextResponse.json({ error: 'DOCUMENT_FORMAT_REQUIRES_EXTRACTOR' }, { status: 415 });
     }
-
-    // ── 8. Extract text from PDF ─────────────────────────────
-    const buffer = await fileData.arrayBuffer();
-    const rawText = extractTextFromPdfBuffer(buffer);
-
-    if (!rawText || rawText.length < 50) {
-      return NextResponse.json(
-        { error: 'No se pudo extraer texto del PDF. El archivo puede estar escaneado o protegido.' },
-        { status: 422 }
-      );
-    }
-
-    console.log(`[embed-document] Extracted ${rawText.length} chars from PDF`);
-
-    // ── 9. Chunk text ────────────────────────────────────────
+    const rawText =
+      mimeType === 'application/pdf'
+        ? extractPdfText(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+        : new TextDecoder('utf-8').decode(bytes).slice(0, 100_000);
+    bytes.fill(0);
+    if (rawText.length < 50)
+      return NextResponse.json({ error: 'DOCUMENT_TEXT_NOT_EXTRACTABLE' }, { status: 422 });
     const chunks = chunkText(rawText);
-    console.log(`[embed-document] Created ${chunks.length} chunks`);
+    const job = await supabase
+      .from('ai_document_processing_jobs')
+      .insert({
+        workspace_id: workspaceId,
+        document_id: documentId,
+        document_version_id: source.versionId,
+        job_type: 'embed_document',
+        status: 'processing',
+        started_at: new Date().toISOString(),
+        created_by: user.id,
+      })
+      .select('id')
+      .single();
+    if (job.error) throw job.error;
+    activeJob = { id: job.data.id, service: supabase };
+    const embeddings = await generateEmbeddings(chunks.map((chunk) => chunk.content));
 
-    if (chunks.length === 0) {
-      return NextResponse.json(
-        { error: 'No se generaron chunks del documento' },
-        { status: 422 }
-      );
+    if (body.forceReembed === true) {
+      let deletion = supabase.from('ai_document_chunks').delete().eq('document_id', documentId);
+      deletion = source.versionId
+        ? deletion.eq('document_version_id', source.versionId)
+        : deletion.is('document_version_id', null);
+      const deleted = await deletion;
+      if (deleted.error) throw deleted.error;
     }
-
-    // ── 10. Generate embeddings via OpenAI Embeddings API ────
-    const texts = chunks.map(c => c.content);
-    console.log(`[embed-document] Generating embeddings for ${texts.length} chunks...`);
-    const embeddings = await generateEmbeddings(texts);
-
-    // ── 11. Delete existing chunks if forceReembed ───────────
-    if (forceReembed) {
-      await supabase
-        .from('ai_document_chunks')
-        .delete()
-        .eq('document_id', documentId)
-        .eq('workspace_id', workspaceId);
-      console.log(`[embed-document] Deleted existing chunks for re-embed`);
-    }
-
-    // ── 12. Store chunks + embeddings in Supabase ────────────
-    const rows = chunks.map((chunk, i) => ({
+    const rows = chunks.map((chunk, index) => ({
       workspace_id: workspaceId,
       document_id: documentId,
+      document_version_id: source.versionId,
+      document_hash: source.sha256,
+      content_hash: computeChunkContentHash(chunk.content),
       content: chunk.content,
-      embedding: embeddings[i],
+      embedding: embeddings[index],
       chunk_index: chunk.chunkIndex,
-      page_number: null,
+      extraction_method: extractionMethod,
       metadata: {
-        document_name: doc.nombre,
-        char_count: chunk.content.length,
         embedding_model: EMBEDDING_MODEL,
+        char_count: chunk.content.length,
+        version_id: source.versionId,
+        source_mime_type: mimeType,
+        page_number_unavailable: true,
       },
     }));
-
-    // Insert in batches of 50
-    const INSERT_BATCH = 50;
-    let insertedCount = 0;
-    for (let i = 0; i < rows.length; i += INSERT_BATCH) {
-      const batch = rows.slice(i, i + INSERT_BATCH);
-      const { error: insertError } = await supabase
+    for (let index = 0; index < rows.length; index += 50) {
+      const { error } = await supabase
         .from('ai_document_chunks')
-        .insert(batch);
-
-      if (insertError) {
-        console.error(`[embed-document] Insert error at batch ${i}:`, insertError);
-        throw new Error(`Error al guardar chunks: ${insertError.message}`);
-      }
-      insertedCount += batch.length;
+        .insert(rows.slice(index, index + 50));
+      if (error) throw new Error('CHUNK_STORAGE_FAILED');
     }
 
-    console.log(`[embed-document] Stored ${insertedCount} chunks for document ${documentId}`);
+    await supabase
+      .from('ai_document_profiles')
+      .update({ status: 'stale' })
+      .eq('document_id', documentId)
+      .neq('document_hash', source.sha256);
+    await supabase
+      .from('ai_document_processing_jobs')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', activeJob.id);
+    activeJob = null;
 
+    await saveQueryLog({
+      workspaceId,
+      userId: user.id,
+      question: '[document indexing request]',
+      intent: 'embed_document',
+      scope: 'document_viewer',
+      route: '/api/ai/embed-document',
+      documentIds: [documentId],
+      contextUsed: {
+        chunks_count: rows.length,
+        document_bytes: source.fileSize,
+        document_version_id: source.versionId,
+        document_hash_recorded: true,
+        extraction_method: extractionMethod,
+        page_numbers_available: false,
+      },
+      responseText: '[document content omitted from audit log]',
+      durationMs: Date.now() - startedAt,
+      hasEvidence: true,
+    });
     return NextResponse.json({
       success: true,
-      message: `Documento vectorizado exitosamente`,
       documentId,
-      documentName: doc.nombre,
-      chunksCount: insertedCount,
-      textLength: rawText.length,
+      chunksCount: rows.length,
       embeddingModel: EMBEDDING_MODEL,
+      documentVersionId: source.versionId,
+      extractionMethod,
+      pageNumbersAvailable: false,
     });
-
-  } catch (err) {
-    console.error('[embed-document] Error:', err);
-    return NextResponse.json(
-      {
-        error: 'Error interno al vectorizar el documento',
-        details: err instanceof Error ? err.message : String(err),
-      },
-      { status: 500 }
-    );
+  } catch (error) {
+    if (activeJob) {
+      await activeJob.service
+        .from('ai_document_processing_jobs')
+        .update({
+          status: 'failed',
+          completed_at: new Date().toISOString(),
+          error_code: 'DOCUMENT_INDEXING_FAILED',
+          error_message: 'La indexacion no pudo completarse.',
+        })
+        .eq('id', activeJob.id);
+    }
+    const formatted = aiErrorResponse(error);
+    return NextResponse.json(formatted.body, { status: formatted.status });
   }
 }

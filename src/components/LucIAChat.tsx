@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   X,
   ArrowUp,
@@ -11,31 +11,34 @@ import {
   Mic,
   MicOff,
   FileText,
-  Zap,
   Home,
   History,
   Trash2,
   ChevronRight,
 } from 'lucide-react';
-import {
-  getScopeFromRoute,
-  ROUTE_ACTION_INTENTS,
-  type LuciaScope,
-} from '@/lib/ai/luciaIntentClassifier';
-import { getQuickSuggestions, getLuciaModuleConfig } from '@/lib/ai/moduleCapabilities';
+import { getQuickSuggestions, resolveLuciaCapability } from '@/lib/ai/moduleCapabilities';
 import { useSpeechToText } from '@/lib/hooks/useSpeechToText';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import toast from 'react-hot-toast';
-import { getStreamingChatCompletion } from '@/lib/ai/chatCompletion';
-import { usePathname, useRouter } from 'next/navigation';
+import { redactSensitiveText } from '@/lib/ai/redaction';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   intent?: string;
   mode?: string;
+  sources?: Array<{ id: string }>;
+  hasEvidence?: boolean;
+  documentIds?: string[];
+  chunkIds?: string[];
+  inputTokens?: number;
+  outputTokens?: number;
+  estimatedCostUsd?: number | null;
+  latencyMs?: number;
+  errorCode?: string;
 }
 
 interface ChatSession {
@@ -45,91 +48,47 @@ interface ChatSession {
   createdAt: Date;
 }
 
+function sanitizedRouteParams(params: Record<string, string | string[]> | null) {
+  return Object.fromEntries(
+    Object.entries(params || {})
+      .filter(([key]) => !/token/i.test(key))
+      .map(([key, value]) => [key, Array.isArray(value) ? value[0] : value])
+      .filter((entry): entry is [string, string] => Boolean(entry[1]))
+  );
+}
+
 interface LucIAChatProps {
   isOpen: boolean;
   onClose: () => void;
   documentId?: string;
   expedienteId?: string;
-  scope?: 'workspace' | 'document' | 'expediente' | 'signatures' | 'tasks' | 'compliance';
   /** Set to "public-token" for public token routes (portal, form, enrollment, etc.) */
   mode?: 'authenticated' | 'public-token';
   /** The public token from the URL — used when mode="public-token" */
   publicToken?: string;
 }
 
-const LEGACY_SCOPE_MAP: Record<NonNullable<LucIAChatProps['scope']>, LuciaScope> = {
-  workspace: 'workspace',
-  document: 'document_viewer',
-  expediente: 'documents',
-  signatures: 'signing',
-  tasks: 'pending_tasks',
-  compliance: 'reports',
-};
-
-const GENERAL_SYSTEM_PROMPT = `Eres LucIA, la asistente inteligente de DocuBox. Ayudas a los usuarios con:
-- Chat de ayuda y soporte general de DocuBox
-- Resumen de documentos legales y contractuales
-- Explicación simple de términos legales complejos
-- Extracción de datos clave de documentos
-- Clasificación de documentos por tipo y categoría
-- Generación de contratos simples y plantillas
-- Búsqueda inteligente de información en documentos
-
-Responde siempre en español de manera clara, profesional y concisa.`;
-
-function getProactiveSuggestions(messages: Message[]): string[] {
-  if (messages.length === 0) {
-    return [
-      '¿Quién creó este documento?',
-      'Documentos pendientes de firma',
-      'Resume este contrato',
-      'Detectar riesgos legales',
-    ];
-  }
-  const lastMsg = messages[messages.length - 1];
-  const content = lastMsg.content.toLowerCase();
-
-  if (content.includes('contrato') || content.includes('acuerdo')) {
-    return [
-      'Agregar cláusula de confidencialidad',
-      'Revisar términos de pago',
-      '¿Cuáles son las obligaciones?',
-    ];
-  }
-  if (content.includes('resum') || content.includes('resumen')) {
-    return ['Extraer puntos clave', 'Identificar fechas importantes', 'Listar obligaciones'];
-  }
-  if (content.includes('firma') || content.includes('firmar')) {
-    return [
-      '¿Quiénes faltan por firmar?',
-      'Ver estado de firmas',
-      'Documentos pendientes de firma',
-    ];
-  }
-  if (content.includes('documento') || content.includes('archivo')) {
-    return [
-      '¿Qué documentos están en revisión?',
-      '¿Qué documentos vencen esta semana?',
-      'Ver historial',
-    ];
-  }
-  if (lastMsg.role === 'assistant') {
-    return ['Explícame más', '¿Cómo lo aplico?', 'Dame un ejemplo', 'Siguiente paso'];
-  }
-  return ['Continuar con esto', 'Cambiar de tema', 'Ver más opciones'];
-}
-
 const INTENT_LABELS: Record<string, string> = {
-  metadata_search: 'Búsqueda de metadatos',
-  document_status_search: 'Estado de documentos',
+  home_summary: 'Resumen del espacio',
+  document_search: 'Búsqueda de documentos',
+  document_metadata: 'Metadatos del documento',
+  document_versions: 'Versiones del documento',
+  document_review: 'Revisión del documento',
   signature_status: 'Estado de firmas',
-  pending_tasks: 'Tareas pendientes',
-  expediente_search: 'Búsqueda en expediente',
+  tasks_summary: 'Tareas pendientes',
+  expediente_summary: 'Resumen de expediente',
+  expediente_requirements: 'Requisitos del expediente',
   document_content_search: 'Contenido documental',
   document_summary: 'Resumen',
-  legal_analysis: 'Análisis legal',
-  compliance_analysis: 'Cumplimiento',
-  contract_generation: 'Generación de contrato',
+  notifications_summary: 'Notificaciones',
+  certified_notification_status: 'Notificación certificada',
+  certification_status: 'Certificación',
+  batch_signature_status: 'Firma masiva',
+  credit_title_status: 'Título de crédito',
+  organization_permissions: 'Permisos de organización',
+  collaboration_summary: 'Colaboración',
+  billing_usage: 'Plan y consumo',
+  reports_summary: 'Reporte',
   general_help: 'Ayuda general',
 };
 
@@ -138,7 +97,6 @@ export default function LucIAChat({
   onClose,
   documentId,
   expedienteId,
-  scope = 'workspace',
   mode = 'authenticated',
   publicToken,
 }: LucIAChatProps) {
@@ -157,151 +115,27 @@ export default function LucIAChat({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { user } = useAuth();
   const { activeWorkspace: currentWorkspace } = useWorkspace();
   const pathname = usePathname();
+  const params = useParams<Record<string, string | string[]>>();
   const router = useRouter();
 
-  // ── Route-context callable actions ────────────────────────────────────────
-  const routeScope = pathname ? getScopeFromRoute(pathname) : 'workspace';
-  const currentScope: LuciaScope = scope === 'workspace' ? routeScope : LEGACY_SCOPE_MAP[scope];
-  const scopeActions = ROUTE_ACTION_INTENTS[currentScope];
-  const callableActions = scopeActions ? Object.entries(scopeActions) : [];
+  const moduleConfig = resolveLuciaCapability(pathname || '/');
+  const quickSuggestions = getQuickSuggestions(pathname || '/');
 
-  // ── Module capabilities for current route ─────────────────────────────────
-  const moduleConfig = getLuciaModuleConfig(currentScope);
-  const quickSuggestions = getQuickSuggestions(currentScope);
-
-  // ── Public token mode: use token-scoped context ────────────────────────────
-  const isPublicTokenMode = mode === 'public-token';
-
-  // Action icons for document_viewer actions
-  const ACTION_ICONS: Record<string, React.ReactNode> = {
-    'resumir documento': <FileText className="w-3 h-3" />,
-    'detectar riesgos': <Zap className="w-3 h-3" />,
-    'revisar participantes': <MessageSquare className="w-3 h-3" />,
-    'mostrar historial': <Sparkles className="w-3 h-3" />,
-    'ver auditoría': <Sparkles className="w-3 h-3" />,
-  };
-
-  const ACTION_COLORS: Record<string, string> = {
-    'resumir documento':
-      'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 border-blue-200 dark:border-blue-800',
-    'detectar riesgos':
-      'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 border-amber-200 dark:border-amber-800',
-    'revisar participantes':
-      'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40 border-green-200 dark:border-green-800',
-    'mostrar historial':
-      'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 border-purple-200 dark:border-purple-800',
-    'ver auditoría':
-      'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 border-purple-200 dark:border-purple-800',
-  };
-
-  const proactiveSuggestions = getProactiveSuggestions(messages);
-  const isBusy = isStreaming;
-
-  const triggerAction = (actionKey: string, actionIntent: { question: string }) => {
-    if (isBusy) return;
-    setInput(actionIntent.question);
-    // Auto-send immediately
-    const text = actionIntent.question;
-    const userMessage: Message = { role: 'user', content: text };
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
-    setInput('');
-    setAssistantText('');
-    setIsStreaming(true);
-
-    if (user && currentWorkspace?.id) {
-      supabase.auth.getSession().then(async ({ data: { session } }) => {
-        const token = session?.access_token;
-        if (!token) {
-          const errMsg: Message = {
-            role: 'assistant',
-            content:
-              '⚠️ No se pudo autenticar la sesión. Por favor, recarga la página e intenta de nuevo.',
-          };
-          setMessages([...updatedMessages, errMsg]);
-          setIsStreaming(false);
-          return;
-        }
-
-        const routeDocumentId =
-          documentId ||
-          (() => {
-            const visorMatch = pathname?.match(/^\/visor-documento\/([^/]+)/);
-            const firmarMatch = pathname?.match(/^\/firmar-documento\/([^/]+)/);
-            return visorMatch?.[1] || firmarMatch?.[1] || undefined;
-          })();
-
-        try {
-          const res = await fetch('/api/ai/ask', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              question: text,
-              workspaceId: currentWorkspace.id,
-              currentRoute: pathname ?? '/',
-              documentId: routeDocumentId,
-              expedienteId: expedienteId || undefined,
-              scope: currentScope || 'workspace',
-              uiState: {
-                hasDocumentContext: !!routeDocumentId,
-                scope: currentScope || 'workspace',
-                pathname: pathname ?? '/',
-                moduleConfig: { name: moduleConfig.name, entities: moduleConfig.entities },
-              },
-              sessionId: currentSessionId || undefined,
-            }),
-          });
-
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || `Error ${res.status}`);
-          }
-
-          const data = await res.json();
-          const answer = data.answer || 'No se pudo generar una respuesta.';
-          const assistantMessage: Message = {
-            role: 'assistant',
-            content: answer,
-            intent: data.intent,
-            mode: data.mode,
-          };
-          const finalMessages = [...updatedMessages, assistantMessage];
-          setMessages(finalMessages);
-          const title = updatedMessages[0]?.content?.slice(0, 50) || 'Nueva conversación';
-          await saveSessionToSupabase(finalMessages, currentSessionId, title);
-        } catch (err: any) {
-          const errorLabel: Record<string, string> = {
-            'resumir documento': 'resumir el documento',
-            'detectar riesgos': 'detectar riesgos',
-            'revisar participantes': 'revisar los participantes',
-            'mostrar historial': 'mostrar el historial',
-          };
-          const actionLabel = errorLabel[actionKey] || actionKey;
-          const errMsg: Message = {
-            role: 'assistant',
-            content: `⚠️ No pude ${actionLabel} en este momento. ${err.message ? `Detalle: ${err.message}` : 'Por favor, intenta de nuevo más tarde.'}`,
-          };
-          setMessages([...updatedMessages, errMsg]);
-          toast.error(err.message || 'Error al ejecutar acción');
-        } finally {
-          setIsStreaming(false);
-        }
-      });
-    } else {
-      setIsStreaming(false);
-    }
-  };
+  const isPublicTokenMode = mode === 'public-token' || moduleConfig.accessMode === 'public_token';
+  const workspaceUnavailable = !isPublicTokenMode && (!user || !currentWorkspace?.id);
+  const isBusy = isStreaming || workspaceUnavailable;
+  const suggestedPromptRef = useRef<string | null>(null);
 
   const {
     text: transcribedText,
     isLoading: isTranscribing,
     error: sttError,
     transcribe,
-  } = useSpeechToText('OPEN_AI', 'gpt-4o-transcribe');
+  } = useSpeechToText(currentWorkspace?.id);
 
   useEffect(() => {
     if (sttError) toast.error('Error al transcribir audio: ' + sttError.message);
@@ -309,8 +143,10 @@ export default function LucIAChat({
 
   useEffect(() => {
     if (transcribedText) {
-      setInput((prev) => (prev ? prev + ' ' + transcribedText : transcribedText));
-      inputRef.current?.focus();
+      queueMicrotask(() => {
+        setInput((prev) => (prev ? prev + ' ' + transcribedText : transcribedText));
+        inputRef.current?.focus();
+      });
     }
   }, [transcribedText]);
 
@@ -361,14 +197,14 @@ export default function LucIAChat({
     } finally {
       setLoadingSessions(false);
     }
-  }, [user?.id]);
+  }, [supabase, user]);
 
   useEffect(() => {
     if (isOpen) {
-      loadSessions();
+      queueMicrotask(() => void loadSessions());
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [isOpen]);
+  }, [isOpen, loadSessions]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -393,7 +229,22 @@ export default function LucIAChat({
               session_id: newId,
               user_id: user.id,
               role: m.role,
-              content: m.content,
+              content: redactSensitiveText(m.content),
+              workspace_id: currentWorkspace?.id || null,
+              route: pathname || null,
+              intent: m.intent || null,
+              provider: m.role === 'assistant' ? 'OPEN_AI' : null,
+              model: m.role === 'assistant' ? 'gpt-4o-mini' : null,
+              prompt_version: m.role === 'assistant' ? 'lucia-security-v1' : null,
+              source_ids: m.sources?.map((source) => source.id) || [],
+              document_ids: m.documentIds || [],
+              chunk_ids: m.chunkIds || [],
+              input_tokens: m.inputTokens || null,
+              output_tokens: m.outputTokens || null,
+              estimated_cost_usd: m.estimatedCostUsd ?? null,
+              latency_ms: m.latencyMs || null,
+              error_code: m.errorCode || null,
+              has_evidence: m.hasEvidence ?? null,
             }))
           );
           setSessions((prev) => [
@@ -411,7 +262,22 @@ export default function LucIAChat({
               session_id: sessionId,
               user_id: user.id,
               role: m.role,
-              content: m.content,
+              content: redactSensitiveText(m.content),
+              workspace_id: currentWorkspace?.id || null,
+              route: pathname || null,
+              intent: m.intent || null,
+              provider: m.role === 'assistant' ? 'OPEN_AI' : null,
+              model: m.role === 'assistant' ? 'gpt-4o-mini' : null,
+              prompt_version: m.role === 'assistant' ? 'lucia-security-v1' : null,
+              source_ids: m.sources?.map((source) => source.id) || [],
+              document_ids: m.documentIds || [],
+              chunk_ids: m.chunkIds || [],
+              input_tokens: m.inputTokens || null,
+              output_tokens: m.outputTokens || null,
+              estimated_cost_usd: m.estimatedCostUsd ?? null,
+              latency_ms: m.latencyMs || null,
+              error_code: m.errorCode || null,
+              has_evidence: m.hasEvidence ?? null,
             }))
           );
           setSessions((prev) =>
@@ -424,7 +290,7 @@ export default function LucIAChat({
         setSavingSession(false);
       }
     },
-    [user?.id]
+    [supabase, user, currentWorkspace?.id, pathname]
   );
 
   const handleSend = async () => {
@@ -438,7 +304,29 @@ export default function LucIAChat({
     setAssistantText('');
     setIsStreaming(true);
 
-    // ── Public token mode: send to backend with token context, no workspace auth ──
+    if (moduleConfig.luciaMode === 'deterministic_only') {
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content:
+          'Esta pantalla usa una verificación determinista. Consulta el resultado y la evidencia visibles; no se enviaron datos a un modelo generativo.',
+        intent: 'deterministic_verification_help',
+        mode: 'deterministic',
+        hasEvidence: true,
+      };
+      setMessages([...updatedMessages, assistantMessage]);
+      setIsStreaming(false);
+      return;
+    }
+
+    const routeParams = sanitizedRouteParams(params);
+    const minimalUiState = {
+      view: 'lucia_chat',
+      hasDraft: moduleConfig.moduleKey === 'create_document',
+      hasSelection: Boolean(documentId || routeParams.id || routeParams.documentId),
+    };
+    const suggestedPromptUsed = suggestedPromptRef.current === text;
+    suggestedPromptRef.current = null;
+
     if (isPublicTokenMode && publicToken) {
       try {
         const res = await fetch('/api/ai/ask', {
@@ -448,14 +336,10 @@ export default function LucIAChat({
             question: text,
             currentRoute: pathname ?? '/',
             token: publicToken,
-            scope: currentScope || 'workspace',
             mode: 'public-token',
-            uiState: {
-              hasTokenContext: true,
-              scope: currentScope || 'workspace',
-              pathname: pathname ?? '/',
-              moduleConfig: { name: moduleConfig.name, entities: moduleConfig.entities },
-            },
+            routeParams,
+            uiState: minimalUiState,
+            suggestedPromptUsed,
           }),
         });
 
@@ -471,12 +355,21 @@ export default function LucIAChat({
           content: answer,
           intent: data.intent,
           mode: data.mode,
+          sources: data.sources,
+          hasEvidence: data.confidence === 'verified',
+          documentIds: data.telemetry?.documentIds,
+          chunkIds: data.telemetry?.chunkIds,
+          inputTokens: data.telemetry?.inputTokens,
+          outputTokens: data.telemetry?.outputTokens,
+          estimatedCostUsd: data.telemetry?.estimatedCostUsd,
+          latencyMs: data.telemetry?.latencyMs,
+          errorCode: data.telemetry?.errorCode,
         };
         setMessages([...updatedMessages, assistantMessage]);
       } catch (err: any) {
         const errMsg: Message = {
           role: 'assistant',
-          content: `⚠️ No pude procesar tu consulta. ${err.message ? `Detalle: ${err.message}` : 'Por favor, intenta de nuevo.'}`,
+          content: `No pude procesar tu consulta. ${err.message ? `Detalle: ${err.message}` : 'Por favor, intenta de nuevo.'}`,
         };
         setMessages((prev) => [...prev, errMsg]);
         toast.error(err.message || 'Error al consultar LucIA');
@@ -495,44 +388,12 @@ export default function LucIAChat({
         const token = session?.access_token;
         if (!token) throw new Error('No session token');
 
-        // Extract documentId from route if not passed as prop
         const routeDocumentId =
           documentId ||
-          (() => {
-            const visorMatch = pathname?.match(/^\/visor-documento\/([^/]+)/);
-            const firmarMatch = pathname?.match(/^\/firmar-documento\/([^/]+)/);
-            return visorMatch?.[1] || firmarMatch?.[1] || undefined;
-          })();
-
-        // Extract public token from route if applicable
-        const routeToken = (() => {
-          const tokenMatch = pathname?.match(/\/([^/]+)$/);
-          const isTokenRoute =
-            pathname?.startsWith('/portal-participante/') ||
-            pathname?.startsWith('/registro-participante/') ||
-            pathname?.startsWith('/form/') ||
-            pathname?.startsWith('/enrolamiento/') ||
-            pathname?.startsWith('/subir-movil/') ||
-            pathname?.startsWith('/captura-id-movil/');
-          return isTokenRoute ? tokenMatch?.[1] : undefined;
-        })();
-
-        // Derive scope from current route
-        const derivedScope = currentScope || 'workspace';
-
-        // Build uiState from visible context
-        const uiState: Record<string, any> = {
-          hasDocumentContext: !!routeDocumentId,
-          hasTokenContext: !!routeToken,
-          scope: derivedScope,
-          pathname: pathname ?? '/',
-          moduleConfig: { name: moduleConfig.name, entities: moduleConfig.entities },
-        };
-
-        console.log('LucIA currentRoute', pathname);
-        console.log('LucIA scope', derivedScope);
-        console.log('LucIA documentId', routeDocumentId);
-        console.log('LucIA moduleConfig', moduleConfig.name);
+          routeParams.documentId ||
+          (['document_viewer', 'signing'].includes(moduleConfig.moduleKey)
+            ? routeParams.id
+            : undefined);
 
         const res = await fetch('/api/ai/ask', {
           method: 'POST',
@@ -545,10 +406,13 @@ export default function LucIAChat({
             workspaceId: currentWorkspace.id,
             currentRoute: pathname ?? '/',
             documentId: routeDocumentId,
-            expedienteId: expedienteId || undefined,
-            token: routeToken,
-            scope: derivedScope,
-            uiState,
+            versionId: routeParams.versionId,
+            expedienteId:
+              expedienteId ||
+              (moduleConfig.moduleKey === 'expedientes' ? routeParams.id : undefined),
+            routeParams,
+            uiState: minimalUiState,
+            suggestedPromptUsed,
             sessionId: currentSessionId || undefined,
           }),
         });
@@ -565,6 +429,15 @@ export default function LucIAChat({
           content: answer,
           intent: data.intent,
           mode: data.mode,
+          sources: data.sources,
+          hasEvidence: data.confidence === 'verified',
+          documentIds: data.telemetry?.documentIds,
+          chunkIds: data.telemetry?.chunkIds,
+          inputTokens: data.telemetry?.inputTokens,
+          outputTokens: data.telemetry?.outputTokens,
+          estimatedCostUsd: data.telemetry?.estimatedCostUsd,
+          latencyMs: data.telemetry?.latencyMs,
+          errorCode: data.telemetry?.errorCode,
         };
         const finalMessages = [...updatedMessages, assistantMessage];
         setMessages(finalMessages);
@@ -573,7 +446,7 @@ export default function LucIAChat({
       } catch (err: any) {
         const errMsg: Message = {
           role: 'assistant',
-          content: `⚠️ No pude procesar tu consulta en este momento. ${err.message ? `Detalle: ${err.message}` : 'Por favor, intenta de nuevo más tarde.'}`,
+          content: `No pude procesar tu consulta en este momento. ${err.message ? `Detalle: ${err.message}` : 'Por favor, intenta de nuevo más tarde.'}`,
         };
         setMessages((prev) => [...prev, errMsg]);
         toast.error(err.message || 'Error al consultar LucIA');
@@ -583,48 +456,15 @@ export default function LucIAChat({
       return;
     }
 
-    // ── Route: general streaming chat (fallback when no workspace) ──────────────────────────
-    const apiMessages = [
-      { role: 'system' as const, content: GENERAL_SYSTEM_PROMPT },
-      ...updatedMessages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-    ];
-
-    let fullAssistantText = '';
-    try {
-      await getStreamingChatCompletion(
-        'OPEN_AI',
-        'gpt-4o-mini',
-        apiMessages,
-        (chunk: any) => {
-          const content = chunk?.choices?.[0]?.delta?.content;
-          if (content) {
-            fullAssistantText += content;
-            setAssistantText(fullAssistantText);
-          }
-        },
-        async () => {
-          if (fullAssistantText) {
-            const assistantMessage: Message = { role: 'assistant', content: fullAssistantText };
-            const finalMessages = [...updatedMessages, assistantMessage];
-            setMessages(finalMessages);
-            setAssistantText('');
-            const title = updatedMessages[0]?.content?.slice(0, 50) || 'Nueva conversación';
-            await saveSessionToSupabase(finalMessages, currentSessionId, title);
-          } else {
-            toast.error('LucIA no devolvió una respuesta. Intenta de nuevo.');
-          }
-          setIsStreaming(false);
-        },
-        (err: Error) => {
-          toast.error(err.message || 'Error al obtener respuesta de LucIA');
-          setIsStreaming(false);
-        },
-        { max_completion_tokens: 2048 }
-      );
-    } catch {
-      toast.error('Error de conexión con LucIA');
-      setIsStreaming(false);
-    }
+    const workspaceError: Message = {
+      role: 'assistant',
+      content:
+        'No pude determinar un espacio de trabajo autorizado. Selecciona uno e intenta de nuevo.',
+      hasEvidence: false,
+    };
+    setMessages([...updatedMessages, workspaceError]);
+    toast.error('Selecciona un espacio de trabajo para consultar a LucIA.');
+    setIsStreaming(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -717,12 +557,12 @@ export default function LucIAChat({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 112)}px`;
   }, [input]);
 
-  if (!isOpen) return null;
+  if (moduleConfig.luciaMode === 'disabled' || !isOpen) return null;
 
   const contextLabel = isPublicTokenMode
-    ? moduleConfig.name
+    ? moduleConfig.moduleName
     : currentWorkspace?.id
-      ? moduleConfig.name
+      ? moduleConfig.moduleName
       : 'Ayuda general';
 
   return (
@@ -901,10 +741,11 @@ export default function LucIAChat({
                 </span>
                 {/* Quick suggestions from moduleCapabilities */}
                 <div className="mt-7 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-                  {quickSuggestions.slice(0, 4).map((suggestion, i) => (
+                  {quickSuggestions.slice(0, 6).map((suggestion, i) => (
                     <button
                       key={i}
                       onClick={() => {
+                        suggestedPromptRef.current = suggestion;
                         setInput(suggestion);
                         inputRef.current?.focus();
                       }}
@@ -1020,9 +861,11 @@ export default function LucIAChat({
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  currentWorkspace?.id
-                    ? 'Pregunta sobre tus documentos, tareas o firmas'
-                    : 'Escribe tu consulta para LucIA'
+                  workspaceUnavailable
+                    ? 'Selecciona un espacio de trabajo para usar LucIA'
+                    : currentWorkspace?.id
+                      ? 'Pregunta sobre tus documentos, tareas o firmas'
+                      : 'Escribe tu consulta para LucIA'
                 }
                 rows={1}
                 disabled={isBusy}
@@ -1032,7 +875,7 @@ export default function LucIAChat({
               />
               <button
                 onClick={toggleRecording}
-                disabled={isBusy || isTranscribing}
+                disabled={isBusy || isTranscribing || isPublicTokenMode}
                 title={isRecording ? 'Detener grabación' : 'Hablar con LucIA'}
                 aria-label={isRecording ? 'Detener grabación' : 'Hablar con LucIA'}
                 className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${

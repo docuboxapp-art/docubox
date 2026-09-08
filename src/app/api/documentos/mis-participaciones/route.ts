@@ -142,6 +142,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const documentIds = (docs ?? []).map((doc: any) => doc.id).filter(Boolean);
+    const personalVisibilityResult = documentIds.length
+      ? await supabase
+          .from('document_user_visibility')
+          .select('document_id,trashed_at,hidden_at')
+          .eq('user_id', userId)
+          .in('document_id', documentIds)
+      : { data: [], error: null };
+    if (personalVisibilityResult.error) {
+      console.error('[mis-participaciones] Visibility error:', personalVisibilityResult.error.message);
+      return NextResponse.json({ error: personalVisibilityResult.error.message }, { status: 500 });
+    }
+    const hiddenFromParticipant = new Set(
+      (personalVisibilityResult.data || [])
+        .filter((entry: any) => entry.trashed_at || entry.hidden_at)
+        .map((entry: any) => entry.document_id)
+    );
+
     // Fetch owner profiles separately to avoid join issues
     const ownerIds = [...new Set((docs ?? []).map((d: any) => d.owner_id).filter(Boolean))];
     let ownerMap: Record<string, { full_name: string; email: string }> = {};
@@ -161,11 +179,18 @@ export async function GET(request: NextRequest) {
     // NOTE: p.id is the participant's internal UUID (not the Supabase user ID), so we do NOT check p.id === userId
     // ── VISIBILITY FILTER: For sequential/mixed orders, only show if participant is marked visible ──
     const myDocs = (docs ?? []).filter((doc: any) => {
+      if (hiddenFromParticipant.has(doc.id)) return false;
       const parts: any[] = doc.participantes ?? [];
       const myEntry = parts.find(
         (p: any) => (p.email ?? '').toLowerCase() === userEmail || p.user_id === userId
       );
       if (!myEntry) return false;
+
+      // A cancellation removes untouched invitations from the participant's space.
+      // Historical participation remains available as a read-only record.
+      if (myEntry.current_access === false && myEntry.historical_participation !== true) {
+        return false;
+      }
 
       // If participation_order is sequential or mixed, respect the visible flag
       const order = (doc as any).participation_order ?? 'paralelo';
@@ -282,6 +307,8 @@ export async function GET(request: NextRequest) {
         myActo,
         myTipoFirma,
         myParticipantId,
+        currentAccess: myEntry?.current_access !== false,
+        historicalParticipation: myEntry?.historical_participation === true,
         camposSolicitados: myCampos,
         legalHoldActive: doc.legal_hold === true || doc.legal_hold_status === 'ACTIVE',
       };

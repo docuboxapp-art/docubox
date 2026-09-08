@@ -289,7 +289,7 @@ export async function DELETE(request: NextRequest) {
       document_ids?: string[];
       empty_all?: boolean;
       direct_delete?: boolean;
-      confirmation?: string;
+      confirmation?: boolean;
     } | null;
     const documentIds = Array.from(
       new Set(
@@ -307,10 +307,10 @@ export async function DELETE(request: NextRequest) {
         { status: 400, headers: privateHeaders }
       );
     }
-    if (payload.confirmation !== 'ELIMINAR') {
+    if (payload.confirmation !== true) {
       return NextResponse.json(
         {
-          error: 'Confirma la eliminación escribiendo ELIMINAR.',
+          error: 'Confirma la eliminación para continuar.',
           code: 'PURGE_CONFIRMATION_REQUIRED',
         },
         { status: 400, headers: privateHeaders }
@@ -344,27 +344,7 @@ export async function DELETE(request: NextRequest) {
               'Este documento no puede eliminarse directamente.'
           );
         }
-        const now = new Date().toISOString();
-        const staged = await access.service
-          .from('documentos')
-          .update({
-            deleted_at: now,
-            trashed_at: now,
-            trashed_by: access.user.id,
-            restore_until: now,
-            lifecycle_status: 'TRASHED',
-          })
-          .eq('id', document.id)
-          .is('deleted_at', null)
-          .select(select)
-          .maybeSingle();
-        if (staged.error) throw staged.error;
-        if (!staged.data)
-          return lifecycleConflict(
-            'DOCUMENT_DIRECT_PURGE_NOT_ALLOWED',
-            'El documento cambió antes de poder eliminarse.'
-          );
-        documents = [staged.data as Record<string, unknown>];
+        documents = [document];
       } else {
         documents = [document];
       }
@@ -405,6 +385,15 @@ export async function DELETE(request: NextRequest) {
         participantes: document.participantes,
       }))
     );
+    if (payload.direct_delete === true && payload.document_id) {
+      // Direct deletion was authorized by the lifecycle policy above. Do not
+      // manufacture a temporary trash record or a 30-day recovery blocker.
+      retention.set(String(payload.document_id), {
+        purgeEligible: true,
+        blockers: [],
+        reason: 'NONE',
+      });
+    }
     const protectedDocuments = documents
       .filter((document) => !retention.get(String(document.id))?.purgeEligible)
       .map((document) => ({

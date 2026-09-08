@@ -1,5 +1,6 @@
 'use client';
 
+import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -23,6 +24,7 @@ import {
   readLocalBulkCampaigns,
   type BulkCampaignSummary,
 } from '@/lib/bulk-signatures/schema';
+import { DEVELOPMENT_DEMO_DATA_ENABLED } from '@/lib/product/developmentModules';
 import {
   BulkCampaignProgress,
   BulkCampaignStatusBadge,
@@ -51,9 +53,15 @@ export default function BulkSignaturesPage() {
         .order('updated_at', { ascending: false });
       if (cancelled) return;
       if (error) {
-        const local = readLocalBulkCampaigns();
-        setCampaigns(local.length ? [...local, ...DEMO_BULK_CAMPAIGNS] : DEMO_BULK_CAMPAIGNS);
-        setDemoMode(true);
+        const local = DEVELOPMENT_DEMO_DATA_ENABLED ? readLocalBulkCampaigns() : [];
+        setCampaigns(
+          DEVELOPMENT_DEMO_DATA_ENABLED
+            ? local.length
+              ? [...local, ...DEMO_BULK_CAMPAIGNS]
+              : DEMO_BULK_CAMPAIGNS
+            : []
+        );
+        setDemoMode(DEVELOPMENT_DEMO_DATA_ENABLED);
       } else {
         setCampaigns((data || []).map(mapBulkCampaignRow));
         setDemoMode(false);

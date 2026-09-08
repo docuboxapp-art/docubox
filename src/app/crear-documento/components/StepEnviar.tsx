@@ -13,6 +13,7 @@ import {
   Mail,
   Phone,
   Bell,
+  Building2,
   ShieldCheck,
   LayoutGrid,
   GitBranch,
@@ -788,6 +789,30 @@ export const StepEnviar = forwardRef<
     return '—';
   })();
 
+  const participationScheme = (() => {
+    const scheme = participationOrder || (participantMode === 'solo_yo' ? 'paralelo' : '');
+    const schemes: Record<string, { label: string; description: string }> = {
+      paralelo: {
+        label: 'Paralelo',
+        description: 'Todos los participantes pueden intervenir al mismo tiempo.',
+      },
+      secuencial: {
+        label: 'Secuencial',
+        description: 'Cada participante interviene en el orden definido.',
+      },
+      mixto: {
+        label: 'Mixto',
+        description: 'Combina grupos en paralelo con un orden entre grupos.',
+      },
+      condicional: {
+        label: 'Condicional',
+        description: 'La siguiente participación depende de reglas del flujo.',
+      },
+    };
+
+    return schemes[scheme] || { label: 'Sin especificar', description: 'El esquema se define al configurar participantes.' };
+  })();
+
   const documentAdditionalMetadata = (docConfig.additionalMetadata || []).filter(
     (metadata) => metadata.scope === 'document'
   );
@@ -996,7 +1021,7 @@ export const StepEnviar = forwardRef<
               </div>
             </div>
           </div>
-          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-6">
             <div className="flex items-start gap-2.5">
               <Clock size={15} className="mt-0.5 shrink-0 text-slate-400" />
               <div className="min-w-0">
@@ -1013,6 +1038,17 @@ export const StepEnviar = forwardRef<
                   Ubicación
                 </p>
                 <p className="mt-1 truncate text-sm font-600 text-slate-800">{carpetaNombre}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Building2 size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+                  Espacio de trabajo
+                </p>
+                <p className="mt-1 truncate text-sm font-600 text-slate-800">
+                  {activeWorkspace?.name || 'Espacio personal'}
+                </p>
               </div>
             </div>
             <div className="flex items-start gap-2.5">
@@ -1085,6 +1121,16 @@ export const StepEnviar = forwardRef<
           >
             <Edit3 size={14} />
           </button>
+        </div>
+        <div className="flex items-start gap-2.5 border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+          <GitBranch size={15} className="mt-0.5 shrink-0 text-slate-400" />
+          <div className="min-w-0">
+            <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
+              Esquema de participación
+            </p>
+            <p className="mt-0.5 text-sm font-600 text-slate-800">{participationScheme.label}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{participationScheme.description}</p>
+          </div>
         </div>
         <div className="divide-y divide-slate-100">
           {participants.length === 0 ? (

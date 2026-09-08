@@ -703,7 +703,7 @@ export default function RegistroParticipantePage() {
           await fetch('/api/portal-participante/mark-registered', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: participantData.email, userId: result.userId }),
+            body: JSON.stringify({ email: participantData.email, userId: result.userId, token }),
           });
         } catch { /* ignore */ }
       }

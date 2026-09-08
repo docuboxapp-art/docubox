@@ -1,896 +1,625 @@
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { randomUUID } from 'crypto';
-import { createClient } from '@supabase/supabase-js';
+import { completion } from '@rocketnew/llm-sdk';
+import type { User } from '@supabase/supabase-js';
+import { createServiceClient } from '@/lib/supabase/server';
+import { normalizeCollaborationAccess } from '@/lib/collaboration/domain';
+import { buildRouteContext, classifyIntent } from '@/lib/ai/luciaIntentClassifier';
+import { LUCIA_CAPABILITY_VERSION, resolveLuciaCapability } from '@/lib/ai/moduleCapabilities';
+import { buildLuciaAuthorizationContext } from '@/lib/ai/luciaAuthorization';
 import {
-  classifyIntent,
-  getScopeFromRoute,
-  buildRouteContext,
-} from '@/lib/ai/luciaIntentClassifier';
-import {
-  verifyWorkspaceMembership,
-  buildUserContext,
-  buildStructuredContext,
   buildRagContext,
+  buildStructuredContext,
+  buildUserContext,
+  getSpecializedContextError,
   saveQueryLog,
 } from '@/lib/ai/luciaQueries';
-import { completion } from '@rocketnew/llm-sdk';
-import { normalizeCollaborationAccess } from '@/lib/collaboration/domain';
+import {
+  buildEvidenceSummary,
+  checkEvidenceForIntent,
+  DOCUMENT_RAG_INTENTS,
+  NO_DOCUMENT_CONTENT_RESPONSE,
+  NO_EVIDENCE_RESPONSE,
+  postValidateAnswerAgainstEvidence,
+} from '@/lib/ai/evidence';
+import {
+  AI_BODY_LIMITS,
+  AI_PROVIDER,
+  aiErrorResponse,
+  enforceAiRateLimits,
+  estimateAiCost,
+  LUCIA_MODEL,
+  LUCIA_PROMPT_VERSION,
+  readLimitedJson,
+  redactCapabilityFromRoute,
+  redactSensitiveText,
+  requireAiUser,
+} from '@/lib/ai/security';
+import { DOCUMENT_INTELLIGENCE_DISABLED_MESSAGE } from '@/lib/ai/documentIntelligenceFeature';
 
-async function recordCollaborationAiUsage(workspaceId: string, userId: string, sessionId?: string) {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) return;
-  const service = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey);
-  const requestId = randomUUID();
-  await service.from('collaboration_usage_events').insert({
-    workspace_id: workspaceId,
-    entitlement_key: 'collaboration_ai_assistant',
-    meter_key: 'ai_requests',
-    quantity: 1,
-    idempotency_key: `lucia:${sessionId || 'sessionless'}:${requestId}`,
-    resource_type: 'lucia_query',
-    metadata: { actor_user_id: userId },
-  });
+const LUCIA_SYSTEM_PROMPT = `Eres LucIA, asistente de consulta de Docubox.
+
+Reglas de seguridad obligatorias:
+1. Responde solo con hechos presentes en evidence_summary y el contexto autorizado.
+2. No infieras documentos, personas, fechas, estados ni cantidades.
+3. No reveles identificadores internos salvo que sean necesarios para identificar una fuente autorizada.
+4. Nunca solicites ni reproduzcas contraseñas, OTP, biometría, certificados, llaves o tokens.
+5. No afirmes haber ejecutado acciones: esta operación es exclusivamente de lectura.
+6. Si el contexto no respalda una afirmación, responde exactamente: "${NO_EVIDENCE_RESPONSE}"
+7. Responde en español claro y conciso.`;
+
+const LUCIA_MODULE_DESIGN_PROMPT = `Eres LucIA, asistente de construcción de producto de Docubox.
+
+El módulo indicado está en desarrollo. Responde únicamente con orientación funcional o técnica basada en su propósito, entidades previstas, fuentes planeadas y restricciones de seguridad incluidas en el contexto autorizado.
+No afirmes que existen tablas, registros, permisos, estados o flujos que el contexto marque como planeados. No presentes datos demo como datos reales. No propongas ejecutar acciones ni solicites secretos, PII, tokens, OTP, biometría, certificados o llaves privadas. Distingue con claridad las recomendaciones de lo que ya existe. Responde en español claro y conciso.`;
+
+const DEVELOPMENT_OPERATIONAL_UNAVAILABLE =
+  'Este módulo todavía no tiene datos operativos disponibles en este entorno.';
+
+type AskBody = {
+  question?: unknown;
+  workspaceId?: unknown;
+  currentRoute?: unknown;
+  documentId?: unknown;
+  versionId?: unknown;
+  expedienteId?: unknown;
+  token?: unknown;
+  mode?: unknown;
+  sessionId?: unknown;
+  provider?: unknown;
+  model?: unknown;
+  routeParams?: unknown;
+  uiState?: unknown;
+  suggestedPromptUsed?: unknown;
+};
+
+function stringValue(value: unknown, max = 200) {
+  return typeof value === 'string' && value.length <= max ? value : undefined;
 }
 
-const publicAttempts = new Map<string, { count: number; expiresAt: number }>();
-
-function allowPublicAiRequest(request: NextRequest, token: string) {
-  const now = Date.now();
-  const ip =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip') ||
-    'unknown';
-  const key = `${ip}:${token}`;
-  const current = publicAttempts.get(key);
-  if (!current || current.expiresAt <= now) {
-    publicAttempts.set(key, { count: 1, expiresAt: now + 60_000 });
-    return true;
-  }
-  current.count += 1;
-  return current.count <= 10;
+function stringRecord(value: unknown, maxEntries = 12) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+      .slice(0, maxEntries)
+      .map(([key, item]) => [key.slice(0, 50), item.slice(0, 160)])
+  );
 }
 
-// ── Internal-data intents that require strict evidence check ──────────────
-const INTERNAL_DATA_INTENTS = new Set([
-  'user_profile',
-  'user_profile_sensitive',
-  'user_usage',
-  'billing_status',
-  'user_created_documents',
-  'user_assigned_documents',
-  'user_participations',
-  'document_types_assigned',
-  'document_status_search',
-  'signature_status',
-  'pending_tasks',
-  'notifications_search',
-  'activity_history',
-  'expediente_search',
-  'contacts_search',
-  'templates_help',
-  'forms_help',
-  'configuration_security',
-  'reports_analysis',
-]);
-
-// ── Sensitive intents: respond directly from backend, never send to OpenAI ──
-const SENSITIVE_DIRECT_INTENTS = new Set(['user_profile_sensitive']);
-
-// ── System prompt (strict mode) ───────────────────────────────────────────
-const LUCIA_SYSTEM_PROMPT = `Eres LucIA, copiloto inteligente de Docubox.
-
-Docubox es una plataforma de firmado digital con e.firma SAT, firma autógrafa, OTP, validación biométrica, documentos, participantes, expedientes, tareas, formularios, plantillas, reportes, facturación, configuración, perfil, flujos móviles y portal externo por token.
-
-Tu función es ayudar al usuario dentro de la pantalla actual de Docubox.
-
-Reglas obligatorias:
-1. Responde únicamente con base en el CONTEXTO AUTORIZADO DE DOCUBOX recibido.
-2. Usa route_context para entender la pantalla actual: screen_name, purpose, available_entities, available_fields y available_actions.
-3. Usa user_context para perfil, workspace, consumo, participaciones y acciones del usuario.
-4. Usa structured_context para documentos, estados, firmas, tareas, historial, notificaciones, facturación, contactos, plantillas y formularios.
-5. Usa rag_context para contenido interno de documentos, cláusulas, resúmenes, obligaciones, riesgos, vigencia y penalizaciones.
-6. No inventes documentos, fechas, estados, participantes, consumos, CURP, RFC, tareas, roles, cláusulas ni obligaciones.
-7. NUNCA digas "no tengo acceso a Docubox", "no tengo acceso directo", "no puedo acceder a tu cuenta", "revisa directamente la plataforma", "no tengo acceso a tu historial", "comparte el documento", "no puedo ver tus datos" ni ninguna variante.
-8. Si no hay evidencia en el contexto, responde exactamente: "No encontré información verificable en Docubox para responder eso."
-9. Para datos sensibles (CURP, RFC, teléfono, domicilio fiscal), responde solo si están explícitos en user_context.profile.
-10. Si el usuario solicita una acción que NO está en route_context.available_actions, responde: "No encontré esa acción disponible en esta sección de Docubox."
-11. No inventes acciones ni campos que no estén en route_context.available_actions o route_context.available_fields.
-12. Si hay acciones pendientes, preséntalas en orden de urgencia: vencidos primero, luego urgentes, luego por fecha límite.
-13. Si hay varios documentos, preséntalos en lista numerada.
-14. Si el usuario pide análisis legal, entrega observaciones preliminares y recomienda revisión profesional.
-15. Para rutas públicas por token, responde solo sobre el recurso vinculado al token. Nunca consultes todo el workspace.
-16. Responde en español profesional, claro y accionable.`;
-
-/** Forbidden phrases that must never appear in the final answer */
-const FORBIDDEN_PHRASES = [
-  'no tengo acceso directo',
-  'no puedo acceder a tu cuenta',
-  'revisa directamente la plataforma',
-  'no tengo acceso a docubox',
-  'no tengo acceso a tu historial',
-  'comparte el documento',
-  'no tengo acceso al historial',
-  'no puedo ver el historial',
-  'no puedo ver tus datos',
-  'no tengo acceso al sistema',
-  'no tengo información sobre',
-  'no tengo datos de',
-  'consulta directamente',
-  'revisa tu cuenta',
-];
-
-function sanitizeAnswer(answer: string): string {
-  const lower = answer.toLowerCase();
-  for (const phrase of FORBIDDEN_PHRASES) {
-    if (lower.includes(phrase)) {
-      return 'No encontré información verificable en Docubox para responder eso.';
-    }
-  }
-  return answer;
+function uiStateRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => ['string', 'number', 'boolean'].includes(typeof item))
+      .slice(0, 16)
+  );
 }
 
-/**
- * Check if finalContext contains sufficient evidence to answer
- * a question about internal Docubox data.
- */
-function checkEvidence(finalContext: Record<string, any>, intent: string): boolean {
-  if (!INTERNAL_DATA_INTENTS.has(intent)) return true;
-
-  const { user_context, structured_context, rag_context } = finalContext;
-
-  if (structured_context) {
-    if (Array.isArray(structured_context) && structured_context.length > 0) return true;
-    if (
-      typeof structured_context === 'object' &&
-      !Array.isArray(structured_context) &&
-      Object.keys(structured_context).length > 0
+function contextFailureStatus(errorCode: string) {
+  if (
+    ['WORKSPACE_ACCESS_DENIED', 'RESOURCE_ACCESS_DENIED', 'ENTITLEMENT_REQUIRED'].includes(
+      errorCode
     )
-      return true;
-  }
-
-  if (Array.isArray(rag_context) && rag_context.length > 0) return true;
-
-  if (user_context && typeof user_context === 'object') {
-    const uc = user_context as Record<string, any>;
-
-    if (intent === 'user_profile' && uc.userProfile) return true;
-    if (intent === 'user_profile_sensitive' && uc.userProfile) return true;
-    if (intent === 'user_usage' && uc.usage) return true;
-    if (intent === 'billing_status' && uc.usage) return true;
-    if (intent === 'workspace_info' && uc.workspace) return true;
-    if (intent === 'configuration_security' && uc.workspace) return true;
-    if (intent === 'reports_analysis' && (uc.usage || uc.createdDocuments)) return true;
-    if (intent === 'notifications_search') {
-      return Array.isArray(uc.notifications) && uc.notifications.length > 0;
-    }
-    if (intent === 'contacts_search') {
-      return Array.isArray(uc.contacts) && uc.contacts.length > 0;
-    }
-    if (intent === 'templates_help') {
-      return Array.isArray(uc.plantillas) && uc.plantillas.length > 0;
-    }
-    if (intent === 'forms_help') {
-      return Array.isArray(uc.formTemplates) && uc.formTemplates.length > 0;
-    }
-    if (intent === 'user_created_documents') {
-      return Array.isArray(uc.createdDocuments) && uc.createdDocuments.length > 0;
-    }
-    if (intent === 'user_assigned_documents') {
-      return Array.isArray(uc.assignedDocuments) && uc.assignedDocuments.length > 0;
-    }
-    if (intent === 'user_participations') {
-      return Array.isArray(uc.participations) && uc.participations.length > 0;
-    }
-    if (intent === 'document_types_assigned') {
-      return (
-        (Array.isArray(uc.documentTypesAssigned?.types) &&
-          uc.documentTypesAssigned.types.length > 0) ||
-        (Array.isArray(uc.documentTypesAssigned?.groups) &&
-          uc.documentTypesAssigned.groups.length > 0)
-      );
-    }
-    if (intent === 'pending_tasks') {
-      const pa = uc.pendingActions;
-      if (!pa) return false;
-      return (
-        (Array.isArray(pa.pendingSignatures) && pa.pendingSignatures.length > 0) ||
-        (Array.isArray(pa.pendingApprovals) && pa.pendingApprovals.length > 0) ||
-        (Array.isArray(pa.pendingReview) && pa.pendingReview.length > 0) ||
-        (Array.isArray(pa.overdue) && pa.overdue.length > 0) ||
-        (Array.isArray(pa.expiringSoon) && pa.expiringSoon.length > 0)
-      );
-    }
-    if (intent === 'activity_history') {
-      return Array.isArray(uc.activityHistory) && uc.activityHistory.length > 0;
-    }
-    if (intent === 'document_status_search' || intent === 'signature_status') {
-      return false;
-    }
-
-    return Object.values(uc).some(
-      (v) => v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)
-    );
-  }
-
-  return false;
-}
-
-/**
- * Build a direct backend response for sensitive data (CURP, RFC, phone, fiscal address).
- * Never sends this data to OpenAI.
- */
-function buildSensitiveDirectResponse(userContext: Record<string, any>, question: string): string {
-  const profile = userContext.userProfile ?? {};
-  const q = question
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
-  if (q.includes('curp')) {
-    return profile.curp
-      ? `Tu CURP registrada en Docubox es: **${profile.curp}**.`
-      : 'No encontré una CURP registrada en tu perfil de Docubox.';
-  }
-  if (q.includes('rfc')) {
-    return profile.rfc
-      ? `Tu RFC registrado en Docubox es: **${profile.rfc}**.`
-      : 'No encontré un RFC registrado en tu perfil de Docubox.';
-  }
-  if (
-    q.includes('telefono') ||
-    q.includes('teléfono') ||
-    q.includes('numero de telefono') ||
-    q.includes('número de teléfono')
   ) {
-    return profile.telefono
-      ? `Tu teléfono registrado en Docubox es: **${profile.telefono}**.`
-      : 'No encontré un teléfono registrado en tu perfil de Docubox.';
+    return 403;
   }
-  if (
-    q.includes('domicilio') ||
-    q.includes('direccion') ||
-    q.includes('dirección') ||
-    q.includes('fiscal') ||
-    q.includes('codigo postal') ||
-    q.includes('código postal')
-  ) {
-    const domicilio = [
-      profile.calle
-        ? `${profile.calle} ${profile.num_exterior ?? ''}${profile.num_interior ? ' Int. ' + profile.num_interior : ''}`.trim()
-        : null,
-      profile.colonia,
-      profile.municipio,
-      profile.estado,
-      profile.codigo_postal ? `C.P. ${profile.codigo_postal}` : null,
-    ]
-      .filter(Boolean)
-      .join(', ');
-    return domicilio
-      ? `Tu domicilio fiscal registrado en Docubox es: **${domicilio}**.`
-      : 'No encontré un domicilio fiscal registrado en tu perfil de Docubox.';
-  }
-  if (q.includes('regimen') || q.includes('régimen')) {
-    return profile.regimen_fiscal
-      ? `Tu régimen fiscal registrado en Docubox es: **${profile.regimen_fiscal}**.`
-      : 'No encontré un régimen fiscal registrado en tu perfil de Docubox.';
-  }
-
-  // Generic sensitive profile response
-  const name =
-    profile.full_name ||
-    [profile.nombre, profile.apellido_paterno].filter(Boolean).join(' ') ||
-    profile.email ||
-    'N/D';
-  const parts = [
-    `**Nombre:** ${name}`,
-    profile.email ? `**Email:** ${profile.email}` : null,
-    profile.rfc ? `**RFC:** ${profile.rfc}` : '**RFC:** No registrado',
-    profile.curp ? `**CURP:** ${profile.curp}` : '**CURP:** No registrada',
-    profile.telefono ? `**Teléfono:** ${profile.telefono}` : '**Teléfono:** No registrado',
-  ].filter(Boolean);
-  return `Tus datos personales registrados en Docubox:\n\n${parts.join('\n')}`;
+  if (['RESOURCE_NOT_FOUND', 'RESOURCE_NOT_FOUND_OR_DENIED'].includes(errorCode)) return 404;
+  if (['SCHEMA_UNAVAILABLE', 'SUPABASE_RPC_ERROR'].includes(errorCode)) return 503;
+  if (errorCode === 'TOKEN_EXPIRED') return 401;
+  return 200;
 }
 
-function extractSources(
-  finalContext: Record<string, any>,
-  intent: string
-): Array<Record<string, any>> {
-  const sources: Array<Record<string, any>> = [];
-  const uc = finalContext.user_context as Record<string, any> | undefined;
-  const sc = finalContext.structured_context;
-
-  if (Array.isArray(sc)) {
-    for (const item of sc.slice(0, 10)) {
-      if (item && typeof item === 'object') {
-        sources.push({
-          tabla: 'structured_context',
-          documento: item.titulo ?? item.title ?? item.nombre ?? null,
-          estado: item.estado ?? item.status ?? null,
-          fecha: item.created_at ?? item.fecha ?? item.createdAt ?? null,
-          usuario: item.actor_nombre ?? item.owner?.nombre_completo ?? item.owner?.nombre ?? null,
-        });
-      }
-    }
+function contextFailureAnswer(errorCode: string) {
+  if (errorCode === 'DOCUMENT_INTELLIGENCE_DISABLED') {
+    return DOCUMENT_INTELLIGENCE_DISABLED_MESSAGE;
   }
-
-  if (uc) {
-    if (intent === 'user_created_documents' && Array.isArray(uc.createdDocuments)) {
-      for (const doc of uc.createdDocuments.slice(0, 5)) {
-        sources.push({
-          tabla: 'documentos',
-          documento: doc.titulo ?? doc.title ?? doc.nombre ?? null,
-          estado: doc.estado ?? doc.status ?? null,
-          fecha: doc.created_at ?? doc.createdAt ?? null,
-          usuario: null,
-        });
-      }
-    }
-    if (intent === 'user_assigned_documents' && Array.isArray(uc.assignedDocuments)) {
-      for (const doc of uc.assignedDocuments.slice(0, 5)) {
-        sources.push({
-          tabla: 'documentos + participaciones',
-          documento: doc.titulo ?? doc.title ?? doc.nombre ?? null,
-          estado: doc.estado ?? doc.status ?? null,
-          fecha: doc.created_at ?? doc.createdAt ?? null,
-          usuario: doc.participationRole ?? null,
-        });
-      }
-    }
-    if (intent === 'activity_history' && Array.isArray(uc.activityHistory)) {
-      for (const act of uc.activityHistory.slice(0, 5)) {
-        sources.push({
-          tabla: 'document_activity_log',
-          documento: act.documento?.nombre ?? null,
-          estado: act.action ?? null,
-          fecha: act.created_at ?? null,
-          usuario: act.actor_nombre ?? act.actor_email ?? null,
-        });
-      }
-    }
+  if (['WORKSPACE_ACCESS_DENIED', 'RESOURCE_ACCESS_DENIED'].includes(errorCode)) {
+    return 'No tienes permiso para consultar esa información en este espacio de trabajo.';
   }
-
-  if (Array.isArray(finalContext.rag_context)) {
-    for (const chunk of finalContext.rag_context.slice(0, 3)) {
-      if (chunk && typeof chunk === 'object') {
-        sources.push({
-          tabla: 'ai_document_chunks',
-          documento: chunk.document_title ?? chunk.documentTitle ?? null,
-          estado: null,
-          fecha: chunk.created_at ?? null,
-          usuario: null,
-        });
-      }
-    }
+  if (errorCode === 'ENTITLEMENT_REQUIRED') {
+    return 'Este módulo no está habilitado para el espacio de trabajo actual.';
   }
-
-  return sources;
+  if (['RESOURCE_NOT_FOUND', 'RESOURCE_NOT_FOUND_OR_DENIED'].includes(errorCode)) {
+    return 'No encontré un recurso autorizado que coincida con la consulta.';
+  }
+  if (errorCode === 'RESOURCE_NOT_INDEXED') return NO_DOCUMENT_CONTENT_RESPONSE;
+  if (errorCode === 'TOKEN_EXPIRED') return 'La sesión expiró. Inicia sesión nuevamente.';
+  if (['SCHEMA_UNAVAILABLE', 'SUPABASE_RPC_ERROR'].includes(errorCode)) {
+    return 'No pude consultar el contexto autorizado en este momento.';
+  }
+  return NO_EVIDENCE_RESPONSE;
 }
 
-function postValidateAnswer(answer: string, finalContext: Record<string, any>): string {
-  const uc = finalContext.user_context as Record<string, any> | undefined;
-  const sc = finalContext.structured_context;
-
-  const docCountMatch = answer.match(/encontré\s+(\d+)\s+registros?\s+verificados?/i);
-  if (docCountMatch) {
-    const claimedCount = parseInt(docCountMatch[1], 10);
-    let actualCount = 0;
-    if (Array.isArray(sc)) actualCount = sc.length;
-    else if (uc) {
-      const intent = finalContext.intent as string;
-      if (intent === 'user_created_documents') actualCount = (uc.createdDocuments ?? []).length;
-      else if (intent === 'user_assigned_documents')
-        actualCount = (uc.assignedDocuments ?? []).length;
-    }
-    if (claimedCount > actualCount + 2 && actualCount === 0) {
-      return 'No encontré información verificable en Docubox para responder eso.';
-    }
-  }
-  return answer;
+function isDevelopmentSchemaUnavailable(context: unknown, errorCode: string) {
+  if (errorCode !== 'SCHEMA_UNAVAILABLE' || !context || typeof context !== 'object') return false;
+  const typed = context as Record<string, unknown>;
+  return (
+    typed.module_status === 'in_development' && typed.data_availability === 'schema_unavailable'
+  );
 }
 
-function isContextEmpty(finalContext: Record<string, any>): boolean {
-  const { user_context, structured_context, rag_context } = finalContext;
+function sensitiveResponse(userContext: Record<string, any>) {
+  const profile = userContext.profile || {};
+  switch (profile.requested_field) {
+    case 'curp':
+      return profile.curp
+        ? `Tu CURP registrada en Docubox es: **${profile.curp}**.`
+        : 'No encontré una CURP registrada en tu perfil de Docubox.';
+    case 'rfc':
+      return profile.rfc
+        ? `Tu RFC registrado en Docubox es: **${profile.rfc}**.`
+        : 'No encontré un RFC registrado en tu perfil de Docubox.';
+    case 'telefono':
+      return profile.telefono
+        ? `Tu teléfono registrado en Docubox es: **${profile.telefono}**.`
+        : 'No encontré un teléfono registrado en tu perfil de Docubox.';
+    case 'domicilio': {
+      const address = [
+        [profile.calle, profile.num_exterior, profile.num_interior].filter(Boolean).join(' '),
+        profile.colonia,
+        profile.municipio,
+        profile.estado,
+        profile.codigo_postal ? `C.P. ${profile.codigo_postal}` : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      return address
+        ? `Tu domicilio registrado en Docubox es: **${address}**.`
+        : 'No encontré un domicilio registrado en tu perfil de Docubox.';
+    }
+    default:
+      return NO_EVIDENCE_RESPONSE;
+  }
+}
 
-  const ucEmpty =
-    !user_context ||
-    Object.keys(user_context).length === 0 ||
-    Object.values(user_context).every(
-      (v) => v === null || v === undefined || (Array.isArray(v) && v.length === 0)
-    );
+async function verifyCollaborationEntitlement(workspaceId: string, accessToken: string) {
+  const { createClient } = await import('@supabase/supabase-js');
+  const scoped = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }
+  );
+  const result = await scoped.rpc('get_my_collaboration_access', { ws_id: workspaceId });
+  if (result.error) return false;
+  const access = normalizeCollaborationAccess(result.data);
+  const entitlement = access.entitlements.collaboration_ai_assistant;
+  return (
+    access.accessible &&
+    Boolean(entitlement && ['trialing', 'active', 'past_due'].includes(entitlement.status || ''))
+  );
+}
 
-  const scEmpty =
-    !structured_context ||
-    (Array.isArray(structured_context) && structured_context.length === 0) ||
-    (typeof structured_context === 'object' &&
-      !Array.isArray(structured_context) &&
-      Object.keys(structured_context).length === 0);
-
-  const rcEmpty = !rag_context || (Array.isArray(rag_context) && rag_context.length === 0);
-
-  return ucEmpty && scEmpty && rcEmpty;
+async function recordCollaborationUsage(workspaceId: string, userId: string, sessionId?: string) {
+  await createServiceClient()
+    .from('collaboration_usage_events')
+    .insert({
+      workspace_id: workspaceId,
+      entitlement_key: 'collaboration_ai_assistant',
+      meter_key: 'ai_requests',
+      quantity: 1,
+      idempotency_key: `lucia:${sessionId || 'sessionless'}:${randomUUID()}`,
+      resource_type: 'lucia_query',
+      metadata: { actor_user_id: userId },
+    });
 }
 
 export async function POST(request: NextRequest) {
-  const startTime = Date.now();
-
+  const startedAt = Date.now();
   try {
-    // ── 1. Parse body ──────────────────────────────────────────
-    const body = await request.json();
-    const {
-      question,
-      workspaceId,
-      currentRoute,
-      documentId,
-      expedienteId,
-      token: publicToken,
-      scope: clientScope,
-      uiState,
-      sessionId,
-      mode: requestMode,
-    } = body;
+    const body = await readLimitedJson<AskBody>(request, AI_BODY_LIMITS.ask);
+    const publicToken = stringValue(body.token, 2_048);
+    const publicFlow = body.mode === 'public-token';
 
-    if (!question) {
-      return NextResponse.json({ error: 'Falta campo requerido: question' }, { status: 400 });
+    let user: Pick<User, 'id' | 'email'> | null = null;
+    let accessToken: string | undefined;
+    if (!publicFlow) {
+      const authenticated = await requireAiUser(request);
+      user = authenticated.user;
+      accessToken = authenticated.accessToken;
+    } else if (!publicToken) {
+      return NextResponse.json({ error: 'PUBLIC_TOKEN_REQUIRED' }, { status: 400 });
     }
 
-    // ── 2. Detect if this is a public-token request ────────────
-    const isPublicTokenRequest = requestMode === 'public-token' || (!workspaceId && !!publicToken);
-
-    if (isPublicTokenRequest) {
-      // ── PUBLIC TOKEN PATH: validate token, limit to token resource ──
-      if (!publicToken) {
-        return NextResponse.json({ error: 'Token requerido para rutas públicas' }, { status: 400 });
-      }
-
-      if (!allowPublicAiRequest(request, publicToken)) {
-        return NextResponse.json(
-          { error: 'Demasiadas solicitudes. Intenta de nuevo en un minuto.' },
-          { status: 429 }
-        );
-      }
-
-      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      if (!serviceRoleKey) {
-        return NextResponse.json({ error: 'El servicio no esta configurado.' }, { status: 503 });
-      }
-
-      const supabaseService = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey);
-
-      // Resolve token to a resource (document, form, enrollment, etc.)
-      let tokenContext: Record<string, any> = {};
-      let tokenDocumentId: string | null = null;
-
-      // Try enrollment tokens
-      const { data: enrollToken } = await supabaseService
-        .from('enrollment_tokens')
-        .select('id, document_id, participant_id, status, expires_at')
-        .eq('token', publicToken)
-        .maybeSingle();
-
-      if (enrollToken) {
-        tokenContext = {
-          type: 'enrollment',
-          status: enrollToken.status,
-          document_id: enrollToken.document_id,
-          participant_id: enrollToken.participant_id,
-          expires_at: enrollToken.expires_at,
-        };
-        tokenDocumentId = enrollToken.document_id;
-      }
-
-      // Try form tokens (mobile_upload_sessions)
-      if (!tokenDocumentId) {
-        const { data: uploadSession } = await supabaseService
-          .from('mobile_upload_sessions')
-          .select('id, status, expires_at, metadata')
-          .eq('token', publicToken)
-          .maybeSingle();
-
-        if (uploadSession && new Date(uploadSession.expires_at).getTime() > Date.now()) {
-          const uploadDocumentId = uploadSession.metadata?.document_id || null;
-          tokenContext = {
-            type: 'mobile_upload',
-            status: uploadSession.status,
-            document_id: uploadDocumentId,
-            expires_at: uploadSession.expires_at,
-          };
-          tokenDocumentId = uploadDocumentId;
-        }
-      }
-
-      // Try document participants (portal-participante tokens)
-      if (!tokenDocumentId) {
-        const { data: participant } = await supabaseService
-          .from('document_participants')
-          .select('id, document_id, nombre, email, rol, estado, token_acceso')
-          .eq('token_acceso', publicToken)
-          .maybeSingle();
-
-        if (participant) {
-          tokenContext = {
-            type: 'participant_portal',
-            participant_id: participant.id,
-            document_id: participant.document_id,
-            nombre: participant.nombre,
-            email: participant.email,
-            rol: participant.rol,
-            estado: participant.estado,
-          };
-          tokenDocumentId = participant.document_id;
-        }
-      }
-
-      // Fetch document info if we have a document_id
-      let tokenDocumentInfo: Record<string, any> | null = null;
-      if (tokenDocumentId) {
-        const { data: doc } = await supabaseService
-          .from('documentos')
-          .select('id, titulo, estado, tipo_documento, fecha_limite, created_at')
-          .eq('id', tokenDocumentId)
-          .maybeSingle();
-        tokenDocumentInfo = doc;
-      }
-
-      const scope = clientScope || getScopeFromRoute(currentRoute ?? '/');
-      const routeContext = buildRouteContext(
-        currentRoute ?? '/',
-        scope,
-        tokenDocumentId ?? undefined,
-        publicToken
-      );
-
-      const finalContext = {
-        route_context: routeContext,
-        token_context: tokenContext,
-        document_info: tokenDocumentInfo,
-        user_context: null,
-        structured_context: null,
-        rag_context: [],
-        intent: 'external_participant_help',
-        permissions_summary: {
-          mode: 'public-token',
-          token: publicToken,
-          scope,
-          currentRoute: currentRoute ?? null,
-          documentId: tokenDocumentId,
-        },
-      };
-
-      console.log('LucIA [public-token] currentRoute', currentRoute);
-      console.log('LucIA [public-token] scope', scope);
-      console.log('LucIA [public-token] tokenContext', tokenContext);
-
-      const hasTokenEvidence = !!tokenContext.type || !!tokenDocumentInfo;
-
-      if (!hasTokenEvidence) {
-        return NextResponse.json({
-          answer: 'No encontré información verificable para responder eso con el acceso actual.',
-          intent: 'external_participant_help',
-          mode: 'public-token',
-          sources: [],
-          confidence: 'none',
-        });
-      }
-
-      const publicMessages = [
-        { role: 'system' as const, content: LUCIA_SYSTEM_PROMPT },
-        {
-          role: 'user' as const,
-          content: `CONTEXTO AUTORIZADO DE DOCUBOX (ACCESO POR TOKEN PÚBLICO):\n${JSON.stringify(finalContext, null, 2)}\n\nPREGUNTA DEL USUARIO:\n${question}`,
-        },
-      ];
-
-      const aiResponse = await completion({
-        model: 'gpt-4o-mini',
-        messages: publicMessages,
-        stream: false,
-        api_key: process.env.OPENAI_API_KEY!,
-        max_tokens: 800,
-      });
-
-      const rawAnswer =
-        (aiResponse as any)?.choices?.[0]?.message?.content || 'No se pudo generar una respuesta.';
-      let responseText = sanitizeAnswer(rawAnswer);
-
-      return NextResponse.json({
-        answer: responseText,
-        intent: 'external_participant_help',
-        mode: 'public-token',
-        sources: [],
-        confidence: 'verified',
-        contextSummary: { hasTokenContext: true, documentId: tokenDocumentId },
-      });
+    if (
+      (body.provider && body.provider !== AI_PROVIDER) ||
+      (body.model && body.model !== LUCIA_MODEL)
+    ) {
+      return NextResponse.json({ error: 'AI_MODEL_NOT_ALLOWED' }, { status: 400 });
     }
 
-    // ── AUTHENTICATED PATH ─────────────────────────────────────
-    if (!workspaceId) {
+    const question = stringValue(body.question, 4_000)?.trim();
+    const workspaceId = stringValue(body.workspaceId);
+    const currentRoute = stringValue(body.currentRoute, 500) || '/';
+    const documentId = stringValue(body.documentId);
+    const versionId = stringValue(body.versionId);
+    const expedienteId = stringValue(body.expedienteId);
+    const sessionId = stringValue(body.sessionId);
+    if (!question) return NextResponse.json({ error: 'QUESTION_REQUIRED' }, { status: 400 });
+
+    const capability = resolveLuciaCapability(currentRoute);
+    if (capability.accessMode === 'redirect_alias') {
       return NextResponse.json(
-        { error: 'Faltan campos requeridos: question, workspaceId' },
-        { status: 400 }
+        { error: 'CANONICAL_ROUTE_REQUIRED', canonicalRoute: capability.canonicalRoute },
+        { status: 409 }
       );
     }
-
-    // ── 2. Validate auth via Supabase (userId from session, NOT from frontend) ──
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    if (capability.luciaMode === 'disabled') {
+      return NextResponse.json({ error: 'LUCIA_DISABLED_FOR_ROUTE' }, { status: 403 });
     }
-    const bearerToken = authHeader.replace('Bearer ', '');
-    const supabaseAuth = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-    const {
-      data: { user },
-      error: authError,
-    } = await supabaseAuth.auth.getUser(bearerToken);
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Token inválido o sesión expirada' }, { status: 401 });
-    }
-
-    const userId = user.id;
-
-    // ── 3. Validate workspace membership ──────────────────────
-    const isMember = await verifyWorkspaceMembership(workspaceId, userId);
-    if (!isMember) {
-      return NextResponse.json({ error: 'No tienes acceso a este workspace' }, { status: 403 });
-    }
-
-    const isCollaborationRequest = String(currentRoute || '').startsWith('/colabora');
-    if (isCollaborationRequest) {
-      const scopedSupabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { global: { headers: { Authorization: `Bearer ${bearerToken}` } } }
-      );
-      const accessResult = await scopedSupabase.rpc('get_my_collaboration_access', {
-        ws_id: workspaceId,
+    if (capability.luciaMode === 'deterministic_only') {
+      return NextResponse.json({
+        answer:
+          'Esta pantalla usa una verificación determinista. Consulta el resultado y la evidencia visibles; LucIA no envía estos datos a un modelo generativo.',
+        intent: 'deterministic_verification_help',
+        mode: 'deterministic',
+        sources: [],
+        confidence: 'deterministic',
+        telemetry: {
+          inputTokens: 0,
+          outputTokens: 0,
+          model: null,
+          latencyMs: Date.now() - startedAt,
+        },
       });
-      if (accessResult.error) {
-        return NextResponse.json(
-          { error: 'No se pudo verificar el acceso al asistente de Colabora.' },
-          { status: 503 }
-        );
-      }
-      const collaborationAccess = normalizeCollaborationAccess(accessResult.data);
-      const aiEntitlement = collaborationAccess.entitlements.collaboration_ai_assistant;
-      if (
-        !collaborationAccess.accessible ||
-        !aiEntitlement ||
-        !['trialing', 'active', 'past_due'].includes(aiEntitlement.status || '')
-      ) {
-        return NextResponse.json(
-          { error: 'El asistente inteligente de Colabora no esta incluido en tu plan.' },
-          { status: 402 }
-        );
-      }
+    }
+    if (capability.accessMode === 'public_token' && !publicFlow) {
+      return NextResponse.json({ error: 'PUBLIC_TOKEN_MODE_REQUIRED' }, { status: 400 });
+    }
+    if (capability.accessMode === 'authenticated' && publicFlow) {
+      return NextResponse.json({ error: 'AUTHENTICATED_MODE_REQUIRED' }, { status: 400 });
     }
 
-    // ── 4. Derive scope and route_context (structured object) ─
-    const scope = clientScope || getScopeFromRoute(currentRoute ?? '');
-    const routeContext = buildRouteContext(currentRoute ?? '/', scope, documentId, publicToken);
+    const scope = capability.scope;
+    const authorization = await buildLuciaAuthorizationContext({
+      user,
+      workspaceId,
+      documentId,
+      token: publicFlow ? publicToken : null,
+      currentRoute,
+      scope,
+    });
+    if (authorization.denied_reason) {
+      return NextResponse.json({ error: authorization.denied_reason }, { status: 403 });
+    }
+    const safeCurrentRoute = redactCapabilityFromRoute(currentRoute);
+    const routeContext = buildRouteContext(
+      safeCurrentRoute,
+      scope,
+      documentId,
+      undefined,
+      stringRecord(body.routeParams),
+      uiStateRecord(body.uiState)
+    );
 
-    // ── 5. Classify intent (route-aware) ──────────────────────
-    const intentResult = classifyIntent(question, currentRoute ?? '');
-    const { intent, mode, extractedStatus, extractedUserName } = intentResult;
+    await enforceAiRateLimits({
+      request,
+      route: '/api/ai/ask',
+      userId: authorization.user_id,
+      workspaceId: authorization.workspace_id,
+      tokenGrantId: authorization.token_grant_id,
+      limit: publicFlow ? 10 : 30,
+    });
 
-    // ── Debug logs ────────────────────────────────────────────
-    console.log('LucIA currentRoute', currentRoute);
-    console.log('LucIA scope', scope);
-    console.log('LucIA intent', intent);
-    console.log('LucIA route_context', routeContext);
-    console.log('LucIA uiState', uiState);
+    if (!publicFlow && !authorization.workspace_id) {
+      return NextResponse.json({ error: 'WORKSPACE_REQUIRED' }, { status: 400 });
+    }
 
-    // ── 6. Build all three context layers ─────────────────────
+    const isCollaborationRoute = safeCurrentRoute.startsWith('/colabora');
+    if (isCollaborationRoute && accessToken && authorization.workspace_id) {
+      const entitled = await verifyCollaborationEntitlement(
+        authorization.workspace_id,
+        accessToken
+      );
+      if (!entitled)
+        return NextResponse.json({ error: 'COLLABORATION_AI_NOT_INCLUDED' }, { status: 402 });
+    }
+
+    const { intent, mode, extractedStatus, extractedUserName } = classifyIntent(
+      question,
+      routeContext
+    );
+    const effectiveWorkspaceId = authorization.workspace_id || '';
+
     const [userContext, structuredContext, ragContext] = await Promise.all([
-      buildUserContext(userId, workspaceId).catch((err) => {
-        console.error('[LucIA] buildUserContext error:', err);
-        return {};
-      }),
-      buildStructuredContext(question, intent, userId, workspaceId, {
-        documentId,
-        expedienteId,
-        extractedStatus,
-        extractedUserName,
-        mode,
-      }).catch((err) => {
-        console.error('[LucIA] buildStructuredContext error:', err);
-        return null;
-      }),
-      buildRagContext(question, workspaceId, documentId).catch((err) => {
-        console.error('[LucIA] buildRagContext error:', err);
-        return [];
-      }),
+      !publicFlow && user
+        ? buildUserContext(user.id, effectiveWorkspaceId, intent, authorization, question)
+        : Promise.resolve({}),
+      effectiveWorkspaceId || publicFlow
+        ? buildStructuredContext(
+            question,
+            intent,
+            user?.id || '',
+            effectiveWorkspaceId,
+            authorization,
+            {
+              documentId,
+              versionId,
+              expedienteId,
+              extractedStatus,
+              extractedUserName,
+              mode,
+              accessToken,
+              routeContext,
+            }
+          )
+        : Promise.resolve(null),
+      effectiveWorkspaceId && DOCUMENT_RAG_INTENTS.has(intent)
+        ? buildRagContext(question, effectiveWorkspaceId, authorization, {
+            documentId,
+            versionId,
+            accessToken,
+            intent,
+            routeContext,
+          })
+        : Promise.resolve([]),
     ]);
 
-    console.log('LucIA user_context keys', Object.keys(userContext));
-    console.log('LucIA structured_context', structuredContext);
-    console.log('LucIA rag_context chunks', Array.isArray(ragContext) ? ragContext.length : 0);
-
-    // ── 7. Assemble finalContext ───────────────────────────────
-    const finalContext = {
+    const safeAuthorization =
+      intent === 'general_help'
+        ? { is_public_token_flow: authorization.is_public_token_flow }
+        : {
+            role: authorization.role,
+            permissions: authorization.permissions,
+            allowed_resource_ids: authorization.allowed_resource_ids,
+            token_grant_id: authorization.token_grant_id,
+            is_public_token_flow: authorization.is_public_token_flow,
+          };
+    const finalContext: Record<string, any> = {
       route_context: routeContext,
-      user_context: userContext,
-      structured_context: structuredContext,
-      rag_context: ragContext,
+      authorization: safeAuthorization,
+      user_context: intent === 'general_help' ? {} : userContext,
+      structured_context: intent === 'general_help' ? null : structuredContext,
+      rag_context: intent === 'general_help' ? [] : ragContext,
       intent,
-      permissions_summary: {
-        userId,
-        workspaceId,
-        scope,
-        currentRoute: currentRoute ?? null,
-        documentId: documentId || null,
-        expedienteId: expedienteId || null,
-        intent,
-        mode,
-        uiState: uiState || null,
-      },
+    };
+    const evidenceSummary = buildEvidenceSummary(finalContext);
+    finalContext.evidence_summary = evidenceSummary;
+    const hasEvidence = checkEvidenceForIntent(intent, finalContext);
+    const telemetryContext = {
+      moduleKey: routeContext.moduleKey,
+      intent,
+      route: safeCurrentRoute,
+      resource_id:
+        (structuredContext as any)?.resource_id ||
+        Object.values(routeContext.currentResourceIds)[0] ||
+        null,
+      context_rpc: (structuredContext as any)?._context_meta?.rpc || null,
+      context_latency_ms: (structuredContext as any)?._context_meta?.latency_ms || null,
+      row_count: (structuredContext as any)?.row_count ?? null,
+      context_error_code: getSpecializedContextError(structuredContext),
+      canonicalRoute: routeContext.canonicalRoute,
+      luciaMode: routeContext.luciaMode,
+      capabilityVersion: LUCIA_CAPABILITY_VERSION,
+      suggestedPromptUsed: body.suggestedPromptUsed === true,
+      context_size: JSON.stringify(finalContext).length,
     };
 
-    // ── 8. Check evidence ──────────────────────────────────────
-    const isDocumentViewerRagAction =
-      scope === 'document_viewer' &&
-      (intent === 'document_summary' ||
-        intent === 'legal_analysis' ||
-        intent === 'compliance_analysis' ||
-        intent === 'document_content_search');
-
-    const hasEvidence = isDocumentViewerRagAction
-      ? (Array.isArray(ragContext) && ragContext.length > 0) || !!documentId
-      : checkEvidence(finalContext, intent);
-    console.log('LucIA finalContext intent', intent);
-    console.log('LucIA hasEvidence', hasEvidence);
-
-    // ── 9. SENSITIVE DATA: respond directly from backend, never send to OpenAI ──
-    if (SENSITIVE_DIRECT_INTENTS.has(intent)) {
-      if (!userContext || !(userContext as any).userProfile) {
-        return NextResponse.json({
-          answer: 'No encontré información verificable en Docubox para responder eso.',
-          intent,
-          mode,
-          sources: [],
-          confidence: 'none',
-          contextSummary: { structuredRecords: 0, ragChunks: 0, hasUserContext: false },
-        });
-      }
-      const directAnswer = buildSensitiveDirectResponse(
-        userContext as Record<string, any>,
-        question
-      );
+    if (intent === 'user_profile_sensitive') {
+      const answer = hasEvidence ? sensitiveResponse(userContext) : NO_EVIDENCE_RESPONSE;
       await saveQueryLog({
-        workspaceId,
-        userId,
+        workspaceId: authorization.workspace_id,
+        userId: authorization.user_id,
         sessionId,
         question,
         intent,
         scope,
-        documentId,
-        contextUsed: { mode: 'direct_backend', hasEvidence: true, sensitiveData: true },
-        responseText: directAnswer,
-        durationMs: Date.now() - startTime,
-      }).catch((err) => console.error('[LucIA] Log save error:', err));
-
+        route: safeCurrentRoute,
+        documentIds: [],
+        contextUsed: {
+          ...telemetryContext,
+          mode: 'direct_backend',
+          sensitive_value_sent_to_model: false,
+          evidence_status: hasEvidence ? 'verified' : 'missing',
+        },
+        responseText: answer,
+        durationMs: Date.now() - startedAt,
+        hasEvidence,
+      });
       return NextResponse.json({
-        answer: directAnswer,
+        answer,
         intent,
         mode: 'structured',
         sources: [],
-        confidence: 'verified',
-        contextSummary: { structuredRecords: 0, ragChunks: 0, hasUserContext: true },
+        confidence: hasEvidence ? 'verified' : 'none',
+        telemetry: {
+          documentIds: [],
+          chunkIds: [],
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCostUsd: null,
+          latencyMs: Date.now() - startedAt,
+          errorCode: hasEvidence ? null : 'NO_EVIDENCE',
+        },
       });
     }
 
-    // ── 10. Block OpenAI if no evidence for internal intents ──
     if (!hasEvidence) {
-      return NextResponse.json({
-        answer: 'No encontré información verificable en Docubox para responder eso.',
+      const contextErrorCode = getSpecializedContextError(structuredContext);
+      const evidenceErrorCode =
+        contextErrorCode || (DOCUMENT_RAG_INTENTS.has(intent) ? 'RESOURCE_NOT_INDEXED' : 'NO_DATA');
+      const developmentUnavailable = isDevelopmentSchemaUnavailable(
+        structuredContext,
+        evidenceErrorCode
+      );
+      const answer = developmentUnavailable
+        ? DEVELOPMENT_OPERATIONAL_UNAVAILABLE
+        : contextFailureAnswer(evidenceErrorCode);
+      await saveQueryLog({
+        workspaceId: authorization.workspace_id,
+        userId: authorization.user_id,
+        sessionId,
+        question,
         intent,
-        mode,
-        sources: [],
-        confidence: 'none',
-        contextSummary: { structuredRecords: 0, ragChunks: 0, hasUserContext: false },
+        scope,
+        route: safeCurrentRoute,
+        documentIds: [],
+        contextUsed: {
+          ...telemetryContext,
+          model_called: false,
+          model_used: null,
+          evidence_status:
+            developmentUnavailable ||
+            evidenceErrorCode === 'NO_DATA' ||
+            evidenceErrorCode === 'RESOURCE_NOT_INDEXED'
+              ? 'missing'
+              : 'error',
+        },
+        responseText: answer,
+        durationMs: Date.now() - startedAt,
+        errorCode: evidenceErrorCode,
+        hasEvidence: false,
       });
+      return NextResponse.json(
+        {
+          answer,
+          error:
+            evidenceErrorCode === 'NO_DATA' || developmentUnavailable
+              ? undefined
+              : evidenceErrorCode,
+          intent,
+          mode,
+          sources: [],
+          confidence: 'none',
+          telemetry: {
+            documentIds: [],
+            chunkIds: [],
+            inputTokens: 0,
+            outputTokens: 0,
+            estimatedCostUsd: null,
+            latencyMs: Date.now() - startedAt,
+            errorCode: evidenceErrorCode,
+          },
+        },
+        { status: developmentUnavailable ? 200 : contextFailureStatus(evidenceErrorCode) }
+      );
     }
 
-    // ── 11. Validate context is not completely empty ───────────
-    if (isContextEmpty(finalContext) && !isDocumentViewerRagAction) {
-      return NextResponse.json({
-        answer: 'No encontré información disponible con tus permisos actuales.',
-        intent,
-        mode,
-        sources: [],
-        confidence: 'none',
-        contextSummary: { structuredRecords: 0, ragChunks: 0, hasUserContext: false },
+    let aiResponse: Awaited<ReturnType<typeof completion>>;
+    try {
+      aiResponse = await completion({
+        model: LUCIA_MODEL,
+        messages: [
+          {
+            role: 'system' as const,
+            content:
+              intent === 'module_design_help' ? LUCIA_MODULE_DESIGN_PROMPT : LUCIA_SYSTEM_PROMPT,
+          },
+          {
+            role: 'user' as const,
+            content: `CONTEXTO AUTORIZADO:\n${JSON.stringify(finalContext)}\n\nCONSULTA:\n${redactSensitiveText(question, 4_000)}`,
+          },
+        ],
+        stream: false,
+        api_key: process.env.OPENAI_API_KEY!,
+        max_tokens: 1_200,
       });
+    } catch {
+      await saveQueryLog({
+        workspaceId: authorization.workspace_id,
+        userId: authorization.user_id,
+        sessionId,
+        question,
+        intent,
+        scope,
+        route: safeCurrentRoute,
+        documentIds: evidenceSummary.document_ids,
+        chunkIds: evidenceSummary.chunk_ids,
+        sourceIds: evidenceSummary.source_ids,
+        tokenGrantId: authorization.token_grant_id,
+        contextUsed: {
+          ...telemetryContext,
+          prompt_version: LUCIA_PROMPT_VERSION,
+          model_called: true,
+          model_used: LUCIA_MODEL,
+          evidence_status: intent === 'module_design_help' ? 'design_context' : 'verified',
+        },
+        responseText: 'AI_PROVIDER_ERROR',
+        durationMs: Date.now() - startedAt,
+        errorCode: 'AI_PROVIDER_ERROR',
+        hasEvidence: true,
+      });
+      return NextResponse.json(
+        { error: 'AI_PROVIDER_ERROR', answer: 'No pude generar la respuesta en este momento.' },
+        { status: 502 }
+      );
     }
-
-    // ── 12. Call OpenAI with full context ──────────────────────
-    const messages = [
-      { role: 'system' as const, content: LUCIA_SYSTEM_PROMPT },
-      {
-        role: 'user' as const,
-        content: `CONTEXTO AUTORIZADO DE DOCUBOX:\n${JSON.stringify(finalContext, null, 2)}\n\nPREGUNTA DEL USUARIO:\n${question}`,
-      },
+    const rawAnswer = (aiResponse as any)?.choices?.[0]?.message?.content || NO_EVIDENCE_RESPONSE;
+    const answer =
+      intent === 'module_design_help'
+        ? redactSensitiveText(rawAnswer, 12_000)
+        : postValidateAnswerAgainstEvidence(rawAnswer, evidenceSummary);
+    const inputTokens = (aiResponse as any)?.usage?.prompt_tokens;
+    const outputTokens = (aiResponse as any)?.usage?.completion_tokens;
+    const estimatedCostUsd = estimateAiCost(inputTokens, outputTokens);
+    const usedDocumentIds = authorization.allowed_document_ids.filter((id) =>
+      evidenceSummary.source_ids.includes(id)
+    );
+    evidenceSummary.document_ids = [
+      ...new Set([...evidenceSummary.document_ids, ...usedDocumentIds]),
     ];
 
-    const aiResponse = await completion({
-      model: 'gpt-4o-mini',
-      messages,
-      stream: false,
-      api_key: process.env.OPENAI_API_KEY!,
-      max_tokens: 1500,
-    });
-
-    const rawAnswer =
-      (aiResponse as any)?.choices?.[0]?.message?.content || 'No se pudo generar una respuesta.';
-
-    let responseText = sanitizeAnswer(rawAnswer);
-    responseText = postValidateAnswer(responseText, finalContext);
-
-    const sources = extractSources(finalContext, intent);
-    const tokensUsed = (aiResponse as any)?.usage?.total_tokens;
-    const durationMs = Date.now() - startTime;
-
-    // ── 13. Save query log ─────────────────────────────────────
     await saveQueryLog({
-      workspaceId,
-      userId,
+      workspaceId: authorization.workspace_id,
+      userId: authorization.user_id,
       sessionId,
       question,
       intent,
       scope,
-      documentId,
+      route: safeCurrentRoute,
+      documentIds: evidenceSummary.document_ids,
+      chunkIds: evidenceSummary.chunk_ids,
+      sourceIds: evidenceSummary.source_ids,
+      tokenGrantId: authorization.token_grant_id,
       contextUsed: {
-        hasUserContext: Object.keys(userContext).length > 0,
-        structuredRecords: Array.isArray(structuredContext)
-          ? structuredContext.length
-          : structuredContext
-            ? 1
-            : 0,
-        ragChunksCount: Array.isArray(ragContext) ? ragContext.length : 0,
-        mode,
-        hasEvidence,
-        currentRoute: currentRoute ?? null,
-        routeContext: {
-          screen_name: routeContext.screen_name,
-          available_actions: routeContext.available_actions,
-        },
+        ...telemetryContext,
+        prompt_version: LUCIA_PROMPT_VERSION,
+        model_called: true,
+        model_used: LUCIA_MODEL,
+        evidence_status: intent === 'module_design_help' ? 'design_context' : 'verified',
       },
-      responseText,
-      tokensUsed,
-      durationMs,
-    }).catch((err) => console.error('[LucIA] Log save error:', err));
+      responseText: answer,
+      inputTokens,
+      outputTokens,
+      durationMs: Date.now() - startedAt,
+      hasEvidence: true,
+    });
 
-    if (isCollaborationRequest) {
-      await recordCollaborationAiUsage(workspaceId, userId, sessionId);
+    if (isCollaborationRoute && authorization.user_id && authorization.workspace_id) {
+      await recordCollaborationUsage(authorization.workspace_id, authorization.user_id, sessionId);
     }
 
     return NextResponse.json({
-      answer: responseText,
+      answer,
       intent,
       mode,
-      sources,
-      confidence: hasEvidence ? 'verified' : 'none',
+      sources: evidenceSummary.source_ids.map((id) => ({ id })),
+      evidence: evidenceSummary.claims,
+      confidence:
+        answer === NO_EVIDENCE_RESPONSE
+          ? 'none'
+          : intent === 'module_design_help'
+            ? 'contextual'
+            : 'verified',
       contextSummary: {
-        structuredRecords: Array.isArray(structuredContext)
-          ? structuredContext.length
-          : structuredContext
-            ? 1
-            : 0,
-        ragChunks: Array.isArray(ragContext) ? ragContext.length : 0,
-        hasUserContext: Object.keys(userContext).length > 0,
-        ragActive: Array.isArray(ragContext) && ragContext.length > 0,
-        screen: routeContext.screen_name,
+        authorizedDocuments: authorization.allowed_document_ids.length,
+        ragChunks: evidenceSummary.chunk_ids.length,
+        hasEvidence: true,
+      },
+      telemetry: {
+        documentIds: evidenceSummary.document_ids,
+        chunkIds: evidenceSummary.chunk_ids,
+        inputTokens: inputTokens || 0,
+        outputTokens: outputTokens || 0,
+        estimatedCostUsd,
+        latencyMs: Date.now() - startedAt,
+        errorCode: answer === NO_EVIDENCE_RESPONSE ? 'POST_VALIDATION_FAILED' : null,
       },
     });
-  } catch (err) {
-    console.error('[LucIA] /api/ai/ask error:', err);
-    return NextResponse.json(
-      {
-        error: 'Error interno del servidor',
-        details: err instanceof Error ? err.message : String(err),
-      },
-      { status: 500 }
-    );
+  } catch (error) {
+    const formatted = aiErrorResponse(error);
+    return NextResponse.json(formatted.body, { status: formatted.status });
   }
 }

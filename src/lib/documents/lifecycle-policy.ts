@@ -121,7 +121,9 @@ export function evaluateDocumentDisposition(
       isTrashed,
       withinRecoveryPeriod,
       canTrash: false,
-      canCancel: false,
+      // Legal Hold preserves the document and its evidence, but it does not
+      // prevent the owner from ending an active workflow.
+      canCancel: workflowActive,
       canRestore: isTrashed,
       canPurgeFromTrash: false,
       canDirectPurgeDraft: false,
@@ -148,6 +150,9 @@ export function evaluateDocumentDisposition(
   }
 
   if (isTrashed) {
+    // Drafts keep the normal 30-day restore window, but it is not a mandatory
+    // retention period: their owner may purge them before that window expires.
+    const draftRecoveryIsOptional = isDraft;
     return {
       legalHoldActive,
       retentionActive,
@@ -157,10 +162,11 @@ export function evaluateDocumentDisposition(
       canTrash: false,
       canCancel: false,
       canRestore: true,
-      canPurgeFromTrash: !withinRecoveryPeriod,
+      canPurgeFromTrash: draftRecoveryIsOptional || !withinRecoveryPeriod,
       canDirectPurgeDraft: false,
       canDirectPurge: false,
-      blockingCode: withinRecoveryPeriod ? 'RECOVERY_PERIOD' : 'NONE',
+      blockingCode:
+        withinRecoveryPeriod && !draftRecoveryIsOptional ? 'RECOVERY_PERIOD' : 'NONE',
     };
   }
 
@@ -191,8 +197,8 @@ export function evaluateDocumentDisposition(
     canCancel: false,
     canRestore: false,
     canPurgeFromTrash: false,
-    canDirectPurgeDraft: isDraft,
-    canDirectPurge: directPurgeEligibleState && (isDraft || !activeParticipants),
+    canDirectPurgeDraft: false,
+    canDirectPurge: directPurgeEligibleState && !isDraft && !activeParticipants,
     blockingCode: 'NONE',
   };
 }

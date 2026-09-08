@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { hashSecret } from '@/lib/ai/security';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,18 +16,31 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Strategy 1: token matches a portal_token stored in a participant's JSONB
-    const { data: allDocs, error: scanError } = await supabaseAdmin
+    const tokenHash = hashSecret(token);
+    const { data: matchingDocs, error: scanError } = await supabaseAdmin
       .from('documentos')
-      .select('id, nombre, participantes')
-      .not('participantes', 'is', null);
+      .select('id, nombre, estado, participantes')
+      .contains('participantes', [{ portal_token_hash: tokenHash }])
+      .limit(2);
 
-    if (!scanError && allDocs) {
-      for (const doc of allDocs) {
+    if (!scanError && matchingDocs) {
+      for (const doc of matchingDocs) {
         const parts = doc.participantes as any[];
         if (!Array.isArray(parts)) continue;
-        const match = parts.find((p: any) => p.portal_token === token);
+        const match = parts.find((p: any) => p.portal_token_hash === tokenHash);
         if (match) {
+          if (
+            doc.estado === 'cancelado' ||
+            match.portal_token_invalidated_at ||
+            (match.portal_token_expires_at &&
+              new Date(match.portal_token_expires_at).getTime() <= Date.now()) ||
+            match.current_access === false
+          ) {
+            return NextResponse.json(
+              { error: 'Este enlace ya no está disponible.' },
+              { status: 410 }
+            );
+          }
           return NextResponse.json({
             documentName: doc.nombre || 'el documento',
             acto: match.acto || 'firmar',
@@ -36,53 +50,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Strategy 2: token is the document's UUID (used by send-reminder and enviar)
-    const { data: docById, error: byIdError } = await supabaseAdmin
-      .from('documentos')
-      .select('id, nombre, participantes')
-      .eq('id', token)
-      .maybeSingle();
-
-    if (!byIdError && docById) {
-      // Try to determine acto from participants (use first non-owner participant)
-      const parts = docById.participantes as any[];
-      const firstParticipant = Array.isArray(parts) ? parts.find((p: any) => !p.isCurrentUser) : null;
-      return NextResponse.json({
-        documentName: docById.nombre || 'el documento',
-        acto: firstParticipant?.acto || 'firmar',
-        participantName: firstParticipant?.nombre || firstParticipant?.name || null,
-      });
-    }
-
-    // Strategy 3: token matches documento_id (the client-side UUID)
-    const { data: docByDocId, error: byDocIdError } = await supabaseAdmin
-      .from('documentos')
-      .select('id, nombre, participantes')
-      .eq('documento_id', token)
-      .maybeSingle();
-
-    if (!byDocIdError && docByDocId) {
-      const parts = docByDocId.participantes as any[];
-      const firstParticipant = Array.isArray(parts) ? parts.find((p: any) => !p.isCurrentUser) : null;
-      return NextResponse.json({
-        documentName: docByDocId.nombre || 'el documento',
-        acto: firstParticipant?.acto || 'firmar',
-        participantName: firstParticipant?.nombre || firstParticipant?.name || null,
-      });
-    }
-
-    // Token not found — return generic fallback (don't 404, still show the portal)
-    return NextResponse.json({
-      documentName: 'el documento',
-      acto: 'firmar',
-      participantName: null,
-    });
+    return NextResponse.json({ error: 'Token inválido o vencido' }, { status: 404 });
   } catch (err: any) {
     console.error('[portal-participante/info] Error:', err?.message);
-    return NextResponse.json({
-      documentName: 'el documento',
-      acto: 'firmar',
-      participantName: null,
-    });
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
   }
 }

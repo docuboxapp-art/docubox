@@ -3,13 +3,21 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, Save, CheckCircle, AlertCircle, Info, ArrowLeft, ArrowRight, X, CheckCircle2, FileText, Settings, Send, Tag, Search, Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Type, Strikethrough, Link, Indent, Outdent, Highlighter, Minus, Star, Layers, Image as ImageIcon, Table as TableIcon, Hash, Columns, Layout } from 'lucide-react';
+import { Eye, Save, CheckCircle, AlertCircle, Info, ArrowLeft, ArrowRight, X, CheckCircle2, FileText, Settings, Send, Tag, Search, Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Type, Strikethrough, Link, Indent, Outdent, Highlighter, Minus, Star, Layers, Image as ImageIcon, Table as TableIcon, Hash, Columns, Layout, Maximize2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 import { FieldsSidebar } from '../components/FieldsSidebar';
 import { FieldPropertiesSidebar, InsertedField } from '../components/FieldPropertiesSidebar';
 import { MultiPageEditor, MultiPageEditorHandle, PaperSize, PageOrientation, PageMargins } from '../components/DocumentPaginator';
 import AppLogo from '@/components/ui/AppLogo';
+import { TemplateDocumentSettingsPanel } from '@/components/templates/TemplateDocumentSettingsPanel';
+import {
+  DEFAULT_TEMPLATE_DOCUMENT_SETTINGS,
+  readTemplateDocumentSettings,
+  type TemplateDocumentSettings,
+  type TemplatePaperSize,
+} from '@/lib/templates/document-settings';
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
@@ -61,23 +69,14 @@ interface PublicacionData {
 const AREAS = ['Comercial', 'Legal', 'Recursos Humanos', 'Finanzas', 'Operaciones', 'Dirección General'];
 const TIPOS_PLANTILLA = ['Externa (para firmar por clientes)', 'Interna (uso interno)', 'Mixta'];
 const ESTADOS_PLANTILLA = ['Borrador', 'En revisión', 'Publicada', 'Archivada'];
-const TAMANOS_HOJA = ['Carta (Letter)', 'Oficio (Legal)', 'A4', 'A3', 'A5', 'Tabloide'];
-
-const DOCUBOX_TEMPLATE_BRAND = `
-  <div data-docubox-template-brand="2026" contenteditable="false" style="display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:2px solid #1E6BFF;padding:0 0 14px;margin:0 0 24px;font-family:'Google Sans','Google Sans Text',Arial,sans-serif;">
-    <img data-in-figure="true" src="/assets/images/docubox-logo-2026.png" alt="Docubox" width="126" style="display:block;width:126px;height:auto;max-width:42%;margin:0;" />
-    <div style="text-align:right;line-height:1.35;">
-      <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#1E6BFF;text-transform:uppercase;">Documento Docubox</div>
-      <div style="margin-top:3px;font-size:9px;color:#64748B;">Plantilla documental</div>
-    </div>
-  </div>
-`;
-
-function ensureDocuboxTemplateBrand(html?: string | null) {
+function normalizeTemplateHtml(html?: string | null) {
   const content = html?.trim() || '<p><br></p>';
-  return content.includes('data-docubox-template-brand=')
-    ? content
-    : `${DOCUBOX_TEMPLATE_BRAND}${content}`;
+  const withoutLegacyBrand = content.replace(
+    /<div data-docubox-template-brand="2026"[\s\S]*?<\/div>\s*<\/div>\s*/i,
+    ''
+  );
+
+  return withoutLegacyBrand.trim() || '<p><br></p>';
 }
 
 const PUBLICACION_OPTIONS = [
@@ -2055,10 +2054,16 @@ function EtiquetasModal({
 function StepInfoGeneral({
   data,
   onChange,
+  margenes,
+  showRulers,
+  onDocumentSettingsChange,
   showValidationErrors,
 }: {
   data: InfoGeneralData;
   onChange: (updates: Partial<InfoGeneralData>) => void;
+  margenes: PageMargins;
+  showRulers: boolean;
+  onDocumentSettingsChange: (settings: TemplateDocumentSettings) => void;
   showValidationErrors?: boolean;
 }) {
   const [grupos, setGrupos] = useState<GrupoTipoDocumento[]>([]);
@@ -2100,196 +2105,80 @@ function StepInfoGeneral({
   };
 
   const selectedTipo = tiposDocumento.find((t) => t.id === data.tipoDocumentoId);
-  const selectedGrupo = grupos.find((g) => g.id === data.grupotipoId);
   const selectedEtiquetas = etiquetas.filter((e) => data.etiquetasIds.includes(e.id));
+  const documentSettings: TemplateDocumentSettings = {
+    paperSize: (data.hojaTamano as TemplatePaperSize) || DEFAULT_TEMPLATE_DOCUMENT_SETTINGS.paperSize,
+    orientation: data.hojaOrientacion,
+    margins: margenes,
+    showRulers,
+  };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
-      <div className="mx-auto w-full max-w-6xl">
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <div className="flex items-center gap-3 border-b border-slate-200 px-6 py-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 text-primary">
-              <FileText size={17} />
+    <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-5 lg:px-6">
+      <div className="mx-auto grid w-full max-w-[1480px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <FileText size={19} />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-950">Datos de la plantilla</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Información básica, clasificación y formato del documento.</p>
+              <h2 className="text-base font-700 text-slate-950">Propiedades de la plantilla</h2>
+              <p className="mt-0.5 text-sm text-slate-500">Define la información y clasificación de la plantilla.</p>
             </div>
           </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2">
-              {/* Nombre */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1">
-                  Nombre de la plantilla <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={data.nombre}
-                  onChange={(e) => onChange({ nombre: e.target.value })}
-                  placeholder="Nombre de la plantilla"
-                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 ${showValidationErrors && !data.nombre.trim() ? 'border-red-300 bg-red-50/30' : 'border-gray-200'}`}
-                />
-                {showValidationErrors && !data.nombre.trim() && (
-                  <p className="text-xs text-red-500 mt-1">Este campo es obligatorio</p>
-                )}
-              </div>
+          <div className="space-y-4 p-5">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Nombre de la plantilla <span className="text-red-500">*</span></label>
+              <input type="text" value={data.nombre} onChange={(e) => onChange({ nombre: e.target.value })} placeholder="Nombre de la plantilla" className={`h-10 w-full rounded-lg border px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 ${showValidationErrors && !data.nombre.trim() ? 'border-red-300 bg-red-50/30' : 'border-slate-200'}`} />
+              {showValidationErrors && !data.nombre.trim() && <p className="mt-1 text-xs text-red-500">Este campo es obligatorio</p>}
+            </div>
 
-              {/* Descripción */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Descripción</label>
-                <textarea
-                  value={data.descripcion}
-                  onChange={(e) => onChange({ descripcion: e.target.value })}
-                  placeholder="Descripción de la plantilla"
-                  rows={2}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 resize-none"
-                />
-              </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Descripción</label>
+              <textarea value={data.descripcion} onChange={(e) => onChange({ descripcion: e.target.value })} placeholder="Añade un resumen o notas sobre el contenido de la plantilla." rows={3} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+            </div>
 
-              {/* Número de oficio / identificador */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Número de oficio / documento</label>
-                <input
-                  type="text"
-                  value={data.numeroOficio}
-                  onChange={(e) => onChange({ numeroOficio: e.target.value })}
-                  placeholder="Ej. OF-2026-001"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
-                />
-              </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Número de oficio / documento</label>
+              <input type="text" value={data.numeroOficio} onChange={(e) => onChange({ numeroOficio: e.target.value })} placeholder="Ej. OF-2026-001" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+            </div>
 
-              {/* Grupo de documento — read-only, auto-filled */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Grupo de documento</label>
-                <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed min-h-[38px] flex items-center">
-                  {loadingData
-                    ? 'Cargando...'
-                    : selectedGrupo
-                    ? selectedGrupo.nombre
-                    : <span className="text-gray-400">Se asigna automáticamente</span>
-                  }
+            <div>
+              <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700"><Layers size={14} className="text-slate-400" />Tipo de documento <span className="font-normal text-slate-400">(Opcional)</span></label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input type="text" readOnly value={selectedTipo?.nombre || ''} placeholder={loadingData ? 'Cargando...' : 'Seleccionar tipo de documento...'} disabled={loadingData} className="h-10 w-full cursor-default rounded-lg border border-slate-200 bg-white px-3 pr-8 text-sm outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-50 disabled:text-slate-400" />
+                  {data.tipoDocumentoId && <button type="button" onClick={() => onChange({ tipoDocumentoId: '', grupotipoId: '' })} aria-label="Quitar tipo de documento" title="Quitar tipo de documento" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"><X size={14} /></button>}
                 </div>
+                <button type="button" onClick={() => setShowTipoModal(true)} disabled={loadingData} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"><Search size={14} />Buscar</button>
               </div>
+            </div>
 
-              {/* Tipo de documento — input + Buscar button */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1">
-                  Tipo de documento <span className="text-red-500">*</span>
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => !loadingData && setShowTipoModal(true)}
-                    className={`flex-1 px-3 py-2 text-sm border rounded-lg min-h-[38px] flex items-center text-left transition-colors ${loadingData ? 'bg-gray-50 border-gray-200 cursor-not-allowed' : 'bg-white border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 cursor-pointer'} ${showValidationErrors && !data.tipoDocumentoId ? 'border-red-300 bg-red-50/30' : ''}`}
-                  >
-                    {loadingData
-                      ? <span className="text-gray-400">Cargando...</span>
-                      : selectedTipo
-                      ? <span className="text-gray-900">{selectedTipo.nombre}</span>
-                      : <span className="text-gray-400">Seleccionar tipo de documento...</span>
-                    }
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowTipoModal(true)}
-                    disabled={loadingData}
-                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 whitespace-nowrap"
-                  >
-                    <Search size={14} />
-                    Buscar
-                  </button>
+            <div>
+              <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700"><Tag size={14} className="text-slate-400" />Etiquetas</label>
+              <div className="flex gap-2">
+                <div className="flex min-h-10 flex-1 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  {selectedEtiquetas.length === 0 ? <span className="text-slate-400">Seleccionar etiquetas...</span> : selectedEtiquetas.map((tag) => (
+                    <span key={tag.id} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: tag.color || '#6B7280' }}>
+                      {tag.nombre}<button type="button" onClick={() => onChange({ etiquetasIds: data.etiquetasIds.filter((id) => id !== tag.id) })} aria-label={`Quitar etiqueta ${tag.nombre}`} className="ml-0.5 transition-opacity hover:opacity-70"><X size={10} /></button>
+                    </span>
+                  ))}
                 </div>
-                {showValidationErrors && !data.tipoDocumentoId && (
-                  <p className="text-xs text-red-500 mt-1">Este campo es obligatorio</p>
-                )}
-              </div>
-
-              {/* Etiquetas — input + Buscar button */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                  <Tag size={12} className="text-gray-400" />
-                  Etiquetas
-                </label>
-                <div className="flex gap-2">
-                  <div className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white min-h-[38px] flex flex-wrap items-center gap-1.5">
-                    {selectedEtiquetas.length === 0
-                      ? <span className="text-gray-400">Seleccionar etiquetas...</span>
-                      : selectedEtiquetas.map((tag) => (
-                          <span
-                            key={tag.id}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white"
-                            style={{ backgroundColor: tag.color || '#6B7280' }}
-                          >
-                            {tag.nombre}
-                            <button
-                              type="button"
-                              onClick={() => onChange({ etiquetasIds: data.etiquetasIds.filter((x) => x !== tag.id) })}
-                              className="hover:opacity-70 transition-opacity ml-0.5"
-                            >
-                              <X size={10} />
-                            </button>
-                          </span>
-                        ))
-                    }
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowEtiquetasModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors whitespace-nowrap"
-                  >
-                    <Search size={14} />
-                    Buscar
-                  </button>
-                </div>
-              </div>
-
-              {/* Configuración de hoja */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1">
-                  Configuración de hoja <span className="text-red-500">*</span>
-                  <span className="text-xs font-normal text-gray-400">(Tamaño obligatorio)</span>
-                </label>
-                <div className={`flex gap-2 items-stretch ${showValidationErrors && !data.hojaTamano ? 'ring-1 ring-red-300 rounded-lg' : ''}`}>
-                  <div className="flex-1">
-                    <select
-                      value={data.hojaTamano}
-                      onChange={(e) => onChange({ hojaTamano: e.target.value })}
-                      className={`w-full px-3 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 min-h-[38px] ${showValidationErrors && !data.hojaTamano ? 'border-red-300' : 'border-gray-200'}`}
-                    >
-                      <option value="">Seleccionar tamaño...</option>
-                      {TAMANOS_HOJA.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    {showValidationErrors && !data.hojaTamano && (
-                      <p className="text-xs text-red-500 mt-1">Selecciona un tamaño de hoja</p>
-                    )}
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <button
-                      type="button"
-                      onClick={() => onChange({ hojaOrientacion: 'vertical' })}
-                      className={`flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium border rounded-lg min-h-[38px] transition-colors ${
-                        data.hojaOrientacion === 'vertical' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
-                      }`}
-                    >
-                      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><rect x="0" y="0" width="10" height="14" rx="1" /></svg>
-                      Vertical
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onChange({ hojaOrientacion: 'horizontal' })}
-                      className={`flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium border rounded-lg min-h-[38px] transition-colors ${
-                        data.hojaOrientacion === 'horizontal' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
-                      }`}
-                    >
-                      <svg width="14" height="10" viewBox="0 0 14 10" fill="currentColor"><rect x="0" y="0" width="14" height="10" rx="1" /></svg>
-                      Horizontal
-                    </button>
-                  </div>
-                </div>
+                <button type="button" onClick={() => setShowEtiquetasModal(true)} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50"><Search size={14} />Buscar</button>
               </div>
             </div>
           </div>
+        </section>
+
+        <div className="h-fit xl:sticky xl:top-5">
+          <TemplateDocumentSettingsPanel
+            key={JSON.stringify(documentSettings)}
+            initialSettings={documentSettings}
+            onSave={(settings) => {
+              onChange({ hojaTamano: settings.paperSize, hojaOrientacion: settings.orientation });
+              onDocumentSettingsChange(settings);
+            }}
+          />
         </div>
       </div>
 
@@ -2524,10 +2413,12 @@ function StepPublicacion({
 function NuevaPlantillaPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { activeWorkspace } = useWorkspace();
+  const containerRef = useRef<HTMLDivElement>(null);
   const templateId = searchParams?.get('id') || null;
 
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
-  const [currentHtml, setCurrentHtml] = useState(() => ensureDocuboxTemplateBrand());
+  const [currentHtml, setCurrentHtml] = useState(() => normalizeTemplateHtml());
   const [showPreview, setShowPreview] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingTemplate, setIsLoadingTemplate] = useState(false);
@@ -2536,18 +2427,19 @@ function NuevaPlantillaPage() {
   const [activePage, setActivePage] = useState(1);
   const [zoom, setZoom] = useState(100);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const savedTemplateIdRef = useRef<string | null>(templateId);
 
   // Editor state
-  const [showRulers, setShowRulers] = useState(false);
+  const [showRulers, setShowRulers] = useState(DEFAULT_TEMPLATE_DOCUMENT_SETTINGS.showRulers);
   const [showHeader, setShowHeader] = useState(false);
   const [showFooter, setShowFooter] = useState(false);
   const [firstPageDifferent, setFirstPageDifferent] = useState(false);
   const [showNumerosModal, setShowNumerosModal] = useState(false);
   const [imageSizeData, setImageSizeData] = useState<{ figure: HTMLElement; originalWidth: number; originalHeight: number; currentWidth: number } | null>(null);
-  const [margenes, setMargenes] = useState<PageMargins>({ top: 2.54, bottom: 2.54, left: 3.17, right: 3.17 });
+  const [margenes, setMargenes] = useState<PageMargins>(DEFAULT_TEMPLATE_DOCUMENT_SETTINGS.margins);
 
   // Toolbar shared state (lifted to avoid undefined refs in bottom bar)
   const [showFindReplace, setShowFindReplace] = useState(false);
@@ -2583,8 +2475,8 @@ function NuevaPlantillaPage() {
     etiquetasIds: [],
     grupotipoId: '',
     tipoDocumentoId: '',
-    hojaTamano: '',
-    hojaOrientacion: 'vertical',
+    hojaTamano: DEFAULT_TEMPLATE_DOCUMENT_SETTINGS.paperSize,
+    hojaOrientacion: DEFAULT_TEMPLATE_DOCUMENT_SETTINGS.orientation,
   });
 
   const [pubData, setPubData] = useState<PublicacionData>({
@@ -2593,6 +2485,23 @@ function NuevaPlantillaPage() {
     estadoPlantilla: 'Borrador',
     versionPublicada: '1.0',
   });
+
+  useEffect(() => {
+    if (templateId) return;
+
+    const settings = readTemplateDocumentSettings(activeWorkspace?.id);
+    const animationFrame = window.requestAnimationFrame(() => {
+      setInfoData((current) => ({
+        ...current,
+        hojaTamano: settings.paperSize,
+        hojaOrientacion: settings.orientation,
+      }));
+      setMargenes(settings.margins);
+      setShowRulers(settings.showRulers);
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [activeWorkspace?.id, templateId]);
 
   const applyPageNumberConfig = useCallback(
     (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => {
@@ -2655,7 +2564,7 @@ function NuevaPlantillaPage() {
           versionPublicada: t.version_publicada || '1.0',
         });
 
-        setCurrentHtml(ensureDocuboxTemplateBrand(t.contenido_html));
+        setCurrentHtml(normalizeTemplateHtml(t.contenido_html));
 
         // Restore editor layout state
         if (t.margenes) setMargenes(t.margenes);
@@ -2704,6 +2613,52 @@ function NuevaPlantillaPage() {
     return 0;
   }, []);
 
+  const findInsertedFieldElement = useCallback((fieldId: string): HTMLElement | null => {
+    return (
+      Array.from(document.querySelectorAll<HTMLElement>('[data-field-id]')).find(
+        (element) => element.getAttribute('data-field-id') === fieldId
+      ) ?? null
+    );
+  }, []);
+
+  const clearInsertedFieldHighlights = useCallback(() => {
+    document.querySelectorAll<HTMLElement>('[data-field-id]').forEach((element) => {
+      element.removeAttribute('data-field-selected');
+      element.style.outline = '';
+      element.style.outlineOffset = '';
+      element.style.boxShadow = '';
+    });
+  }, []);
+
+  const selectInsertedField = useCallback(
+    (fieldId: string, scrollIntoView = true) => {
+      const fieldElement = findInsertedFieldElement(fieldId);
+      if (!fieldElement) {
+        setInsertedFields((current) => current.filter((field) => field.id !== fieldId));
+        setSelectedFieldId(null);
+        addToast('error', 'El campo ya no existe en el documento y se retiró de la lista.');
+        return false;
+      }
+
+      clearInsertedFieldHighlights();
+      fieldElement.setAttribute('data-field-selected', 'true');
+      fieldElement.style.outline = '2px solid #2563EB';
+      fieldElement.style.outlineOffset = '2px';
+      fieldElement.style.boxShadow = '0 0 0 4px rgba(37, 99, 235, 0.14)';
+      setSelectedFieldId(fieldId);
+      if (scrollIntoView) {
+        fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      }
+      return true;
+    },
+    [addToast, clearInsertedFieldHighlights, findInsertedFieldElement]
+  );
+
+  const notifyEditorMutation = useCallback((element: HTMLElement) => {
+    const pageElement = element.closest('[data-page-content]') as HTMLElement | null;
+    pageElement?.dispatchEvent(new Event('input', { bubbles: true }));
+  }, []);
+
   const handleEditorInteraction = useCallback(() => {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -2711,7 +2666,10 @@ function NuevaPlantillaPage() {
       let node: Node | null = range.startContainer;
       let pageEl: HTMLElement | null = null;
       while (node) {
-        if (node instanceof HTMLElement && node.contentEditable === 'true') {
+        if (
+          node instanceof HTMLElement &&
+          node.matches('[data-page-content][contenteditable="true"]')
+        ) {
           pageEl = node;
           break;
         }
@@ -2730,25 +2688,20 @@ function NuevaPlantillaPage() {
     setHasUnsavedChanges(true);
   }, [getPageIndexForNode]);
 
-  const handleDocumentAreaClick = useCallback((e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    const chip = target.closest('[data-field-id]') as HTMLElement | null;
-    if (chip) {
-      const fieldId = chip.getAttribute('data-field-id');
+  const handleDocumentAreaClick = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const chip = target.closest('[data-field-id]') as HTMLElement | null;
+      const fieldId = chip?.getAttribute('data-field-id');
       if (fieldId) {
-        setSelectedFieldId(fieldId);
-        document.querySelectorAll('[data-field-id]').forEach((el) => {
-          (el as HTMLElement).style.outline = '';
-        });
-        chip.style.outline = '2px solid #3B82F6';
+        selectInsertedField(fieldId, false);
         return;
       }
-    }
-    setSelectedFieldId(null);
-    document.querySelectorAll('[data-field-id]').forEach((el) => {
-      (el as HTMLElement).style.outline = '';
-    });
-  }, []);
+      setSelectedFieldId(null);
+      clearInsertedFieldHighlights();
+    },
+    [clearInsertedFieldHighlights, selectInsertedField]
+  );
 
   const handleUpdateField = useCallback((id: string, updates: Partial<InsertedField>) => {
     setInsertedFields((prev) =>
@@ -2759,24 +2712,82 @@ function NuevaPlantillaPage() {
       if (chip) {
         chip.textContent = `{{${updates.customName}}}`;
         chip.setAttribute('data-field-label', updates.customName);
+        notifyEditorMutation(chip);
       }
     }
-  }, []);
+  }, [notifyEditorMutation]);
+
+  const handleDeleteField = useCallback(
+    (fieldId: string) => {
+      const fieldElement = findInsertedFieldElement(fieldId);
+      if (fieldElement) {
+        const pageElement = fieldElement.closest('[data-page-content]') as HTMLElement | null;
+        fieldElement.remove();
+        pageElement?.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      setInsertedFields((current) => current.filter((field) => field.id !== fieldId));
+      setSelectedFieldId((current) => (current === fieldId ? null : current));
+      clearInsertedFieldHighlights();
+      setHasUnsavedChanges(true);
+    },
+    [clearInsertedFieldHighlights, findInsertedFieldElement]
+  );
 
   const insertGeneralField = useCallback(
-    (_editor: unknown, fieldType: string, label: string) => {
+    (
+      _editor: unknown,
+      fieldType: string,
+      label: string,
+      options?: { participantField?: boolean; required?: boolean }
+    ) => {
       const fieldId = `field-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const chip = `<span contenteditable="false" data-field-id="${fieldId}" data-field-label="${label}" data-field-type="${fieldType}" style="display:inline;background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;border-radius:4px;padding:1px 7px;font-size:inherit;font-family:inherit;line-height:inherit;user-select:none;cursor:pointer;white-space:nowrap;" title="Clic para editar propiedades">{{${label}}}</span>`;
+      const participantAttributes = options?.participantField
+        ? ' data-field-scope="participant" data-participant-assignment="unassigned"'
+        : ' data-field-scope="general"';
+      const requiredAttribute = options?.required ? ' data-field-required="true"' : '';
+      const chip = `<span contenteditable="false" data-field-id="${fieldId}" data-field-label="${label}" data-field-type="${fieldType}"${participantAttributes}${requiredAttribute} style="display:inline;background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;border-radius:4px;padding:1px 7px;font-size:inherit;font-family:inherit;line-height:inherit;user-select:none;cursor:pointer;white-space:nowrap;" title="Clic para editar propiedades">{{${label}}}</span>`;
+      const insertedField = (pageIndex: number): InsertedField => ({
+        id: fieldId,
+        label,
+        fieldType,
+        customName: label,
+        showLabelInDocument: false,
+        options: [],
+        pageIndex,
+        scope: options?.participantField ? 'participant' : 'general',
+        required: options?.required === true,
+        assignedParticipantId: null,
+      });
 
       const sel = window.getSelection();
       let pageIndex = 0;
+
+      const commitInsertion = (targetPage: HTMLElement, targetPageIndex: number) => {
+        const fieldElement = findInsertedFieldElement(fieldId);
+        if (!fieldElement) {
+          addToast('error', 'No fue posible colocar el campo en el documento.');
+          return false;
+        }
+        setInsertedFields((current) =>
+          current.some((field) => field.id === fieldId)
+            ? current
+            : [...current, insertedField(targetPageIndex)]
+        );
+        selectInsertedField(fieldId);
+        notifyEditorMutation(targetPage);
+        setHasUnsavedChanges(true);
+        return true;
+      };
 
       if (sel && sel.rangeCount > 0) {
         const range = sel.getRangeAt(0);
         let node: Node | null = range.commonAncestorContainer;
         let pageEl: HTMLElement | null = null;
         while (node) {
-          if (node instanceof HTMLElement && node.contentEditable === 'true') {
+          if (
+            node instanceof HTMLElement &&
+            node.matches('[data-page-content][contenteditable="true"]')
+          ) {
             pageEl = node;
             break;
           }
@@ -2801,10 +2812,7 @@ function NuevaPlantillaPage() {
               pageIndex,
             };
           }
-          const newField: InsertedField = { id: fieldId, label, fieldType, customName: label, showLabelInDocument: false, options: [], pageIndex };
-          setInsertedFields((prev) => [...prev, newField]);
-          setHasUnsavedChanges(true);
-          return;
+          if (commitInsertion(pageEl, pageIndex)) return;
         }
       }
 
@@ -2819,18 +2827,25 @@ function NuevaPlantillaPage() {
             range.setStart(saved.node, saved.offset);
             range.collapse(true);
             restoreSel.addRange(range);
-            document.execCommand('insertHTML', false, chip);
-            const newField: InsertedField = { id: fieldId, label, fieldType, customName: label, showLabelInDocument: false, options: [], pageIndex: saved.pageIndex };
-            setInsertedFields((prev) => [...prev, newField]);
-            setHasUnsavedChanges(true);
-            return;
+            const fragment = range.createContextualFragment(chip);
+            const lastNode = fragment.lastChild;
+            range.insertNode(fragment);
+            if (lastNode) {
+              range.setStartAfter(lastNode);
+              range.collapse(true);
+              restoreSel.removeAllRanges();
+              restoreSel.addRange(range);
+            }
+            if (commitInsertion(saved.pageEl, saved.pageIndex)) return;
           }
         } catch {
           // fall through
         }
       }
 
-      const firstPage = document.querySelector('[contenteditable="true"]') as HTMLElement | null;
+      const firstPage = document.querySelector(
+        '[data-page-content][contenteditable="true"]'
+      ) as HTMLElement | null;
       if (firstPage) {
         firstPage.focus();
         const fallbackSel = window.getSelection();
@@ -2840,18 +2855,32 @@ function NuevaPlantillaPage() {
           range.selectNodeContents(firstPage);
           range.collapse(false);
           fallbackSel.addRange(range);
-          document.execCommand('insertHTML', false, chip);
-          const newField: InsertedField = { id: fieldId, label, fieldType, customName: label, showLabelInDocument: false, options: [], pageIndex: 0 };
-          setInsertedFields((prev) => [...prev, newField]);
-          setHasUnsavedChanges(true);
+          const fragment = range.createContextualFragment(chip);
+          const lastNode = fragment.lastChild;
+          range.insertNode(fragment);
+          if (lastNode) {
+            range.setStartAfter(lastNode);
+            range.collapse(true);
+            fallbackSel.removeAllRanges();
+            fallbackSel.addRange(range);
+          }
+          commitInsertion(firstPage, 0);
         }
+      } else {
+        addToast('error', 'No hay una página disponible para colocar el campo.');
       }
     },
-    [getPageIndexForNode]
+    [
+      addToast,
+      findInsertedFieldElement,
+      getPageIndexForNode,
+      notifyEditorMutation,
+      selectInsertedField,
+    ]
   );
 
   const buildPayload = useCallback((estado: string, estadoPlantilla: string) => {
-    const html = ensureDocuboxTemplateBrand(multiPageEditorRef.current?.getHTML() ?? currentHtml);
+    const html = normalizeTemplateHtml(multiPageEditorRef.current?.getHTML() ?? currentHtml);
     return {
       nombre: infoData.nombre || 'Nueva Plantilla',
       descripcion: infoData.descripcion,
@@ -2923,6 +2952,15 @@ function NuevaPlantillaPage() {
     } else {
       router.push('/plantillas');
     }
+  };
+
+  const handleToggleFullscreen = () => {
+    if (!isFullscreen) {
+      containerRef.current?.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+    setIsFullscreen((value) => !value);
   };
 
   const handlePublish = useCallback(async () => {
@@ -3026,7 +3064,7 @@ function NuevaPlantillaPage() {
   const wizardProgress = ((wizardStep - 1) / (WIZARD_STEPS.length - 1)) * 100;
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950">
+    <div ref={containerRef} className="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950">
 
       {/* Loading overlay when fetching existing template */}
       {isLoadingTemplate && (
@@ -3039,19 +3077,19 @@ function NuevaPlantillaPage() {
       )}
 
       {/* ── Top header ── */}
-      <header className="z-20 flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
+      <header className="flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-4">
-          <div className="shrink-0">
-            <AppLogo size={34} />
-          </div>
-          <div className="hidden h-8 w-px bg-slate-200 xl:block" />
-          <div className="hidden min-w-0 xl:block">
+          <AppLogo size={34} />
+          <div className="hidden h-8 w-px bg-slate-200 lg:block" />
+          <div className="hidden min-w-0 lg:block">
             <p className="truncate text-sm font-700 text-slate-950">Nueva plantilla</p>
-            <p className="truncate text-xs text-slate-500">Espacio Personal</p>
+            <p className="truncate text-xs text-slate-500">
+              {activeWorkspace?.name || 'Espacio personal'}
+            </p>
           </div>
         </div>
 
-        <nav className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1">
+        <nav className="hidden items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 xl:flex">
           {WIZARD_STEPS.map((step, idx) => {
             const StepIcon = step.icon;
             const isActive = step.id === wizardStep;
@@ -3062,7 +3100,7 @@ function NuevaPlantillaPage() {
                   onClick={() => (isCompleted || isActive) && setWizardStep(step.id as 1 | 2 | 3)}
                   aria-label={step.label}
                   title={step.label}
-                  className={`flex h-8 items-center gap-2 rounded-md px-2 text-xs font-600 transition-colors sm:px-3 ${
+                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-xs font-600 transition-colors ${
                     isActive
                       ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
                       : isCompleted
@@ -3074,10 +3112,10 @@ function NuevaPlantillaPage() {
                   }`}>
                     {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                   </span>
-                  <span className="hidden lg:inline">{step.label}</span>
+                  <span>{step.label}</span>
                 </button>
                 {idx < WIZARD_STEPS.length - 1 && (
-                  <div className={`hidden h-px w-3 sm:block ${step.id < wizardStep ? 'bg-primary/50' : 'bg-slate-200'}`} />
+                  <div className={`h-px w-3 ${step.id < wizardStep ? 'bg-primary/50' : 'bg-slate-200'}`} />
                 )}
               </React.Fragment>
             );
@@ -3097,8 +3135,17 @@ function NuevaPlantillaPage() {
           )}
           <button
             type="button"
+            onClick={handleToggleFullscreen}
+            title={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-slate-500 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950"
+          >
+            <Maximize2 size={17} />
+          </button>
+          <button
+            type="button"
             onClick={handleExitClick}
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            title="Salir"
+            className="ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
           >
             <X size={16} />
             <span className="hidden sm:inline">Salir</span>
@@ -3106,30 +3153,51 @@ function NuevaPlantillaPage() {
         </div>
       </header>
 
+      <div className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-4 py-2 xl:hidden">
+        <nav className="mx-auto flex min-w-max items-center gap-1">
+          {WIZARD_STEPS.map((step) => {
+            const StepIcon = step.icon;
+            const isActive = step.id === wizardStep;
+            const isCompleted = step.id < wizardStep;
+            return (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => (isCompleted || isActive) && setWizardStep(step.id as 1 | 2 | 3)}
+                className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-600 transition-colors ${isActive ? 'bg-primary/10 text-primary' : isCompleted ? 'text-slate-700' : 'text-slate-400'}`}
+              >
+                {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
+                {step.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
       {/* ── Body ── */}
       <div className="flex flex-1 flex-col overflow-hidden bg-slate-50">
-        <section className="shrink-0 border-b border-slate-200 bg-slate-50 px-7 py-5">
-          <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-8">
-            <div className="flex min-w-0 items-center gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-primary">
-                <ActiveWizardIcon size={22} />
+        <section className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-4 lg:px-6">
+          <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <ActiveWizardIcon size={19} />
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-xl font-semibold text-slate-950">{activeWizardStep.label}</h1>
-                  <span className="rounded-md bg-slate-200/80 px-2 py-1 text-xs font-medium text-slate-600">
+                  <h1 className="text-xl font-700 text-slate-950">{activeWizardStep.label}</h1>
+                  <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">
                     Paso {wizardStep} de {WIZARD_STEPS.length}
                   </span>
                 </div>
-                <p className="mt-1 truncate text-sm text-slate-500">{stepDescriptions[wizardStep]}</p>
+                <p className="mt-1 text-sm text-slate-500">{stepDescriptions[wizardStep]}</p>
               </div>
             </div>
-            <div className="hidden w-64 shrink-0 lg:block">
-              <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500">
+            <div className="w-full sm:w-60">
+              <div className="flex items-center justify-between text-xs font-600 text-slate-500">
                 <span>Progreso</span>
                 <span>{Math.round(wizardProgress)}%</span>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
                 <div
                   className="h-full rounded-full bg-primary transition-all duration-300"
                   style={{ width: `${wizardProgress}%` }}
@@ -3144,6 +3212,13 @@ function NuevaPlantillaPage() {
           <StepInfoGeneral
             data={infoData}
             onChange={handleInfoChange}
+            margenes={margenes}
+            showRulers={showRulers}
+            onDocumentSettingsChange={(settings) => {
+              setMargenes(settings.margins);
+              setShowRulers(settings.showRulers);
+              setHasUnsavedChanges(true);
+            }}
             showValidationErrors={showValidationErrors}
           />
         )}
@@ -3158,13 +3233,10 @@ function NuevaPlantillaPage() {
                 selectedFieldId={selectedFieldId}
                 onInsertField={insertGeneralField}
                 onSelectField={(id) => {
-                  setSelectedFieldId(id);
-                  document.querySelectorAll('[data-field-id]').forEach((el) => {
-                    (el as HTMLElement).style.outline = '';
-                  });
-                  if (id) {
-                    const chip = document.querySelector(`[data-field-id="${id}"]`) as HTMLElement | null;
-                    if (chip) chip.style.outline = '2px solid #3B82F6';
+                  if (id) selectInsertedField(id);
+                  else {
+                    setSelectedFieldId(null);
+                    clearInsertedFieldHighlights();
                   }
                 }}
                 onUpdateField={() => {}}
@@ -3226,7 +3298,7 @@ function NuevaPlantillaPage() {
                       setCurrentHtml(html);
                       setHasUnsavedChanges(true);
                       updateWordCount();
-                      // Sync insertedFields: remove any field whose chip is no longer in the HTML
+                      // Keep the sidebar aligned with fields that truly exist in the document.
                       const parser = new DOMParser();
                       const doc = parser.parseFromString(html, 'text/html');
                       const presentIds = new Set(
@@ -3234,9 +3306,23 @@ function NuevaPlantillaPage() {
                           (el) => el.getAttribute('data-field-id') as string
                         )
                       );
-                      setInsertedFields((prev) => {
-                        const next = prev.filter((f) => presentIds.has(f.id));
-                        return next.length !== prev.length ? next : prev;
+                      setInsertedFields((current) => {
+                        let changed = false;
+                        const next = current
+                          .filter((field) => {
+                            const present = presentIds.has(field.id);
+                            if (!present) changed = true;
+                            return present;
+                          })
+                          .map((field) => {
+                            const fieldElement = findInsertedFieldElement(field.id);
+                            if (!fieldElement) return field;
+                            const nextPageIndex = getPageIndexForNode(fieldElement);
+                            if (nextPageIndex === field.pageIndex) return field;
+                            changed = true;
+                            return { ...field, pageIndex: nextPageIndex };
+                          });
+                        return changed ? next : current;
                       });
                     }}
                     onPageCountChange={(count) => {
@@ -3304,20 +3390,14 @@ function NuevaPlantillaPage() {
             <div className="hidden shrink-0 xl:flex">
               <FieldPropertiesSidebar
                 field={selectedField}
-                onClose={() => setSelectedFieldId(null)}
-                onUpdate={handleUpdateField}
-                allFields={insertedFields}
-                onSelectField={(id) => {
-                  setSelectedFieldId(id);
-                  document.querySelectorAll('[data-field-id]').forEach((el) => {
-                    (el as HTMLElement).style.outline = '';
-                  });
-                  const chip = document.querySelector(`[data-field-id="${id}"]`) as HTMLElement | null;
-                  if (chip) {
-                    chip.style.outline = '2px solid #3B82F6';
-                    chip.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                  }
+                onClose={() => {
+                  setSelectedFieldId(null);
+                  clearInsertedFieldHighlights();
                 }}
+                onUpdate={handleUpdateField}
+                onDeleteField={handleDeleteField}
+                allFields={insertedFields}
+                onSelectField={(id) => selectInsertedField(id)}
               />
             </div>
           </div>

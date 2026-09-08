@@ -2,10 +2,28 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
-import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
-import { Send, Search, User, Calendar, Clock, CheckCircle2, XCircle, List, LayoutGrid, CalendarDays, ChevronLeft, ChevronRight, Inbox, ChevronDown, Eye, Users, ChevronUp, Mail, AlertTriangle, Ban, AlertCircle, ArrowUpDown, PauseCircle, FileText, UserCheck } from 'lucide-react';
+import { Send, Search, User, Calendar, Clock, CheckCircle2, XCircle, List, LayoutGrid, CalendarDays, ChevronLeft, ChevronRight, Inbox, ChevronDown, Eye, Users, ChevronUp, Mail, AlertTriangle, Ban, AlertCircle, ArrowUpDown, PauseCircle, FileText, UserCheck, UserMinus } from 'lucide-react';
+
+interface ParticipantListItem {
+  id?: string | null;
+  userId?: string | null;
+  name: string;
+  email: string;
+  phone?: string;
+  notificationMethod?: 'email' | 'sms' | 'whatsapp' | 'docubox';
+  status?: string;
+  subEstado?: string;
+  rol?: string;
+  acto?: string;
+  rejectionMotivo?: string;
+  rejectionDescripcion?: string;
+  currentAccess?: boolean;
+  historicalParticipation?: boolean;
+  relationshipStatus?: string;
+  isCurrentUser?: boolean;
+}
 
 interface ParticipationRequest {
   id: string;
@@ -36,18 +54,7 @@ interface ParticipationRequest {
   message?: string;
   participants: number;
   etiquetas?: { nombre: string; color?: string }[];
-  participantList?: {
-    name: string;
-    email: string;
-    phone?: string;
-    notificationMethod?: 'email' | 'sms' | 'whatsapp' | 'docubox';
-    status?: string;
-    subEstado?: string;
-    rol?: string;
-    acto?: string;
-    rejectionMotivo?: string;
-    rejectionDescripcion?: string;
-  }[];
+  participantList?: ParticipantListItem[];
   signaturesTotal: number;
   signaturesDone: number;
   supabaseId?: string;
@@ -68,6 +75,27 @@ const MOTIVOS_CANCELACION = [
 const TERMINAL_STATUSES = ['completado', 'vencido', 'rechazado', 'cancelado'];
 // Statuses that count as "participated"
 const PARTICIPATED_STATUSES = ['Firmado', 'Rechazado', 'Aprobado', 'Cancelado'];
+
+async function cancelDocumentRequest(
+  req: ParticipationRequest,
+  motivo: string,
+  descripcion: string
+) {
+  const response = await fetch('/api/documentos/update-estado', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'cancelar',
+      documentoId: req.supabaseId ?? req.id,
+      motivo,
+      descripcion,
+    }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || 'No fue posible cancelar el documento.');
+  }
+}
 
 const statusFilterOptions = [
   { value: 'en-progreso', label: 'En Progreso' },
@@ -365,6 +393,114 @@ function ReminderModal({ participantName, participantEmail, documentName, onClos
   );
 }
 
+interface UninviteParticipantButtonProps {
+  request: ParticipationRequest;
+  participant: ParticipantListItem;
+  compact?: boolean;
+  onRevoked: (
+    requestId: string,
+    participant: ParticipantListItem,
+    hadEffectiveParticipation: boolean
+  ) => void;
+}
+
+function UninviteParticipantButton({
+  request,
+  participant,
+  compact = false,
+  onRevoked,
+}: UninviteParticipantButtonProps) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  if (participant.currentAccess === false || participant.isCurrentUser) return null;
+
+  async function handleConfirm() {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/documentos/update-estado', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'desinvitar',
+          documentoId: request.supabaseId ?? request.id,
+          participantId: participant.id || participant.userId,
+          participantEmail: participant.email,
+          motivo: 'OWNER_UNINVITED_PARTICIPANT',
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || 'No fue posible desinvitar al participante.');
+      }
+      onRevoked(request.id, participant, payload.hadEffectiveParticipation === true);
+      setOpen(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No fue posible desinvitar al participante.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Desinvitar participante"
+        aria-label={`Desinvitar a ${participant.name}`}
+        className={`inline-flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 ${compact ? 'h-7 w-7' : 'h-8 w-8'}`}
+      >
+        <UserMinus size={compact ? 12 : 14} />
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="uninvite-participant-title"
+            className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-red-50 text-red-600">
+                <UserMinus size={18} />
+              </span>
+              <h2 id="uninvite-participant-title" className="text-lg font-700 text-foreground">
+                Desinvitar participante
+              </h2>
+            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {participant.name} perderá el acceso futuro a <span className="font-600 text-foreground">{request.documentName}</span>. Si ya realizó una acción, su participación y evidencia permanecerán en el historial; si no participó, el documento dejará de aparecer en su espacio.
+            </p>
+            {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                disabled={loading}
+                className="h-10 rounded-md border border-border bg-white px-4 text-sm font-600 text-foreground hover:bg-muted/40 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirm}
+                disabled={loading}
+                className="h-10 rounded-md bg-red-600 px-4 text-sm font-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {loading ? 'Procesando...' : 'Desinvitar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Cancel Modal ─────────────────────────────────────────────────────────────
 interface CancelModalProps {
   req: ParticipationRequest;
@@ -542,9 +678,14 @@ function ParticipantsIcon({ count }: { count: number }) {
 interface RequestCardProps {
   req: ParticipationRequest;
   onCancelled: (id: string) => void;
+  onParticipantRevoked: (
+    requestId: string,
+    participant: ParticipantListItem,
+    hadEffectiveParticipation: boolean
+  ) => void;
 }
 
-function RequestCard({ req, onCancelled }: RequestCardProps) {
+function RequestCard({ req, onCancelled, onParticipantRevoked }: RequestCardProps) {
   const router = useRouter();
   const [showParticipants, setShowParticipants] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -556,18 +697,7 @@ function RequestCard({ req, onCancelled }: RequestCardProps) {
   const rejectedParticipants = req.participantList?.filter(p => p.status === 'Rechazado') ?? [];
 
   async function handleCancelConfirm(motivo: string, descripcion: string) {
-    const supabase = createClient();
-    if (req.supabaseId) {
-      await supabase
-        .from('documentos')
-        .update({
-          estado: 'cancelado',
-          cancelacion_motivo: motivo,
-          cancelacion_descripcion: descripcion,
-          cancelado_at: new Date().toISOString(),
-        })
-        .eq('id', req.supabaseId);
-    }
+    await cancelDocumentRequest(req, motivo, descripcion);
     setShowCancelModal(false);
     onCancelled(req.id);
   }
@@ -844,18 +974,32 @@ function RequestCard({ req, onCancelled }: RequestCardProps) {
                         </div>
                       </div>
                       <div className="pl-11 flex items-center justify-between gap-2">
-                        <span className={`text-xs font-500 px-3 py-1 rounded-full ${getParticipantStatusBadge(p.status)}`}>
-                          {getParticipantStatusLabel(p.status)}
-                        </span>
-                        {req.status === 'en-progreso' && !PARTICIPATED_STATUSES.includes(p.status ?? '') && (
-                          <button
-                            onClick={() => setReminderModal({ idx: i, name: p.name, email: p.email })}
-                            className="flex items-center gap-1 text-xs font-500 text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
-                          >
-                            <Send size={11} />
-                            Enviar recordatorio
-                          </button>
-                        )}
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className={`text-xs font-500 px-3 py-1 rounded-full ${getParticipantStatusBadge(p.status)}`}>
+                            {getParticipantStatusLabel(p.status)}
+                          </span>
+                          {p.currentAccess === false && p.historicalParticipation && (
+                            <span className="truncate text-xs font-500 text-slate-500">Acceso revocado</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {req.status === 'en-progreso' && !PARTICIPATED_STATUSES.includes(p.status ?? '') && (
+                            <button
+                              onClick={() => setReminderModal({ idx: i, name: p.name, email: p.email })}
+                              className="flex items-center gap-1 text-xs font-500 text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
+                            >
+                              <Send size={11} />
+                              Enviar recordatorio
+                            </button>
+                          )}
+                          {isCancellable && (
+                            <UninviteParticipantButton
+                              request={req}
+                              participant={p}
+                              onRevoked={onParticipantRevoked}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -870,7 +1014,7 @@ function RequestCard({ req, onCancelled }: RequestCardProps) {
 }
 
 // ─── Request Card (Grid View) ────────────────────────────────────────────────
-function RequestCardGrid({ req, onCancelled }: RequestCardProps) {
+function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCardProps) {
   const router = useRouter();
   const [showParticipants, setShowParticipants] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -881,15 +1025,7 @@ function RequestCardGrid({ req, onCancelled }: RequestCardProps) {
   const rejectedParticipants = req.participantList?.filter(p => p.status === 'Rechazado') ?? [];
 
   async function handleCancelConfirm(motivo: string, descripcion: string) {
-    const supabase = createClient();
-    if (req.supabaseId) {
-      await supabase.from('documentos').update({
-        estado: 'cancelado',
-        cancelacion_motivo: motivo,
-        cancelacion_descripcion: descripcion,
-        cancelado_at: new Date().toISOString(),
-      }).eq('id', req.supabaseId);
-    }
+    await cancelDocumentRequest(req, motivo, descripcion);
     setShowCancelModal(false);
     onCancelled(req.id);
   }
@@ -1157,18 +1293,33 @@ function RequestCardGrid({ req, onCancelled }: RequestCardProps) {
                     </div>
                   </div>
                   <div className="pl-7 flex items-center justify-between gap-2">
-                    <span className={`text-xs font-500 px-2 py-0.5 rounded-full ${getParticipantStatusBadge(p.status)}`}>
-                      {getParticipantStatusLabel(p.status)}
-                    </span>
-                    {req.status === 'en-progreso' && !PARTICIPATED_STATUSES.includes(p.status ?? '') && (
-                      <button
-                        onClick={() => setReminderModal({ idx: i, name: p.name, email: p.email })}
-                        className="flex items-center gap-1 text-[10px] font-500 text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
-                      >
-                        <Send size={10} />
-                        Enviar recordatorio
-                      </button>
-                    )}
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className={`text-xs font-500 px-2 py-0.5 rounded-full ${getParticipantStatusBadge(p.status)}`}>
+                        {getParticipantStatusLabel(p.status)}
+                      </span>
+                      {p.currentAccess === false && p.historicalParticipation && (
+                        <span className="truncate text-[10px] font-500 text-slate-500">Acceso revocado</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {req.status === 'en-progreso' && !PARTICIPATED_STATUSES.includes(p.status ?? '') && (
+                        <button
+                          onClick={() => setReminderModal({ idx: i, name: p.name, email: p.email })}
+                          className="flex items-center gap-1 text-[10px] font-500 text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
+                        >
+                          <Send size={10} />
+                          Enviar recordatorio
+                        </button>
+                      )}
+                      {isCancellable && (
+                        <UninviteParticipantButton
+                          request={req}
+                          participant={p}
+                          compact
+                          onRevoked={onParticipantRevoked}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1577,7 +1728,7 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
 }
 
 // ─── Kanban Card ─────────────────────────────────────────────────────────────
-function KanbanCard({ req, onCancelled }: RequestCardProps) {
+function KanbanCard({ req, onCancelled, onParticipantRevoked }: RequestCardProps) {
   const router = useRouter();
   const [showParticipants, setShowParticipants] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -1585,15 +1736,7 @@ function KanbanCard({ req, onCancelled }: RequestCardProps) {
   const isCancellable = req.status === 'en-progreso' || req.status === 'en-espera';
 
   async function handleCancelConfirm(motivo: string, descripcion: string) {
-    const supabase = createClient();
-    if (req.supabaseId) {
-      await supabase.from('documentos').update({
-        estado: 'cancelado',
-        cancelacion_motivo: motivo,
-        cancelacion_descripcion: descripcion,
-        cancelado_at: new Date().toISOString(),
-      }).eq('id', req.supabaseId);
-    }
+    await cancelDocumentRequest(req, motivo, descripcion);
     setShowCancelModal(false);
     onCancelled(req.id);
   }
@@ -1689,9 +1832,24 @@ function KanbanCard({ req, onCancelled }: RequestCardProps) {
                   </div>
                   {p.rol && <span className="text-[9px] text-muted-foreground">Rol: <span className="font-500">{p.rol}</span></span>}
                   {p.acto && <span className="text-[9px] text-muted-foreground">Acto: <span className="font-500">{p.acto}</span></span>}
-                  <span className={`text-[9px] font-500 px-1.5 py-0.5 rounded-full w-fit ${getParticipantStatusBadge(p.status)}`}>
-                    {getParticipantStatusLabel(p.status)}
-                  </span>
+                  <div className="flex items-center justify-between gap-1.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1">
+                      <span className={`text-[9px] font-500 px-1.5 py-0.5 rounded-full w-fit ${getParticipantStatusBadge(p.status)}`}>
+                        {getParticipantStatusLabel(p.status)}
+                      </span>
+                      {p.currentAccess === false && p.historicalParticipation && (
+                        <span className="text-[9px] font-500 text-slate-500">Acceso revocado</span>
+                      )}
+                    </div>
+                    {isCancellable && (
+                      <UninviteParticipantButton
+                        request={req}
+                        participant={p}
+                        compact
+                        onRevoked={onParticipantRevoked}
+                      />
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1881,6 +2039,40 @@ export default function ParticipationRequestsPage() {
     if (statusFilter === 'en-progreso' || statusFilter === 'en-espera') {
       setStatusFilter('cancelado');
     }
+  }
+
+  function handleParticipantRevoked(
+    requestId: string,
+    participant: ParticipantListItem,
+    hadEffectiveParticipation: boolean
+  ) {
+    setRequests((current) =>
+      current.map((request) => {
+        if (request.id !== requestId) return request;
+        const matchesParticipant = (entry: ParticipantListItem) =>
+          (participant.id && entry.id === participant.id)
+          || (participant.userId && entry.userId === participant.userId)
+          || entry.email.toLowerCase() === participant.email.toLowerCase();
+        const participantList = hadEffectiveParticipation
+          ? (request.participantList || []).map((entry) =>
+              matchesParticipant(entry)
+                ? {
+                    ...entry,
+                    currentAccess: false,
+                    historicalParticipation: true,
+                    relationshipStatus: 'REVOKED',
+                  }
+                : entry
+            )
+          : (request.participantList || []).filter((entry) => !matchesParticipant(entry));
+        return {
+          ...request,
+          participantList,
+          participants: participantList.length,
+          signaturesTotal: participantList.length,
+        };
+      })
+    );
   }
 
   function prevMonth() {
@@ -2161,13 +2353,23 @@ export default function ParticipationRequestsPage() {
             ) : listLayout === 'grid' ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {filtered.map((req) => (
-                  <RequestCardGrid key={req.id} req={req} onCancelled={handleCancelled} />
+                  <RequestCardGrid
+                    key={req.id}
+                    req={req}
+                    onCancelled={handleCancelled}
+                    onParticipantRevoked={handleParticipantRevoked}
+                  />
                 ))}
               </div>
             ) : (
               <div className="w-full space-y-3">
                 {filtered.map((req) => (
-                  <RequestCard key={req.id} req={req} onCancelled={handleCancelled} />
+                  <RequestCard
+                    key={req.id}
+                    req={req}
+                    onCancelled={handleCancelled}
+                    onParticipantRevoked={handleParticipantRevoked}
+                  />
                 ))}
               </div>
             )}
@@ -2201,7 +2403,12 @@ export default function ParticipationRequestsPage() {
                     ) : (
                       <div className="w-full flex flex-col gap-2">
                         {colItems.map((req) => (
-                          <KanbanCard key={req.id} req={req} onCancelled={handleCancelled} />
+                          <KanbanCard
+                            key={req.id}
+                            req={req}
+                            onCancelled={handleCancelled}
+                            onParticipantRevoked={handleParticipantRevoked}
+                          />
                         ))}
                       </div>
                     )}

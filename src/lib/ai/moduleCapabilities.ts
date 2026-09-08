@@ -1,461 +1,1421 @@
-/**
- * moduleCapabilities.ts
- *
- * Defines per-module configuration for LucIA:
- * - module name and description
- * - quick suggestion chips shown in the chat UI
- * - available actions for the module
- * - required context type
- * - entities visible in the current screen
- *
- * Used by LucIAChat.tsx to render contextual suggestions and by the
- * backend to understand what data to fetch for each module.
- */
+export const LUCIA_CAPABILITY_VERSION = 'lucia-phase4-2026-09-05';
 
-import type { LuciaScope } from './luciaIntentClassifier';
+export type LuciaAccessMode =
+  'authenticated' | 'public_token' | 'public_deterministic' | 'privileged_admin' | 'redirect_alias';
 
-export interface ModuleCapability {
-  /** Human-readable module name */
-  name: string;
-  /** Short description of what LucIA can help with here */
-  description: string;
-  /** Quick suggestion chips shown in the chat welcome screen */
-  quickSuggestions: string[];
-  /** Available actions LucIA can perform in this module */
-  availableActions: string[];
-  /** Context type required: workspace (authenticated), token (public), or both */
-  contextType: 'workspace' | 'token' | 'both';
-  /** Entities visible in the current screen */
-  entities: string[];
-  /** Scope identifier */
+export type LuciaMode = 'enabled' | 'limited' | 'disabled' | 'deterministic_only';
+
+export type LuciaModuleStatus = 'available' | 'in_development';
+
+export type LuciaDataAvailability = 'schema_unavailable' | 'partial' | 'ready';
+
+export type LuciaScope =
+  | 'workspace'
+  | 'documents'
+  | 'document'
+  | 'signing'
+  | 'participations'
+  | 'requests'
+  | 'tasks'
+  | 'contacts'
+  | 'templates'
+  | 'forms'
+  | 'expedientes'
+  | 'notifications'
+  | 'certified_notifications'
+  | 'certifications'
+  | 'batch_signatures'
+  | 'credit_titles'
+  | 'organization'
+  | 'collaboration'
+  | 'configuration'
+  | 'profile'
+  | 'billing'
+  | 'reports'
+  | 'integrations'
+  | 'public_token'
+  | 'public_verification'
+  | 'authentication'
+  | 'admin'
+  | 'unsupported';
+
+export type LuciaAssistantPlacement = 'top_nav' | 'floating' | 'none';
+
+export interface LuciaModuleCapability {
+  routePattern: string;
+  canonicalRoute: string;
+  moduleKey: string;
+  moduleName: string;
+  accessMode: LuciaAccessMode;
+  luciaMode: LuciaMode;
+  moduleStatus: LuciaModuleStatus;
+  dataAvailability: LuciaDataAvailability;
   scope: LuciaScope;
+  purpose: string;
+  entities: string[];
+  dataSources: string[];
+  requiredContext: string[];
+  suggestedPrompts: string[];
+  allowedReadActions: string[];
+  disallowedActions: string[];
+  sensitiveFields: string[];
+  evidenceRequirements: string[];
+  assistantPlacement: LuciaAssistantPlacement;
 }
 
-const MODULE_CAPABILITIES: Record<LuciaScope, ModuleCapability> = {
-  auth: {
-    name: 'Autenticación',
-    description: 'Ayuda con inicio de sesión y registro',
-    quickSuggestions: [
-      '¿Cómo me registro en Docubox?',
-      '¿Cómo recupero mi contraseña?',
-      '¿Qué métodos de autenticación hay?',
-    ],
-    availableActions: ['iniciar sesión', 'registrar usuario', 'recuperar contraseña'],
-    contextType: 'workspace',
-    entities: ['auth', 'user_registration'],
-    scope: 'auth',
-  },
-  registration: {
-    name: 'Registro',
-    description: 'Asistencia en el proceso de registro',
-    quickSuggestions: [
-      '¿Qué datos necesito para registrarme?',
-      '¿Cómo verifico mi correo?',
-      '¿Puedo reenviar el código de verificación?',
-    ],
-    availableActions: ['registrar', 'verificar correo', 'reenviar código'],
-    contextType: 'workspace',
-    entities: ['user_registration', 'email_verification'],
-    scope: 'registration',
-  },
-  email_verification: {
-    name: 'Verificación de correo',
-    description: 'Ayuda para confirmar tu email',
-    quickSuggestions: [
-      '¿Cómo verifico mi correo?',
-      '¿Puedo reenviar el código?',
-      '¿Cuánto tiempo tiene validez el código?',
-    ],
-    availableActions: ['verificar correo', 'reenviar código'],
-    contextType: 'workspace',
-    entities: ['verification_token'],
-    scope: 'email_verification',
-  },
-  password_recovery: {
-    name: 'Recuperación de contraseña',
-    description: 'Asistencia para restablecer tu contraseña',
-    quickSuggestions: [
-      '¿Cómo restablezco mi contraseña?',
-      '¿Cuánto tiempo tiene validez el OTP?',
-      '¿Qué hago si no recibo el código?',
-    ],
-    availableActions: ['enviar código', 'validar OTP', 'actualizar contraseña'],
-    contextType: 'workspace',
-    entities: ['password_reset', 'otp'],
-    scope: 'password_recovery',
-  },
-  dashboard: {
-    name: 'Dashboard',
-    description: 'Resumen ejecutivo de tu actividad en Docubox',
-    quickSuggestions: [
-      '¿Qué requiere atención urgente?',
-      '¿Cuántos documentos tengo pendientes?',
-      '¿Qué documentos vencen esta semana?',
-      'Muéstrame la actividad reciente',
-    ],
-    availableActions: ['ver métricas', 'revisar pendientes', 'abrir documento', 'ver documentos vencidos'],
-    contextType: 'workspace',
-    entities: ['documents', 'metrics', 'activity', 'participations'],
-    scope: 'dashboard',
-  },
-  documents: {
-    name: 'Mis documentos',
-    description: 'Gestión y consulta de tus documentos',
-    quickSuggestions: [
-      '¿Qué documentos tengo pendientes?',
-      '¿Qué documentos están firmados?',
-      '¿Qué documentos vencen esta semana?',
-      '¿Cuántos documentos he creado?',
-    ],
-    availableActions: ['ver', 'descargar', 'cancelar', 'reenviar recordatorio', 'filtrar por estado'],
-    contextType: 'workspace',
-    entities: ['documents', 'folders', 'tags', 'participants'],
-    scope: 'documents',
-  },
-  create_document: {
-    name: 'Crear documento',
-    description: 'Asistencia para crear y enviar documentos',
-    quickSuggestions: [
-      '¿Qué plantilla me recomiendas?',
-      '¿Cómo agrego participantes?',
-      '¿Qué es el orden de firma?',
-      '¿Cómo configuro recordatorios?',
-    ],
-    availableActions: ['subir archivo', 'agregar participante', 'configurar flujo', 'enviar documento'],
-    contextType: 'workspace',
-    entities: ['document_draft', 'participants', 'workflow', 'folders', 'tags'],
-    scope: 'create_document',
-  },
-  document_viewer: {
-    name: 'Visor de documento',
-    description: 'Análisis, historial y estado del documento actual',
-    quickSuggestions: [
-      'Resume este documento',
-      '¿Quién falta por firmar?',
-      'Detecta riesgos legales',
-      'Muéstrame el historial',
-    ],
-    availableActions: ['resumir documento', 'detectar riesgos', 'mostrar historial', 'revisar participantes', 'ver auditoría'],
-    contextType: 'workspace',
-    entities: ['document', 'participants', 'audit_log', 'notes', 'ai_chat'],
-    scope: 'document_viewer',
-  },
-  signing: {
-    name: 'Firma de documento',
-    description: 'Guía para el proceso de firma',
-    quickSuggestions: [
-      '¿Cómo firmo con e.firma?',
-      '¿Qué es el OTP de firma?',
-      '¿Qué campos me faltan por firmar?',
-      '¿Cómo funciona la firma autógrafa?',
-    ],
-    availableActions: ['firmar con autógrafa', 'firmar con e.firma', 'validar OTP', 'capturar selfie'],
-    contextType: 'workspace',
-    entities: ['document', 'signature_fields', 'biometric_data', 'otp', 'efirma'],
-    scope: 'signing',
-  },
-  participations: {
-    name: 'Mis participaciones',
-    description: 'Documentos donde participas como firmante o revisor',
-    quickSuggestions: [
-      '¿Qué documentos tengo pendientes de firma?',
-      '¿Qué he firmado recientemente?',
-      '¿Qué documentos están vencidos?',
-      'Muéstrame mis participaciones por estado',
-    ],
-    availableActions: ['ir a firmar', 'ver documento', 'filtrar por estado', 'filtrar por rol'],
-    contextType: 'workspace',
-    entities: ['participations', 'documents', 'roles'],
-    scope: 'participations',
-  },
-  participation_requests: {
-    name: 'Solicitudes de participación',
-    description: 'Gestión de solicitudes para participar en documentos',
-    quickSuggestions: [
-      '¿Qué solicitudes tengo pendientes?',
-      '¿Cómo acepto una solicitud?',
-      '¿Qué documentos me han invitado a revisar?',
-    ],
-    availableActions: ['aceptar solicitud', 'rechazar solicitud', 'ver documento'],
-    contextType: 'workspace',
-    entities: ['participation_requests', 'documents'],
-    scope: 'participation_requests',
-  },
-  contacts: {
-    name: 'Contactos',
-    description: 'Directorio de contactos del workspace',
-    quickSuggestions: [
-      '¿Cuántos contactos tengo?',
-      '¿Cómo agrego un contacto?',
-      '¿Cómo invito a un contacto a un documento?',
-    ],
-    availableActions: ['buscar contacto', 'agregar contacto', 'editar contacto', 'invitar a documento'],
-    contextType: 'workspace',
-    entities: ['contacts', 'tags', 'roles'],
-    scope: 'contacts',
-  },
-  external_participant: {
-    name: 'Portal del participante',
-    description: 'Asistencia para participantes externos',
-    quickSuggestions: [
-      '¿Cómo firmo este documento?',
-      '¿Qué información necesito para firmar?',
-      '¿Cuál es el estado de mi participación?',
-    ],
-    availableActions: ['ver documento', 'iniciar firma', 'registrarse'],
-    contextType: 'token',
-    entities: ['document', 'participant_data'],
-    scope: 'external_participant',
-  },
-  external_registration: {
-    name: 'Registro de participante',
-    description: 'Ayuda para registrarte como participante',
-    quickSuggestions: [
-      '¿Qué datos necesito para registrarme?',
-      '¿Qué es Docubox?',
-      '¿Cómo funciona la firma electrónica?',
-    ],
-    availableActions: ['registrarse', 'aceptar términos'],
-    contextType: 'token',
-    entities: ['participant_registration'],
-    scope: 'external_registration',
-  },
-  public_form: {
-    name: 'Formulario público',
-    description: 'Asistencia para llenar el formulario',
-    quickSuggestions: [
-      '¿Cómo lleno este formulario?',
-      '¿Qué campos son obligatorios?',
-      '¿Cómo envío el formulario?',
-    ],
-    availableActions: ['llenar formulario', 'firmar', 'enviar formulario'],
-    contextType: 'token',
-    entities: ['form', 'form_fields', 'signature'],
-    scope: 'public_form',
-  },
-  forms: {
-    name: 'Formularios',
-    description: 'Constructor y gestión de formularios',
-    quickSuggestions: [
-      '¿Cómo creo un formulario?',
-      '¿Qué tipos de campos puedo agregar?',
-      '¿Cómo publico un formulario?',
-    ],
-    availableActions: ['crear formulario', 'editar formulario', 'previsualizar', 'publicar formulario'],
-    contextType: 'workspace',
-    entities: ['form_templates', 'form_fields'],
-    scope: 'forms',
-  },
-  form_builder: {
-    name: 'Constructor de formularios',
-    description: 'Editor de campos y configuración del formulario',
-    quickSuggestions: [
-      '¿Cómo agrego un campo de firma?',
-      '¿Cómo hago un campo obligatorio?',
-      '¿Cómo reordeno los campos?',
-    ],
-    availableActions: ['agregar campo', 'reordenar campos', 'configurar propiedades', 'guardar formulario'],
-    contextType: 'workspace',
-    entities: ['form_fields', 'field_library'],
-    scope: 'form_builder',
-  },
-  templates: {
-    name: 'Plantillas',
-    description: 'Constructor de plantillas con variables dinámicas',
-    quickSuggestions: [
-      '¿Cómo creo una plantilla?',
-      '¿Cómo inserto una variable?',
-      '¿Qué plantillas tengo disponibles?',
-    ],
-    availableActions: ['crear plantilla', 'editar plantilla', 'insertar variable', 'usar plantilla'],
-    contextType: 'workspace',
-    entities: ['templates', 'template_variables'],
-    scope: 'templates',
-  },
-  reports: {
-    name: 'Reportes',
-    description: 'Análisis y exportación de reportes de actividad',
-    quickSuggestions: [
-      '¿Cómo genero un reporte?',
-      '¿Qué métricas puedo ver?',
-      '¿Cómo exporto el reporte a CSV?',
-    ],
-    availableActions: ['generar reporte', 'exportar CSV', 'exportar PDF', 'filtrar por fecha'],
-    contextType: 'workspace',
-    entities: ['reports', 'activity', 'documents', 'users'],
-    scope: 'reports',
-  },
-  billing: {
-    name: 'Facturación',
-    description: 'Plan, consumo y facturación de tu cuenta',
-    quickSuggestions: [
-      '¿Cuánto he consumido este mes?',
-      '¿Cuál es mi plan actual?',
-      '¿Cuántos documentos me quedan?',
-      '¿Cómo cambio de plan?',
-    ],
-    availableActions: ['ver plan actual', 'cambiar plan', 'ver historial de pagos', 'descargar factura'],
-    contextType: 'workspace',
-    entities: ['subscription', 'invoices', 'plans'],
-    scope: 'billing',
-  },
-  profile: {
-    name: 'Mi perfil',
-    description: 'Datos personales, fiscales y configuración de tu cuenta',
-    quickSuggestions: [
-      '¿Cuál es mi CURP?',
-      '¿Cuál es mi RFC?',
-      '¿Tengo e.firma vinculada?',
-      '¿Cómo actualizo mi perfil?',
-    ],
-    availableActions: ['actualizar perfil', 'cambiar contraseña', 'revisar eFirma', 'ver datos fiscales'],
-    contextType: 'workspace',
-    entities: ['profile', 'efirma', 'biometric_data'],
-    scope: 'profile',
-  },
-  settings: {
-    name: 'Configuración',
-    description: 'Ajustes del workspace, seguridad y permisos',
-    quickSuggestions: [
-      '¿Cómo activo el 2FA?',
-      '¿Cómo gestiono las sesiones activas?',
-      '¿Cómo configuro los roles del workspace?',
-    ],
-    availableActions: ['actualizar workspace', 'activar 2FA', 'gestionar sesiones', 'configurar notificaciones'],
-    contextType: 'workspace',
-    entities: ['workspace_settings', 'security', 'notifications_config', 'team_roles'],
-    scope: 'settings',
-  },
-  mobile_enrollment: {
-    name: 'Enrolamiento biométrico',
-    description: 'Guía para captura biométrica y validación de identidad',
-    quickSuggestions: [
-      '¿Cómo capturo mi selfie?',
-      '¿Qué documentos necesito?',
-      '¿Por qué fue rechazado mi enrolamiento?',
-    ],
-    availableActions: ['capturar selfie', 'capturar identificación', 'validar CURP', 'completar enrolamiento'],
-    contextType: 'token',
-    entities: ['enrollment', 'biometric_capture', 'id_document'],
-    scope: 'mobile_enrollment',
-  },
-  mobile_upload: {
-    name: 'Subida móvil',
-    description: 'Ayuda para subir documentos desde tu teléfono',
-    quickSuggestions: [
-      '¿Qué formatos de archivo puedo subir?',
-      '¿Cuál es el tamaño máximo?',
-      '¿Cómo confirmo el envío?',
-    ],
-    availableActions: ['seleccionar archivo', 'subir archivo', 'confirmar envío'],
-    contextType: 'token',
-    entities: ['mobile_upload_session', 'file'],
-    scope: 'mobile_upload',
-  },
-  mobile_id_capture: {
-    name: 'Captura de ID móvil',
-    description: 'Guía para capturar tu identificación oficial',
-    quickSuggestions: [
-      '¿Cómo capturo el frente de mi ID?',
-      '¿Qué identificaciones son válidas?',
-      '¿Por qué falló el OCR?',
-    ],
-    availableActions: ['capturar frente', 'capturar reverso', 'validar identificación'],
-    contextType: 'token',
-    entities: ['id_capture', 'ocr_result'],
-    scope: 'mobile_id_capture',
-  },
-  notifications: {
-    name: 'Notificaciones',
-    description: 'Centro de notificaciones y alertas',
-    quickSuggestions: [
-      '¿Qué notificaciones tengo sin leer?',
-      '¿Qué alertas son urgentes?',
-      'Resume mis notificaciones recientes',
-    ],
-    availableActions: ['marcar como leída', 'eliminar notificación', 'filtrar por tipo'],
-    contextType: 'workspace',
-    entities: ['notifications'],
-    scope: 'notifications',
-  },
-  pending_tasks: {
-    name: 'Tareas pendientes',
-    description: 'Vista consolidada de tus acciones pendientes',
-    quickSuggestions: [
-      '¿Qué debo hacer primero?',
-      '¿Qué tareas están vencidas?',
-      '¿Qué documentos requieren mi firma?',
-      '¿Qué aprobaciones tengo pendientes?',
-    ],
-    availableActions: ['ir a firmar', 'ir a revisar', 'ir a aprobar', 'filtrar por prioridad'],
-    contextType: 'workspace',
-    entities: ['pending_tasks', 'documents', 'participations'],
-    scope: 'pending_tasks',
-  },
-  integrations: {
-    name: 'App Market',
-    description: 'Integraciones y extensiones disponibles',
-    quickSuggestions: [
-      '¿Qué integraciones están disponibles?',
-      '¿Cómo instalo una integración?',
-      '¿Qué integraciones tengo activas?',
-    ],
-    availableActions: ['instalar integración', 'desinstalar integración', 'configurar integración'],
-    contextType: 'workspace',
-    entities: ['integrations', 'apps'],
-    scope: 'integrations',
-  },
-  signing_help_page: {
-    name: 'Ayuda para firmado',
-    description: 'Guía completa del proceso de firma',
-    quickSuggestions: [
-      '¿Cómo funciona la e.firma SAT?',
-      '¿Qué es la firma autógrafa?',
-      '¿Cómo funciona el OTP?',
-    ],
-    availableActions: ['explicar proceso de firma', 'resolver duda', 'contactar soporte'],
-    contextType: 'workspace',
-    entities: ['help_articles', 'faq'],
-    scope: 'signing_help_page',
-  },
-  workspace: {
-    name: 'Docubox',
-    description: 'Copiloto inteligente de Docubox',
-    quickSuggestions: [
-      '¿Qué tengo pendiente hoy?',
-      '¿Cuántos documentos he creado?',
-      '¿Cómo funciona Docubox?',
-    ],
-    availableActions: ['navegar a sección', 'buscar documento', 'ver actividad'],
-    contextType: 'workspace',
-    entities: ['workspace', 'documents', 'users'],
-    scope: 'workspace',
-  },
+type ModuleTemplate = Omit<
+  LuciaModuleCapability,
+  | 'routePattern'
+  | 'canonicalRoute'
+  | 'accessMode'
+  | 'luciaMode'
+  | 'moduleStatus'
+  | 'dataAvailability'
+  | 'assistantPlacement'
+> & {
+  accessMode?: LuciaAccessMode;
+  luciaMode?: LuciaMode;
+  moduleStatus?: LuciaModuleStatus;
+  dataAvailability?: LuciaDataAvailability;
+  assistantPlacement?: LuciaAssistantPlacement;
 };
 
-/**
- * Returns the module capability config for the given scope/pathname.
- * Falls back to 'workspace' if not found.
- */
-export function getLuciaModuleConfig(scope: LuciaScope): ModuleCapability {
-  return MODULE_CAPABILITIES[scope] ?? MODULE_CAPABILITIES.workspace;
+type RouteDefinition =
+  | string
+  | {
+      routePattern: string;
+      canonicalRoute?: string;
+      accessMode?: LuciaAccessMode;
+      luciaMode?: LuciaMode;
+      moduleStatus?: LuciaModuleStatus;
+      dataAvailability?: LuciaDataAvailability;
+      assistantPlacement?: LuciaAssistantPlacement;
+    };
+
+const NEVER_WRITE = [
+  'crear, editar o eliminar registros',
+  'cambiar estados o permisos',
+  'firmar o aprobar por el usuario',
+  'ejecutar operaciones administrativas',
+];
+
+function defineModule(template: ModuleTemplate, routes: RouteDefinition[]) {
+  return routes.map((definition): LuciaModuleCapability => {
+    const route = typeof definition === 'string' ? { routePattern: definition } : definition;
+    return {
+      ...template,
+      routePattern: route.routePattern,
+      canonicalRoute: route.canonicalRoute || route.routePattern,
+      accessMode: route.accessMode || template.accessMode || 'authenticated',
+      luciaMode: route.luciaMode || template.luciaMode || 'enabled',
+      moduleStatus: route.moduleStatus || template.moduleStatus || 'available',
+      dataAvailability: route.dataAvailability || template.dataAvailability || 'ready',
+      assistantPlacement: route.assistantPlacement || template.assistantPlacement || 'top_nav',
+    };
+  });
 }
 
-/**
- * Returns quick suggestions for the given scope.
- * Used by LucIAChat.tsx to render suggestion chips.
- */
-export function getQuickSuggestions(scope: LuciaScope): string[] {
-  return getLuciaModuleConfig(scope).quickSuggestions;
+const home = defineModule(
+  {
+    moduleKey: 'home',
+    moduleName: 'Inicio',
+    scope: 'workspace',
+    purpose: 'Resumir el espacio de trabajo, sus pendientes y actividad reciente.',
+    entities: ['workspace', 'documents', 'tasks', 'participations', 'activity'],
+    dataSources: [
+      'workspaces',
+      'documentos',
+      'tareas',
+      'participation_responses',
+      'document_activity_log',
+    ],
+    requiredContext: [
+      'route_context',
+      'user_context',
+      'workspace_membership',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      '¿Qué requiere atención hoy?',
+      'Resume mis pendientes',
+      '¿Qué documentos vencen pronto?',
+      'Muéstrame la actividad reciente',
+    ],
+    allowedReadActions: [
+      'resumir métricas',
+      'listar pendientes',
+      'consultar actividad',
+      'consultar documentos visibles',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['participant_email', 'actor_email'],
+    evidenceRequirements: ['métricas agregadas reales', 'documentos autorizados', 'eventos reales'],
+  },
+  ['/inicio']
+);
+
+const documents = defineModule(
+  {
+    moduleKey: 'documents',
+    moduleName: 'Documentos',
+    scope: 'documents',
+    purpose: 'Consultar documentos visibles, su metadata, revisión e historial de versiones.',
+    entities: [
+      'documents',
+      'folders',
+      'versions',
+      'reviewers',
+      'activity',
+      'document_intelligence',
+    ],
+    dataSources: [
+      'documentos',
+      'document_user_visibility',
+      'document_versions',
+      'document_reviewers',
+      'document_activity_log',
+      'ai_document_profiles',
+      'ai_document_classifications',
+      'ai_document_completeness_checks',
+    ],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'allowed_document_ids',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      'Clasifica documentos sin tipo',
+      'Sugiere etiquetas',
+      'Detecta documentos incompletos',
+      'Agrupa por tipo documental',
+      'Muéstrame documentos con baja calidad',
+    ],
+    allowedReadActions: [
+      'buscar documentos',
+      'filtrar metadata',
+      'consultar revisiones',
+      'consultar versiones',
+      'consultar historial',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['storage_path', 'participant_email', 'deleted_by'],
+    evidenceRequirements: [
+      'document_id autorizado',
+      'filas visibles',
+      'versiones o eventos reales',
+    ],
+  },
+  ['/mis-documentos', '/documentos/[documentId]/revision', '/documentos/[documentId]/versiones']
+);
+
+const viewer = defineModule(
+  {
+    moduleKey: 'document_viewer',
+    moduleName: 'Visor de documento',
+    scope: 'document',
+    purpose: 'Explicar el documento actual, sus participantes, contenido, versiones y evidencia.',
+    entities: [
+      'document',
+      'participants',
+      'chunks',
+      'versions',
+      'activity',
+      'signature_evidence',
+      'document_intelligence',
+    ],
+    dataSources: [
+      'documentos',
+      'participation_responses',
+      'ai_document_chunks',
+      'document_versions',
+      'document_activity_log',
+      'ai_document_profiles',
+      'ai_document_extracted_fields',
+      'ai_document_obligations',
+      'ai_document_completeness_checks',
+    ],
+    requiredContext: [
+      'route_context',
+      'document_id',
+      'document_acl',
+      'allowed_document_ids',
+      'structured_context',
+      'rag_context',
+    ],
+    suggestedPrompts: [
+      'Genera ficha inteligente',
+      'Extrae datos clave',
+      'Detecta obligaciones',
+      '¿Qué fechas importantes hay?',
+      '¿Qué metadatos sugieres?',
+      '¿Está completo este documento?',
+    ],
+    allowedReadActions: [
+      'resumir contenido indexado',
+      'consultar participantes',
+      'consultar estado',
+      'consultar historial',
+      'buscar contenido',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['storage_path', 'portal_token_hash', 'otp', 'signature_private_material'],
+    evidenceRequirements: [
+      'document_id autorizado',
+      'chunks autorizados para contenido',
+      'filas reales para estado e historial',
+    ],
+  },
+  ['/visor-documento/[id]']
+);
+
+const createDocument = defineModule(
+  {
+    moduleKey: 'create_document',
+    moduleName: 'Crear documento',
+    scope: 'documents',
+    purpose: 'Guiar el asistente de creación sin ejecutar ni guardar acciones.',
+    entities: ['draft', 'templates', 'contacts', 'participants', 'workflow_rules'],
+    dataSources: ['plantillas', 'contacts', 'tipo_documento', 'grupo_tipo_documento'],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'sanitized_ui_state',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      '¿Qué plantilla me conviene?',
+      'Explícame los roles de participantes',
+      'Revisa la configuración visible',
+      '¿Cómo organizo este documento?',
+    ],
+    allowedReadActions: [
+      'explicar el wizard',
+      'consultar plantillas',
+      'consultar contactos',
+      'explicar reglas de flujo',
+    ],
+    disallowedActions: [...NEVER_WRITE, 'subir archivos', 'enviar el documento'],
+    sensitiveFields: ['file_content', 'participant_phone', 'participant_email'],
+    evidenceRequirements: ['estado visible sanitizado', 'plantillas o contactos autorizados'],
+    assistantPlacement: 'floating',
+  },
+  ['/crear-documento']
+);
+
+const signing = defineModule(
+  {
+    moduleKey: 'signing',
+    moduleName: 'Firma',
+    scope: 'signing',
+    purpose: 'Guiar el proceso de firma y explicar los campos y métodos permitidos.',
+    entities: ['document', 'participant', 'signature_fields', 'signature_method'],
+    dataSources: ['documentos', 'participation_responses', 'signature_field_values'],
+    requiredContext: [
+      'route_context',
+      'document_id',
+      'document_acl',
+      'participant_scope',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      '¿Qué me falta para firmar?',
+      'Explícame la e.firma SAT',
+      '¿Cómo funciona la firma autógrafa?',
+      '¿Para qué sirve el OTP?',
+    ],
+    allowedReadActions: [
+      'explicar el flujo',
+      'listar campos pendientes',
+      'explicar métodos permitidos',
+    ],
+    disallowedActions: [
+      ...NEVER_WRITE,
+      'manipular OTP',
+      'recibir contraseñas o archivos .key/.cer',
+    ],
+    sensitiveFields: [
+      'otp',
+      'efirma_password',
+      'private_key',
+      'certificate_bytes',
+      'biometric_data',
+    ],
+    evidenceRequirements: ['document_id autorizado', 'participación vigente', 'campos reales'],
+    luciaMode: 'limited',
+    assistantPlacement: 'floating',
+  },
+  ['/firmar-documento/[id]']
+);
+
+const participations = defineModule(
+  {
+    moduleKey: 'participations',
+    moduleName: 'Participaciones',
+    scope: 'participations',
+    purpose: 'Resumir participaciones, roles, vencimientos y pendientes del usuario.',
+    entities: ['participations', 'documents', 'roles', 'deadlines'],
+    dataSources: ['participation_responses', 'documentos'],
+    requiredContext: ['route_context', 'user_id', 'allowed_document_ids', 'structured_context'],
+    suggestedPrompts: [
+      'Resume mis participaciones',
+      '¿Qué tengo pendiente?',
+      '¿Qué vence pronto?',
+      'Explícame mi rol',
+    ],
+    allowedReadActions: [
+      'listar participaciones',
+      'priorizar pendientes',
+      'consultar roles',
+      'consultar vencimientos',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['participant_email', 'observaciones'],
+    evidenceRequirements: ['participaciones del usuario', 'documentos autorizados'],
+  },
+  ['/mis-participaciones']
+);
+
+const requests = defineModule(
+  {
+    moduleKey: 'requests',
+    moduleName: 'Solicitudes',
+    scope: 'requests',
+    purpose: 'Consultar solicitudes recibidas o enviadas y explicar sus fechas y estado.',
+    entities: ['participation_requests', 'documents', 'participants'],
+    dataSources: ['documentos', 'participation_responses'],
+    requiredContext: ['route_context', 'user_id', 'allowed_document_ids', 'structured_context'],
+    suggestedPrompts: [
+      'Resume mis solicitudes',
+      '¿Cuáles requieren atención?',
+      '¿Qué solicitudes vencen pronto?',
+      'Explícame el estado de una solicitud',
+    ],
+    allowedReadActions: ['listar solicitudes', 'consultar estado', 'consultar fechas límite'],
+    disallowedActions: [...NEVER_WRITE, 'aceptar o rechazar solicitudes'],
+    sensitiveFields: ['recipient_email', 'recipient_phone'],
+    evidenceRequirements: ['solicitudes visibles', 'documentos autorizados'],
+  },
+  ['/mis-solicitudes']
+);
+
+const tasks = defineModule(
+  {
+    moduleKey: 'tasks',
+    moduleName: 'Tareas',
+    scope: 'tasks',
+    purpose: 'Priorizar y explicar tareas reales, vencimientos y bloqueos.',
+    entities: ['tasks', 'task_dependencies', 'participations', 'documents'],
+    dataSources: ['tareas', 'task_dependencies', 'participation_responses', 'documentos'],
+    requiredContext: ['route_context', 'user_id', 'allowed_document_ids', 'structured_context'],
+    suggestedPrompts: [
+      '¿Qué debo atender primero?',
+      '¿Qué tareas están vencidas?',
+      'Explícame los bloqueos',
+      'Agrupa mis tareas por urgencia',
+    ],
+    allowedReadActions: [
+      'listar tareas',
+      'agrupar por urgencia',
+      'consultar bloqueos',
+      'consultar vencimientos',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['assignee_email', 'comments'],
+    evidenceRequirements: ['tareas asignadas o visibles', 'documentos autorizados'],
+  },
+  ['/mis-tareas']
+);
+
+const contacts = defineModule(
+  {
+    moduleKey: 'contacts',
+    moduleName: 'Contactos',
+    scope: 'contacts',
+    purpose: 'Consultar el directorio permitido y detectar coincidencias o etiquetas útiles.',
+    entities: ['contacts', 'tags', 'workspace'],
+    dataSources: ['contacts'],
+    requiredContext: ['route_context', 'user_id', 'workspace_membership', 'structured_context'],
+    suggestedPrompts: [
+      'Busca un contacto',
+      '¿Hay posibles duplicados?',
+      'Sugiere etiquetas para organizar contactos',
+      '¿Qué contactos uso con frecuencia?',
+    ],
+    allowedReadActions: [
+      'buscar contactos',
+      'detectar posibles duplicados',
+      'sugerir etiquetas',
+      'resumir uso',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['email', 'telefono', 'rfc', 'curp', 'notas'],
+    evidenceRequirements: ['contactos propiedad del usuario o autorizados'],
+  },
+  ['/contactos']
+);
+
+const templates = defineModule(
+  {
+    moduleKey: 'templates',
+    moduleName: 'Plantillas',
+    scope: 'templates',
+    purpose: 'Explicar plantillas, variables y estructura sin modificar el editor.',
+    entities: ['templates', 'template_variables', 'editor_state'],
+    dataSources: ['plantillas', 'ai_document_chunks'],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'sanitized_ui_state',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      'Sugiere variables para esta plantilla',
+      'Detecta campos faltantes',
+      'Clasifica esta plantilla',
+    ],
+    allowedReadActions: [
+      'consultar plantillas',
+      'explicar variables',
+      'revisar estructura visible',
+      'proponer estructura',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['template_content', 'storage_path'],
+    evidenceRequirements: ['plantilla autorizada', 'estado visible o texto indexado'],
+  },
+  ['/plantillas', { routePattern: '/plantillas/nueva', assistantPlacement: 'floating' }]
+);
+
+const forms = defineModule(
+  {
+    moduleKey: 'forms',
+    moduleName: 'Formularios',
+    scope: 'forms',
+    purpose: 'Explicar campos, validaciones y respuestas autorizadas de formularios.',
+    entities: ['forms', 'fields', 'responses', 'validations'],
+    dataSources: ['form_templates', 'form_responses', 'form_tokens', 'ai_document_chunks'],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'allowed_resource_ids',
+      'sanitized_ui_state',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      'Extrae campos sugeridos',
+      'Revisa si el formulario está completo',
+      'Sugiere validaciones',
+    ],
+    allowedReadActions: [
+      'consultar formularios',
+      'explicar campos',
+      'resumir respuestas',
+      'validar estructura visible',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['response_payload', 'token_hash', 'signer_data'],
+    evidenceRequirements: ['formulario autorizado', 'campos o respuestas reales'],
+  },
+  [
+    '/formularios',
+    { routePattern: '/formularios/builder', assistantPlacement: 'floating' },
+    '/formularios/preview',
+    '/formularios/respuestas',
+  ]
+);
+
+const expedientes = defineModule(
+  {
+    moduleKey: 'expedientes',
+    moduleName: 'Expedientes',
+    scope: 'expedientes',
+    purpose: 'Resumir expedientes, requisitos, documentos faltantes, auditoría y constancias.',
+    entities: ['case_files', 'requirements', 'documents', 'audit', 'certificates'],
+    dataSources: [
+      'case_files',
+      'case_file_documents',
+      'case_file_requirements',
+      'case_file_audit_events',
+    ],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'allowed_resource_ids',
+      'allowed_document_ids',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      '¿Qué documentos faltan?',
+      'Revisa completitud del expediente',
+      'Agrupa evidencias por tipo',
+      'Detecta vencimientos',
+    ],
+    allowedReadActions: [
+      'resumir expediente',
+      'listar faltantes',
+      'consultar requisitos',
+      'consultar auditoría',
+      'generar checklist informativo',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['share_token_hash', 'storage_path'],
+    evidenceRequirements: [
+      'expediente autorizado',
+      'documentos autorizados',
+      'requisitos o eventos reales',
+    ],
+  },
+  [
+    '/expedientes',
+    '/expedientes/[id]',
+    { routePattern: '/expedientes/nuevo', assistantPlacement: 'floating' },
+    '/expedientes/revision',
+    '/expedientes/auditoria',
+    '/expedientes/constancias',
+    '/expedientes/plantillas',
+  ]
+);
+
+const notifications = defineModule(
+  {
+    moduleKey: 'notifications',
+    moduleName: 'Notificaciones',
+    scope: 'notifications',
+    purpose: 'Resumir notificaciones personales, urgencia, estado y constancias visibles.',
+    entities: ['notifications', 'filters', 'certificates'],
+    dataSources: ['notifications'],
+    requiredContext: ['route_context', 'user_id', 'structured_context'],
+    suggestedPrompts: [
+      'Resume mis notificaciones',
+      '¿Cuáles son urgentes?',
+      '¿Qué notificaciones no he leído?',
+      'Explícame el estado mostrado',
+    ],
+    allowedReadActions: [
+      'listar notificaciones',
+      'resumir',
+      'agrupar por prioridad',
+      'explicar estado',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['description', 'entity_id'],
+    evidenceRequirements: ['notificaciones del usuario', 'filtros visibles sanitizados'],
+  },
+  ['/notificaciones']
+);
+
+const certifiedNotifications = defineModule(
+  {
+    moduleKey: 'certified_notifications',
+    moduleName: 'Notificaciones certificadas',
+    moduleStatus: 'in_development',
+    dataAvailability: 'schema_unavailable',
+    scope: 'certified_notifications',
+    purpose:
+      'Consultar destinatarios, entrega, acceso, evidencia y constancias de notificaciones certificadas.',
+    entities: ['certified_notifications', 'recipients', 'evidence_events', 'certificates'],
+    dataSources: [
+      'certified_notifications',
+      'notification_recipients',
+      'notification_evidence_events',
+      'notification_certificates',
+    ],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'allowed_resource_ids',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      '¿Qué destinatarios no han accedido?',
+      'Explícame el estado de entrega',
+      'Resume la evidencia disponible',
+      '¿Qué constancias existen?',
+      '¿Cómo debería funcionar este módulo?',
+      '¿Qué tablas y permisos necesita?',
+    ],
+    allowedReadActions: [
+      'consultar estado',
+      'consultar destinatarios',
+      'consultar evidencia',
+      'consultar constancias',
+    ],
+    disallowedActions: [...NEVER_WRITE, 'inventar acuses o constancias'],
+    sensitiveFields: ['access_token_hash', 'raw_token', 'recipient_email', 'recipient_phone'],
+    evidenceRequirements: [
+      'notificación autorizada',
+      'destinatarios o eventos reales',
+      'constancia existente',
+    ],
+  },
+  [
+    '/notificaciones-certificadas',
+    '/notificaciones-certificadas/[id]',
+    '/notificaciones-certificadas/auditoria',
+    '/notificaciones-certificadas/constancias',
+    { routePattern: '/notificaciones-certificadas/nueva', assistantPlacement: 'floating' },
+  ]
+);
+
+const certifications = defineModule(
+  {
+    moduleKey: 'certifications',
+    moduleName: 'Certificaciones',
+    scope: 'certifications',
+    purpose: 'Explicar estado, consumo, lotes y errores de certificación con evidencia real.',
+    entities: ['certification_cases', 'batches', 'usage', 'verification'],
+    dataSources: [
+      'document_certifications',
+      'certification_cases',
+      'certification_batches',
+      'certification_ledger_entries',
+    ],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'allowed_document_ids',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      '¿Por qué falló esta certificación?',
+      'Explícame el estado',
+      '¿Cuánto consumo llevo?',
+      'Resume este lote',
+    ],
+    allowedReadActions: [
+      'consultar estado',
+      'explicar estándares en lenguaje simple',
+      'consultar consumo',
+      'consultar errores',
+      'resumir lotes',
+    ],
+    disallowedActions: [...NEVER_WRITE, 'procesar material criptográfico'],
+    sensitiveFields: ['private_key', 'certificate_secret', 'api_secret', 'tsa_credentials'],
+    evidenceRequirements: ['certificación o lote autorizado', 'estado, consumo o error real'],
+  },
+  [
+    '/certificaciones',
+    '/certificaciones/[id]',
+    '/certificaciones/configuracion',
+    { routePattern: '/certificaciones/nueva', assistantPlacement: 'floating' },
+    { routePattern: '/certificaciones/api', assistantPlacement: 'floating' },
+    { routePattern: '/certificaciones/conservados', assistantPlacement: 'floating' },
+    { routePattern: '/certificaciones/consumo', assistantPlacement: 'floating' },
+    { routePattern: '/certificaciones/lotes', assistantPlacement: 'floating' },
+    { routePattern: '/certificaciones/lotes/nuevo', assistantPlacement: 'floating' },
+    { routePattern: '/certificaciones/verificaciones', assistantPlacement: 'floating' },
+  ]
+);
+
+const batchSignatures = defineModule(
+  {
+    moduleKey: 'batch_signatures',
+    moduleName: 'Firmas masivas',
+    moduleStatus: 'in_development',
+    dataAvailability: 'schema_unavailable',
+    scope: 'batch_signatures',
+    purpose: 'Resumir lotes, progreso, documentos fallidos y errores de importación sin firmar.',
+    entities: ['signature_batches', 'batch_items', 'imports', 'errors'],
+    dataSources: ['bulk_signature_campaigns', 'bulk_campaign_items', 'bulk_campaign_imports'],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'allowed_document_ids',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      '¿Qué documentos fallaron?',
+      'Resume el progreso del lote',
+      'Explícame los errores de importación',
+      '¿Qué falta para completar el lote?',
+      'Diseña el flujo de firmas masivas',
+      '¿Qué tablas y permisos necesita?',
+    ],
+    allowedReadActions: ['resumir lote', 'listar fallos', 'explicar errores', 'consultar progreso'],
+    disallowedActions: [...NEVER_WRITE, 'ejecutar una firma masiva'],
+    sensitiveFields: ['efirma_password', 'private_key', 'certificate_bytes'],
+    evidenceRequirements: [
+      'lote autorizado',
+      'items asociados a documentos autorizados',
+      'errores reales',
+    ],
+  },
+  [
+    '/firmas-masivas',
+    '/firmas-masivas/[id]',
+    '/firmas-masivas/nueva',
+    {
+      routePattern: '/firmas-masivas/firmar-lote',
+      luciaMode: 'limited',
+      assistantPlacement: 'floating',
+    },
+    { routePattern: '/firmas-masivas/importaciones', assistantPlacement: 'floating' },
+    {
+      routePattern: '/firmas-masivas/configuracion',
+      luciaMode: 'limited',
+      assistantPlacement: 'floating',
+    },
+    { routePattern: '/firmas-masivas/plantillas', assistantPlacement: 'floating' },
+  ]
+);
+
+const creditTitles = defineModule(
+  {
+    moduleKey: 'credit_titles',
+    moduleName: 'Títulos de crédito',
+    moduleStatus: 'in_development',
+    dataAvailability: 'schema_unavailable',
+    scope: 'credit_titles',
+    purpose: 'Consultar pagarés, operaciones, carteras, plantillas y evidencia autorizada.',
+    entities: ['promissory_notes', 'operations', 'portfolios', 'templates', 'evidence'],
+    dataSources: [
+      'credit_titles',
+      'promissory_notes',
+      'title_events',
+      'title_portfolios',
+      'title_templates',
+    ],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'allowed_resource_ids',
+      'allowed_document_ids',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      'Explícame el estado del pagaré',
+      'Resume la cartera',
+      '¿Qué operaciones están pendientes?',
+      'Explícame la evidencia disponible',
+      'Define el flujo de títulos de crédito',
+      '¿Qué tablas y permisos necesita?',
+    ],
+    allowedReadActions: [
+      'consultar pagarés',
+      'resumir cartera',
+      'consultar operaciones',
+      'explicar evidencia',
+      'guiar creación',
+    ],
+    disallowedActions: [...NEVER_WRITE, 'emitir juicio legal definitivo', 'ejecutar operaciones'],
+    sensitiveFields: ['debtor_tax_id', 'beneficiary_data', 'private_evidence'],
+    evidenceRequirements: [
+      'recurso autorizado',
+      'operación o pagaré real',
+      'documento asociado autorizado cuando aplique',
+    ],
+  },
+  [
+    '/credit-titles',
+    { routePattern: '/credit-titles/operations', assistantPlacement: 'floating' },
+    { routePattern: '/credit-titles/portfolios', assistantPlacement: 'floating' },
+    '/credit-titles/promissory-notes',
+    '/credit-titles/promissory-notes/[id]',
+    { routePattern: '/credit-titles/promissory-notes/new', assistantPlacement: 'floating' },
+    {
+      routePattern: '/credit-titles/settings',
+      luciaMode: 'limited',
+      assistantPlacement: 'floating',
+    },
+    { routePattern: '/credit-titles/templates', assistantPlacement: 'floating' },
+  ]
+);
+
+const organization = defineModule(
+  {
+    moduleKey: 'organization',
+    moduleName: 'Organización',
+    scope: 'organization',
+    purpose: 'Explicar miembros, directorio, roles y permisos efectivos de la organización.',
+    entities: ['organization', 'members', 'directory', 'roles', 'permissions'],
+    dataSources: [
+      'workspace_members',
+      'organization_directory_people',
+      'organization_roles',
+      'organization_permissions',
+    ],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'rbac',
+      'allowed_resource_ids',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      'Explícame los permisos',
+      'Resume los miembros',
+      '¿Qué configuración está incompleta?',
+      'Explícame el directorio',
+    ],
+    allowedReadActions: [
+      'consultar miembros',
+      'explicar roles',
+      'consultar permisos efectivos',
+      'detectar configuración incompleta',
+    ],
+    disallowedActions: [...NEVER_WRITE, 'modificar roles'],
+    sensitiveFields: ['member_email', 'member_phone', 'invitation_token_hash'],
+    evidenceRequirements: ['membresía activa', 'RBAC efectivo', 'miembros o permisos visibles'],
+    assistantPlacement: 'floating',
+  },
+  [
+    '/organizacion',
+    '/organizacion/[section]',
+    '/organizacion/directorio/[personId]',
+    '/organizacion/miembros/[memberId]',
+  ]
+);
+
+const collaboration = defineModule(
+  {
+    moduleKey: 'collaboration',
+    moduleName: 'Colabora',
+    scope: 'collaboration',
+    purpose: 'Resumir espacios, solicitudes, revisiones, bloqueos y reportes visibles.',
+    entities: ['collaboration_rooms', 'requests', 'reviews', 'reports', 'entitlements'],
+    dataSources: [
+      'collaboration_rooms',
+      'collaboration_document_requests',
+      'collaboration_reviews',
+      'collaboration_usage_events',
+    ],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'collaboration_entitlement',
+      'rbac',
+      'allowed_resource_ids',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      '¿Qué bloquea esta revisión?',
+      'Resume las solicitudes',
+      'Explícame los espacios',
+      'Resume el reporte visible',
+    ],
+    allowedReadActions: [
+      'consultar espacios',
+      'resumir revisiones',
+      'detectar bloqueos',
+      'consultar solicitudes',
+      'resumir reportes',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['access_token_hash', 'guest_token_hash', 'recipient_email'],
+    evidenceRequirements: ['entitlement válido', 'RBAC efectivo', 'recursos visibles'],
+    assistantPlacement: 'floating',
+  },
+  [
+    '/colabora',
+    '/colabora/[section]',
+    '/colabora/[section]/[id]',
+    '/colabora/configuracion-inicial',
+    '/colabora/configuracion',
+    '/colabora/reportes',
+  ]
+);
+
+const configuration = defineModule(
+  {
+    moduleKey: 'configuration_security',
+    moduleName: 'Configuración y seguridad',
+    scope: 'configuration',
+    purpose: 'Explicar configuración no secreta, postura de seguridad e identidad.',
+    entities: ['workspace_settings', 'sessions', 'mfa', 'passkeys', 'identity_verification'],
+    dataSources: ['workspace_members', 'user_security_settings', 'identity_verifications'],
+    requiredContext: [
+      'route_context',
+      'user_id',
+      'workspace_membership',
+      'sanitized_security_context',
+    ],
+    suggestedPrompts: [
+      'Revisa mi postura de seguridad',
+      'Explícame MFA y TOTP',
+      '¿Qué sesiones están activas?',
+      'Explícame la verificación de identidad',
+    ],
+    allowedReadActions: [
+      'explicar configuración',
+      'resumir postura de seguridad',
+      'explicar MFA y passkeys',
+      'consultar sesiones sanitizadas',
+    ],
+    disallowedActions: [...NEVER_WRITE, 'mostrar o manipular secretos'],
+    sensitiveFields: ['totp_secret', 'otp', 'passkey_challenge', 'biometric_data', 'session_token'],
+    evidenceRequirements: ['configuración sanitizada del usuario', 'permisos efectivos'],
+    luciaMode: 'limited',
+  },
+  [
+    '/configuracion',
+    '/configuracion/verificacion-identidad',
+    { routePattern: '/configuracion/verificacion-identidad/[id]', assistantPlacement: 'floating' },
+    { routePattern: '/configuracion/verificacion-identidad/nueva', assistantPlacement: 'floating' },
+    '/settings/security',
+  ]
+);
+
+const profile = defineModule(
+  {
+    moduleKey: 'profile',
+    moduleName: 'Mi perfil',
+    scope: 'profile',
+    purpose:
+      'Consultar el perfil propio y detectar datos faltantes con minimización por intención.',
+    entities: ['profile', 'autograph_signature', 'linked_efirma'],
+    dataSources: ['user_profiles'],
+    requiredContext: ['route_context', 'user_id', 'minimal_user_context'],
+    suggestedPrompts: [
+      '¿Qué datos me faltan?',
+      '¿Tengo e.firma vinculada?',
+      'Explícame mi firma autógrafa',
+      '¿Cuál es mi RFC registrado?',
+    ],
+    allowedReadActions: [
+      'consultar datos propios',
+      'detectar campos faltantes',
+      'explicar firma vinculada',
+    ],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['curp', 'rfc', 'telefono', 'domicilio', 'signature_image'],
+    evidenceRequirements: [
+      'perfil del usuario',
+      'campo sensible solicitado explícitamente y respondido por backend',
+    ],
+  },
+  ['/mi-perfil']
+);
+
+const billing = defineModule(
+  {
+    moduleKey: 'billing',
+    moduleName: 'Facturación',
+    scope: 'billing',
+    purpose: 'Consultar plan, límites y consumo real del espacio de trabajo.',
+    entities: ['subscription', 'plan', 'usage'],
+    dataSources: ['subscriptions', 'subscription_plans', 'organization_usage_ledger'],
+    requiredContext: ['route_context', 'workspace_membership', 'structured_context'],
+    suggestedPrompts: [
+      '¿Cuánto he consumido?',
+      '¿Cuál es mi plan?',
+      'Explícame mis límites',
+      'Proyecta mi uso con los datos actuales',
+    ],
+    allowedReadActions: [
+      'consultar plan',
+      'consultar consumo',
+      'explicar límites',
+      'proyectar uso con evidencia',
+    ],
+    disallowedActions: [...NEVER_WRITE, 'prometer facturas sin fuente real'],
+    sensitiveFields: ['payment_method', 'billing_address', 'tax_id'],
+    evidenceRequirements: ['suscripción, plan o ledger real'],
+  },
+  ['/facturacion']
+);
+
+const reports = defineModule(
+  {
+    moduleKey: 'reports',
+    moduleName: 'Reportes',
+    scope: 'reports',
+    purpose: 'Explicar métricas y preparar resúmenes a partir de agregados autorizados.',
+    entities: ['metrics', 'activity_aggregates', 'filters'],
+    dataSources: ['documentos', 'document_activity_log', 'participation_responses'],
+    requiredContext: [
+      'route_context',
+      'workspace_membership',
+      'allowed_document_ids',
+      'sanitized_ui_state',
+      'structured_context',
+    ],
+    suggestedPrompts: [
+      'Resume la actividad',
+      'Explícame estas métricas',
+      'Sugiere filtros útiles',
+      'Prepara un resumen ejecutivo',
+    ],
+    allowedReadActions: [
+      'explicar métricas',
+      'resumir agregados',
+      'sugerir filtros',
+      'preparar resumen',
+    ],
+    disallowedActions: [...NEVER_WRITE, 'devolver filas masivas'],
+    sensitiveFields: ['actor_email', 'participant_email'],
+    evidenceRequirements: ['agregados calculados sobre recursos autorizados'],
+  },
+  ['/reportes']
+);
+
+const integrations = defineModule(
+  {
+    moduleKey: 'integrations',
+    moduleName: 'App Market',
+    scope: 'integrations',
+    purpose: 'Explicar catálogo, disponibilidad, activaciones y permisos de integraciones.',
+    entities: ['integration_catalog', 'activations', 'plan', 'permissions'],
+    dataSources: ['user_module_preferences', 'subscriptions'],
+    requiredContext: ['route_context', 'workspace_membership', 'structured_context'],
+    suggestedPrompts: [
+      '¿Qué integraciones están disponibles?',
+      '¿Qué apps tengo activas?',
+      'Recomienda apps para mis módulos',
+      'Explícame los permisos de una integración',
+    ],
+    allowedReadActions: [
+      'consultar catálogo',
+      'consultar activaciones',
+      'explicar permisos',
+      'recomendar según módulos activos',
+    ],
+    disallowedActions: [...NEVER_WRITE, 'instalar o desinstalar integraciones'],
+    sensitiveFields: ['oauth_token', 'client_secret', 'webhook_secret'],
+    evidenceRequirements: ['catálogo, plan y activaciones reales'],
+  },
+  ['/app-market']
+);
+
+const publicToken = defineModule(
+  {
+    moduleKey: 'public_token_help',
+    moduleName: 'Ayuda del proceso',
+    scope: 'public_token',
+    purpose: 'Guiar únicamente el paso público asociado a una capacidad temporal válida.',
+    entities: ['token_scoped_resource', 'visible_fields', 'process_status'],
+    dataSources: ['resolved_public_capability'],
+    requiredContext: [
+      'route_context',
+      'valid_token_grant',
+      'token_scoped_resource',
+      'sanitized_ui_state',
+    ],
+    suggestedPrompts: [
+      '¿Qué debo hacer en este paso?',
+      'Explícame los campos visibles',
+      '¿Cuándo vence este acceso?',
+      '¿Cuál es el estado del proceso?',
+    ],
+    allowedReadActions: [
+      'explicar el paso actual',
+      'explicar campos visibles',
+      'consultar estado mínimo',
+    ],
+    disallowedActions: [
+      ...NEVER_WRITE,
+      'consultar el workspace completo',
+      'revelar otros recursos',
+    ],
+    sensitiveFields: ['token', 'token_hash', 'otp', 'biometric_data', 'private_key'],
+    evidenceRequirements: ['token resuelto por hash', 'grant vigente', 'recurso asociado'],
+    accessMode: 'public_token',
+    luciaMode: 'limited',
+    assistantPlacement: 'floating',
+  },
+  [
+    '/enrolamiento/[token]',
+    '/captura-id-movil/[token]',
+    '/subir-movil/[token]',
+    '/portal-participante/[token]',
+    '/registro-participante/[token]',
+    '/form/[token]',
+    '/expediente/[token]',
+    '/sala/[publicToken]',
+    '/solicitud/[publicToken]',
+  ]
+);
+
+const deterministicVerification = defineModule(
+  {
+    moduleKey: 'public_verification',
+    moduleName: 'Verificación pública',
+    scope: 'public_verification',
+    purpose: 'Explicar de forma determinista el resultado verificable mostrado en pantalla.',
+    entities: ['verification_result', 'status', 'hash', 'certificate'],
+    dataSources: ['public_verification_result'],
+    requiredContext: ['route_context', 'sanitized_verification_result'],
+    suggestedPrompts: [],
+    allowedReadActions: ['explicar el resultado visible'],
+    disallowedActions: [
+      ...NEVER_WRITE,
+      'invocar IA generativa',
+      'inferir autenticidad sin evidencia',
+    ],
+    sensitiveFields: ['token', 'raw_hash_input', 'private_certificate_material'],
+    evidenceRequirements: ['resultado determinista verificable'],
+    accessMode: 'public_deterministic',
+    luciaMode: 'deterministic_only',
+    assistantPlacement: 'none',
+  },
+  [
+    '/verificar-documento',
+    '/verificar-documento/[identifier]',
+    '/verificar-certificacion',
+    '/verificar-certificacion/[verificationUuid]',
+    '/verificar-certificacion/c/[token]',
+    '/verify/promissory-note/[token]',
+    '/notificacion/[token]',
+    '/validar-formulario/[id]',
+    '/validar-expediente/[id]',
+  ]
+);
+
+const signingHelp = defineModule(
+  {
+    moduleKey: 'signing_help',
+    moduleName: 'Ayuda de firma',
+    scope: 'signing',
+    purpose: 'Explicar de forma general los métodos y pasos de firma.',
+    entities: ['help_content'],
+    dataSources: ['application_help'],
+    requiredContext: ['route_context'],
+    suggestedPrompts: [
+      'Explícame la e.firma SAT',
+      '¿Cómo funciona la firma autógrafa?',
+      '¿Para qué sirve el OTP?',
+    ],
+    allowedReadActions: ['explicar métodos de firma'],
+    disallowedActions: NEVER_WRITE,
+    sensitiveFields: ['otp', 'efirma_password', 'private_key'],
+    evidenceRequirements: ['contenido de ayuda aprobado'],
+    assistantPlacement: 'floating',
+  },
+  ['/ayuda-firmado']
+);
+
+const redirectAliases = defineModule(
+  {
+    moduleKey: 'redirect_alias',
+    moduleName: 'Redirección',
+    scope: 'unsupported',
+    purpose: 'Redirigir a la ruta canónica sin configurar un módulo independiente.',
+    entities: [],
+    dataSources: [],
+    requiredContext: [],
+    suggestedPrompts: [],
+    allowedReadActions: [],
+    disallowedActions: ['invocar LucIA en la ruta alias'],
+    sensitiveFields: ['token'],
+    evidenceRequirements: [],
+    accessMode: 'redirect_alias',
+    luciaMode: 'disabled',
+    assistantPlacement: 'none',
+  },
+  [
+    { routePattern: '/documents-dashboard', canonicalRoute: '/inicio' },
+    { routePattern: '/pending-tasks', canonicalRoute: '/mis-tareas' },
+    { routePattern: '/participation-requests', canonicalRoute: '/mis-solicitudes' },
+    { routePattern: '/notifications', canonicalRoute: '/notificaciones' },
+    { routePattern: '/notificationes', canonicalRoute: '/notificaciones' },
+    { routePattern: '/sign-up-login-screen', canonicalRoute: '/login' },
+    { routePattern: '/notificaciones/[id]', canonicalRoute: '/notificaciones-certificadas/[id]' },
+    {
+      routePattern: '/notificaciones/auditoria',
+      canonicalRoute: '/notificaciones-certificadas/auditoria',
+    },
+    {
+      routePattern: '/notificaciones/constancias',
+      canonicalRoute: '/notificaciones-certificadas/constancias',
+    },
+    { routePattern: '/notificaciones/nueva', canonicalRoute: '/notificaciones-certificadas/nueva' },
+    { routePattern: '/v/[token]', canonicalRoute: '/verificar-documento/[identifier]' },
+    { routePattern: '/invitacion-organizacion/[token]', canonicalRoute: '/login' },
+  ]
+);
+
+const admin = defineModule(
+  {
+    moduleKey: 'admin_control_plane',
+    moduleName: 'Control administrativo',
+    scope: 'admin',
+    purpose: 'Mantener el plano de control privilegiado separado del copiloto tenant.',
+    entities: [],
+    dataSources: [],
+    requiredContext: [],
+    suggestedPrompts: [],
+    allowedReadActions: [],
+    disallowedActions: [
+      'usar el copiloto tenant',
+      'consultar operaciones administrativas o criptográficas',
+    ],
+    sensitiveFields: ['all_admin_and_crypto_fields'],
+    evidenceRequirements: [],
+    accessMode: 'privileged_admin',
+    luciaMode: 'disabled',
+    assistantPlacement: 'none',
+  },
+  [
+    '/panel/[[...section]]',
+    '/admin/[[...section]]',
+    '/superadmin/[[...section]]',
+    '/admin/security/crypto-e2e',
+  ]
+);
+
+const disabledSystemPages = defineModule(
+  {
+    moduleKey: 'system_page',
+    moduleName: 'Página del sistema',
+    scope: 'authentication',
+    purpose: 'Mantener LucIA fuera de autenticación, pruebas y utilidades públicas.',
+    entities: [],
+    dataSources: [],
+    requiredContext: [],
+    suggestedPrompts: [],
+    allowedReadActions: [],
+    disallowedActions: ['invocar LucIA'],
+    sensitiveFields: ['password', 'otp', 'session_token'],
+    evidenceRequirements: [],
+    luciaMode: 'disabled',
+    assistantPlacement: 'none',
+  },
+  [
+    '/login',
+    '/login/totp-verification',
+    '/auth',
+    '/auth/passkey-enrollment',
+    '/auth/passkey-verification',
+    '/auth/totp-enrollment',
+    '/auth/totp-verification',
+    '/registro',
+    '/olvide-contrasena',
+    '/verificar-correo',
+    '/register-device',
+    '/test-notifications',
+  ]
+);
+
+const fallback: LuciaModuleCapability = {
+  routePattern: '/*',
+  canonicalRoute: '/*',
+  moduleKey: 'unsupported',
+  moduleName: 'Ruta no compatible',
+  accessMode: 'authenticated',
+  luciaMode: 'disabled',
+  moduleStatus: 'available',
+  dataAvailability: 'ready',
+  scope: 'unsupported',
+  purpose: 'Evitar que una ruta no inventariada invoque LucIA.',
+  entities: [],
+  dataSources: [],
+  requiredContext: [],
+  suggestedPrompts: [],
+  allowedReadActions: [],
+  disallowedActions: ['invocar LucIA'],
+  sensitiveFields: [],
+  evidenceRequirements: [],
+  assistantPlacement: 'none',
+};
+
+export const MODULE_CAPABILITIES: LuciaModuleCapability[] = [
+  ...home,
+  ...documents,
+  ...viewer,
+  ...createDocument,
+  ...signing,
+  ...participations,
+  ...requests,
+  ...tasks,
+  ...contacts,
+  ...templates,
+  ...forms,
+  ...expedientes,
+  ...notifications,
+  ...certifiedNotifications,
+  ...certifications,
+  ...batchSignatures,
+  ...creditTitles,
+  ...organization,
+  ...collaboration,
+  ...configuration,
+  ...profile,
+  ...billing,
+  ...reports,
+  ...integrations,
+  ...publicToken,
+  ...deterministicVerification,
+  ...signingHelp,
+  ...redirectAliases,
+  ...admin,
+  ...disabledSystemPages,
+];
+
+function normalizeRoute(route: string) {
+  const path = (route || '/').split('?')[0].split('#')[0] || '/';
+  return path.length > 1 ? path.replace(/\/+$/, '') : path;
 }
 
-/**
- * Returns whether the given scope requires token context (public routes)
- * vs workspace context (authenticated routes).
- */
-export function isPublicTokenScope(scope: LuciaScope): boolean {
-  const config = getLuciaModuleConfig(scope);
-  return config.contextType === 'token';
+function matchPattern(pattern: string, route: string): Record<string, string> | null {
+  if (pattern === '/*') return {};
+  const expected = normalizeRoute(pattern).split('/').filter(Boolean);
+  const actual = normalizeRoute(route).split('/').filter(Boolean);
+  const params: Record<string, string> = {};
+  let actualIndex = 0;
+
+  for (const segment of expected) {
+    const optionalCatchAll = segment.match(/^\[\[\.\.\.(.+)\]\]$/);
+    const catchAll = segment.match(/^\[\.\.\.(.+)\]$/);
+    const dynamic = segment.match(/^\[(.+)\]$/);
+    if (optionalCatchAll || catchAll) {
+      const name = (optionalCatchAll || catchAll)![1];
+      const rest = actual.slice(actualIndex).join('/');
+      if (!rest && catchAll) return null;
+      if (rest) params[name] = rest;
+      actualIndex = actual.length;
+      break;
+    }
+    if (actualIndex >= actual.length) return null;
+    if (dynamic) params[dynamic[1]] = decodeURIComponent(actual[actualIndex]);
+    else if (segment !== actual[actualIndex]) return null;
+    actualIndex += 1;
+  }
+  return actualIndex === actual.length ? params : null;
+}
+
+export function resolveLuciaCapability(route: string): LuciaModuleCapability {
+  const normalized = normalizeRoute(route);
+  const matches = MODULE_CAPABILITIES.filter((capability) =>
+    matchPattern(capability.routePattern, normalized)
+  );
+  matches.sort((left, right) => {
+    const score = (pattern: string) =>
+      pattern
+        .split('/')
+        .filter(Boolean)
+        .reduce((total, segment) => total + (segment.startsWith('[') ? 1 : 10), 0);
+    return score(right.routePattern) - score(left.routePattern);
+  });
+  return matches[0] || fallback;
+}
+
+export function extractLuciaRouteParams(route: string, capability = resolveLuciaCapability(route)) {
+  return matchPattern(capability.routePattern, normalizeRoute(route)) || {};
+}
+
+export function getLuciaModuleConfig(scopeOrRoute: LuciaScope | string): LuciaModuleCapability {
+  if (scopeOrRoute.startsWith('/')) return resolveLuciaCapability(scopeOrRoute);
+  return (
+    MODULE_CAPABILITIES.find(
+      (capability) => capability.scope === scopeOrRoute && capability.luciaMode !== 'disabled'
+    ) || fallback
+  );
+}
+
+export function getQuickSuggestions(scopeOrRoute: LuciaScope | string): string[] {
+  return getLuciaModuleConfig(scopeOrRoute).suggestedPrompts;
+}
+
+export function isPublicTokenScope(scopeOrRoute: LuciaScope | string): boolean {
+  return getLuciaModuleConfig(scopeOrRoute).accessMode === 'public_token';
+}
+
+export function isLuciaAvailable(capability: LuciaModuleCapability) {
+  return (
+    capability.luciaMode === 'enabled' ||
+    capability.luciaMode === 'limited' ||
+    capability.luciaMode === 'deterministic_only'
+  );
 }
 
 export default MODULE_CAPABILITIES;

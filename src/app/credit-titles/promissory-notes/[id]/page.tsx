@@ -1,5 +1,6 @@
 'use client';
 
+import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -28,12 +29,14 @@ import {
   mapPromissoryNoteRow,
   type PromissoryNoteSummary,
 } from '@/lib/credit-titles/schema';
+import { DEVELOPMENT_DEMO_DATA_ENABLED } from '@/lib/product/developmentModules';
 import { CreditTitlesWorkspace, PromissoryNoteStatusBadge } from '../../components/CreditTitlesUI';
 
 type Detail = PromissoryNoteSummary & {
   raw?: any;
   events: Array<{ eventType: string; label: string; occurredAt: string; eventHash?: string }>;
   localError?: string;
+  isExample?: boolean;
 };
 
 export default function PromissoryNoteDetailPage() {
@@ -47,7 +50,7 @@ export default function PromissoryNoteDetailPage() {
     let cancelled = false;
     const load = async () => {
       if (id.startsWith('local-')) {
-        const local = readLocalDetail(id);
+        const local = DEVELOPMENT_DEMO_DATA_ENABLED ? readLocalDetail(id) : null;
         if (!cancelled) {
           setDetail(local);
           setLoading(false);
@@ -70,9 +73,11 @@ export default function PromissoryNoteDetailPage() {
           return;
         }
       }
-      const demo = DEMO_PROMISSORY_NOTES.find((item) => item.id === id) || DEMO_PROMISSORY_NOTES[0];
+      const demo = DEVELOPMENT_DEMO_DATA_ENABLED
+        ? DEMO_PROMISSORY_NOTES.find((item) => item.id === id) || DEMO_PROMISSORY_NOTES[0]
+        : null;
       if (!cancelled) {
-        setDetail(demoDetail(demo));
+        setDetail(demo ? demoDetail(demo) : null);
         setLoading(false);
       }
     };
@@ -158,10 +163,10 @@ export default function PromissoryNoteDetailPage() {
           </div>
         </header>
 
-        {detail.localError && (
+        {(detail.localError || detail.isExample) && (
           <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-            Borrador local: la migracion del modulo aun no esta aplicada en Supabase. El trabajo se
-            conservo en este navegador.
+            <strong>Datos de ejemplo.</strong> Este registro existe únicamente como demostración
+            visual en este navegador y no es información operativa.
           </div>
         )}
 
@@ -521,6 +526,7 @@ function mapDetail(row: any): Detail {
 function demoDetail(summary: PromissoryNoteSummary): Detail {
   return {
     ...summary,
+    isExample: true,
     raw: {
       internal_uuid: summary.id,
       version: 1,

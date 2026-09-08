@@ -448,6 +448,10 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
   const pdfDocRef = useRef<any>(null);
   const [error, setError] = useState(false);
   const [rendering, setRendering] = useState(true);
+  const [requiresAccessCode, setRequiresAccessCode] = useState(false);
+  const [accessCode, setAccessCode] = useState('');
+  const [accessCodeError, setAccessCodeError] = useState('');
+  const [verifyingAccessCode, setVerifyingAccessCode] = useState(false);
 
   useEffect(() => {
     if (window.pdfjsLib) return;
@@ -467,6 +471,7 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
     if (!canvasRef.current) return;
     setRendering(true);
     setError(false);
+    setRequiresAccessCode(false);
 
     try {
       let attempts = 0;
@@ -518,6 +523,9 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
     } catch (err: any) {
       if (err?.name !== 'RenderingCancelledException') {
         console.error('[PdfCanvas] render error:', err);
+        if (/DOCUMENT_ACCESS_CODE_REQUIRED|423/.test(String(err?.message || err?.name || ''))) {
+          setRequiresAccessCode(true);
+        }
         setError(true);
       }
     } finally {
@@ -535,6 +543,30 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
       }
     };
   }, [renderPage]);
+
+  const verifyAccessCode = async () => {
+    const match = /\/api\/documentos\/([^/]+)\/viewer-file/.exec(fileUrl);
+    if (!match || !accessCode) return;
+    setVerifyingAccessCode(true);
+    setAccessCodeError('');
+    try {
+      const response = await fetch(`/api/documentos/${match[1]}/verify-access-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: accessCode }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'El código de acceso no es correcto.');
+      }
+      setAccessCode('');
+      await renderPage();
+    } catch (err) {
+      setAccessCodeError(err instanceof Error ? err.message : 'No fue posible validar el código.');
+    } finally {
+      setVerifyingAccessCode(false);
+    }
+  };
 
   return (
     <div className={className} style={{ position: 'relative', ...style }}>
@@ -562,7 +594,29 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
           </svg>
         </div>
       )}
-      {error ? (
+      {error && requiresAccessCode ? (
+        <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 bg-slate-50 px-6 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary"><Lock size={22} /></div>
+          <div>
+            <p className="text-base font-700 text-slate-900">Documento protegido</p>
+            <p className="mt-1 text-sm text-slate-500">Introduce el código de acceso para visualizar este documento.</p>
+          </div>
+          <div className="w-full max-w-sm space-y-2">
+            <input
+              type="password"
+              value={accessCode}
+              onChange={(event) => setAccessCode(event.target.value)}
+              onKeyDown={(event) => event.key === 'Enter' && void verifyAccessCode()}
+              placeholder="Código de acceso"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+            {accessCodeError && <p className="text-xs text-red-600">{accessCodeError}</p>}
+            <button type="button" onClick={() => void verifyAccessCode()} disabled={verifyingAccessCode || !accessCode} className="h-10 w-full rounded-lg bg-primary px-4 text-sm font-600 text-white disabled:opacity-60">
+              {verifyingAccessCode ? 'Verificando...' : 'Ver documento'}
+            </button>
+          </div>
+        </div>
+      ) : error ? (
         <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-4 bg-gray-100">
           <FileText size={64} className="text-slate-300" strokeWidth={1} />
           <p className="text-sm text-slate-400">Vista previa no disponible</p>
@@ -805,6 +859,22 @@ export default function VisorDocumentoPage() {
     padesVerified &&
     cryptographicCertification?.padesProfile === 'PAdES-B-T' &&
     cryptographicCertification.timestampStatus === 'valid';
+
+  useEffect(() => {
+    if (!document?.id) return;
+
+    const requestedArchivo = new URLSearchParams(window.location.search).get('archivo');
+    const requestedVariant = requestedArchivo === 'original' || !padesBtVerified
+      ? 'original'
+      : 'certified';
+    const nextFileUrl = `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=${requestedVariant}`;
+
+    setDocument((current) =>
+      current && current.file_url !== nextFileUrl
+        ? { ...current, file_url: nextFileUrl }
+        : current
+    );
+  }, [document?.id, padesBtVerified]);
 
   // ── Signed PDF state ───────────────────────────────────────────────────────
   const [downloadingSignedPdf, setDownloadingSignedPdf] = useState(false);
@@ -1295,9 +1365,9 @@ export default function VisorDocumentoPage() {
       );
       return;
     }
-    if (!padesVerified) {
+    if (!padesBtVerified) {
       alert(
-        'La descarga certificada estará disponible cuando la firma PAdES del PDF termine su verificación técnica.'
+        'La descarga certificada estará disponible cuando la firma PAdES-B-T del PDF termine su verificación técnica.'
       );
       return;
     }
@@ -1328,7 +1398,7 @@ export default function VisorDocumentoPage() {
       const url = URL.createObjectURL(downloadBlob);
       const a = window.document.createElement('a');
       a.href = url;
-      a.download = `${safeName}_firmado_PAdES-B-T.pdf`;
+      a.download = `${safeName}_firmado.pdf`;
       a.style.display = 'none';
       window.document.body.appendChild(a);
       a.click();
@@ -1340,7 +1410,7 @@ export default function VisorDocumentoPage() {
     } finally {
       setDownloadingSignedPdf(false);
     }
-  }, [apiAuthHeaders, docId, document?.nombre, document?.sealed_pdf_path, padesVerified]);
+  }, [apiAuthHeaders, docId, document?.nombre, document?.sealed_pdf_path, padesBtVerified]);
 
   // ── Generate XML Evidence ─────────────────────────────────────────────────
   const generateXmlEvidence = useCallback(
@@ -2238,21 +2308,9 @@ export default function VisorDocumentoPage() {
           .maybeSingle();
         if (metaData) docMetadata = metaData;
 
-        const requestedArchivo = new URLSearchParams(window.location.search).get('archivo');
-        const configuredSignatureFields = Array.isArray(data.campos_solicitados)
-          ? (data.campos_solicitados as CampoSolicitado[]).some(isConfiguredSignatureField)
-          : false;
-        const canUseDerivedSignaturePdf = Boolean(
-          data.sealed_pdf_path &&
-          (!isGeneratedSignatureStampPath(data.sealed_pdf_path) || configuredSignatureFields)
-        );
-        const requestedFileVariant =
-          requestedArchivo === 'original'
-            ? 'original'
-            : (requestedArchivo === 'certificado' && canUseDerivedSignaturePdf) ||
-                (data.estado === 'completado' && canUseDerivedSignaturePdf)
-              ? 'certified'
-              : 'original';
+        // A derived PDF can exist before its PAdES-B-T verification finishes.
+        // Start with the original and let the verified certification state switch variants.
+        const requestedFileVariant = 'original';
         const viewerFileUrl = `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=${requestedFileVariant}`;
 
         setDocument({
@@ -3124,7 +3182,7 @@ export default function VisorDocumentoPage() {
                 ? {
                     ...prev,
                     sealed_pdf_path: stampJson.storage_path,
-                    file_url: `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=certified`,
+                    file_url: `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=original`,
                   }
                 : prev
             );

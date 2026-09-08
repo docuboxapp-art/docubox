@@ -64,7 +64,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
-import LucIAChat from '@/components/LucIAChat';
+import { useLuciaAssistant } from '@/contexts/LuciaAssistantContext';
 
 const BASE_NAV_TABS = [
   { href: '/inicio', label: 'Inicio', icon: Home },
@@ -174,6 +174,11 @@ function getDocumentSearchStatusLabel(status?: string) {
 
 export default function TopNav() {
   const pathname = usePathname();
+  const {
+    capability: luciaCapability,
+    openAssistant,
+    available: luciaAvailable,
+  } = useLuciaAssistant();
   const usesWorkspaceChrome =
     pathname === '/inicio' ||
     pathname === '/mis-documentos' ||
@@ -234,7 +239,6 @@ export default function TopNav() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [luciaOpen, setLuciaOpen] = useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
   // Sidebar state from shared context
@@ -1004,16 +1008,20 @@ export default function TopNav() {
           {/* Right section — action icons */}
           <div className="flex items-center gap-1">
             {/* LucIA Button — only visible when lucia module is active */}
-            {user && !modulesLoading && isModuleActive('lucia') && (
-              <button
-                title="Pregúntale a LucIA"
-                onClick={() => setLuciaOpen(true)}
-                className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-600 transition-all duration-150 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40"
-              >
-                <Sparkles className="h-4 w-4" />
-                <span className="hidden sm:inline">Pregúntale a LucIA</span>
-              </button>
-            )}
+            {user &&
+              !modulesLoading &&
+              isModuleActive('lucia') &&
+              luciaAvailable &&
+              luciaCapability.assistantPlacement === 'top_nav' && (
+                <button
+                  title="Pregúntale a LucIA"
+                  onClick={openAssistant}
+                  className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-600 transition-all duration-150 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  <span className="hidden sm:inline">Pregúntale a LucIA</span>
+                </button>
+              )}
 
             {/* 1. Buscar */}
             <div ref={searchRef} className="relative flex-shrink-0">
@@ -1531,7 +1539,8 @@ export default function TopNav() {
                         onClick={() => setAvatarOpen(false)}
                         className={`group flex items-center gap-3 px-4 py-2.5 text-sm transition-all duration-150 ${
                           item.href === '/notificaciones' &&
-                          (pathname === '/notificaciones' || pathname.startsWith('/notificaciones/'))
+                          (pathname === '/notificaciones' ||
+                            pathname.startsWith('/notificaciones/'))
                             ? 'bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary'
                             : 'text-foreground hover:bg-slate-50 hover:text-slate-950 dark:hover:bg-slate-800'
                         }`}
@@ -1540,7 +1549,8 @@ export default function TopNav() {
                           size={15}
                           className={`flex-shrink-0 transition-colors duration-150 ${
                             item.href === '/notificaciones' &&
-                            (pathname === '/notificaciones' || pathname.startsWith('/notificaciones/'))
+                            (pathname === '/notificaciones' ||
+                              pathname.startsWith('/notificaciones/'))
                               ? 'text-primary'
                               : 'text-muted-foreground group-hover:text-slate-700'
                           }`}
@@ -1664,9 +1674,6 @@ export default function TopNav() {
           </button>
         </div>
       </aside>
-
-      {/* LucIA Chat Modal */}
-      <LucIAChat isOpen={luciaOpen} onClose={() => setLuciaOpen(false)} />
 
       {/* ── Notification Detail Modal (standalone, outside the dropdown) ── */}
       {detailNotif &&

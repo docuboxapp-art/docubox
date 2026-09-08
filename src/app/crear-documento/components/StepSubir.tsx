@@ -1947,22 +1947,22 @@ function AdditionalMetadataModal({
       }}
     >
       <section
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-[680px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
         onMouseDown={(event) => event.stopPropagation()}
         aria-modal="true"
         role="dialog"
         aria-labelledby="additional-metadata-title"
       >
-        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 text-primary">
-              <Tag size={18} />
+        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-50 text-primary">
+              <Tag size={17} />
             </span>
             <div>
-              <h3 id="additional-metadata-title" className="text-base font-semibold text-slate-950">
+              <h3 id="additional-metadata-title" className="text-[15px] font-semibold text-slate-950">
                 Metadatos adicionales
               </h3>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="mt-0.5 text-[12px] leading-5 text-slate-500">
                 Agrega información de negocio sin modificar los metadatos técnicos de Docubox.
               </p>
             </div>
@@ -1978,6 +1978,7 @@ function AdditionalMetadataModal({
         </header>
 
         <div className="flex-1 overflow-y-auto p-5">
+          <p className="mb-2.5 text-xs font-medium text-slate-700">Selecciona el tipo de metadato</p>
           <div
             className="grid gap-3 sm:grid-cols-2"
             role="radiogroup"
@@ -1994,17 +1995,19 @@ function AdditionalMetadataModal({
                     role="radio"
                     aria-checked={selected}
                     onClick={() => setDraft((current) => ({ ...current, scope }))}
-                    className={`rounded-lg border p-2.5 text-left transition-colors ${selected ? 'border-primary bg-blue-50/70 ring-1 ring-primary/15' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}
+                    className={`min-h-[82px] rounded-lg border p-3 text-left transition-colors ${selected ? 'border-primary bg-blue-50/70 ring-1 ring-primary/10' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}
                   >
-                    <span
-                      className={`mb-1.5 flex h-6 w-6 items-center justify-center rounded-md ${selected ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'}`}
-                    >
-                      {scope === 'document' ? <Lock size={13} /> : <Folder size={13} />}
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${selected ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'}`}
+                      >
+                        {scope === 'document' ? <Lock size={14} /> : <Folder size={14} />}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-900">
+                        {copy.title}
+                      </span>
                     </span>
-                    <span className="block text-[13px] font-semibold text-slate-900">
-                      {copy.title}
-                    </span>
-                    <span className="mt-0.5 block text-xs leading-4 text-slate-500">
+                    <span className="mt-1.5 block text-[12px] leading-[17px] text-slate-500">
                       {copy.description}
                     </span>
                   </button>
@@ -2013,20 +2016,20 @@ function AdditionalMetadataModal({
             )}
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-[1.15fr_0.85fr]">
+          <div className="mt-5 grid gap-4 sm:grid-cols-[1.15fr_0.85fr]">
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-700">Nombre</span>
+              <span className="mb-1.5 block text-[12px] font-semibold text-slate-700">Nombre</span>
               <input
                 value={draft.name}
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, name: event.target.value }))
                 }
                 placeholder="Ej. Centro de costo"
-                className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/15"
               />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+              <span className="mb-1.5 block text-[12px] font-semibold text-slate-700">
                 Tipo de dato
               </span>
               <select
@@ -2038,7 +2041,7 @@ function AdditionalMetadataModal({
                     value: event.target.value === 'boolean' ? false : '',
                   }))
                 }
-                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
               >
                 {ADDITIONAL_METADATA_TYPES.map((type) => (
                   <option key={type.value} value={type.value}>
@@ -2049,7 +2052,7 @@ function AdditionalMetadataModal({
             </label>
           </div>
           <label className="mt-3 block">
-            <span className="mb-1.5 block text-xs font-semibold text-slate-700">Valor</span>
+            <span className="mb-1.5 block text-[12px] font-semibold text-slate-700">Valor</span>
             {draft.dataType === 'boolean' ? (
               <div className="flex gap-2" role="radiogroup" aria-label="Valor Sí o No">
                 {[
@@ -2062,7 +2065,7 @@ function AdditionalMetadataModal({
                     role="radio"
                     aria-checked={draft.value === option.value}
                     onClick={() => setDraft((current) => ({ ...current, value: option.value }))}
-                    className={`h-10 flex-1 rounded-md border text-sm font-medium transition-colors ${draft.value === option.value ? 'border-primary bg-primary text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                    className={`h-10 flex-1 rounded-lg border text-[13px] font-medium transition-colors ${draft.value === option.value ? 'border-primary bg-primary text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
                   >
                     {option.label}
                   </button>
@@ -2091,7 +2094,7 @@ function AdditionalMetadataModal({
                     ? 'Ej. Contrato, factura o convenio'
                     : `Valor de tipo ${typeLabel.toLocaleLowerCase()}`
                 }
-                className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/15"
               />
             )}
           </label>
@@ -2101,28 +2104,28 @@ function AdditionalMetadataModal({
             </p>
           )}
           {error && <p className="mt-3 text-xs font-medium text-red-600">{error}</p>}
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex justify-end border-b border-slate-100 pb-5">
             <button
               type="button"
               onClick={addOrUpdate}
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
             >
               <Plus size={16} />
               {editingId ? 'Actualizar metadato' : 'Agregar metadato'}
             </button>
           </div>
 
-          <div className="mt-6 border-t border-slate-200 pt-4">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="pt-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Metadatos agregados
               </p>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
                 {savedEntries.length}
               </span>
             </div>
             {savedEntries.length === 0 ? (
-              <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">
+              <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/40 px-3 py-4 text-center text-xs text-slate-500">
                 Aún no has agregado metadatos.
               </p>
             ) : (
@@ -2130,63 +2133,194 @@ function AdditionalMetadataModal({
                 {savedEntries.map((entry) => (
                   <div
                     key={entry.id}
-                    className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2.5"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-3"
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-sm font-semibold text-slate-800">
-                          {entry.name}
-                        </span>
-                        <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
-                          {
-                            ADDITIONAL_METADATA_TYPES.find((type) => type.value === entry.dataType)
-                              ?.label
-                          }
-                        </span>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="truncate text-sm font-semibold text-slate-800">
+                            {entry.name}
+                          </span>
+                          <span
+                            className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${entry.scope === 'document' ? 'bg-blue-50 text-primary' : 'bg-slate-100 text-slate-600'}`}
+                          >
+                            {entry.scope === 'document' ? 'Documento' : 'Gestión'}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                            {
+                              ADDITIONAL_METADATA_TYPES.find((type) => type.value === entry.dataType)
+                                ?.label
+                            }
+                          </span>
+                        </div>
+                        <p className="mt-1 flex items-baseline gap-1.5 text-xs text-slate-500">
+                          <span className="font-medium text-slate-600">Valor:</span>
+                          <span className="break-words text-slate-700">
+                            {String(
+                              entry.value === true ? 'Sí' : entry.value === false ? 'No' : entry.value
+                            )}
+                          </span>
+                        </p>
                       </div>
-                      <p className="mt-0.5 truncate text-xs text-slate-500">
-                        {entry.scope === 'document' ? 'Documento' : 'Gestión'} ·{' '}
-                        {String(
-                          entry.value === true ? 'Sí' : entry.value === false ? 'No' : entry.value
-                        )}
-                      </p>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => editEntry(entry)}
+                          className="rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-blue-50"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSavedEntries((current) => current.filter((item) => item.id !== entry.id))
+                          }
+                          className="rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => editEntry(entry)}
-                      className="rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-blue-50"
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSavedEntries((current) => current.filter((item) => item.id !== entry.id))
-                      }
-                      className="rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                    >
-                      Eliminar
-                    </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
         </div>
-        <footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-3">
+        <footer className="flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-5 py-3">
           <button
             type="button"
             onClick={onClose}
-            className="h-10 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={() => onSave(savedEntries)}
-            className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90"
+            className="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90"
           >
             Guardar metadatos
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function SelloUbicacionModal({
+  initialValue,
+  onClose,
+  onSave,
+}: {
+  initialValue: 'calce' | 'libre';
+  onClose: () => void;
+  onSave: (value: 'calce' | 'libre') => void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sello-ubicacion-title"
+        className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-50 text-primary">
+              <ShieldCheck size={17} />
+            </span>
+            <h3 id="sello-ubicacion-title" className="text-base font-semibold text-slate-900">
+              Ubicación de la certificación
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600"
+          >
+            <X size={18} />
+          </button>
+        </header>
+        <div className="space-y-4 px-5 py-5">
+          <p className="text-sm leading-5 text-slate-500">
+            Define dónde se integrará el sello digital y la cadena original.
+          </p>
+          <div>
+            <p className="mb-2 text-xs font-medium text-slate-700">Selecciona una ubicación</p>
+            <div
+              className="grid max-w-xs grid-cols-2 gap-1 rounded-md border border-slate-200 bg-slate-50 p-0.5"
+              role="radiogroup"
+              aria-label="Ubicación de la certificación"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={value === 'calce'}
+                onClick={() => setValue('calce')}
+                className={`h-8 rounded px-2 text-xs font-semibold transition-colors ${value === 'calce' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}
+              >
+                Al calce
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={value === 'libre'}
+                onClick={() => setValue('libre')}
+                className={`h-8 rounded px-2 text-xs font-semibold transition-colors ${value === 'libre' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}
+              >
+                En cualquier parte
+              </button>
+            </div>
+          </div>
+          <div className="rounded-lg bg-slate-50 px-3 py-3">
+            <p className="mb-2 text-xs font-semibold text-slate-700">Así aparecerá en el documento</p>
+            <div className="flex items-center gap-3">
+              <div className="relative h-20 w-14 shrink-0 rounded border border-slate-200 bg-white shadow-sm">
+                <span className="absolute left-2 right-2 top-3 h-px bg-slate-200" />
+                <span className="absolute left-2 right-3 top-5 h-px bg-slate-200" />
+                <span className="absolute left-2 right-2 top-7 h-px bg-slate-200" />
+                {value === 'calce' ? (
+                  <span className="absolute bottom-2 left-2 right-2 h-4 rounded-sm border border-blue-200 bg-blue-50" />
+                ) : (
+                  <>
+                    <span className="absolute left-2 right-2 top-10 h-2 rounded-sm bg-blue-100" />
+                    <span className="absolute left-2 right-3 top-[52px] h-3 rounded-sm bg-blue-200" />
+                  </>
+                )}
+              </div>
+              <div className="min-w-0 text-xs leading-5 text-slate-600">
+                {value === 'calce' ? (
+                  <>
+                    <p>La cadena original y el sello digital se mostrarán después del contenido.</p>
+                    <p className="mt-1 text-slate-500">
+                      Si la última página no tiene espacio suficiente, Docubox agregará una página nueva.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p>En el Paso 3 aparecerá la sección Cadena original y sello digital.</p>
+                    <p className="mt-1 text-slate-500">
+                      Podrás colocar ambos campos en la posición elegida dentro de cualquier página.
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer className="flex justify-end gap-3 border-t border-slate-100 px-5 py-3">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">
+            Cancelar
+          </button>
+          <button type="button" onClick={() => onSave(value)} className="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90">
+            Guardar ubicación
           </button>
         </footer>
       </section>
@@ -2198,12 +2332,14 @@ function AdditionalMetadataModal({
 function CodigoAccesoModal({
   documentoId,
   existingCode,
+  initialDelete,
   onClose,
   onSaved,
   onDeleted,
 }: {
   documentoId?: string;
   existingCode?: string;
+  initialDelete?: boolean;
   onClose: () => void;
   onSaved: (code: string) => void;
   onDeleted: () => void;
@@ -2217,7 +2353,7 @@ function CodigoAccesoModal({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(initialDelete ?? false);
 
   const getStrength = (code: string) => {
     if (!code) return null;
@@ -2248,15 +2384,15 @@ function CodigoAccesoModal({
 
   const handleSave = async () => {
     if (!password) {
-      setError('Ingresa una contraseña.');
+      setError('Ingresa un código de acceso.');
       return;
     }
-    if (password.length < 4) {
-      setError('Mínimo 4 caracteres.');
+    if (password.length < 8) {
+      setError('El código debe tener al menos 8 caracteres.');
       return;
     }
     if (password !== confirmPassword) {
-      setError('Las contraseñas no coinciden.');
+      setError('Los códigos no coinciden.');
       return;
     }
     setSaving(true);
@@ -2264,14 +2400,20 @@ function CodigoAccesoModal({
     try {
       if (documentoId) {
         const supabase = createClient();
-        await supabase.from('document_security_settings').upsert(
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+        const { error: saveError } = await supabase.from('document_security_settings').upsert(
           {
             documento_id: documentoId,
+            owner_id: user.id,
             codigo_acceso_enabled: true,
             codigo_acceso: password,
           },
           { onConflict: 'documento_id' }
         );
+        if (saveError) throw saveError;
       }
       setSaved(true);
       onSaved(password);
@@ -2288,19 +2430,25 @@ function CodigoAccesoModal({
     try {
       if (documentoId) {
         const supabase = createClient();
-        await supabase.from('document_security_settings').upsert(
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+        const { error: deleteError } = await supabase.from('document_security_settings').upsert(
           {
             documento_id: documentoId,
+            owner_id: user.id,
             codigo_acceso_enabled: false,
             codigo_acceso: null,
           },
           { onConflict: 'documento_id' }
         );
+        if (deleteError) throw deleteError;
       }
       onDeleted();
       onClose();
-    } catch {
-      /* silent */
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No fue posible eliminar el código.');
     } finally {
       setDeleting(false);
     }
@@ -2321,7 +2469,11 @@ function CodigoAccesoModal({
           <div className="flex items-center gap-2">
             <Lock size={18} className="text-primary" />
             <h3 className="text-base font-semibold text-gray-900">
-              {isEditing ? 'Cambiar código de acceso' : 'Establecer código de acceso'}
+              {confirmDelete
+                ? 'Confirmar eliminación'
+                : isEditing
+                  ? 'Cambiar código de acceso'
+                  : 'Proteger visualización'}
             </h3>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
@@ -2331,14 +2483,14 @@ function CodigoAccesoModal({
 
         <div className="px-5 py-4 space-y-4">
           <p className="text-sm text-gray-500">
-            {isEditing
-              ? 'Ingresa una nueva contraseña para reemplazar la actual. Los participantes deberán usarla para acceder al documento.'
-              : 'Define una contraseña que los participantes deberán ingresar para acceder al documento en el visor y en Mi Espacio.'}
+            {confirmDelete
+              ? 'Esta acción quitará la protección de visualización del documento.'
+              : 'Define un código que será necesario para visualizar el contenido de este documento.'}
           </p>
 
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1.5">
-              Nueva contraseña
+              Código de acceso <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <input
@@ -2348,7 +2500,7 @@ function CodigoAccesoModal({
                   setPassword(e.target.value);
                   setError(null);
                 }}
-                placeholder="Mínimo 4 caracteres"
+                placeholder="Mínimo 8 caracteres"
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 pr-10"
                 autoFocus
               />
@@ -2385,7 +2537,7 @@ function CodigoAccesoModal({
 
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1.5">
-              Confirmar contraseña
+              Confirmar código <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <input
@@ -2395,7 +2547,7 @@ function CodigoAccesoModal({
                   setConfirmPassword(e.target.value);
                   setError(null);
                 }}
-                placeholder="Repite la contraseña"
+                placeholder="Repite el código"
                 className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 pr-10 transition-colors ${
                   confirmPassword && confirmPassword !== password
                     ? 'border-red-300 focus:ring-red-200'
@@ -2415,7 +2567,7 @@ function CodigoAccesoModal({
             {confirmPassword && confirmPassword === password && (
               <p className="mt-1 text-xs text-emerald-600 flex items-center gap-1">
                 <CheckCircle2 size={11} />
-                Las contraseñas coinciden
+                Los códigos coinciden
               </p>
             )}
           </div>
@@ -2464,7 +2616,7 @@ function CodigoAccesoModal({
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2">
               <p className="text-xs text-red-700 font-medium">
                 ¿Confirmas que deseas eliminar el código de acceso? El documento quedará sin
-                protección de contraseña.
+                protección de visualización.
               </p>
               <div className="flex gap-2">
                 <button
@@ -2494,35 +2646,37 @@ function CodigoAccesoModal({
           >
             Cancelar
           </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || saved}
-            className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center gap-2"
-          >
-            {saving && (
-              <svg
-                className="animate-spin h-3.5 w-3.5"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                />
-              </svg>
-            )}
-            {isEditing ? 'Cambiar contraseña' : 'Guardar contraseña'}
-          </button>
+          {!confirmDelete && (
+            <button
+              onClick={handleSave}
+              disabled={saving || saved}
+              className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center gap-2"
+            >
+              {saving && (
+                <svg
+                  className="animate-spin h-3.5 w-3.5"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+              )}
+              Guardar código
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -2558,7 +2712,6 @@ function FileUploadedLayout({
       selloUbicacion: 'calce' | 'libre';
       estampaAutenticacion: boolean;
       metadatosAdicionales: boolean;
-      leyendasDocumento: boolean;
     }
   ) => void;
   documentoId?: string;
@@ -2605,15 +2758,16 @@ function FileUploadedLayout({
   const [codigoAcceso, setCodigoAcceso] = useState(false);
   const [codigoAccesoValue, setCodigoAccesoValue] = useState('');
   const [showCodigoAccesoModal, setShowCodigoAccesoModal] = useState(false);
+  const [showCodigoAccesoDeleteConfirm, setShowCodigoAccesoDeleteConfirm] = useState(false);
   const [proteccionFirmado, setProteccionFirmado] = useState(false);
   const [proteccionParticipacion, setProteccionParticipacion] = useState(false);
   const [urgente, setUrgente] = useState(false);
   const [publico, setPublico] = useState(false);
   const [selloDigital, setSelloDigital] = useState(false);
   const [selloUbicacion, setSelloUbicacion] = useState<'calce' | 'libre'>('calce');
+  const [showSelloUbicacionModal, setShowSelloUbicacionModal] = useState(false);
   const [estampaAutenticacion, setEstampaAutenticacion] = useState(false);
   const [metadatosAdicionales, setMetadatosAdicionales] = useState(false);
-  const [leyendasDocumento, setLeyendasDocumento] = useState(false);
   const [showMetadatosModal, setShowMetadatosModal] = useState(false);
   const savedMetadatosCount = config.additionalMetadata?.length ?? 0;
 
@@ -2671,7 +2825,6 @@ function FileUploadedLayout({
       selloUbicacion,
       estampaAutenticacion,
       metadatosAdicionales,
-      leyendasDocumento,
       vencimientoSolicitud,
       vencimientoCompletar,
       proteccionParticipacionEnabled: proteccionParticipacion,
@@ -2706,7 +2859,6 @@ function FileUploadedLayout({
     selloUbicacion,
     estampaAutenticacion,
     metadatosAdicionales,
-    leyendasDocumento,
   ]);
 
   const isPdf = file.name.toLowerCase().endsWith('.pdf');
@@ -2961,14 +3113,11 @@ function FileUploadedLayout({
           </div>
 
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">
+            <h2 className="text-base font-700 text-slate-950">
               Configuración del documento
             </h2>
-            <p className="text-sm text-gray-400 mb-4">
-              Configura la seguridad y propiedades de tu documento.
-            </p>
             {/* Tabs - Configuración general FIRST (default), Seguridad y protección SECOND */}
-            <div className="flex gap-2 mb-4 bg-gray-100 rounded-xl p-1">
+            <div className="mt-4 flex gap-2 rounded-xl bg-gray-100 p-1">
               <button
                 onClick={() => setActiveTab('general')}
                 className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all flex-1 justify-center ${activeTab === 'general' ? 'bg-white text-primary shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
@@ -2989,7 +3138,7 @@ function FileUploadedLayout({
             {activeTab === 'general' && (
               <div className="space-y-1.5">
                 <div className="rounded-lg px-3 py-2 hover:bg-gray-50">
-                  <label className="flex cursor-pointer items-center gap-3">
+                  <label className="group/option flex cursor-pointer items-center gap-3">
                     <input
                       type="checkbox"
                       checked={urgente}
@@ -2999,7 +3148,7 @@ function FileUploadedLayout({
                     <span className="flex-1 text-sm font-normal text-gray-700">
                       Marcar como documento urgente
                     </span>
-                    <InfoTooltip text="Los participantes recibirán una indicación de prioridad y el documento se destacará en sus bandejas. Este ajuste no modifica el vencimiento." />
+                    <InfoTooltip showOnParentHover text="Los participantes recibirán una indicación de prioridad y el documento se destacará en sus bandejas. Este ajuste no modifica el vencimiento." />
                   </label>
                   {urgente && (
                     <p className="ml-7 mt-1.5 text-xs text-gray-500">
@@ -3007,95 +3156,65 @@ function FileUploadedLayout({
                     </p>
                   )}
                 </div>
-                <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
-                  <input
-                    type="checkbox"
-                    checked={publico}
-                    onChange={(e) => setPublico(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 accent-primary"
-                  />
-                  <span className="min-w-0 flex-1 text-sm font-normal text-gray-700">
-                    Permitir consulta pública del documento firmado
-                  </span>
-                  <InfoTooltip text="La publicación sólo se habilita cuando el documento está completado. Podrá visualizarse desde el portal de verificación mediante su enlace o código QR. Si no activas esta opción, la consulta y descarga permanecerán privadas." />
-                </label>
+                <div className="rounded-lg px-3 py-2 hover:bg-gray-50">
+                  <label className="group/option flex cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={publico}
+                      onChange={(e) => setPublico(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 accent-primary"
+                    />
+                    <span className="min-w-0 flex-1 text-sm font-normal text-gray-700">Permitir consulta pública del documento firmado</span>
+                    <InfoTooltip showOnParentHover text="La publicación sólo se habilita cuando el documento está completado. Podrá visualizarse desde el portal de verificación mediante su enlace o código QR. Si no activas esta opción, la consulta y descarga permanecerán privadas." />
+                  </label>
+                  {publico && <p className="ml-7 mt-1.5 text-xs text-gray-500">Al completarse, se habilitará una consulta pública verificable mediante enlace o código QR.</p>}
+                </div>
                 <div>
-                  <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
+                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg" onClick={(event) => { event.preventDefault(); setShowSelloUbicacionModal(true); }}>
                     <input
                       type="checkbox"
                       checked={selloDigital}
-                      onChange={(e) => setSelloDigital(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-300 accent-primary"
+                      onChange={() => {}}
+                      className="w-4 h-4 rounded border-gray-300 accent-primary pointer-events-none"
                     />
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Agregar sello digital y cadena original
                     </span>
-                    <InfoTooltip text="Genera la cadena original, el sello digital y la evidencia criptográfica con valores reales cuando el documento quede completado." />
+                    <InfoTooltip showOnParentHover text="Genera la cadena original, el sello digital y la evidencia criptográfica con valores reales cuando el documento quede completado." />
                   </label>
                   {selloDigital && (
-                    <div className="ml-10 mr-3 mb-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
-                      <p className="mb-2.5 text-xs font-semibold text-slate-700">
-                        Ubicación de la certificación
-                      </p>
-                      <div
-                        className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-white p-1"
-                        role="radiogroup"
-                        aria-label="Ubicación de sellos y cadenas"
-                      >
-                        <button
-                          type="button"
-                          role="radio"
-                          aria-checked={selloUbicacion === 'calce'}
-                          onClick={() => setSelloUbicacion('calce')}
-                          className={`min-h-9 rounded-md px-3 text-xs font-semibold transition-colors ${selloUbicacion === 'calce' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
-                        >
-                          Al calce
-                        </button>
-                        <button
-                          type="button"
-                          role="radio"
-                          aria-checked={selloUbicacion === 'libre'}
-                          onClick={() => setSelloUbicacion('libre')}
-                          className={`min-h-9 rounded-md px-3 text-xs font-semibold transition-colors ${selloUbicacion === 'libre' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
-                        >
-                          En cualquier parte
-                        </button>
-                      </div>
-                      <p className="mt-2.5 text-xs leading-5 text-slate-500">
-                        {selloUbicacion === 'calce'
-                          ? 'Se integrará automáticamente en el anexo final de certificación, sin cubrir el contenido original.'
-                          : 'En el paso 3 podrás colocar la cadena original, el sello digital, la estampa de tiempo y la cadena de evidencia.'}
-                      </p>
+                    <div className="mx-3 mb-2 ml-10 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <CheckCircle2 size={13} className="shrink-0 text-emerald-500" />
+                      <span className="flex-1 text-xs text-emerald-700">Certificación: {selloUbicacion === 'calce' ? 'al calce' : 'en cualquier parte'}</span>
+                      <button type="button" onClick={() => setShowSelloUbicacionModal(true)} className="text-xs font-medium text-primary hover:text-primary/80">Editar</button>
                     </div>
                   )}
                 </div>
-                <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
-                  <input
-                    type="checkbox"
-                    checked={estampaAutenticacion}
-                    onChange={(e) => setEstampaAutenticacion(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 accent-primary"
-                  />
-                  <span className="text-sm text-gray-700 flex-1 font-normal">
-                    Agregar estampa en documento
-                  </span>
-                  <InfoTooltip text="Genera una estampa de autenticación al calce de la hoja que acredita la existencia del documento en un momento determinado." />
-                </label>
-                <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
-                  <input
-                    type="checkbox"
-                    checked={leyendasDocumento}
-                    onChange={(e) => setLeyendasDocumento(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 accent-primary"
-                  />
-                  <span className="text-sm text-gray-700 flex-1 font-normal">
-                    Agregar leyendas en documento
-                  </span>
-                  <InfoTooltip text="Incorpora leyendas legales o informativas en el documento para cumplimiento normativo o comunicación a los participantes." />
-                </label>
+                <div className="rounded-lg px-3 py-2 hover:bg-gray-50">
+                  <label className="group/option flex cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={estampaAutenticacion}
+                      onChange={(event) => setEstampaAutenticacion(event.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 accent-primary"
+                    />
+                    <span className="flex-1 text-sm font-normal text-gray-700">
+                      Agregar estampa de verificación al documento
+                    </span>
+                    <InfoTooltip
+                      showOnParentHover
+                      text="Agrega una franja de identificación en cada página y, al completarse el documento, un código QR para verificar su autenticidad, integridad y estado."
+                    />
+                  </label>
+                  {estampaAutenticacion && (
+                    <p className="ml-7 mt-1.5 text-xs text-gray-500">
+                      Se agregará automáticamente una franja de identificación y verificación al pie de cada página del documento.
+                    </p>
+                  )}
+                </div>
                 <div>
                   <label
-                    className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg"
+                    className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg"
                     onClick={(e) => {
                       e.preventDefault();
                       setShowMetadatosModal(true);
@@ -3110,7 +3229,7 @@ function FileUploadedLayout({
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Crear metadatos adicionales al documento
                     </span>
-                    <InfoTooltip text="Agrega metadatos de negocio tipados. Los metadatos del documento se bloquean al iniciar la firma; los de gestión permanecen editables y auditados." />
+                    <InfoTooltip showOnParentHover text="Agrega metadatos de negocio tipados. Los metadatos del documento se bloquean al iniciar la firma; los de gestión permanecen editables y auditados." />
                   </label>
                   {metadatosAdicionales && savedMetadatosCount > 0 && (
                     <div className="ml-10 mr-3 mb-1">
@@ -3138,7 +3257,7 @@ function FileUploadedLayout({
               <div className="space-y-1.5">
                 {/* Vencimiento */}
                 <div>
-                  <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
+                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
                     <input
                       type="checkbox"
                       checked={vencimiento}
@@ -3148,7 +3267,7 @@ function FileUploadedLayout({
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Establecer vencimiento para este documento
                     </span>
-                    <InfoTooltip text="Define una fecha límite después de la cual el documento ya no podrá ser firmado o accedido." />
+                    <InfoTooltip showOnParentHover text="Define una fecha límite después de la cual el documento ya no podrá ser firmado o accedido." />
                   </label>
 
                   {vencimiento && (
@@ -3358,15 +3477,10 @@ function FileUploadedLayout({
                 {/* Código de acceso */}
                 <div>
                   <label
-                    className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg"
+                    className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg"
                     onClick={(e) => {
                       e.preventDefault();
-                      if (!codigoAcceso) {
-                        setCodigoAcceso(true);
-                        setShowCodigoAccesoModal(true);
-                      } else {
-                        setShowCodigoAccesoModal(true);
-                      }
+                      setShowCodigoAccesoModal(true);
                     }}
                   >
                     <input
@@ -3376,9 +3490,9 @@ function FileUploadedLayout({
                       className="w-4 h-4 rounded border-gray-300 accent-primary pointer-events-none"
                     />
                     <span className="text-sm text-gray-700 flex-1 font-normal">
-                      Establecer un código de acceso
+                      Proteger visualización con código de acceso
                     </span>
-                    <InfoTooltip text="Protege el documento con una contraseña que los participantes deberán ingresar para acceder en el visor y en Mi Espacio." />
+                    <InfoTooltip showOnParentHover text="El código protege el contenido al abrirlo en el visor; no oculta la existencia ni la ficha del documento." />
                   </label>
                   {codigoAcceso && codigoAccesoValue && (
                     <div className="ml-10 mr-3 mb-1">
@@ -3397,8 +3511,8 @@ function FileUploadedLayout({
                         <button
                           type="button"
                           onClick={() => {
-                            setCodigoAcceso(false);
-                            setCodigoAccesoValue('');
+                            setShowCodigoAccesoDeleteConfirm(true);
+                            setShowCodigoAccesoModal(true);
                           }}
                           className="text-xs text-red-500 hover:text-red-600 font-medium"
                         >
@@ -3411,7 +3525,7 @@ function FileUploadedLayout({
 
                 {/* Protección adicional para participar */}
                 <div>
-                  <label className="flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
+                  <label className="group/option flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
                     <input
                       type="checkbox"
                       checked={proteccionParticipacion}
@@ -3430,13 +3544,13 @@ function FileUploadedLayout({
                         </p>
                       )}
                     </div>
-                    <InfoTooltip text="Requiere verificación adicional de identidad (token móvil o OTP por correo) antes de que el participante pueda firmar o interactuar con el documento." />
+                    <InfoTooltip showOnParentHover text="Requiere verificación adicional de identidad (token móvil o OTP por correo) antes de que el participante pueda firmar o interactuar con el documento." />
                   </label>
                 </div>
 
                 {/* Protección adicional */}
                 <div>
-                  <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
+                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
                     <input
                       type="checkbox"
                       checked={proteccionFirmado}
@@ -3446,7 +3560,7 @@ function FileUploadedLayout({
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Protección adicional a documento firmado
                     </span>
-                    <InfoTooltip text="Aplica una capa extra de seguridad al documento una vez que ha sido firmado, evitando modificaciones." />
+                    <InfoTooltip showOnParentHover text="Aplica una capa extra de seguridad al documento una vez que ha sido firmado, evitando modificaciones." />
                   </label>
                   {proteccionFirmado && (
                     <div className="ml-10 mr-3 mb-2 space-y-2">
@@ -3501,7 +3615,7 @@ function FileUploadedLayout({
                 </div>
                 {/* Legal Hold */}
                 <div>
-                  <label className="flex items-start gap-3 rounded-lg px-3 py-2 cursor-pointer hover:bg-amber-50/60">
+                  <label className="group/option flex items-start gap-3 rounded-lg px-3 py-2 cursor-pointer hover:bg-amber-50/60">
                     <input
                       type="checkbox"
                       checked={legalHoldEnabled}
@@ -3522,7 +3636,7 @@ function FileUploadedLayout({
                         </p>
                       )}
                     </div>
-                    <InfoTooltip text="Legal Hold preserva el documento y su evidencia ante litigio, requerimiento de autoridad o auditoría. Requiere motivo, queda auditado y solo el propietario o un administrador podrá solicitar su liberación." />
+                    <InfoTooltip showOnParentHover text="Legal Hold preserva el documento y su evidencia ante litigio, requerimiento de autoridad o auditoría. Requiere motivo, queda auditado y solo el propietario o un administrador podrá solicitar su liberación." />
                   </label>
                   {legalHoldEnabled && (
                     <div className="ml-10 mr-3 mb-2 rounded-lg border border-amber-200 bg-amber-50/70 p-3">
@@ -3555,11 +3669,11 @@ function FileUploadedLayout({
         </div>
 
         <div className="h-fit rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <h2 className="mb-5 text-base font-700 text-slate-950">Propiedades del documento</h2>
-          <div className="space-y-4">
+          <h2 className="mb-5 text-base font-700 leading-5 text-slate-950">Propiedades del documento</h2>
+          <div className="space-y-4 [&_button]:text-[13px] [&_input]:text-[13px]">
             {/* Nombre del documento */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="mb-1.5 block text-[13px] font-medium leading-5 text-gray-700">
                 Nombre del documento <span className="text-red-500">*</span>
               </label>
               <input
@@ -3567,13 +3681,13 @@ function FileUploadedLayout({
                 value={config.nombre}
                 onChange={(e) => update('nombre', e.target.value)}
                 placeholder="Nombre del documento"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-[13px] leading-5 focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
 
             {/* Descripción */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="mb-1.5 block text-[13px] font-medium leading-5 text-gray-700">
                 Descripción del documento
               </label>
               <textarea
@@ -3581,13 +3695,13 @@ function FileUploadedLayout({
                 onChange={(e) => update('descripcion', e.target.value)}
                 placeholder="Añade un resumen o notas sobre el contenido del documento."
                 rows={3}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                className="block w-full resize-none rounded-lg border border-gray-200 px-3 py-2.5 text-[13px] leading-5 focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
 
             {/* Número de oficio */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="mb-1.5 block text-[13px] font-medium leading-5 text-gray-700">
                 Número de oficio / documento
               </label>
               <input
@@ -3595,17 +3709,14 @@ function FileUploadedLayout({
                 value={config.numeroOficio}
                 onChange={(e) => update('numeroOficio', e.target.value)}
                 placeholder="Ej. OF-2026-001"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-[13px] leading-5 focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
 
             {/* Ruta de guardado */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                <span className="flex items-center gap-1.5">
-                  <Folder size={14} className="text-gray-400" />
-                  Ruta de guardado
-                </span>
+              <label className="mb-1.5 block text-[13px] font-medium leading-5 text-gray-700">
+                Ruta de guardado
               </label>
               <SearchableSelect
                 options={folderOptions}
@@ -3617,11 +3728,8 @@ function FileUploadedLayout({
 
             {/* Merged: Tipo de documento + Documento */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                <span className="flex items-center gap-1.5">
-                  <Layers size={14} className="text-gray-400" />
-                  Tipo de documento
-                </span>
+              <label className="mb-1.5 block text-[13px] font-medium leading-5 text-gray-700">
+                Tipo de documento
               </label>
               {loadingData ? (
                 <div className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-400 bg-gray-50 flex items-center gap-2">
@@ -3685,11 +3793,8 @@ function FileUploadedLayout({
 
             {/* Etiquetas */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                <span className="flex items-center gap-1.5">
-                  <Tag size={14} className="text-gray-400" />
-                  Etiquetas
-                </span>
+              <label className="mb-1.5 block text-[13px] font-medium leading-5 text-gray-700">
+                Etiquetas
               </label>
               <EtiquetasSearchFieldWithModal
                 etiquetas={etiquetas}
@@ -3721,13 +3826,27 @@ function FileUploadedLayout({
         />
       )}
 
+      {showSelloUbicacionModal && (
+        <SelloUbicacionModal
+          initialValue={selloUbicacion}
+          onClose={() => setShowSelloUbicacionModal(false)}
+          onSave={(value) => {
+            setSelloUbicacion(value);
+            setSelloDigital(true);
+            setShowSelloUbicacionModal(false);
+          }}
+        />
+      )}
+
       {/* Código de Acceso Modal */}
       {showCodigoAccesoModal && (
         <CodigoAccesoModal
           documentoId={documentoId}
           existingCode={codigoAccesoValue || undefined}
+          initialDelete={showCodigoAccesoDeleteConfirm}
           onClose={() => {
             setShowCodigoAccesoModal(false);
+            setShowCodigoAccesoDeleteConfirm(false);
             if (!codigoAccesoValue) {
               setCodigoAcceso(false);
             }

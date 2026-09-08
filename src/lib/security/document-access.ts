@@ -1,6 +1,7 @@
 import type { User } from '@supabase/supabase-js';
 import type { NextRequest } from 'next/server';
 import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
+import { canAccessParticipantDocument } from '@/lib/documents/participant-visibility';
 
 export class DocumentAccessError extends Error {
   constructor(
@@ -66,13 +67,20 @@ export async function requireDocumentAccess(
   }
 
   const normalizedEmail = user.email.trim().toLowerCase();
-  const listedParticipant = Array.isArray(document.participantes)
-    && document.participantes.some((participant: Record<string, unknown>) =>
-      participant.id === user.id
-      || String(participant.email || '').trim().toLowerCase() === normalizedEmail
-    );
+  const participantEntry = Array.isArray(document.participantes)
+    ? document.participantes.find((participant: Record<string, unknown>) =>
+        participant.id === user.id
+        || participant.user_id === user.id
+        || String(participant.email || '').trim().toLowerCase() === normalizedEmail
+      ) as Record<string, unknown> | undefined
+    : undefined;
+  const listedParticipant = Boolean(participantEntry && canAccessParticipantDocument(participantEntry));
+  const participantAccessRevoked = Boolean(
+    participantEntry
+    && participantEntry.current_access === false
+  );
   let hasParticipation = false;
-  if (!isOwner && !isWorkspaceManager && !listedParticipant) {
+  if (!isOwner && !isWorkspaceManager && !listedParticipant && !participantAccessRevoked) {
     const { data: participationById } = await service
       .from('participation_responses')
       .select('id')
