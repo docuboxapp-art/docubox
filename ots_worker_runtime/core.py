@@ -74,13 +74,14 @@ def _run(args: list[str], cwd: str, allow_pending: bool = False) -> tuple[str, i
     timeout = min(max(int(os.environ.get("OPENTIMESTAMPS_TIMEOUT_MS", "30000")), 5000), 120000)
     environment = os.environ.copy()
     environment["PYTHONPATH"] = os.pathsep.join(item for item in sys.path if item)
+    effective_args = args if "--no-cache" in args or "--cache" in args else ["--no-cache", *args]
     try:
         result = subprocess.run(
             [
                 sys.executable,
                 "-c",
                 "from otsclient.ots import main; main()",
-                *args,
+                *effective_args,
             ],
             cwd=cwd,
             capture_output=True,
@@ -103,7 +104,8 @@ def _run(args: list[str], cwd: str, allow_pending: bool = False) -> tuple[str, i
             code = "OTS_CALENDAR_UNAVAILABLE"
         else:
             code = "OTS_STAMP_FAILED" if "stamp" in args else "OTS_UPGRADE_FAILED"
-        diagnostic = re.sub(r"/tmp/docubox-ots-[^/\s]+", "<tmp>", output)
+        diagnostic = next((line for line in reversed(output.splitlines()) if line.strip()), "")
+        diagnostic = re.sub(r"'[^']*[/\\][^']*'", "'<path>'", diagnostic)
         diagnostic = re.sub(r"https://[^\s'\"]+", "<calendar>", diagnostic)
         print(
             json.dumps(

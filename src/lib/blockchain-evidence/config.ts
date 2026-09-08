@@ -40,7 +40,7 @@ export function blockchainEvidenceConfig() {
     workerUrl:
       process.env.OPENTIMESTAMPS_WORKER_URL ||
       (process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}/api/opentimestamps-runtime`
+        ? `https://${process.env.VERCEL_URL}/api/opentimestamps_runtime`
         : ''),
     workerSecret: process.env.OTS_WORKER_SECRET || process.env.CRON_SECRET || '',
     bitcoinVerificationMode: process.env.BITCOIN_VERIFICATION_MODE || 'OPENTIMESTAMPS',
