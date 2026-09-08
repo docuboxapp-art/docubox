@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { createClient } from '../lib/supabase/client';
 import { useSessionTimeout } from '../hooks/useSessionTimeout';
 
@@ -121,11 +121,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Session timeout modal state
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
 
-  // Global flag: is a document signing operation in progress?
-  // This is set/cleared by firmar-documento/[id]/page.tsx via context
-  const isSigningInProgressRef = useRef(false);
-  const [isSigningInProgress, setIsSigningInProgress] = useState(false);
-
   const supabase = createClient();
 
   const fetchEmailVerified = async (userId: string) => {
@@ -144,12 +139,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setEmailVerified(false);
     }
   };
-
-  // ── Set session start cookie on successful login ──────────────────────────
-  const setSessionStartCookie = useCallback(() => {
-    // We call a lightweight API endpoint that sets the httpOnly cookie server-side
-    fetch('/api/auth/set-session-start', { method: 'POST' }).catch(() => {/* non-blocking */});
-  }, []);
 
   useEffect(() => {
     // Get initial session
@@ -172,10 +161,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(session?.user ?? null);
       if (session?.user?.id) {
         fetchEmailVerified(session.user.id);
-        // Set the session start cookie on every new sign-in
-        if (_event === 'SIGNED_IN') {
-          setSessionStartCookie();
-        }
       } else {
         setEmailVerified(null);
       }
@@ -186,22 +171,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   // ── useSessionTimeout integration ─────────────────────────────────────────
-  const getIsSigningInProgress = useCallback(() => isSigningInProgressRef.current, []);
-
   const { continueSession, signOutNow } = useSessionTimeout(!!user, {
     onShowWarning: () => setShowTimeoutWarning(true),
     onHideWarning: () => setShowTimeoutWarning(false),
-    getIsSigningInProgress,
     onBeforeSignOut: () => {
       setShowTimeoutWarning(false);
     },
   });
-
-  // ── Signing progress setter (called by firmar-documento page) ─────────────
-  const setSigningInProgress = useCallback((value: boolean) => {
-    isSigningInProgressRef.current = value;
-    setIsSigningInProgress(value);
-  }, []);
 
   // ── Auth methods ──────────────────────────────────────────────────────────
 
@@ -275,9 +251,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     getCurrentUser,
     isEmailVerified,
     getUserProfile,
-    // Signing progress — exposed so firmar-documento can set it
-    isSigningInProgress,
-    setSigningInProgress,
   };
 
   return (

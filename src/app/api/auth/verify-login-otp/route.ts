@@ -56,19 +56,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No se pudo crear la sesión. Intenta de nuevo.' }, { status: 500 });
     }
 
-    // Build response and set the session-start httpOnly cookie for the 10-hour absolute limit
-    const nowSeconds = Math.floor(Date.now() / 1000).toString();
+    // The client exchanges this one-time token for a Supabase session. Its
+    // lifetime is enforced from auth.sessions on the server, not a browser cookie.
     const successResponse = NextResponse.json({
       success: true,
       userId: otpRecord.user_id,
       tokenHash: linkData.properties.hashed_token,
-    });
-    successResponse.cookies.set('docubox_session_start', nowSeconds, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 10 * 60 * 60 + 300, // 10 hours + 5 min buffer
     });
     return successResponse;
   } catch (err) {

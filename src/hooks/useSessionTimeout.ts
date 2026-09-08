@@ -1,210 +1,228 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000;       // 20 minutes
-const WARNING_BEFORE_MS = 2 * 60 * 1000;             // warn 2 min before → at 18 min
-const DEBOUNCE_MS = 1_000;                            // 1 second debounce
-const RETRY_INTERVAL_MS = 10_000;                    // retry every 10 s when signing
+const WARNING_BEFORE_MS = 2 * 60 * 1000;
+const ACTIVITY_DEBOUNCE_MS = 1_000;
 const BROADCAST_CHANNEL_NAME = 'docubox-session';
 
-// ─── Activity events to track ─────────────────────────────────────────────────
-const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
-  'mousemove',
+// Deliberately excludes mousemove, scroll, polling and background work.
+const HUMAN_ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
+  'pointerdown',
   'keydown',
-  'click',
-  'scroll',
   'touchstart',
+  'popstate',
 ];
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+type SessionExpiryReason = 'inactivity' | 'absolute';
+
+type SessionPolicy = {
+  active: boolean;
+  reason: string | null;
+  inactivity_timeout_seconds: number;
+  last_user_activity_at: string | null;
+  inactivity_expires_at: string | null;
+  absolute_expires_at: string | null;
+};
+
 export interface SessionTimeoutOptions {
-  /** Called when the warning modal should be shown (2 min remaining) */
   onShowWarning: () => void;
-  /** Called to hide the warning modal (user clicked "Continuar") */
   onHideWarning: () => void;
-  /** Returns true if a signing operation is currently in progress */
-  getIsSigningInProgress: () => boolean;
-  /** Called right before sign-out so the parent can clean up state */
   onBeforeSignOut?: () => void;
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+function parsePolicy(value: unknown): SessionPolicy | null {
+  const row = Array.isArray(value) ? value[0] : value;
+  if (!row || typeof row !== 'object') return null;
+
+  const policy = row as Partial<SessionPolicy>;
+  if (typeof policy.active !== 'boolean') return null;
+
+  return {
+    active: policy.active,
+    reason: typeof policy.reason === 'string' ? policy.reason : null,
+    inactivity_timeout_seconds:
+      typeof policy.inactivity_timeout_seconds === 'number'
+        ? policy.inactivity_timeout_seconds
+        : 0,
+    last_user_activity_at:
+      typeof policy.last_user_activity_at === 'string'
+        ? policy.last_user_activity_at
+        : null,
+    inactivity_expires_at:
+      typeof policy.inactivity_expires_at === 'string'
+        ? policy.inactivity_expires_at
+        : null,
+    absolute_expires_at:
+      typeof policy.absolute_expires_at === 'string'
+        ? policy.absolute_expires_at
+        : null,
+  };
+}
+
 export function useSessionTimeout(
   isAuthenticated: boolean,
   options: SessionTimeoutOptions
 ) {
-  const { onShowWarning, onHideWarning, getIsSigningInProgress, onBeforeSignOut } = options;
-
-  // Refs so callbacks always see the latest values without re-registering effects
+  const pathname = usePathname();
+  const { onShowWarning, onHideWarning, onBeforeSignOut } = options;
   const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
-  const warningShownRef = useRef(false);
   const signedOutRef = useRef(false);
+  const previousPathnameRef = useRef<string | null>(null);
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  const clearAllTimers = useCallback(() => {
+  const clearTimers = useCallback(() => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    if (activityDebounceRef.current) clearTimeout(activityDebounceRef.current);
     inactivityTimerRef.current = null;
     warningTimerRef.current = null;
-    retryTimerRef.current = null;
-    debounceTimerRef.current = null;
+    activityDebounceRef.current = null;
   }, []);
 
-  /** Log a session timeout event to auth_security_events via a lightweight fetch */
-  const logSecurityEvent = useCallback(async (
-    userId: string,
-    eventType: 'session_timeout_inactivity' | 'session_timeout_absolute'
-  ) => {
-    try {
-      // We use the public anon client; the row-level security allows service_role inserts.
-      // For client-side logging we call a small internal API endpoint to avoid exposing
-      // service-role key on the browser.
-      await fetch('/api/security/log-session-timeout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          eventType,
-          userAgent: navigator.userAgent,
-          // ip_address is resolved server-side from x-forwarded-for
-        }),
-      });
-    } catch {
-      // non-blocking
-    }
-  }, []);
-
-  /** Perform the actual sign-out: log event, broadcast, redirect */
-  const executeSignOut = useCallback(async (reason: 'inactivity' | 'absolute') => {
+  const executeSignOut = useCallback(async (reason: SessionExpiryReason) => {
     if (signedOutRef.current) return;
     signedOutRef.current = true;
-
-    clearAllTimers();
+    clearTimers();
     onHideWarning();
     onBeforeSignOut?.();
 
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (user?.id) {
-      await logSecurityEvent(
-        user.id,
-        reason === 'inactivity' ? 'session_timeout_inactivity' : 'session_timeout_absolute'
-      );
-    }
-
-    // Broadcast to other tabs
     try {
       channelRef.current?.postMessage({ type: 'SIGN_OUT', reason });
-    } catch { /* ignore */ }
-
-    await supabase.auth.signOut();
-    window.location.href = '/login';
-  }, [clearAllTimers, onHideWarning, onBeforeSignOut, logSecurityEvent]);
-
-  /** Try to sign out; if signing is in progress, retry every 10 s */
-  const trySignOut = useCallback((reason: 'inactivity' | 'absolute') => {
-    if (getIsSigningInProgress()) {
-      retryTimerRef.current = setTimeout(() => trySignOut(reason), RETRY_INTERVAL_MS);
-      return;
+    } catch {
+      // A closed BroadcastChannel must not prevent local sign-out.
     }
-    executeSignOut(reason);
-  }, [getIsSigningInProgress, executeSignOut]);
 
-  /** (Re)start the inactivity countdown from zero */
-  const resetTimers = useCallback(() => {
-    if (!isAuthenticated || signedOutRef.current) return;
+    try {
+      await createClient().auth.signOut();
+    } finally {
+      window.location.assign('/login');
+    }
+  }, [clearTimers, onBeforeSignOut, onHideWarning]);
 
-    clearAllTimers();
-    warningShownRef.current = false;
+  const scheduleTimers = useCallback((policy: SessionPolicy) => {
+    const inactivityExpiry = Date.parse(policy.inactivity_expires_at || '');
+    const absoluteExpiry = Date.parse(policy.absolute_expires_at || '');
+    const now = Date.now();
+
+    if (!Number.isFinite(inactivityExpiry) || !Number.isFinite(absoluteExpiry)) return;
+
+    clearTimers();
     onHideWarning();
 
-    // Show warning at 18 minutes
-    warningTimerRef.current = setTimeout(() => {
-      warningShownRef.current = true;
-      onShowWarning();
-    }, INACTIVITY_TIMEOUT_MS - WARNING_BEFORE_MS);
+    const expiresAt = Math.min(inactivityExpiry, absoluteExpiry);
+    const reason: SessionExpiryReason = absoluteExpiry <= inactivityExpiry ? 'absolute' : 'inactivity';
+    const remainingMs = expiresAt - now;
 
-    // Sign out at 20 minutes
+    if (remainingMs <= 0) {
+      void executeSignOut(reason);
+      return;
+    }
+
+    const warningDelay = Math.max(0, remainingMs - WARNING_BEFORE_MS);
+    warningTimerRef.current = setTimeout(onShowWarning, warningDelay);
     inactivityTimerRef.current = setTimeout(() => {
-      trySignOut('inactivity');
-    }, INACTIVITY_TIMEOUT_MS);
-  }, [isAuthenticated, clearAllTimers, onHideWarning, onShowWarning, trySignOut]);
+      void executeSignOut(reason);
+    }, remainingMs);
+  }, [clearTimers, executeSignOut, onHideWarning, onShowWarning]);
 
-  // ── Activity listener with debounce ────────────────────────────────────────
+  const synchronizePolicy = useCallback(async (recordUserActivity: boolean) => {
+    if (!isAuthenticated || signedOutRef.current) return;
+
+    const { data, error } = await createClient().rpc('enforce_docubox_session_policy', {
+      p_record_user_activity: recordUserActivity,
+    });
+
+    if (error) {
+      // Keep the last trusted countdown. A failed sync must never extend a session.
+      return;
+    }
+
+    const policy = parsePolicy(data);
+    if (!policy) return;
+
+    if (!policy.active) {
+      void executeSignOut(policy.reason === 'ABSOLUTE_TIMEOUT' ? 'absolute' : 'inactivity');
+      return;
+    }
+
+    scheduleTimers(policy);
+  }, [executeSignOut, isAuthenticated, scheduleTimers]);
+
+  const recordHumanActivity = useCallback(() => {
+    if (!isAuthenticated || signedOutRef.current) return;
+    if (activityDebounceRef.current) clearTimeout(activityDebounceRef.current);
+    activityDebounceRef.current = setTimeout(() => {
+      void synchronizePolicy(true);
+    }, ACTIVITY_DEBOUNCE_MS);
+  }, [isAuthenticated, synchronizePolicy]);
+
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      clearTimers();
+      previousPathnameRef.current = null;
+      return;
+    }
 
     signedOutRef.current = false;
-    resetTimers();
+    void synchronizePolicy(false);
 
-    const handleActivity = () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = setTimeout(() => {
-        resetTimers();
-      }, DEBOUNCE_MS);
-    };
-
-    ACTIVITY_EVENTS.forEach((evt) =>
-      window.addEventListener(evt, handleActivity, { passive: true })
-    );
+    const handleActivity = () => recordHumanActivity();
+    HUMAN_ACTIVITY_EVENTS.forEach((eventName) => {
+      window.addEventListener(eventName, handleActivity, { passive: true });
+    });
 
     return () => {
-      ACTIVITY_EVENTS.forEach((evt) =>
-        window.removeEventListener(evt, handleActivity)
-      );
-      clearAllTimers();
+      HUMAN_ACTIVITY_EVENTS.forEach((eventName) => {
+        window.removeEventListener(eventName, handleActivity);
+      });
+      clearTimers();
     };
-  }, [isAuthenticated, resetTimers, clearAllTimers]);
+  }, [clearTimers, isAuthenticated, recordHumanActivity, synchronizePolicy]);
 
-  // ── BroadcastChannel: listen for sign-out from other tabs ─────────────────
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (previousPathnameRef.current === null) {
+      previousPathnameRef.current = pathname;
+      return;
+    }
+    if (previousPathnameRef.current !== pathname) {
+      previousPathnameRef.current = pathname;
+      recordHumanActivity();
+    }
+  }, [isAuthenticated, pathname, recordHumanActivity]);
+
   useEffect(() => {
     if (!isAuthenticated || typeof BroadcastChannel === 'undefined') return;
 
     const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
     channelRef.current = channel;
-
     channel.onmessage = (event) => {
-      if (event.data?.type === 'SIGN_OUT') {
-        // Another tab signed out — follow suit without re-broadcasting
-        if (signedOutRef.current) return;
-        signedOutRef.current = true;
-        clearAllTimers();
-        onHideWarning();
-        onBeforeSignOut?.();
-        const supabase = createClient();
-        supabase.auth.signOut().finally(() => {
-          window.location.href = '/login';
-        });
-      }
+      if (event.data?.type !== 'SIGN_OUT' || signedOutRef.current) return;
+      signedOutRef.current = true;
+      clearTimers();
+      onHideWarning();
+      onBeforeSignOut?.();
+      createClient().auth.signOut().finally(() => window.location.assign('/login'));
     };
 
     return () => {
       channel.close();
       channelRef.current = null;
     };
-  }, [isAuthenticated, clearAllTimers, onHideWarning, onBeforeSignOut]);
+  }, [clearTimers, isAuthenticated, onBeforeSignOut, onHideWarning]);
 
-  // ── Public API ─────────────────────────────────────────────────────────────
-  /** Call this when the user clicks "Continuar sesión" in the warning modal */
   const continueSession = useCallback(() => {
-    resetTimers();
-  }, [resetTimers]);
+    void synchronizePolicy(true);
+  }, [synchronizePolicy]);
 
-  /** Call this when the user clicks "Cerrar sesión ahora" in the warning modal */
   const signOutNow = useCallback(() => {
-    trySignOut('inactivity');
-  }, [trySignOut]);
+    void executeSignOut('inactivity');
+  }, [executeSignOut]);
 
   return { continueSession, signOutNow };
 }

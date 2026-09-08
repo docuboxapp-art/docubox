@@ -186,13 +186,6 @@ export async function POST(req: NextRequest) {
       userId,
       tokenHash: linkData.properties.hashed_token,
     });
-    successResponse.cookies.set('docubox_session_start', Math.floor(Date.now() / 1000).toString(), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 10 * 60 * 60 + 300,
-    });
     successResponse.cookies.set(
       PLATFORM_PASSKEY_COOKIE,
       createPlatformPasskeyProof(userId),

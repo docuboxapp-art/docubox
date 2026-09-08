@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-// Public routes that don't require authentication
 const PUBLIC_ROUTES = [
   '/login',
   '/registro',
@@ -15,9 +14,7 @@ const PUBLIC_ROUTES = [
   '/verificar-certificacion',
 ];
 
-// Route prefixes that are always public (API, static, etc.)
 const PUBLIC_PREFIXES = [
-  '/api/',
   '/_next/',
   '/favicon',
   '/assets/',
@@ -37,8 +34,35 @@ const PUBLIC_PREFIXES = [
   '/verify/promissory-note/',
 ];
 
-// Absolute session limit: 10 hours in seconds
-const ABSOLUTE_SESSION_LIMIT_SECONDS = 10 * 60 * 60;
+type SessionPolicyRow = { active?: unknown };
+
+function getPolicyRow(value: unknown): SessionPolicyRow | null {
+  const row = Array.isArray(value) ? value[0] : value;
+  return row && typeof row === 'object' ? (row as SessionPolicyRow) : null;
+}
+
+function clearSessionCookies(request: NextRequest, response: NextResponse) {
+  for (const cookie of request.cookies.getAll()) {
+    if (cookie.name === 'docubox_session_start' || cookie.name.startsWith('sb-')) {
+      response.cookies.set(cookie.name, '', { path: '/', maxAge: 0 });
+    }
+  }
+}
+
+function expiredSessionResponse(request: NextRequest, response: NextResponse, isApiRequest: boolean) {
+  const expiredResponse = isApiRequest
+    ? NextResponse.json(
+        { error: 'SESSION_EXPIRED', message: 'La sesión expiró por inactividad o por su límite máximo.' },
+        { status: 401 }
+      )
+    : NextResponse.redirect(new URL('/login?reason=session-expired', request.url));
+
+  for (const cookie of response.cookies.getAll()) {
+    expiredResponse.cookies.set(cookie);
+  }
+  clearSessionCookies(request, expiredResponse);
+  return expiredResponse;
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -83,27 +107,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(tasksUrl, 308);
   }
 
-  // Allow public prefixes (API routes, static files, enrollment, mobile upload)
   if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();
   }
 
-  // Allow exact public routes
-  if (PUBLIC_ROUTES.includes(pathname)) {
-    return NextResponse.next();
-  }
-
-  // For all other routes, check authentication
-  const response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  });
-
+  const isApiRequest = pathname.startsWith('/api/');
+  const isPublicPage = PUBLIC_ROUTES.includes(pathname);
+  const response = NextResponse.next({ request: { headers: request.headers } });
+  const authorization = request.headers.get('authorization');
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      global: authorization ? { headers: { authorization } } : undefined,
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -123,59 +139,25 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    const loginUrl = new URL('/login', request.url);
-    return NextResponse.redirect(loginUrl);
+    if (isApiRequest || isPublicPage) return response;
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // ── Absolute session limit check (10 hours) ──────────────────────────────
-  const sessionStartCookie = request.cookies.get('docubox_session_start')?.value;
+  const { data: policyData, error: policyError } = await supabase.rpc(
+    'enforce_docubox_session_policy',
+    { p_record_user_activity: false }
+  );
+  const policy = getPolicyRow(policyData);
 
-  if (sessionStartCookie) {
-    const sessionStartSeconds = parseInt(sessionStartCookie, 10);
-    const nowSeconds = Math.floor(Date.now() / 1000);
-
-    if (
-      !isNaN(sessionStartSeconds) &&
-      nowSeconds - sessionStartSeconds > ABSOLUTE_SESSION_LIMIT_SECONDS
-    ) {
-      // Log the absolute timeout event asynchronously (fire-and-forget)
-      // We use the internal API route so we don't block the redirect
-      const logUrl = new URL('/api/security/log-session-timeout', request.url);
-      fetch(logUrl.toString(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.id,
-          eventType: 'session_timeout_absolute',
-          userAgent: request.headers.get('user-agent') || 'unknown',
-        }),
-      }).catch(() => {
-        /* non-blocking */
-      });
-
-      // Sign out via Supabase (invalidate server session)
-      await supabase.auth.signOut();
-
-      // Build redirect response and clear the session-start cookie
-      const loginUrl = new URL('/login', request.url);
-      const redirectResponse = NextResponse.redirect(loginUrl);
-      redirectResponse.cookies.delete('docubox_session_start');
-      return redirectResponse;
-    }
+  // Fail closed: server-side session validation is mandatory for authenticated traffic.
+  if (policyError || policy?.active !== true) {
+    await supabase.auth.signOut();
+    return expiredSessionResponse(request, response, isApiRequest);
   }
 
   return response;
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths EXCEPT:
-     * - _next/static (static files)
-     * - _next/image (image optimization)
-     * - favicon.ico
-     * - public folder assets
-     */
-    '/((?!_next/static|_next/image|favicon.ico|assets/).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|assets/).*)'],
 };
