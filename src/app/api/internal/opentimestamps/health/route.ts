@@ -16,6 +16,18 @@ async function countByStatus(service: ReturnType<typeof createServiceClient>, st
   return result.count || 0;
 }
 
+async function countProofVersionsBySource(
+  service: ReturnType<typeof createServiceClient>,
+  source: string
+) {
+  const result = await service
+    .from('document_blockchain_proof_versions')
+    .select('id', { count: 'exact', head: true })
+    .eq('source', source);
+  if (result.error) throw result.error;
+  return result.count || 0;
+}
+
 export async function GET(request: NextRequest) {
   if (!isAuthorizedOpenTimestampsWorker(request)) return new NextResponse(null, { status: 404 });
   const service = createServiceClient();
@@ -25,8 +37,10 @@ export async function GET(request: NextRequest) {
       bucket,
       generated,
       pending,
+      anchored,
       verified,
       failed,
+      upgraded,
       latestStamp,
       latestUpgrade,
       latencies,
@@ -35,12 +49,14 @@ export async function GET(request: NextRequest) {
       service.storage.getBucket('blockchain-evidence'),
       countByStatus(service, 'GENERATED'),
       countByStatus(service, 'PENDING_BITCOIN'),
+      countByStatus(service, 'ANCHORED'),
       countByStatus(service, 'VERIFIED'),
       Promise.all(
         ['SUBMISSION_FAILED', 'UPGRADE_FAILED', 'VERIFICATION_FAILED'].map((status) =>
           countByStatus(service, status)
         )
       ),
+      countProofVersionsBySource(service, 'UPGRADE'),
       service
         .from('document_blockchain_evidence')
         .select('submitted_at')
@@ -77,11 +93,11 @@ export async function GET(request: NextRequest) {
         },
         metrics: {
           ots_generated_total: generated,
-          ots_stamp_success_total: pending + verified,
+          ots_stamp_success_total: pending + anchored + verified,
           ots_stamp_failure_total: failed[0],
           ots_pending_total: pending,
-          ots_upgrade_success_total: latestUpgrade.data ? 1 : 0,
-          ots_anchor_found_total: await countByStatus(service, 'ANCHORED'),
+          ots_upgrade_success_total: upgraded,
+          ots_anchor_found_total: anchored,
           ots_verified_total: verified,
           ots_verification_failure_total: failed[2],
           ots_calendar_latency_ms_avg: latencies.data?.length
