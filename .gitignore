@@ -24,6 +24,9 @@ pnpm-debug.log*
 # Local archives and temporary artifacts
 *.tgz
 tmp/
+.tmp/
+output/
+tmp-browser-state*.png
 NUL
 
 # Development cryptographic private material. Public trust anchors may be
