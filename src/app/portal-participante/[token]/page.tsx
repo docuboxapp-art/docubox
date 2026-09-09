@@ -20,6 +20,7 @@ interface ParticipantInfo {
   documentName: string;
   acto: string;
   participantName?: string | null;
+  isRegistered: boolean;
 }
 
 export default function PortalParticipantePage() {
@@ -34,7 +35,7 @@ export default function PortalParticipantePage() {
   useEffect(() => {
     async function loadParticipantInfo() {
       if (!token) {
-        setInfo({ documentName: 'Documento sin nombre', acto: 'firmar' });
+        setInfo({ documentName: 'Documento sin nombre', acto: 'firmar', isRegistered: false });
         setLoading(false);
         return;
       }
@@ -60,12 +61,13 @@ export default function PortalParticipantePage() {
             documentName: data.documentName || 'Documento sin nombre',
             acto: data.acto || 'firmar',
             participantName: data.participantName || null,
+            isRegistered: data.isRegistered === true,
           });
         } else {
-          setInfo({ documentName: 'Documento sin nombre', acto: 'firmar' });
+          setInfo({ documentName: 'Documento sin nombre', acto: 'firmar', isRegistered: false });
         }
       } catch {
-        setInfo({ documentName: 'Documento sin nombre', acto: 'firmar' });
+        setInfo({ documentName: 'Documento sin nombre', acto: 'firmar', isRegistered: false });
       } finally {
         setLoading(false);
       }
@@ -76,37 +78,48 @@ export default function PortalParticipantePage() {
 
   const isApproval = info?.acto === 'aprobar';
   const actionLabel = isApproval ? 'aprobar' : 'firmar';
+  const isRegistered = info?.isRegistered === true;
 
-  const options = [
-    {
-      id: 'login',
-      icon: KeyRound,
-      title: 'Ingresar con mi cuenta',
-      description: `Ya tengo usuario y contraseña para ${actionLabel} el documento.`,
-      onClick: () => router.push(`/login?redirect=/visor-documento&portal_token=${token}`),
-    },
-    {
-      id: 'forgot',
-      icon: RotateCcw,
-      title: 'Recuperar mi contraseña',
-      description: `Ya he ${isApproval ? 'aprobado' : 'firmado'} antes, pero no recuerdo mi acceso.`,
-      onClick: () => router.push('/olvide-contrasena'),
-    },
-    {
-      id: 'register',
-      icon: PenLine,
-      title: 'Registrarme para participar',
-      description: `Es la primera vez que voy a ${actionLabel} un documento en Docubox.`,
-      onClick: () => router.push(`/registro-participante/${token}`),
-    },
-    {
-      id: 'help',
-      icon: CircleHelp,
-      title: 'Necesito ayuda',
-      description: `Consultar orientación para completar el proceso de ${isApproval ? 'aprobación' : 'firma'}.`,
-      onClick: () => router.push('/ayuda-firmado'),
-    },
-  ];
+  const options = isRegistered
+    ? [
+        {
+          id: 'login',
+          icon: KeyRound,
+          title: 'Ingresar con mi cuenta',
+          description: `Accede para ${actionLabel} el documento.`,
+          onClick: () => router.push(`/login?redirect=/visor-documento&portal_token=${token}`),
+        },
+        {
+          id: 'forgot',
+          icon: RotateCcw,
+          title: 'Recuperar mi contraseña',
+          description: 'Restablece tu acceso para continuar.',
+          onClick: () => router.push('/olvide-contrasena'),
+        },
+        {
+          id: 'help',
+          icon: CircleHelp,
+          title: 'Necesito ayuda',
+          description: `Obtén ayuda con tu ${isApproval ? 'aprobación' : 'firma'}.`,
+          onClick: () => router.push('/ayuda-firmado'),
+        },
+      ]
+    : [
+        {
+          id: 'register',
+          icon: PenLine,
+          title: 'Registrarme para participar',
+          description: `Crea tu acceso para ${actionLabel} el documento.`,
+          onClick: () => router.push(`/registro-participante/${token}`),
+        },
+        {
+          id: 'help',
+          icon: CircleHelp,
+          title: 'Necesito ayuda',
+          description: `Obtén ayuda con tu ${isApproval ? 'aprobación' : 'firma'}.`,
+          onClick: () => router.push('/ayuda-firmado'),
+        },
+      ];
 
   return (
     <PublicTokenLayout token={token} luciaScope="external_participant" compactAssistant>
@@ -120,11 +133,8 @@ export default function PortalParticipantePage() {
                 <ShieldCheck size={22} aria-hidden="true" />
               </div>
               <h1 className="text-3xl font-700 leading-tight">Tu participación te espera</h1>
-              <p className="mt-4 text-base leading-7 text-white/80">
-                Revisa el documento asignado y elige cómo deseas continuar.
-              </p>
 
-              <div className="mt-9 border border-white/20 bg-white/10 p-5">
+              <div className="mt-7 border border-white/20 bg-white/10 p-5">
                 <div className="flex items-start gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/15">
                     <FileText size={20} aria-hidden="true" />
@@ -154,15 +164,8 @@ export default function PortalParticipantePage() {
           </aside>
 
           <div className="flex min-w-0 flex-col bg-white">
-            <header className="flex h-20 items-center justify-between border-b border-slate-200 px-5 sm:px-8 lg:px-10">
-              <div className="flex min-w-0 items-center gap-3">
-                <AppLogo className="lg:hidden" />
-                <div className="hidden h-7 w-px bg-slate-200 lg:block" />
-                <div className="min-w-0">
-                  <p className="text-sm font-700 text-slate-900">Portal de participantes</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Acceso a invitaciones</p>
-                </div>
-              </div>
+            <header className="flex h-20 items-center border-b border-slate-200 px-5 sm:px-8 lg:hidden">
+              <AppLogo />
             </header>
 
             <main className="flex flex-1 items-center px-5 py-10 sm:px-8 lg:px-12 xl:px-16">
@@ -175,12 +178,11 @@ export default function PortalParticipantePage() {
                     </div>
                   ) : (
                     <>
-                      <p className="text-sm font-600 text-primary">Invitación a participar</p>
-                      <h2 className="mt-2 text-2xl font-700 leading-tight text-slate-950 sm:text-3xl">
+                      <h2 className="text-2xl font-700 leading-tight text-slate-950 sm:text-3xl">
                         ¡Hola!
                       </h2>
                       <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-                        Recibiste una invitación para {actionLabel}{' '}
+                        Tienes una participación pendiente en{' '}
                         <strong className="font-700 text-slate-800">“{info?.documentName}”</strong>. Elige cómo
                         deseas continuar.
                       </p>
@@ -202,17 +204,14 @@ export default function PortalParticipantePage() {
                   </div>
                 </div>
 
-                <section aria-labelledby="continuar-title">
+                {!loading && <section aria-labelledby="continuar-title">
                   <div className="mb-4">
                     <h3 id="continuar-title" className="text-base font-700 text-slate-950">
                       ¿Cómo deseas continuar?
                     </h3>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Selecciona la opción que corresponda a tu caso.
-                    </p>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className={`grid gap-3 ${isRegistered ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                     {options.map((option) => {
                       const Icon = option.icon;
                       return (
@@ -244,7 +243,7 @@ export default function PortalParticipantePage() {
                       );
                     })}
                   </div>
-                </section>
+                </section>}
               </div>
             </main>
 

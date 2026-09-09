@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const { data: documents } = await supabaseAdmin
       .from('documentos')
       .select('id,workspace_id,estado,participantes')
-      .contains('participantes', [{ portal_token_hash: tokenHash }])
+      .contains('participantes', JSON.stringify([{ portal_token_hash: tokenHash }]))
       .limit(2);
     const normalizedEmail = String(email).trim().toLowerCase();
     const document = (documents || []).find((candidate) => {

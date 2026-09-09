@@ -26,6 +26,30 @@ function isAvailableInvitation(document: { estado?: unknown }, participant: Reco
   );
 }
 
+async function participantHasAccount(participant: Record<string, unknown>) {
+  const userId = typeof participant.user_id === 'string' ? participant.user_id.trim() : '';
+  const email = String(participant.email || participant.correo || '')
+    .trim()
+    .toLowerCase();
+
+  if (userId) {
+    const { data } = await supabaseAdmin
+      .from('user_profiles')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle();
+    if (data?.id) return true;
+  }
+
+  if (!email) return false;
+  const { data } = await supabaseAdmin
+    .from('user_profiles')
+    .select('id')
+    .eq('email', email)
+    .maybeSingle();
+  return Boolean(data?.id);
+}
+
 async function upgradeLegacyDocumentLink(token: string) {
   if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token)) return null;
 
@@ -76,6 +100,7 @@ async function upgradeLegacyDocumentLink(token: string) {
     documentName: resolveDocumentName(document),
     acto: participant.acto || 'firmar',
     participantName: participant.nombre || participant.name || null,
+    isRegistered: await participantHasAccount(participant),
     canonicalToken: portalToken,
   };
 }
@@ -93,7 +118,7 @@ export async function GET(req: NextRequest) {
     const { data: matchingDocs, error: scanError } = await supabaseAdmin
       .from('documentos')
       .select('id, nombre, file_name, estado, participantes')
-      .contains('participantes', [{ portal_token_hash: tokenHash }])
+      .contains('participantes', JSON.stringify([{ portal_token_hash: tokenHash }]))
       .limit(2);
 
     if (!scanError && matchingDocs) {
@@ -113,6 +138,7 @@ export async function GET(req: NextRequest) {
               documentName: resolveDocumentName(doc),
               acto: match.acto || 'firmar',
               participantName: match.nombre || match.name || null,
+              isRegistered: await participantHasAccount(match),
             },
             { headers: { 'Cache-Control': 'private, no-store, max-age=0' } }
           );

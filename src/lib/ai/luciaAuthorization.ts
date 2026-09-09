@@ -67,7 +67,7 @@ async function resolvePublicGrant(token: string, currentRoute = ''): Promise<Pub
     const { data: documents } = await service
       .from('documentos')
       .select('id,workspace_id,estado,participantes')
-      .contains('participantes', [{ portal_token_hash: tokenHash }])
+      .contains('participantes', JSON.stringify([{ portal_token_hash: tokenHash }]))
       .limit(2);
     for (const document of documents || []) {
       const participant = (

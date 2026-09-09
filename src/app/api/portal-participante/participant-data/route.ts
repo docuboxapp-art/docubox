@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     const { data: matchingDocs, error: scanError } = await supabaseAdmin
       .from('documentos')
       .select('id, nombre, estado, participantes')
-      .contains('participantes', [{ portal_token_hash: tokenHash }])
+      .contains('participantes', JSON.stringify([{ portal_token_hash: tokenHash }]))
       .limit(2);
 
     let participantEmail: string | null = null;
