@@ -8,7 +8,20 @@ const nextConfig = {
     '/*': ['./infra/pdf/fonts/**/*'],
     '/api/nom151/**': ['./infra/nom151/trust/**/*'],
     '/api/internal/crypto/nom151-health': ['./infra/nom151/trust/**/*'],
+    '/api/documentos/**/evidence-v2': [
+      './src/lib/evidence-v2/schema/**/*',
+      './node_modules/xmllint-wasm/**/*',
+    ],
+    '/api/documentos/**/seal-signatures': [
+      './src/lib/evidence-v2/schema/**/*',
+      './node_modules/xmllint-wasm/**/*',
+    ],
+    '/api/public/v2/verifications/**': [
+      './src/lib/evidence-v2/schema/**/*',
+      './node_modules/xmllint-wasm/**/*',
+    ],
   },
+  serverExternalPackages: ['xmllint-wasm'],
   images: {
     remotePatterns: imageHosts,
     minimumCacheTTL: 60,
@@ -40,12 +53,7 @@ const nextConfig = {
     ];
   },
 
-  webpack(
-    config,
-    {
-      dev: dev
-    }
-  ) {
+  webpack(config, { dev: dev }) {
     if (dev) {
       const ignoredPaths = (process.env.WATCH_IGNORED_PATHS || '')
         .split(',')
@@ -61,9 +69,11 @@ const nextConfig = {
       config.module.rules.push({
         test: /\.(jsx|tsx)$/,
         exclude: [/node_modules/],
-        use: [{
-          loader: '@dhiwise/component-tagger/nextLoader',
-        }],
+        use: [
+          {
+            loader: '@dhiwise/component-tagger/nextLoader',
+          },
+        ],
       });
     }
     return config;

@@ -90,7 +90,7 @@ export function buildEvidenceV2Chain(input: {
   };
 }
 
-export function evidenceV2PackageDigest(
+function evidenceCore(
   value: Pick<
     EvidenceV2Package,
     | 'version'
@@ -104,24 +104,45 @@ export function evidenceV2PackageDigest(
     | 'chain'
     | 'timestamps'
     | 'nom151'
-  >
+  >,
+  omitNulls: boolean
 ) {
-  return sha256Hex(
-    canonicalizeRFC8785({
-      schema: EVIDENCE_V2_ROOT_SCHEMA,
-      version: value.version,
-      schema_version: value.schemaVersion,
-      evidence_id: value.evidenceId,
-      package_id: value.packageId,
-      closed_at: canonicalUtc(value.closedAt, 'closedAt'),
-      document: value.document,
-      participants: value.participants,
-      signatures: value.signatures,
-      chain: value.chain,
-      timestamps: value.timestamps,
-      nom151: value.nom151,
-    })
-  );
+  const core = {
+    schema: EVIDENCE_V2_ROOT_SCHEMA,
+    version: value.version,
+    schema_version: value.schemaVersion,
+    evidence_id: value.evidenceId,
+    package_id: value.packageId,
+    closed_at: canonicalUtc(value.closedAt, 'closedAt'),
+    document: value.document,
+    participants: value.participants,
+    signatures: value.signatures,
+    chain: value.chain,
+    timestamps: value.timestamps,
+    nom151: value.nom151,
+  };
+  if (!omitNulls) return core;
+  const normalize = (candidate: unknown): unknown => {
+    if (Array.isArray(candidate)) return candidate.map(normalize);
+    if (candidate && typeof candidate === 'object') {
+      return Object.fromEntries(
+        Object.entries(candidate as Record<string, unknown>)
+          .filter(([, item]) => item !== null && item !== undefined)
+          .map(([key, item]) => [key, normalize(item)])
+      );
+    }
+    return candidate;
+  };
+  return normalize(core);
+}
+
+export function evidenceV2PackageDigest(value: Parameters<typeof evidenceCore>[0]) {
+  return sha256Hex(canonicalizeRFC8785(evidenceCore(value, true)));
+}
+
+/** Accepts packages emitted before null/omitted fields were normalized. */
+export function evidenceV2LegacyPackageDigest(value: Parameters<typeof evidenceCore>[0]) {
+  return sha256Hex(canonicalizeRFC8785(evidenceCore(value, false)));
 }
 
 export function evidenceV2SigningPayload(

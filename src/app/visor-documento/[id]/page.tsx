@@ -448,6 +448,28 @@ interface PdfCanvasProps {
   children?: React.ReactNode;
 }
 
+interface EvidenceV2Data {
+  evidence_id: string;
+  package_id: string;
+  evidence_version: string;
+  status: string;
+  document_final_sha256: string;
+  evidence_root_sha256: string;
+  package_digest_sha256: string;
+  xml_sha256: string;
+  generated_at: string;
+  closed_at: string;
+  public_verification_url: string | null;
+  verification_summary: Record<string, string>;
+  artifacts: Array<{
+    id: string;
+    artifact_type: string;
+    artifact_status: string;
+    object_sha256: string;
+    provider: string | null;
+  }>;
+}
+
 interface DocumentAccessPermission {
   id: string;
   grantee_user_id: string | null;
@@ -909,6 +931,10 @@ export default function VisorDocumentoPage() {
   const [blockchainEvidence, setBlockchainEvidence] = useState<Record<string, any> | null>(null);
   const [blockchainEvidenceLoading, setBlockchainEvidenceLoading] = useState(false);
   const [blockchainEvidenceError, setBlockchainEvidenceError] = useState('');
+  const [evidenceV2, setEvidenceV2] = useState<EvidenceV2Data | null>(null);
+  const [evidenceV2Loading, setEvidenceV2Loading] = useState(false);
+  const [evidenceV2Error, setEvidenceV2Error] = useState('');
+  const [evidenceV2Download, setEvidenceV2Download] = useState<'xml' | 'package' | null>(null);
   const [certificationDownload, setCertificationDownload] = useState<
     | 'certificate'
     | 'package'
@@ -988,6 +1014,84 @@ export default function VisorDocumentoPage() {
       window.clearInterval(timer);
     };
   }, [docId, document?.estado]);
+
+  useEffect(() => {
+    if (!docId || document?.estado !== 'completado') return;
+    let active = true;
+    const load = async () => {
+      setEvidenceV2Loading(true);
+      try {
+        const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/evidence-v2`, {
+          headers: await apiAuthHeaders(),
+          cache: 'no-store',
+        });
+        if (response.status === 404) {
+          if (active) setEvidenceV2(null);
+          return;
+        }
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(payload?.error || 'No se pudo consultar Evidence Package v2.');
+        if (active) {
+          setEvidenceV2(payload?.package || null);
+          setEvidenceV2Error('');
+        }
+      } catch (error) {
+        if (active) setEvidenceV2Error(error instanceof Error ? error.message : 'No se pudo consultar Evidence Package v2.');
+      } finally {
+        if (active) setEvidenceV2Loading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [docId, document?.estado]);
+
+  const downloadEvidenceV2 = useCallback(async (kind: 'xml' | 'package') => {
+    if (!docId) return;
+    setEvidenceV2Download(kind);
+    try {
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/evidence-v2?download=${kind}`,
+        { headers: await apiAuthHeaders() }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'No fue posible descargar la evidencia.');
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = window.document.createElement('a');
+      anchor.href = url;
+      anchor.download = kind === 'xml'
+        ? `evidence-v2-${evidenceV2?.package_id || docId}.xml`
+        : `evidence-v2-${evidenceV2?.package_id || docId}.zip`;
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (error) {
+      setEvidenceV2Error(error instanceof Error ? error.message : 'No fue posible descargar la evidencia.');
+    } finally {
+      setEvidenceV2Download(null);
+    }
+  }, [docId, evidenceV2?.package_id]);
+
+  const generateEvidenceV2 = useCallback(async () => {
+    if (!docId) return;
+    setEvidenceV2Loading(true);
+    setEvidenceV2Error('');
+    try {
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/evidence-v2`, {
+        method: 'POST',
+        headers: await apiAuthHeaders(true),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || 'No fue posible generar Evidence Package v2.');
+      setEvidenceV2(payload?.package || null);
+    } catch (error) {
+      setEvidenceV2Error(error instanceof Error ? error.message : 'No fue posible generar Evidence Package v2.');
+    } finally {
+      setEvidenceV2Loading(false);
+    }
+  }, [docId]);
 
   useEffect(() => {
     if (!document?.id) return;
@@ -8202,6 +8306,75 @@ export default function VisorDocumentoPage() {
                                 </div>
                                 </>
                               )}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
+                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                                Evidence Package v2
+                              </span>
+                              <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${evidenceV2 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : evidenceV2Error ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                {evidenceV2 ? (evidenceV2.status === 'certified' ? 'Certificado' : 'Cerrado') : evidenceV2Loading ? 'Consultando' : evidenceV2Error ? 'Requiere atención' : 'Pendiente'}
+                              </span>
+                            </div>
+                            <div className="space-y-3 p-4">
+                              {evidenceV2 ? (
+                                <>
+                                  <div className="flex items-start gap-2">
+                                    <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+                                    <div>
+                                      <p className="text-sm font-semibold text-foreground">Paquete probatorio v2 cerrado</p>
+                                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Vincula el PDF final, la cadena de eventos y la firma asimétrica de Docubox. Las certificaciones posteriores se anexan sin reescribir el XML cerrado.</p>
+                                    </div>
+                                  </div>
+                                  <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
+                                    {[
+                                      ['Versión', evidenceV2.evidence_version],
+                                      ['Integridad del documento', evidenceV2.verification_summary?.documentIntegrity || 'unavailable'],
+                                      ['Cadena de evidencia', evidenceV2.verification_summary?.evidenceChain || 'unavailable'],
+                                      ['Firma Docubox', evidenceV2.verification_summary?.docuboxSignature || 'unavailable'],
+                                      ['RFC 3161', evidenceV2.verification_summary?.timestamp || 'unavailable'],
+                                      ['OpenTimestamps', evidenceV2.verification_summary?.openTimestamps || 'unavailable'],
+                                      ['NOM-151', evidenceV2.verification_summary?.nom151 || 'unavailable'],
+                                    ].map(([label, value], index) => (
+                                      <div key={label} className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+                                        <span className="max-w-[190px] text-right text-xs text-foreground">{value === 'valid' ? 'Válida' : value === 'pending' ? 'Pendiente' : value === 'not_applicable' ? 'No aplica' : value === 'unavailable' ? 'No disponible' : value}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <p className="truncate font-mono text-[10px] text-muted-foreground" title={evidenceV2.evidence_root_sha256}>Raíz SHA-256: {evidenceV2.evidence_root_sha256}</p>
+                                  {evidenceV2.public_verification_url && (
+                                    <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+                                      <QRCodeSVG value={evidenceV2.public_verification_url} size={72} level="M" />
+                                      <div className="min-w-0"><p className="text-xs font-semibold text-foreground">Verificación pública</p><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">El QR expone únicamente estado, huellas y resultados técnicos; no contiene datos personales.</p></div>
+                                    </div>
+                                  )}
+                                  {evidenceV2.public_verification_url && (
+                                    <a href={evidenceV2.public_verification_url} target="_blank" rel="noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90">
+                                      <Shield size={15} /> Verificar paquete v2
+                                    </a>
+                                  )}
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <button type="button" onClick={() => void downloadEvidenceV2('xml')} disabled={evidenceV2Download !== null} className="flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted/50 disabled:opacity-60">
+                                      {evidenceV2Download === 'xml' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />} XML v2
+                                    </button>
+                                    <button type="button" onClick={() => void downloadEvidenceV2('package')} disabled={evidenceV2Download !== null} className="flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted/50 disabled:opacity-60">
+                                      {evidenceV2Download === 'package' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />} Paquete ZIP
+                                    </button>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="flex flex-col items-center gap-3 py-4 text-center">
+                                  {evidenceV2Loading ? <RefreshCw size={24} className="animate-spin text-muted-foreground" /> : <Clock size={24} className="text-muted-foreground" />}
+                                  <div><p className="text-sm font-semibold text-foreground">{evidenceV2Loading ? 'Consultando el paquete v2' : 'Paquete v2 pendiente'}</p><p className="mt-1 text-xs text-muted-foreground">{evidenceV2Error || 'Los documentos nuevos lo generan automáticamente al concluir PAdES-B-T.'}</p></div>
+                                  {user?.id === document?.owner_id && !evidenceV2Loading && (
+                                    <button type="button" onClick={() => void generateEvidenceV2()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-white px-4 text-xs font-semibold text-foreground hover:bg-muted/50"><RefreshCw size={14} /> Generar ahora</button>
+                                  )}
+                                </div>
+                              )}
+                              {evidenceV2Error && evidenceV2 && <p className="text-xs text-red-600" role="alert">{evidenceV2Error}</p>}
                             </div>
                           </div>
 

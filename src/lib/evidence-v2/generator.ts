@@ -7,6 +7,7 @@ import {
 } from './canonical';
 import type { EvidenceV2BuildInput, EvidenceV2Package, VerificationStatus } from './types';
 import { renderAndDigestEvidenceV2Xml, validateEvidenceV2Xml } from './xml';
+import { validateEvidenceV2XmlAgainstXsd } from './xsd';
 
 function statusForTimestamps(
   value: EvidenceV2BuildInput['timestamps'],
@@ -25,11 +26,12 @@ function statusForTimestamps(
     )
   )
     return 'pending';
-  if (matching.every((item) => item.validationStatus === 'valid')) return 'valid';
+  if (matching.every((item) => item.validationStatus === 'valid' && item.artifactHash))
+    return 'valid';
   return 'unavailable';
 }
 
-function buildVerification(
+export function deriveEvidenceV2Verification(
   input: EvidenceV2BuildInput,
   signatureStatus: VerificationStatus,
   chainStatus: VerificationStatus
@@ -43,16 +45,31 @@ function buildVerification(
         ? 'invalid'
         : 'pending'
     : 'not_applicable';
-  const signatureEvidence = input.signatures.length
-    ? input.signatures.some((signature) => !signature.signedObjectHash)
+  const cryptographicSignatures = input.signatures.filter(
+    (signature) => signature.method === 'efirma_sat' || signature.method === 'certificado_digital'
+  );
+  const signatureEvidence: VerificationStatus = !input.signatures.length
+    ? 'not_applicable'
+    : input.signatures.some((signature) => !signature.signedObjectHash)
       ? 'pending'
-      : 'valid'
-    : 'not_applicable';
+      : cryptographicSignatures.some(
+            (signature) => signature.cryptographicEvidence?.validationStatus === 'invalid'
+          )
+        ? 'invalid'
+        : cryptographicSignatures.some(
+              (signature) =>
+                !signature.cryptographicEvidence ||
+                signature.cryptographicEvidence.validationStatus !== 'valid'
+            )
+          ? 'unavailable'
+          : 'valid';
   const timestamp = statusForTimestamps(input.timestamps, 'rfc3161');
   const openTimestamps = statusForTimestamps(input.timestamps, 'opentimestamps');
   const nom151 =
     input.nom151.status === 'verified'
-      ? 'valid'
+      ? input.nom151.constanciaHash && input.nom151.artifactRef
+        ? 'valid'
+        : 'unavailable'
       : input.nom151.status === 'failed' || input.nom151.status === 'revoked'
         ? 'invalid'
         : input.nom151.status === 'pending' || input.nom151.status === 'issued'
@@ -113,7 +130,11 @@ export async function createEvidenceV2Package(
     chain,
     packageDigest: '',
     docuboxSignature: null,
-    verification: buildVerification(input, signer ? 'pending' : 'not_applicable', 'valid'),
+    verification: deriveEvidenceV2Verification(
+      input,
+      signer ? 'pending' : 'not_applicable',
+      'valid'
+    ),
   };
   unsigned.packageDigest = evidenceV2PackageDigest(unsigned);
 
@@ -135,7 +156,7 @@ export async function createEvidenceV2Package(
       signatureSha256: signed.signatureSha256,
       signedAt: signed.signedAt,
     };
-    unsigned.verification = buildVerification(input, 'valid', 'valid');
+    unsigned.verification = deriveEvidenceV2Verification(input, 'valid', 'valid');
   }
   const rendered = renderAndDigestEvidenceV2Xml(unsigned);
   const schema = validateEvidenceV2Xml(rendered.xml);
@@ -143,5 +164,8 @@ export async function createEvidenceV2Package(
     throw new TypeError(
       `Evidence v2 XML does not conform to the v2 profile: ${schema.errors.join('; ')}`
     );
+  const xsd = await validateEvidenceV2XmlAgainstXsd(rendered.xml);
+  if (!xsd.valid)
+    throw new TypeError(`Evidence v2 XML does not validate against XSD: ${xsd.errors.join('; ')}`);
   return { package: unsigned, ...rendered };
 }

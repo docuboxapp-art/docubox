@@ -13,48 +13,68 @@ function json(body: Record<string, unknown>, status = 200) {
 }
 
 function cleanBase64(value: unknown) {
-  return String(value || '').replace(/^data:[^,]+,/, '').replace(/\s/g, '');
+  return String(value || '')
+    .replace(/^data:[^,]+,/, '')
+    .replace(/\s/g, '');
 }
 
 function validBrowserGeolocation(geo: unknown) {
   const value = geo as { latitude?: unknown; longitude?: unknown } | null | undefined;
   const latitude = Number(value?.latitude);
   const longitude = Number(value?.longitude);
-  return Number.isFinite(latitude)
-    && Number.isFinite(longitude)
-    && latitude >= -90
-    && latitude <= 90
-    && longitude >= -180
-    && longitude <= 180;
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
 }
 
 async function sha256Hex(value: string | Uint8Array) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest)).map((item) => item.toString(16).padStart(2, '0')).join('');
+  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer);
+  return Array.from(new Uint8Array(digest))
+    .map((item) => item.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 function authorizedParticipant(document: Record<string, unknown>, userId: string, email: string) {
   if (document.owner_id === userId) return true;
   const normalizedEmail = email.trim().toLowerCase();
-  return Array.isArray(document.participantes) && document.participantes.some((participant: Record<string, unknown>) =>
-    participant.id === userId || String(participant.email || '').trim().toLowerCase() === normalizedEmail
+  return (
+    Array.isArray(document.participantes) &&
+    document.participantes.some(
+      (participant: Record<string, unknown>) =>
+        participant.id === userId ||
+        String(participant.email || '')
+          .trim()
+          .toLowerCase() === normalizedEmail
+    )
   );
 }
 
 serve(async (request) => {
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
-  if (request.method !== 'POST') return json({ error: 'Metodo no permitido' }, 405);
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+  if (request.method !== 'POST') {
+    return json({ error: 'Metodo no permitido' }, 405);
+  }
 
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') || '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
-      { auth: { persistSession: false } },
+      { auth: { persistSession: false } }
     );
     const authorization = request.headers.get('authorization') || '';
     const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
-    const { data: { user }, error: authError } = await supabase.auth.getUser(bearer);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(bearer);
     if (authError || !user?.email) return json({ error: 'No autorizado' }, 401);
 
     const body = await request.json();
@@ -63,7 +83,12 @@ serve(async (request) => {
     const keyBase64 = cleanBase64(body.key_b64);
     const password = String(body.password || '');
     if (!documentId || !cerBase64 || !keyBase64 || !password) {
-      return json({ error: 'Se requieren document_id, cer_b64, key_b64 y password' }, 400);
+      return json(
+        {
+          error: 'Se requieren document_id, cer_b64, key_b64 y password',
+        },
+        400
+      );
     }
     if (!validBrowserGeolocation(body.session_evidence?.geo)) {
       return json(
@@ -75,7 +100,12 @@ serve(async (request) => {
       );
     }
     if (cerBase64.length > 400_000 || keyBase64.length > 400_000) {
-      return json({ error: 'Los archivos de e.firma exceden el limite permitido' }, 413);
+      return json(
+        {
+          error: 'Los archivos de e.firma exceden el limite permitido',
+        },
+        413
+      );
     }
 
     const { data: document, error: documentError } = await supabase
@@ -83,7 +113,9 @@ serve(async (request) => {
       .select('id,documento_id,nombre,owner_id,workspace_id,file_hash_sha256,participantes')
       .eq('id', documentId)
       .maybeSingle();
-    if (documentError || !document) return json({ error: 'Documento no encontrado' }, 404);
+    if (documentError || !document) {
+      return json({ error: 'Documento no encontrado' }, 404);
+    }
 
     let authorized = authorizedParticipant(document, user.id, user.email);
     if (!authorized) {
@@ -96,17 +128,30 @@ serve(async (request) => {
         .maybeSingle();
       authorized = Boolean(participation);
     }
-    if (!authorized) return json({ error: 'No tienes acceso a este documento' }, 403);
+    if (!authorized) {
+      return json({ error: 'No tienes acceso a este documento' }, 403);
+    }
 
     const documentSha256 = String(document.file_hash_sha256 || '').toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(documentSha256)) {
-      return json({ error: 'El documento no cuenta con una huella SHA-256 verificable' }, 422);
+      return json(
+        {
+          error: 'El documento no cuenta con una huella SHA-256 verificable',
+        },
+        422
+      );
     }
 
     const gatewayUrl = Deno.env.get('DOCUBOX_EFIRMA_GATEWAY_URL');
     const gatewayToken = Deno.env.get('DOCUBOX_EFIRMA_GATEWAY_TOKEN');
     if (!gatewayUrl || !gatewayToken) {
-      return json({ error: 'El proveedor seguro de e.firma no esta configurado.', code: 'EFIRMA_PROVIDER_NOT_CONFIGURED' }, 503);
+      return json(
+        {
+          error: 'El proveedor seguro de e.firma no esta configurado.',
+          code: 'EFIRMA_PROVIDER_NOT_CONFIGURED',
+        },
+        503
+      );
     }
 
     const evidenceId = crypto.randomUUID();
@@ -131,7 +176,10 @@ serve(async (request) => {
 
     const providerResponse = await fetch(gatewayUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${gatewayToken}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${gatewayToken}`,
+      },
       body: JSON.stringify({
         operation: 'SIGN_EFIRMA',
         certificate_der_base64: cerBase64,
@@ -143,35 +191,83 @@ serve(async (request) => {
       }),
       signal: AbortSignal.timeout(45_000),
     });
-    const provider = await providerResponse.json().catch(() => ({})) as Record<string, unknown>;
+    const provider = (await providerResponse.json().catch(() => ({}))) as Record<string, unknown>;
     const certificate = (provider.certificate || {}) as Record<string, unknown>;
     const signatureBase64 = String(provider.signature_base64 || '');
-    const revocationStatus = String(provider.revocation_status || certificate.revocation_status || '').toUpperCase();
+    const revocationStatus = String(
+      provider.revocation_status || certificate.revocation_status || ''
+    ).toUpperCase();
     if (
-      !providerResponse.ok
-      || provider.status !== 'VALID'
-      || provider.signature_verified !== true
-      || provider.key_pair_valid !== true
-      || provider.certificate_chain_valid !== true
-      || revocationStatus !== 'GOOD'
-      || provider.payload_sha256 !== signedPayloadSha256
-      || !signatureBase64
+      !providerResponse.ok ||
+      provider.status !== 'VALID' ||
+      provider.signature_verified !== true ||
+      provider.key_pair_valid !== true ||
+      provider.certificate_chain_valid !== true ||
+      revocationStatus !== 'GOOD' ||
+      provider.payload_sha256 !== signedPayloadSha256 ||
+      !signatureBase64
     ) {
-      return json({ error: 'La firma no supero la validacion criptografica del proveedor.', code: 'EFIRMA_SIGNING_FAILED' }, 422);
+      return json(
+        {
+          error: 'La firma no supero la validacion criptografica del proveedor.',
+          code: 'EFIRMA_SIGNING_FAILED',
+        },
+        422
+      );
     }
 
-    const signatureBytes = Uint8Array.from(atob(signatureBase64), (character) => character.charCodeAt(0));
+    const signatureBytes = Uint8Array.from(atob(signatureBase64), (character) =>
+      character.charCodeAt(0)
+    );
     const signatureSha256 = await sha256Hex(signatureBytes);
     const sealPath = `${documentId}/efirma/${evidenceId}.sig`;
-    const { error: uploadError } = await supabase.storage.from('evidence').upload(sealPath, signatureBytes, {
-      contentType: 'application/octet-stream',
-      upsert: false,
+    const { error: uploadError } = await supabase.storage
+      .from('evidence')
+      .upload(sealPath, signatureBytes, {
+        contentType: 'application/octet-stream',
+        upsert: false,
+      });
+    if (uploadError) {
+      return json({ error: 'No fue posible conservar el sello de firma.' }, 500);
+    }
+    const evidenceBundle = JSON.stringify({
+      schema: 'docubox-efirma-evidence-bundle-v1',
+      payload_utf8_base64: btoa(signedPayload),
+      payload_sha256: signedPayloadSha256,
+      signature_base64: signatureBase64,
+      signature_sha256: signatureSha256,
+      signature_algorithm: String(provider.signature_algorithm || 'RSA-SHA256'),
+      certificate_der_base64: cerBase64,
+      certificate_fingerprint_sha256: String(certificate.fingerprint_sha256 || '').toLowerCase(),
+      certificate_chain_valid: provider.certificate_chain_valid === true,
+      signature_verified: provider.signature_verified === true,
+      revocation_status: revocationStatus,
+      validation_provider: String(provider.provider || 'CONFIGURED_GATEWAY'),
+      validated_at: String(provider.revocation_checked_at || signedAt),
     });
-    if (uploadError) return json({ error: 'No fue posible conservar el sello de firma.' }, 500);
+    const bundleBytes = new TextEncoder().encode(evidenceBundle);
+    const bundleSha256 = await sha256Hex(bundleBytes);
+    const bundlePath = `${documentId}/efirma/${evidenceId}.evidence.json`;
+    const { error: bundleUploadError } = await supabase.storage
+      .from('evidence')
+      .upload(bundlePath, bundleBytes, {
+        contentType: 'application/json',
+        upsert: false,
+      });
+    if (bundleUploadError) {
+      await supabase.storage.from('evidence').remove([sealPath]);
+      return json(
+        {
+          error: 'No fue posible conservar el paquete verificable de e.firma.',
+        },
+        500
+      );
+    }
 
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim()
-      || request.headers.get('x-real-ip')
-      || 'unknown';
+    const ip =
+      request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+      request.headers.get('x-real-ip') ||
+      'unknown';
     const { error: evidenceError } = await supabase.from('signature_evidence').insert({
       id: evidenceId,
       document_id: documentId,
@@ -189,11 +285,15 @@ serve(async (request) => {
       document_sha256: documentSha256,
       digital_seal_sha256: signatureSha256,
       digital_seal_path: sealPath,
+      efirma_bundle_path: bundlePath,
+      efirma_bundle_sha256: bundleSha256,
       signed_payload_sha256: signedPayloadSha256,
       sign_algorithm: String(provider.signature_algorithm || 'RSA-SHA256'),
       signed_at: signedAt,
       ip_address: ip,
-      user_agent: String(body.session_evidence?.user_agent || request.headers.get('user-agent') || ''),
+      user_agent: String(
+        body.session_evidence?.user_agent || request.headers.get('user-agent') || ''
+      ),
       timezone: String(body.session_evidence?.timezone || ''),
       geo_latitude: geoLatitude,
       geo_longitude: geoLongitude,
@@ -205,7 +305,7 @@ serve(async (request) => {
       captured_at: signedAt,
     });
     if (evidenceError) {
-      await supabase.storage.from('evidence').remove([sealPath]);
+      await supabase.storage.from('evidence').remove([sealPath, bundlePath]);
       return json({ error: 'No fue posible registrar la evidencia de firma.' }, 500);
     }
 
@@ -233,6 +333,7 @@ serve(async (request) => {
     return json({
       evidence_id: evidenceId,
       digital_seal_sha256: signatureSha256,
+      efirma_bundle_sha256: bundleSha256,
       document_sha256: documentSha256,
       signed_payload_sha256: signedPayloadSha256,
       signed_at: signedAt,
@@ -241,6 +342,12 @@ serve(async (request) => {
     });
   } catch (error) {
     console.error('[sign-efirma] Failed:', error instanceof Error ? error.message : 'unknown');
-    return json({ error: 'No fue posible completar la firma.', code: 'EFIRMA_SIGNING_ERROR' }, 500);
+    return json(
+      {
+        error: 'No fue posible completar la firma.',
+        code: 'EFIRMA_SIGNING_ERROR',
+      },
+      500
+    );
   }
 });

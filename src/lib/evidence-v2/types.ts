@@ -70,6 +70,16 @@ export type EvidenceSignature = {
     fingerprintSha256?: string | null;
     validationStatus: VerificationStatus;
   };
+  cryptographicEvidence?: {
+    signedPayloadHash?: string | null;
+    signatureHash?: string | null;
+    signatureAlgorithm?: string | null;
+    artifactRef?: string | null;
+    artifactHash?: string | null;
+    validationStatus: VerificationStatus;
+    validationProvider?: string | null;
+    validatedAt?: string | null;
+  };
 };
 
 export type EvidenceTimestamp = {
@@ -90,6 +100,8 @@ export type EvidenceTimestamp = {
   policyOid?: string | null;
   messageImprint?: string | null;
   artifactRef?: string | null;
+  artifactHash?: string | null;
+  manifestHash?: string | null;
   validationStatus: VerificationStatus;
   validatedAt?: string | null;
 };

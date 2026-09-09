@@ -30,6 +30,8 @@ import {
   documentEncryptionPolicy,
   readDocumentStorageObject,
 } from '@/lib/crypto/document-encryption';
+import { isEvidenceV2Enabled } from '@/lib/evidence-v2/feature-flags';
+import { generateEvidenceV2ForDocument } from '@/lib/evidence-v2/service';
 
 function normalize(value: unknown) {
   return String(value || '')
@@ -167,6 +169,12 @@ async function finalizeAfterVerifiedPadesBt(
       email_delivery_statuses: email.deliveries.map((delivery) => delivery.status),
     },
   });
+  const evidenceV2 = isEvidenceV2Enabled()
+    ? await generateEvidenceV2ForDocument(service, {
+        documentId: input.documentId,
+        actorId: input.actorId,
+      })
+    : null;
   return {
     nom151: {
       record_id: nom151.recordId,
@@ -190,6 +198,14 @@ async function finalizeAfterVerifiedPadesBt(
       })),
     },
     blockchain_evidence: blockchainEvidence,
+    evidence_v2: evidenceV2
+      ? {
+          package_id: evidenceV2.package_id,
+          status: evidenceV2.status,
+          xml_sha256: evidenceV2.xml_sha256,
+          already_generated: evidenceV2.alreadyGenerated,
+        }
+      : null,
   };
 }
 

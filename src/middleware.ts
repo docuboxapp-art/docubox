@@ -30,6 +30,8 @@ const PUBLIC_PREFIXES = [
   '/notificacion/',
   '/verificar-documento/',
   '/verificar-certificacion/',
+  '/verificar-evidencia/',
+  '/api/public/v2/verifications/',
   '/v/',
   '/verify/promissory-note/',
   '/verify/blockchain/',
@@ -298,9 +300,9 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       policyErrorMessage: claimsError.message,
     });
     return withMiddlewareTiming(
-        unavailableSessionPolicyResponse(response, isApiRequest),
-        startedAt,
-        { claimsMs }
+      unavailableSessionPolicyResponse(response, isApiRequest),
+      startedAt,
+      { claimsMs }
     );
   }
 
@@ -332,9 +334,9 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       policyErrorMessage: policyError.message,
     });
     return withMiddlewareTiming(
-        unavailableSessionPolicyResponse(response, isApiRequest),
-        startedAt,
-        { claimsMs, sessionPolicyMs }
+      unavailableSessionPolicyResponse(response, isApiRequest),
+      startedAt,
+      { claimsMs, sessionPolicyMs }
     );
   }
 
@@ -365,10 +367,14 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
           });
         })
     );
-    return withMiddlewareTiming(expiredSessionResponse(request, response, isApiRequest), startedAt, {
-      claimsMs,
-      sessionPolicyMs,
-    });
+    return withMiddlewareTiming(
+      expiredSessionResponse(request, response, isApiRequest),
+      startedAt,
+      {
+        claimsMs,
+        sessionPolicyMs,
+      }
+    );
   }
 
   response.headers.set('Cache-Control', 'private, no-store');

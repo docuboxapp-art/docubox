@@ -87,6 +87,19 @@ function renderSignatures(value: EvidenceV2Package['signatures']) {
       </Certificado>`
           : ''
       }
+      ${
+        signature.cryptographicEvidence
+          ? `<EvidenciaCriptografica estadoValidacion="${esc(signature.cryptographicEvidence.validationStatus)}">
+        ${tag('SignedPayloadHash', signature.cryptographicEvidence.signedPayloadHash, ' algoritmo="SHA-256"')}
+        ${tag('SignatureHash', signature.cryptographicEvidence.signatureHash, ' algoritmo="SHA-256"')}
+        ${tag('SignatureAlgorithm', signature.cryptographicEvidence.signatureAlgorithm)}
+        ${tag('ArtifactRef', signature.cryptographicEvidence.artifactRef)}
+        ${tag('ArtifactHash', signature.cryptographicEvidence.artifactHash, ' algoritmo="SHA-256"')}
+        ${tag('ValidationProvider', signature.cryptographicEvidence.validationProvider)}
+        ${tag('ValidatedAt', signature.cryptographicEvidence.validatedAt)}
+      </EvidenciaCriptografica>`
+          : ''
+      }
     </Firma>`
     )
     .join('');
@@ -120,6 +133,8 @@ function renderTimestamps(value: EvidenceV2Package['timestamps']) {
       ${tag('PolicyOID', timestamp.policyOid)}
       ${tag('MessageImprint', timestamp.messageImprint, ' algoritmo="SHA-256"')}
       ${tag('ArtifactRef', timestamp.artifactRef)}
+      ${tag('ArtifactHash', timestamp.artifactHash, ' algoritmo="SHA-256"')}
+      ${tag('ManifestHash', timestamp.manifestHash, ' algoritmo="SHA-256"')}
       ${tag('ValidatedAt', timestamp.validatedAt)}
     </Estampa>`
     )

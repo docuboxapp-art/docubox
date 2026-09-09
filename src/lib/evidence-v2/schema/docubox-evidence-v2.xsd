@@ -5,31 +5,234 @@
   elementFormDefault="qualified"
   attributeFormDefault="unqualified">
 
-  <xs:element name="DocuboxEvidencePackage">
-    <xs:complexType>
-      <xs:sequence>
-        <xs:element name="Paquete" type="OpenBlock"/>
-        <xs:element name="Documento" type="OpenBlock"/>
-        <xs:element name="Firmantes" type="OpenBlock"/>
-        <xs:element name="Firmas" type="OpenBlock"/>
-        <xs:element name="BitacoraProbatoria" type="OpenBlock"/>
-        <xs:element name="CadenaEvidencia" type="OpenBlock"/>
-        <xs:element name="EstampasTiempo" type="OpenBlock"/>
-        <xs:element name="ConservacionNOM151" type="OpenBlock"/>
-        <xs:element name="Integridad" type="OpenBlock"/>
-        <xs:element name="FirmaDocubox" type="OpenBlock"/>
-        <xs:element name="Verificacion" type="OpenBlock"/>
-      </xs:sequence>
-      <xs:attribute name="version" type="xs:string" use="required" fixed="2.0"/>
-      <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="2.0"/>
-    </xs:complexType>
-  </xs:element>
+  <xs:simpleType name="Sha256Type">
+    <xs:restriction base="xs:string"><xs:pattern value="[a-f0-9]{64}"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="VerificationStatusType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="valid"/><xs:enumeration value="invalid"/>
+      <xs:enumeration value="pending"/><xs:enumeration value="unavailable"/>
+      <xs:enumeration value="not_applicable"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="OverallStatusType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="valid"/><xs:enumeration value="valid_with_pending_certifications"/>
+      <xs:enumeration value="invalid"/><xs:enumeration value="incomplete"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="PackageStatusType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="open"/><xs:enumeration value="closing"/><xs:enumeration value="closed"/>
+      <xs:enumeration value="partially_certified"/><xs:enumeration value="certified"/>
+      <xs:enumeration value="verification_failed"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="ParticipantKindType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="signer"/><xs:enumeration value="approver"/>
+      <xs:enumeration value="reviewer"/><xs:enumeration value="witness"/>
+      <xs:enumeration value="recipient"/><xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="SignatureMethodType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="autografa_digital"/><xs:enumeration value="firma_simple"/>
+      <xs:enumeration value="firma_biometrica"/><xs:enumeration value="efirma_sat"/>
+      <xs:enumeration value="certificado_digital"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="TimestampKindType">
+    <xs:restriction base="xs:string"><xs:enumeration value="rfc3161"/><xs:enumeration value="opentimestamps"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="TimestampStatusType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="requested"/><xs:enumeration value="pending"/><xs:enumeration value="issued"/>
+      <xs:enumeration value="submitted"/><xs:enumeration value="verified"/>
+      <xs:enumeration value="pending_bitcoin"/><xs:enumeration value="verified_bitcoin"/><xs:enumeration value="failed"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="TimestampObjectType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="final_pdf"/><xs:enumeration value="evidence_root"/><xs:enumeration value="evidence_package"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="NomStatusType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="not_requested"/><xs:enumeration value="pending"/><xs:enumeration value="issued"/>
+      <xs:enumeration value="verified"/><xs:enumeration value="failed"/><xs:enumeration value="revoked"/>
+    </xs:restriction>
+  </xs:simpleType>
 
-  <!-- The v2 profile accepts extension-safe semantic children inside each named block. -->
-  <xs:complexType name="OpenBlock" mixed="true">
-    <xs:sequence minOccurs="0" maxOccurs="unbounded">
-      <xs:any processContents="lax"/>
-    </xs:sequence>
-    <xs:anyAttribute processContents="lax"/>
+  <xs:complexType name="HashType">
+    <xs:simpleContent><xs:extension base="Sha256Type">
+      <xs:attribute name="algoritmo" type="xs:string" use="required" fixed="SHA-256"/>
+    </xs:extension></xs:simpleContent>
   </xs:complexType>
+  <xs:complexType name="DigestType">
+    <xs:simpleContent><xs:extension base="Sha256Type">
+      <xs:attribute name="algoritmo" type="xs:string" use="required" fixed="SHA-256"/>
+      <xs:attribute name="canonicalization" type="xs:string" use="required"/>
+    </xs:extension></xs:simpleContent>
+  </xs:complexType>
+  <xs:complexType name="StatusElementType">
+    <xs:attribute name="status" type="VerificationStatusType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="PackageType">
+    <xs:sequence>
+      <xs:element name="EvidenceID" type="xs:string"/><xs:element name="PackageID" type="xs:string"/>
+      <xs:element name="Version" type="xs:string" fixed="2.0"/><xs:element name="SchemaVersion" type="xs:string" fixed="2.0"/>
+      <xs:element name="GeneratedAt" type="xs:dateTime"/><xs:element name="ClosedAt" type="xs:dateTime"/>
+      <xs:element name="Environment" type="xs:string"/><xs:element name="Platform" type="xs:string"/>
+      <xs:element name="PlatformVersion" type="xs:string"/><xs:element name="Jurisdiction" type="xs:string"/>
+      <xs:element name="WorkspaceID" type="xs:string" minOccurs="0"/><xs:element name="OrganizationID" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="estado" type="PackageStatusType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="MetadataType">
+    <xs:sequence>
+      <xs:element name="Clave" type="xs:string"/><xs:element name="Nombre" type="xs:string"/>
+      <xs:element name="Valor" type="xs:string" minOccurs="0"/><xs:element name="CreadoPorRef" type="xs:string" minOccurs="0"/>
+      <xs:element name="FechaRegistro" type="xs:dateTime" minOccurs="0"/><xs:element name="HashSnapshot" type="HashType" minOccurs="0"/>
+      <xs:element name="Proteccion"><xs:complexType><xs:sequence>
+        <xs:element name="IncluidoEnCierre" type="xs:boolean"/><xs:element name="MutableDespuesCierre" type="xs:boolean"/>
+      </xs:sequence></xs:complexType></xs:element>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/><xs:attribute name="tipo" type="xs:string" use="required"/>
+    <xs:attribute name="origen" use="required"><xs:simpleType><xs:restriction base="xs:string"><xs:enumeration value="user"/><xs:enumeration value="system"/></xs:restriction></xs:simpleType></xs:attribute>
+  </xs:complexType>
+
+  <xs:complexType name="DocumentType">
+    <xs:sequence>
+      <xs:element name="Identificacion"><xs:complexType><xs:sequence>
+        <xs:element name="DocumentID" type="xs:string"/><xs:element name="ExternalID" type="xs:string" minOccurs="0"/>
+        <xs:element name="Nombre" type="xs:string" minOccurs="0"/><xs:element name="NombreArchivo" type="xs:string" minOccurs="0"/>
+        <xs:element name="MimeType" type="xs:string" minOccurs="0"/><xs:element name="TamanoBytes" type="xs:nonNegativeInteger" minOccurs="0"/>
+        <xs:element name="NumeroPaginas" type="xs:positiveInteger" minOccurs="0"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="Origen"><xs:complexType><xs:sequence>
+        <xs:element name="TipoOrigen" type="xs:string" minOccurs="0"/><xs:element name="CreatedByRef" type="xs:string" minOccurs="0"/>
+        <xs:element name="CreatedAt" type="xs:dateTime" minOccurs="0"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="Versionado"><xs:complexType><xs:sequence>
+        <xs:element name="Version" type="xs:positiveInteger" minOccurs="0"/><xs:element name="VersionID" type="xs:string" minOccurs="0"/>
+        <xs:element name="PreviousVersionID" type="xs:string" minOccurs="0"/><xs:element name="PreviousVersionHash" type="HashType" minOccurs="0"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="MetadatosDocumento"><xs:complexType><xs:sequence>
+        <xs:element name="Metadato" type="MetadataType" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="Integridad"><xs:complexType><xs:sequence>
+        <xs:element name="HashOriginal" type="HashType" minOccurs="0"/><xs:element name="HashPreparado" type="HashType" minOccurs="0"/>
+        <xs:element name="HashFinal" type="HashType"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="Fechas"><xs:complexType><xs:sequence>
+        <xs:element name="PreparedAt" type="xs:dateTime" minOccurs="0"/><xs:element name="SignatureFlowStartedAt" type="xs:dateTime" minOccurs="0"/>
+        <xs:element name="ClosedAt" type="xs:dateTime"/>
+      </xs:sequence></xs:complexType></xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ParticipantBlockType">
+    <xs:sequence>
+      <xs:element name="Rol" type="xs:string"/><xs:element name="Orden" type="xs:positiveInteger" minOccurs="0"/>
+      <xs:element name="Obligatorio" type="xs:boolean" minOccurs="0"/><xs:element name="FechaInvitacion" type="xs:dateTime" minOccurs="0"/>
+      <xs:element name="FechaPrimerAcceso" type="xs:dateTime" minOccurs="0"/><xs:element name="FechaFirma" type="xs:dateTime" minOccurs="0"/>
+      <xs:element name="IdentidadVerificada" minOccurs="0"><xs:complexType><xs:sequence>
+        <xs:element name="Metodo" type="xs:string" minOccurs="0"/><xs:element name="FechaVerificacion" type="xs:dateTime" minOccurs="0"/>
+        <xs:element name="EvidenciaRef" type="xs:string" minOccurs="0"/>
+      </xs:sequence><xs:attribute name="estado" type="VerificationStatusType" use="required"/></xs:complexType></xs:element>
+    </xs:sequence>
+    <xs:attribute name="ref" type="xs:string" use="required"/><xs:attribute name="tipo" type="ParticipantKindType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="SignatureBlockType">
+    <xs:sequence>
+      <xs:element name="HashObjetoFirmado" type="HashType" minOccurs="0"/><xs:element name="FechaCaptura" type="xs:dateTime" minOccurs="0"/>
+      <xs:element name="EvidenciaAutografa" minOccurs="0"><xs:complexType><xs:sequence>
+        <xs:element name="HashTrazo" type="HashType" minOccurs="0"/><xs:element name="HashImagenFirma" type="HashType" minOccurs="0"/>
+        <xs:element name="EvidenceObjectID" type="xs:string" minOccurs="0"/>
+        <xs:element name="Consentimiento" minOccurs="0"><xs:complexType><xs:sequence>
+          <xs:element name="ConsentTextVersion" type="xs:string" minOccurs="0"/><xs:element name="ConsentTextHash" type="HashType" minOccurs="0"/>
+          <xs:element name="Accepted" type="xs:boolean" minOccurs="0"/><xs:element name="AcceptedAt" type="xs:dateTime" minOccurs="0"/>
+        </xs:sequence></xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="Certificado" minOccurs="0"><xs:complexType><xs:sequence>
+        <xs:element name="NumeroSerie" type="xs:string" minOccurs="0"/><xs:element name="RFC" type="xs:string" minOccurs="0"/>
+        <xs:element name="CURP" type="xs:string" minOccurs="0"/><xs:element name="Titular" type="xs:string" minOccurs="0"/>
+        <xs:element name="Issuer" type="xs:string" minOccurs="0"/><xs:element name="ValidFrom" type="xs:dateTime" minOccurs="0"/>
+        <xs:element name="ValidTo" type="xs:dateTime" minOccurs="0"/><xs:element name="FingerprintSHA256" type="HashType" minOccurs="0"/>
+      </xs:sequence><xs:attribute name="estadoValidacion" type="VerificationStatusType" use="required"/></xs:complexType></xs:element>
+      <xs:element name="EvidenciaCriptografica" minOccurs="0"><xs:complexType><xs:sequence>
+        <xs:element name="SignedPayloadHash" type="HashType" minOccurs="0"/><xs:element name="SignatureHash" type="HashType" minOccurs="0"/>
+        <xs:element name="SignatureAlgorithm" type="xs:string" minOccurs="0"/><xs:element name="ArtifactRef" type="xs:string" minOccurs="0"/>
+        <xs:element name="ArtifactHash" type="HashType" minOccurs="0"/>
+        <xs:element name="ValidationProvider" type="xs:string" minOccurs="0"/><xs:element name="ValidatedAt" type="xs:dateTime" minOccurs="0"/>
+      </xs:sequence><xs:attribute name="estadoValidacion" type="VerificationStatusType" use="required"/></xs:complexType></xs:element>
+    </xs:sequence>
+    <xs:attribute name="ref" type="xs:string" use="required"/><xs:attribute name="firmanteRef" type="xs:string" use="required"/>
+    <xs:attribute name="metodo" type="SignatureMethodType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="EventType">
+    <xs:sequence>
+      <xs:element name="ActorRef" type="xs:string" minOccurs="0"/><xs:element name="ObjectRef" type="xs:string" minOccurs="0"/>
+      <xs:element name="SourceEventHash" type="HashType" minOccurs="0"/><xs:element name="HashEvento" type="HashType"/>
+      <xs:element name="PreviousHash" type="HashType"/><xs:element name="ChainedHash" type="HashType"/>
+    </xs:sequence>
+    <xs:attribute name="sequence" type="xs:positiveInteger" use="required"/><xs:attribute name="ref" type="xs:string" use="required"/>
+    <xs:attribute name="tipo" type="xs:string" use="required"/><xs:attribute name="resultado" type="xs:string" use="required"/>
+    <xs:attribute name="timestamp" type="xs:dateTime" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="TimestampBlockType">
+    <xs:sequence>
+      <xs:element name="ObjectHash" type="HashType"/><xs:element name="Provider" type="xs:string" minOccurs="0"/>
+      <xs:element name="IssuedAt" type="xs:dateTime" minOccurs="0"/><xs:element name="SerialNumber" type="xs:string" minOccurs="0"/>
+      <xs:element name="PolicyOID" type="xs:string" minOccurs="0"/><xs:element name="MessageImprint" type="HashType" minOccurs="0"/>
+      <xs:element name="ArtifactRef" type="xs:string" minOccurs="0"/><xs:element name="ArtifactHash" type="HashType" minOccurs="0"/>
+      <xs:element name="ManifestHash" type="HashType" minOccurs="0"/><xs:element name="ValidatedAt" type="xs:dateTime" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="type" type="TimestampKindType" use="required"/><xs:attribute name="status" type="TimestampStatusType" use="required"/>
+    <xs:attribute name="objectType" type="TimestampObjectType" use="required"/><xs:attribute name="validationStatus" type="VerificationStatusType" use="required"/>
+  </xs:complexType>
+
+  <xs:element name="DocuboxEvidencePackage">
+    <xs:complexType><xs:sequence>
+      <xs:element name="Paquete" type="PackageType"/><xs:element name="Documento" type="DocumentType"/>
+      <xs:element name="Firmantes"><xs:complexType><xs:sequence><xs:element name="Firmante" type="ParticipantBlockType" minOccurs="1" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element>
+      <xs:element name="Firmas"><xs:complexType><xs:sequence><xs:element name="Firma" type="SignatureBlockType" minOccurs="1" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element>
+      <xs:element name="BitacoraProbatoria"><xs:complexType><xs:sequence><xs:element name="Evento" type="EventType" minOccurs="1" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CadenaEvidencia"><xs:complexType><xs:sequence>
+        <xs:element name="GenesisHash" type="HashType"/><xs:element name="RootHash" type="HashType"/>
+        <xs:element name="TotalEvents" type="xs:positiveInteger"/><xs:element name="ClosedAt" type="xs:dateTime"/>
+      </xs:sequence><xs:attribute name="algoritmo" type="xs:string" use="required" fixed="SHA-256"/><xs:attribute name="version" type="xs:string" use="required" fixed="docubox-evidence-chain-v1"/></xs:complexType></xs:element>
+      <xs:element name="EstampasTiempo"><xs:complexType><xs:sequence><xs:element name="Estampa" type="TimestampBlockType" minOccurs="0" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element>
+      <xs:element name="ConservacionNOM151"><xs:complexType><xs:sequence>
+        <xs:element name="RequestID" type="xs:string" minOccurs="0"/><xs:element name="RequestedAt" type="xs:dateTime" minOccurs="0"/>
+        <xs:element name="HashSubmitted" type="HashType" minOccurs="0"/><xs:element name="ProviderName" type="xs:string" minOccurs="0"/>
+        <xs:element name="ProviderIdentifier" type="xs:string" minOccurs="0"/><xs:element name="ConstanciaID" type="xs:string" minOccurs="0"/>
+        <xs:element name="IssuedAt" type="xs:dateTime" minOccurs="0"/><xs:element name="ConstanciaHash" type="HashType" minOccurs="0"/>
+        <xs:element name="SerialNumber" type="xs:string" minOccurs="0"/><xs:element name="Policy" type="xs:string" minOccurs="0"/>
+        <xs:element name="ArtifactRef" type="xs:string" minOccurs="0"/>
+      </xs:sequence><xs:attribute name="status" type="NomStatusType" use="required"/></xs:complexType></xs:element>
+      <xs:element name="Integridad"><xs:complexType><xs:sequence>
+        <xs:element name="EvidencePackageDigest" type="DigestType"/><xs:element name="HashXML" type="DigestType"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="FirmaDocubox"><xs:complexType><xs:sequence>
+        <xs:element name="Algorithm" type="xs:string" minOccurs="0"/><xs:element name="KeyID" type="xs:string" minOccurs="0"/>
+        <xs:element name="KeyVersion" type="xs:string" minOccurs="0"/><xs:element name="PublicKeyFingerprint" type="HashType" minOccurs="0"/>
+        <xs:element name="PublicKeyPemBase64" type="xs:base64Binary" minOccurs="0"/><xs:element name="SignatureValue" type="xs:base64Binary" minOccurs="0"/>
+        <xs:element name="SignatureHash" type="HashType" minOccurs="0"/><xs:element name="SignedAt" type="xs:dateTime" minOccurs="0"/>
+      </xs:sequence><xs:attribute name="estado" use="required"><xs:simpleType><xs:restriction base="xs:string"><xs:enumeration value="applied"/><xs:enumeration value="not_applied"/></xs:restriction></xs:simpleType></xs:attribute></xs:complexType></xs:element>
+      <xs:element name="Verificacion"><xs:complexType><xs:sequence>
+        <xs:element name="DocumentIntegrity" type="StatusElementType"/><xs:element name="ParticipantSignatures" type="StatusElementType"/>
+        <xs:element name="Certificates" type="StatusElementType"/><xs:element name="EvidenceChain" type="StatusElementType"/>
+        <xs:element name="DocuboxSignature" type="StatusElementType"/><xs:element name="Timestamp" type="StatusElementType"/>
+        <xs:element name="OpenTimestamps" type="StatusElementType"/><xs:element name="NOM151" type="StatusElementType"/>
+      </xs:sequence><xs:attribute name="modelo" type="xs:string" use="required" fixed="docubox-evidence-verification-v1"/><xs:attribute name="overallStatus" type="OverallStatusType" use="required"/></xs:complexType></xs:element>
+    </xs:sequence>
+    <xs:attribute name="version" type="xs:string" use="required" fixed="2.0"/><xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="2.0"/>
+  </xs:complexType></xs:element>
 </xs:schema>
