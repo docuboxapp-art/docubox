@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Loader2, PenLine, RotateCcw, RotateCw, ShieldCheck } from 'lucide-react';
+import { Check, Loader2, PenLine, RotateCcw, RotateCw, ShieldCheck, X } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 
@@ -24,6 +24,8 @@ export default function MobileSignaturePage() {
   const [padReady, setPadReady] = useState(false);
   const [penColor, setPenColor] = useState('#0a0a0f');
   const [strokeSize, setStrokeSize] = useState<StrokeSize>('thin');
+  const [orientationMessage, setOrientationMessage] = useState('');
+  const [secondsUntilClose, setSecondsUntilClose] = useState(3);
 
   useEffect(() => {
     const load = async () => {
@@ -95,14 +97,59 @@ export default function MobileSignaturePage() {
     };
   }, [screen]);
 
+  const closePage = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
+
+    window.close();
+
+    // Browsers only allow window.close() for tabs opened by script. Replace this
+    // temporary, single-use page when the browser keeps the QR tab open.
+    window.setTimeout(() => {
+      if (!window.closed) window.location.replace('about:blank');
+    }, 150);
+  }, []);
+
+  useEffect(() => {
+    if (screen !== 'success') return;
+
+    setSecondsUntilClose(3);
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      const secondsRemaining = Math.max(0, 3 - Math.floor((Date.now() - startedAt) / 1000));
+      setSecondsUntilClose(secondsRemaining);
+    }, 200);
+    const closeTimer = window.setTimeout(closePage, 3_000);
+
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(closeTimer);
+    };
+  }, [closePage, screen]);
+
   const requestLandscape = async () => {
+    const orientation = window.screen.orientation as ScreenOrientation & {
+      lock?: (mode: 'landscape') => Promise<void>;
+    };
+
+    if (!orientation?.lock) {
+      setOrientationMessage('Gira el teléfono para firmar en horizontal.');
+      return;
+    }
+
     try {
-      const orientation = window.screen.orientation as ScreenOrientation & {
-        lock?: (mode: 'landscape') => Promise<void>;
-      };
-      await orientation.lock?.('landscape');
+      if (!document.fullscreenElement) {
+        try {
+          await document.documentElement.requestFullscreen?.();
+        } catch {
+          // Some browsers can lock orientation without entering fullscreen.
+        }
+      }
+      await orientation.lock('landscape');
+      setOrientationMessage('La pantalla está en horizontal para firmar.');
     } catch {
-      // Safari and some browsers only permit orientation changes after fullscreen mode.
+      setOrientationMessage('Gira el teléfono para firmar en horizontal.');
     }
   };
 
@@ -198,16 +245,19 @@ export default function MobileSignaturePage() {
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><Check size={28} /></div>
               <h1 className="mt-4 text-lg font-semibold">Firma enviada</h1>
               <p className="mt-2 text-sm leading-6 text-slate-500">Regresa a tu equipo para continuar con la validación de la firma.</p>
+              <p className="mt-3 text-sm font-medium text-slate-700">Esta página se cerrará en {secondsUntilClose} segundos.</p>
+              <button type="button" onClick={closePage} className="mx-auto mt-5 inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"><X size={15} /> Cerrar ahora</button>
             </div>
           )}
           {(screen === 'draw' || screen === 'sending') && (
             <>
               <header className="border-b border-slate-200 bg-slate-50 px-4 py-3 landscape:px-3 landscape:py-2">
-                <div className="flex items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-2"><PenLine size={17} className="shrink-0 text-primary" /><h1 className="truncate text-sm font-semibold">Firma autógrafa digital</h1></div><button type="button" onClick={requestLandscape} title="Usar orientación horizontal" aria-label="Usar orientación horizontal" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 landscape:hidden"><RotateCw size={15} /></button></div>
+                <div className="flex items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-2"><PenLine size={17} className="shrink-0 text-primary" /><h1 className="truncate text-sm font-semibold">Firma autógrafa digital</h1></div><button type="button" onClick={requestLandscape} title="Gira el teléfono para firmar en horizontal" aria-label="Gira el teléfono para firmar en horizontal" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600 landscape:hidden"><RotateCw size={15} /> Girar teléfono</button></div>
                 <p className="mt-1 truncate pl-6 text-xs text-slate-500">{documentName}</p>
               </header>
               <div className="p-4 landscape:p-3">
                 <p className="mb-3 text-sm text-slate-600 landscape:mb-2">Dibuja tu firma en el recuadro.</p>
+                {orientationMessage && <p className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 landscape:mb-2">{orientationMessage}</p>}
                 <div className="flex flex-col gap-2 landscape:flex-row">
                   <div className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:flex-1 landscape:aspect-auto landscape:h-[calc(100dvh-185px)] landscape:min-h-[230px] landscape:max-h-[420px]" style={{ touchAction: 'none' }}>
                     <canvas ref={canvasRef} className="block h-full w-full cursor-crosshair" style={{ touchAction: 'none' }} />

@@ -68,10 +68,22 @@ test('mobile signing page captures vector strokes and submits them through the t
 
 test('mobile signing preserves strokes and uses a horizontal pad in every orientation', () => {
   const source = read('src/app/firma-movil/[token]/page.tsx');
-  assert.match(source, /orientation\.lock\?\.\('landscape'\)/);
+  assert.match(source, /orientation\.lock\('landscape'\)/);
+  assert.match(source, /requestFullscreen\?\.\(\)/);
+  assert.match(source, /Gira el teléfono para firmar en horizontal/);
   assert.match(source, /window\.visualViewport\?\.addEventListener\('resize'/);
   assert.match(source, /x: \(point\.x \* nextWidth\) \/ priorWidth/);
   assert.match(source, /aspect-\[2\/1\]/);
   assert.match(source, /flex flex-col gap-2 landscape:flex-row/);
   assert.match(source, /landscape:h-\[calc\(100dvh-185px\)\]/);
+});
+
+test('mobile signing confirmation counts down and closes its temporary QR page', () => {
+  const source = read('src/app/firma-movil/[token]/page.tsx');
+  assert.match(source, /useState\(3\)/);
+  assert.match(source, /window\.setTimeout\(closePage, 3_000\)/);
+  assert.match(source, /window\.close\(\)/);
+  assert.match(source, /window\.location\.replace\('about:blank'\)/);
+  assert.match(source, /Esta página se cerrará en \{secondsUntilClose\} segundos\./);
+  assert.match(source, /Cerrar ahora/);
 });
