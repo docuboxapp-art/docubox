@@ -17,10 +17,7 @@ import {
   upgradePadesBbCertificationToBt,
 } from '@/lib/certification/product-integration';
 import { CertificationError } from '@/lib/certification/types';
-import {
-  issueNom151ForVerifiedPadesBt,
-  Nom151ServiceError,
-} from '@/lib/nom151/service';
+import { issueNom151ForVerifiedPadesBt, Nom151ServiceError } from '@/lib/nom151/service';
 import {
   DocumentCompletionEmailError,
   queueVerifiedDocumentCompletionEmails,
@@ -151,14 +148,18 @@ async function finalizeAfterVerifiedPadesBt(
       });
       return { status: 'SUBMISSION_FAILED' };
     });
-  const [email, blockchainEvidence] = await Promise.all([
-    queueVerifiedDocumentCompletionEmails(service, {
-      documentId: input.documentId,
-      certificationUuid: input.certificationUuid,
-      requestedBy: input.actorId,
-    }),
-    blockchainEvidencePromise,
-  ]);
+  const blockchainEvidence = await blockchainEvidencePromise;
+  const evidenceV2 = isEvidenceV2Enabled()
+    ? await generateEvidenceV2ForDocument(service, {
+        documentId: input.documentId,
+        actorId: input.actorId,
+      })
+    : null;
+  const email = await queueVerifiedDocumentCompletionEmails(service, {
+    documentId: input.documentId,
+    certificationUuid: input.certificationUuid,
+    requestedBy: input.actorId,
+  });
   await recordCertificationStage(service, {
     documentId: input.documentId,
     actorId: input.actorId,
@@ -166,15 +167,10 @@ async function finalizeAfterVerifiedPadesBt(
     details: {
       certification_uuid: input.certificationUuid,
       nom151_record_id: nom151.recordId,
+      evidence_v2_package_id: evidenceV2?.package_id || null,
       email_delivery_statuses: email.deliveries.map((delivery) => delivery.status),
     },
   });
-  const evidenceV2 = isEvidenceV2Enabled()
-    ? await generateEvidenceV2ForDocument(service, {
-        documentId: input.documentId,
-        actorId: input.actorId,
-      })
-    : null;
   return {
     nom151: {
       record_id: nom151.recordId,

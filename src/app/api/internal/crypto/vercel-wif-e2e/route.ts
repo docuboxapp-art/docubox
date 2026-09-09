@@ -212,6 +212,9 @@ async function createSafeProductCandidate(service: ReturnType<typeof createServi
     await service.from('documentos').delete().eq('id', documentId);
     throw error;
   }
+  const signatureHash = createHash('sha256')
+    .update(`DOCUBOX_E2E_CLICK_SIGN:${documentId}:${identity.ownerId}:${createdAt}`)
+    .digest('hex');
   const response = await service.from('participation_responses').insert({
     documento_id: documentId,
     participante_email: identity.email,
@@ -224,9 +227,7 @@ async function createSafeProductCandidate(service: ReturnType<typeof createServi
     firma_completada_at: createdAt,
     signature_method: 'clicksign',
     signature_stamp_style: 'CC1',
-    signature_hash: createHash('sha256')
-      .update(`DOCUBOX_E2E_CLICK_SIGN:${documentId}:${identity.ownerId}:${createdAt}`)
-      .digest('hex'),
+    signature_hash: signatureHash,
     signature_ip: 'vercel-production-e2e',
     signature_metadata: {
       e2e: true,
@@ -238,6 +239,28 @@ async function createSafeProductCandidate(service: ReturnType<typeof createServi
     await service.from('documentos').delete().eq('id', documentId);
     await service.storage.from('documents').remove([storagePath]);
     throw response.error;
+  }
+  const evidence = await service.from('signature_evidence').insert({
+    document_id: documentId,
+    evidence_type: 'simple_signature',
+    combined_sha256: signatureHash,
+    signature_hash: signatureHash,
+    document_sha256: pdfSha256,
+    captured_at: createdAt,
+    signed_at: createdAt,
+    captured_by: identity.ownerId,
+    ip_address: 'vercel-production-e2e',
+    user_agent: 'Docubox Vercel production E2E',
+    device_type: 'server',
+    workspace_id: identity.workspaceId,
+    participant_name: identity.name,
+    participant_email: identity.email,
+    participant_role: 'firmante',
+  });
+  if (evidence.error) {
+    await service.from('documentos').delete().eq('id', documentId);
+    await service.storage.from('documents').remove([storagePath]);
+    throw evidence.error;
   }
   return { service, document: inserted.data, ownerEmail: identity.email };
 }

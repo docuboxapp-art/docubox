@@ -602,3 +602,16 @@ test('the permanent golden fixture verifies to its documented incomplete state',
   assert.equal(result.docuboxSignature, expected.docuboxSignature);
   assert.equal(result.overall, expected.overall);
 });
+
+test('completion email is queued only after the immutable v2 package closes', () => {
+  const route = readFileSync(
+    'src/app/api/documentos/[documentId]/seal-signatures/route.ts',
+    'utf8'
+  );
+  const packageClose = route.indexOf('await generateEvidenceV2ForDocument(service');
+  const completionEmail = route.indexOf('await queueVerifiedDocumentCompletionEmails(service');
+  const completionAudit = route.indexOf("action: 'certification_completed'");
+  assert.ok(packageClose >= 0);
+  assert.ok(completionEmail > packageClose);
+  assert.ok(completionAudit > completionEmail);
+});
