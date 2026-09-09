@@ -103,7 +103,7 @@ async function latestFinalCertification(service: SupabaseClient, documentId: str
 async function featureEnabledForDocument(service: SupabaseClient, documentId: string) {
   const documentResult = await service
     .from('documentos')
-    .select('id,estado,workspace_id,blockchain_evidence_enabled')
+    .select('id,estado')
     .eq('id', documentId)
     .maybeSingle();
   if (documentResult.error || !documentResult.data)
@@ -114,15 +114,7 @@ async function featureEnabledForDocument(service: SupabaseClient, documentId: st
       'La evidencia sólo se genera para documentos completados.',
       409
     );
-  if (documentResult.data.blockchain_evidence_enabled !== true) return false;
-  if (!documentResult.data.workspace_id) return true;
-  const workspace = await service
-    .from('workspaces')
-    .select('blockchain_evidence_enabled')
-    .eq('id', documentResult.data.workspace_id)
-    .maybeSingle();
-  if (workspace.error) throw workspace.error;
-  return workspace.data?.blockchain_evidence_enabled === true;
+  return true;
 }
 
 export async function createBlockchainEvidenceForFinalDocument(

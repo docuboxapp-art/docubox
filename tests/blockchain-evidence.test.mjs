@@ -133,6 +133,28 @@ test('document viewer keeps blockchain evidence visible before a proof exists', 
   assert.doesNotMatch(source, /\{blockchainEvidence && \(\s*<div[^>]+>/);
 });
 
+test('blockchain evidence is automatic and cannot be disabled during document creation', () => {
+  const upload = readFileSync('src/app/crear-documento/components/StepSubir.tsx', 'utf8');
+  const send = readFileSync('src/app/api/documentos/enviar/route.ts', 'utf8');
+  const draft = readFileSync('src/app/api/documentos/guardar-borrador/route.ts', 'utf8');
+  const service = readFileSync('src/lib/blockchain-evidence/service.ts', 'utf8');
+  assert.match(upload, /const blockchainEvidence = true/);
+  assert.doesNotMatch(upload, /Evidencia en Bitcoin: funcionalidad en preparación/);
+  assert.match(send, /blockchain_evidence_enabled: true/);
+  assert.match(draft, /blockchain_evidence_enabled: true/);
+  assert.doesNotMatch(service, /workspace_id,blockchain_evidence_enabled/);
+});
+
+test('automatic blockchain evidence migration enables existing records and future defaults', () => {
+  const migration = readFileSync(
+    'supabase/migrations/20260909001125_make_blockchain_evidence_automatic.sql',
+    'utf8'
+  );
+  assert.match(migration, /ALTER COLUMN blockchain_evidence_enabled SET DEFAULT true/g);
+  assert.match(migration, /UPDATE public\.documentos/);
+  assert.match(migration, /UPDATE public\.workspaces/);
+});
+
 test('Vercel runtime uses the official Python client behind internal authentication', () => {
   const runtime = readFileSync('api/opentimestamps_runtime.py', 'utf8');
   const requirements = readFileSync('requirements.txt', 'utf8');

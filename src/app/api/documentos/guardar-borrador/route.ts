@@ -127,7 +127,6 @@ export async function POST(req: NextRequest) {
       selloDigital,
       selloUbicacion,
       estampaAutenticacion,
-      blockchainEvidence,
       metadatosAdicionales,
       additionalMetadata,
       otroTipoDocumento,
@@ -251,7 +250,7 @@ export async function POST(req: NextRequest) {
       sello_digital: selloDigital ?? false,
       sello_ubicacion: selloUbicacion === 'libre' ? 'libre' : 'calce',
       estampa_autenticacion: estampaAutenticacion ?? false,
-      blockchain_evidence_enabled: blockchainEvidence ?? false,
+      blockchain_evidence_enabled: true,
       metadatos_adicionales: metadatosAdicionales ?? false,
       campos_solicitados: camposSolicitados || [],
     };

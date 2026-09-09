@@ -312,7 +312,7 @@ function CrearDocumentoPageInner() {
           selloDigital: data.sello_digital === true,
           selloUbicacion: data.sello_ubicacion === 'libre' ? 'libre' : 'calce',
           estampaAutenticacion: data.estampa_autenticacion === true,
-          blockchainEvidence: data.blockchain_evidence_enabled === true,
+          blockchainEvidence: true,
           metadatosAdicionales: data.metadatos_adicionales === true,
         });
         if (data.participation_order) setParticipationOrder(data.participation_order);
@@ -504,7 +504,7 @@ function CrearDocumentoPageInner() {
           selloDigital: securitySummary?.selloDigital ?? false,
           selloUbicacion: securitySummary?.selloUbicacion || 'calce',
           estampaAutenticacion: securitySummary?.estampaAutenticacion ?? false,
-          blockchainEvidence: securitySummary?.blockchainEvidence ?? false,
+          blockchainEvidence: true,
           metadatosAdicionales: securitySummary?.metadatosAdicionales ?? false,
           additionalMetadata: docConfig.additionalMetadata,
           camposSolicitados: placedFields.map((f) => ({

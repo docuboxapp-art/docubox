@@ -2775,7 +2775,9 @@ function FileUploadedLayout({
   const [selloUbicacion, setSelloUbicacion] = useState<'calce' | 'libre'>('calce');
   const [showSelloUbicacionModal, setShowSelloUbicacionModal] = useState(false);
   const [estampaAutenticacion, setEstampaAutenticacion] = useState(false);
-  const [blockchainEvidence, setBlockchainEvidence] = useState(false);
+  // The blockchain evidence is generated automatically with the final document,
+  // just like the NOM-151 evidence. It is not a user-configurable setting.
+  const blockchainEvidence = true;
   const [metadatosAdicionales, setMetadatosAdicionales] = useState(false);
   const [showMetadatosModal, setShowMetadatosModal] = useState(false);
   const savedMetadatosCount = config.additionalMetadata?.length ?? 0;
@@ -2874,7 +2876,6 @@ function FileUploadedLayout({
     selloDigital,
     selloUbicacion,
     estampaAutenticacion,
-    blockchainEvidence,
     metadatosAdicionales,
   ]);
 
@@ -3170,33 +3171,6 @@ function FileUploadedLayout({
                   {urgente && (
                     <p className="ml-7 mt-1.5 text-xs text-gray-500">
                       Este ajuste no modifica el vencimiento del documento.
-                    </p>
-                  )}
-                </div>
-                <div className="rounded-lg px-3 py-2 hover:bg-gray-50">
-                  <label className="group/option flex cursor-pointer items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={blockchainEvidence}
-                      disabled={
-                        process.env.NEXT_PUBLIC_OPENTIMESTAMPS_REAL_ANCHORING_ENABLED !== 'true'
-                      }
-                      onChange={(event) => setBlockchainEvidence(event.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 accent-primary"
-                    />
-                    <span className="flex-1 text-sm font-normal text-gray-700">
-                      {process.env.NEXT_PUBLIC_OPENTIMESTAMPS_REAL_ANCHORING_ENABLED === 'true'
-                        ? 'Registrar evidencia en Bitcoin'
-                        : 'Evidencia en Bitcoin: funcionalidad en preparación'}
-                    </span>
-                    <InfoTooltip
-                      showOnParentHover
-                      text="Genera una prueba criptográfica OpenTimestamps y la ancla mediante la red Bitcoin. El documento no se publica en blockchain."
-                    />
-                  </label>
-                  {blockchainEvidence && (
-                    <p className="ml-7 mt-1.5 text-xs text-gray-500">
-                      Se creará al cerrar el PDF final y continuará en segundo plano sin retrasar la firma.
                     </p>
                   )}
                 </div>

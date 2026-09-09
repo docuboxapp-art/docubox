@@ -618,7 +618,7 @@ export const StepEnviar = forwardRef<
           selloDigital: effectiveSecurity?.selloDigital ?? false,
           selloUbicacion: effectiveSecurity?.selloUbicacion || 'calce',
           estampaAutenticacion: effectiveSecurity?.estampaAutenticacion ?? false,
-          blockchainEvidence: effectiveSecurity?.blockchainEvidence ?? false,
+          blockchainEvidence: true,
           legalHoldEnabled: effectiveSecurity?.legalHoldEnabled ?? false,
           legalHoldReason: effectiveSecurity?.legalHoldReason || null,
           urgente: effectiveSecurity?.urgente ?? false,
