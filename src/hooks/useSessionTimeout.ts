@@ -30,6 +30,27 @@ type SessionPolicy = {
   absolute_expires_at: string | null;
 };
 
+type SessionPolicyError = {
+  code?: string;
+  message?: string;
+  status?: number;
+};
+
+const INVALID_SESSION_ERROR_CODES = new Set(['refresh_token_not_found', 'bad_jwt', 'PGRST301']);
+
+function isExplicitlyInvalidSession(error: SessionPolicyError) {
+  if (error.code && INVALID_SESSION_ERROR_CODES.has(error.code)) return true;
+
+  const message = error.message?.toLowerCase() || '';
+  return (
+    error.status === 401 ||
+    message.includes('invalid refresh token') ||
+    message.includes('refresh token not found') ||
+    message.includes('jwt expired') ||
+    message.includes('invalid jwt')
+  );
+}
+
 export interface SessionTimeoutOptions {
   onShowWarning: () => void;
   onHideWarning: () => void;
@@ -151,18 +172,24 @@ export function useSessionTimeout(
     });
 
     if (error) {
-      // A failed validation must never leave an apparently active session behind.
-      console.warn('[session-policy] Client validation failed; closing the local session.', {
+      if (isExplicitlyInvalidSession(error)) {
+        await executeSignOut('inactivity');
+        return false;
+      }
+
+      // A transient outage or a server-side policy issue is not proof that the
+      // browser session is invalid. Preserve the existing deadline and retry on
+      // the next explicit interaction instead of unexpectedly signing the user out.
+      console.warn('[session-policy] Client validation unavailable; preserving local session.', {
         code: error.code,
         message: error.message,
       });
-      await executeSignOut('inactivity');
       return false;
     }
 
     const policy = parsePolicy(data);
     if (!policy) {
-      await executeSignOut('inactivity');
+      console.warn('[session-policy] Client policy response was invalid; preserving local session.');
       return false;
     }
 

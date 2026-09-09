@@ -84,8 +84,6 @@ function isInvalidSessionError(error: SessionPolicyError | null) {
   const message = error.message?.toLowerCase() || '';
   return (
     error.status === 401 ||
-    (error.code === '42501' &&
-      message.includes('permission denied for function enforce_docubox_session_policy')) ||
     message.includes('invalid refresh token') ||
     message.includes('refresh token not found') ||
     message.includes('jwt expired') ||
@@ -140,11 +138,7 @@ function expiredSessionResponse(
   return expiredResponse;
 }
 
-function unavailableSessionPolicyResponse(
-  request: NextRequest,
-  response: NextResponse,
-  isApiRequest: boolean
-) {
+function unavailableSessionPolicyResponse(response: NextResponse, isApiRequest: boolean) {
   if (isApiRequest) {
     return NextResponse.json(
       {
@@ -155,8 +149,15 @@ function unavailableSessionPolicyResponse(
     );
   }
 
-  const unavailableResponse = NextResponse.redirect(
-    new URL('/login?reason=session-check-unavailable', request.url)
+  const unavailableResponse = new NextResponse(
+    '<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Verificación temporalmente no disponible</title></head><body><main><h1>No fue posible verificar la sesión</h1><p>Tu sesión continúa activa. Espera un momento y vuelve a intentar.</p></main></body></html>',
+    {
+      status: 503,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'private, no-store',
+      },
+    }
   );
   for (const cookie of response.cookies.getAll()) {
     unavailableResponse.cookies.set(cookie);
@@ -254,6 +255,32 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     }
   );
 
+  const accessToken = authorization?.replace(/^Bearer\s+/i, '');
+  let claimsError: SessionPolicyError | null = null;
+  try {
+    const result = await supabase.auth.getClaims(accessToken);
+    claimsError = result.error;
+  } catch (error) {
+    claimsError = error instanceof Error ? { message: error.message } : { message: String(error) };
+  }
+
+  if (claimsError) {
+    if (isInvalidSessionError(claimsError)) {
+      return withMiddlewareTiming(
+        unauthenticatedResponse(request, response, isApiRequest, isPublicPage),
+        startedAt
+      );
+    }
+    console.error('[session-policy] Middleware token validation unavailable', {
+      policyErrorCode: claimsError.code,
+      policyErrorMessage: claimsError.message,
+    });
+    return withMiddlewareTiming(
+      unavailableSessionPolicyResponse(response, isApiRequest),
+      startedAt
+    );
+  }
+
   let policyData: unknown = null;
   let policyError: SessionPolicyError | null = null;
   try {
@@ -279,7 +306,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       policyErrorMessage: policyError.message,
     });
     return withMiddlewareTiming(
-      unavailableSessionPolicyResponse(request, response, isApiRequest),
+      unavailableSessionPolicyResponse(response, isApiRequest),
       startedAt
     );
   }

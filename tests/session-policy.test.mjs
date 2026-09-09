@@ -46,6 +46,7 @@ test('middleware validates authenticated browser and API traffic server-side', (
   assert.doesNotMatch(middleware, /supabase\.auth\.getUser\(\)/);
   assert.match(middleware, /hasSessionMaterial/);
   assert.match(middleware, /isInvalidSessionError/);
+  assert.match(middleware, /supabase\.auth\.getClaims\(accessToken\)/);
   assert.match(middleware, /refresh_token_not_found/);
   assert.match(middleware, /SESSION_EXPIRED/);
   assert.match(middleware, /unavailableSessionPolicyResponse/);
@@ -57,13 +58,25 @@ test('middleware validates authenticated browser and API traffic server-side', (
   assert.match(middleware, /'\/api\/auth\/totp\/check'/);
 });
 
-test('timeout modal actions visibly resolve or close the current browser session', () => {
+test('timeout modal actions close only explicitly invalid browser sessions', () => {
   assert.match(timeoutHook, /SIGN_OUT_FALLBACK_MS/);
   assert.match(timeoutHook, /await Promise\.race/);
-  assert.match(timeoutHook, /Client validation failed; closing the local session/);
+  assert.match(timeoutHook, /isExplicitlyInvalidSession/);
+  assert.match(timeoutHook, /Client validation unavailable; preserving local session/);
+  assert.match(timeoutHook, /Client policy response was invalid; preserving local session/);
+  assert.doesNotMatch(timeoutHook, /Client validation failed; closing the local session/);
   assert.match(timeoutHook, /await executeSignOut\('inactivity'\)/);
   assert.match(timeoutHook, /const continueSession = useCallback\(async/);
   assert.match(timeoutHook, /createClient\(\)\.auth\.signOut\(\{ scope: 'local' \}\)/);
+});
+
+test('temporary policy or permission errors do not erase an otherwise valid session', () => {
+  assert.doesNotMatch(
+    middleware,
+    /permission denied for function enforce_docubox_session_policy/
+  );
+  assert.match(middleware, /Tu sesión continúa activa\. Espera un momento y vuelve a intentar\./);
+  assert.match(middleware, /status: 503/);
 });
 
 test('session expiry is auditable and protected from direct table access', () => {
