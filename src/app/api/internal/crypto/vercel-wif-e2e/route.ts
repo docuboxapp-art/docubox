@@ -5,6 +5,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { GoogleCloudKmsProvider } from '@/lib/certification/key-management';
 import { createServiceClient } from '@/lib/supabase/server';
 import { CertificationError } from '@/lib/certification/types';
+import { encryptAndUploadDocumentObject } from '@/lib/crypto/document-encryption';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,13 +45,6 @@ function failureResponse(error: unknown) {
   );
 }
 
-function isSignatureField(field: unknown) {
-  if (!field || typeof field !== 'object') return false;
-  const row = field as Record<string, unknown>;
-  const type = String(row.type || row.fieldType || row.tipo || '').toLowerCase();
-  return type.includes('signature') || type.includes('firma');
-}
-
 async function createSafeProductCandidate(service: ReturnType<typeof createServiceClient>) {
   const sources = await service
     .from('documentos')
@@ -84,6 +78,7 @@ async function createSafeProductCandidate(service: ReturnType<typeof createServi
   }
 
   const documentId = randomUUID();
+  const versionId = randomUUID();
   const createdAt = new Date().toISOString();
   const folio = `DBX-E2E-${createdAt.slice(0, 10).replaceAll('-', '')}-${documentId.slice(0, 8).toUpperCase()}`;
   const pdf = await PDFDocument.create();
@@ -128,11 +123,7 @@ async function createSafeProductCandidate(service: ReturnType<typeof createServi
   });
   const pdfBytes = new Uint8Array(await pdf.save({ useObjectStreams: false }));
   const pdfSha256 = createHash('sha256').update(pdfBytes).digest('hex');
-  const storagePath = `e2e/${identity.workspaceId}/${documentId}/${pdfSha256}.pdf`;
-  const upload = await service.storage
-    .from('documents')
-    .upload(storagePath, pdfBytes, { contentType: 'application/pdf', upsert: false });
-  if (upload.error) throw upload.error;
+  const storagePath = `tenants/${identity.workspaceId}/documents/${documentId}/versions/${versionId}/source.enc`;
 
   const participant = {
     id: identity.ownerId,
@@ -181,8 +172,45 @@ async function createSafeProductCandidate(service: ReturnType<typeof createServi
     .select('id,owner_id,workspace_id,nombre,campos_solicitados,file_type')
     .single();
   if (inserted.error || !inserted.data) {
-    await service.storage.from('documents').remove([storagePath]);
     throw inserted.error || new Error('VERCEL_PRODUCT_E2E_DOCUMENT_INSERT_FAILED');
+  }
+  const version = await service.from('document_versions').insert({
+    id: versionId,
+    workspace_id: identity.workspaceId,
+    document_id: documentId,
+    version_number: 1,
+    status: 'approved',
+    storage_path: storagePath,
+    mime_type: 'application/pdf',
+    byte_size: pdfBytes.byteLength,
+    sha256: pdfSha256,
+    change_reason: 'E2E productivo: documento fuente generado en backend',
+    created_by: identity.ownerId,
+    frozen_at: createdAt,
+    metadata: { source: 'vercel_wif_product_e2e', storage_bucket: 'documents' },
+  });
+  if (version.error) {
+    await service.from('documentos').delete().eq('id', documentId);
+    throw version.error;
+  }
+  try {
+    await encryptAndUploadDocumentObject({
+      service,
+      plaintext: pdfBytes,
+      tenantId: identity.workspaceId,
+      documentId,
+      documentVersionId: versionId,
+      artifactKind: 'document',
+      storageBucket: 'documents',
+      storagePath,
+      originalFileName: `${folio}.pdf`,
+      originalMimeType: 'application/pdf',
+      userId: identity.ownerId,
+      requestId: `vercel-wif-product-e2e:${documentId}`,
+    });
+  } catch (error) {
+    await service.from('documentos').delete().eq('id', documentId);
+    throw error;
   }
   const response = await service.from('participation_responses').insert({
     documento_id: documentId,
@@ -216,50 +244,6 @@ async function createSafeProductCandidate(service: ReturnType<typeof createServi
 
 async function findSafeProductCandidate() {
   const service = createServiceClient();
-  const result = await service
-    .from('documentos')
-    .select('id,owner_id,workspace_id,nombre,campos_solicitados,file_type')
-    .eq('estado', 'completado')
-    .is('deleted_at', null)
-    .or('nombre.ilike.%prueba%,nombre.ilike.%test%,nombre.ilike.%demo%')
-    .order('fecha_completado', { ascending: false })
-    .limit(25);
-  if (result.error) throw result.error;
-
-  for (const document of result.data || []) {
-    if (
-      !document.owner_id ||
-      !document.workspace_id ||
-      document.file_type !== 'application/pdf' ||
-      !(document.campos_solicitados || []).some(isSignatureField)
-    ) {
-      continue;
-    }
-    const [responses, verified, user] = await Promise.all([
-      service
-        .from('participation_responses')
-        .select('id', { count: 'exact', head: true })
-        .eq('documento_id', document.id)
-        .eq('firma_completada', true),
-      service
-        .from('document_certifications')
-        .select('id', { count: 'exact', head: true })
-        .eq('document_id', document.id)
-        .eq('status', 'COMPLETED')
-        .eq('pdf_signature_status', 'valid'),
-      service.auth.admin.getUserById(document.owner_id),
-    ]);
-    if (
-      !responses.error &&
-      (responses.count || 0) > 0 &&
-      !verified.error &&
-      verified.count === 0 &&
-      !user.error &&
-      user.data.user?.email
-    ) {
-      return { service, document, ownerEmail: user.data.user.email };
-    }
-  }
   return createSafeProductCandidate(service);
 }
 

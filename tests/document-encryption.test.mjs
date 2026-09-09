@@ -38,6 +38,10 @@ const finalClosureMigrationScript = readFileSync(
   join(process.cwd(), 'scripts', 'migrate-final-encryption-closure-batch.ts'),
   'utf8'
 );
+const vercelWifE2eRoute = readFileSync(
+  join(process.cwd(), 'src', 'app', 'api', 'internal', 'crypto', 'vercel-wif-e2e', 'route.ts'),
+  'utf8'
+);
 await mkdir(cacheDirectory, { recursive: true });
 await build({
   entryPoints: [join(process.cwd(), 'src', 'lib', 'crypto', 'document-encryption', 'index.ts')],
@@ -451,4 +455,16 @@ test('final closure migration is bounded, idempotent and removes plaintext last'
   assert.match(finalClosureMigrationScript, /\.list\(folder, \{/);
   assert.match(finalClosureMigrationScript, /entry\.name === fileName/);
   assert.doesNotMatch(finalClosureMigrationScript, /const absent = await service\.storage/);
+});
+
+test('production WIF E2E creates an isolated encrypted document version', () => {
+  assert.match(vercelWifE2eRoute, /encryptAndUploadDocumentObject\(\{/);
+  assert.match(vercelWifE2eRoute, /artifactKind: 'document'/);
+  assert.match(vercelWifE2eRoute, /\.from\('document_versions'\)\.insert\(\{/);
+  assert.match(vercelWifE2eRoute, /storagePath = `tenants\/\$\{identity\.workspaceId\}/);
+  assert.doesNotMatch(vercelWifE2eRoute, /\.or\('nombre\.ilike\.%prueba%/);
+  assert.doesNotMatch(
+    vercelWifE2eRoute,
+    /\.from\('documents'\)\s*\.upload\(storagePath, pdfBytes/s
+  );
 });
