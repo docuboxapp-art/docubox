@@ -111,6 +111,17 @@ test('cancelled or invalidated portal links stop before serving participant data
   assert.match(portalParticipantData, /status: 410/);
 });
 
+test('participant portal resolves a real document name without caching the capability response', async () => {
+  const portalPage = await read('../src/app/portal-participante/[token]/page.tsx');
+  assert.match(portalInfo, /file_name/);
+  assert.match(portalInfo, /resolveDocumentName/);
+  assert.match(portalInfo, /Cache-Control': 'private, no-store, max-age=0'/);
+  assert.match(portalPage, /cache: 'no-store'/);
+  assert.match(portalPage, /¡Hola!/);
+  assert.doesNotMatch(portalPage, /Conexión segura/);
+  assert.doesNotMatch(portalPage, /Participación documental segura/);
+});
+
 test('uninviting evaluates evidence and independently revokes future access', () => {
   assert.match(updateStateRoute, /action === 'desinvitar'/);
   assert.match(updateStateRoute, /PARTICIPANT_UNINVITED/);

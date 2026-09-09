@@ -40,7 +40,8 @@ export default function PortalParticipantePage() {
 
       try {
         const response = await fetch(
-          `/api/portal-participante/info?token=${encodeURIComponent(token)}`
+          `/api/portal-participante/info?token=${encodeURIComponent(token)}`,
+          { cache: 'no-store' }
         );
 
         if (response.ok) {
@@ -63,7 +64,6 @@ export default function PortalParticipantePage() {
     loadParticipantInfo();
   }, [token]);
 
-  const firstName = info?.participantName?.trim().split(/\s+/)[0] || null;
   const isApproval = info?.acto === 'aprobar';
   const actionLabel = isApproval ? 'aprobar' : 'firmar';
 
@@ -154,10 +154,6 @@ export default function PortalParticipantePage() {
                   <p className="mt-0.5 text-xs text-slate-500">Acceso a invitaciones</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-xs font-600 text-slate-500">
-                <ShieldCheck size={16} className="text-emerald-600" aria-hidden="true" />
-                <span className="hidden sm:inline">Conexión segura</span>
-              </div>
             </header>
 
             <main className="flex flex-1 items-center px-5 py-10 sm:px-8 lg:px-12 xl:px-16">
@@ -172,11 +168,12 @@ export default function PortalParticipantePage() {
                     <>
                       <p className="text-sm font-600 text-primary">Invitación a participar</p>
                       <h2 className="mt-2 text-2xl font-700 leading-tight text-slate-950 sm:text-3xl">
-                        {firstName ? `Hola, ${firstName}` : 'Hola'}
+                        ¡Hola!
                       </h2>
                       <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-                        Recibiste una invitación para {actionLabel} un documento. Elige cómo deseas
-                        continuar.
+                        Recibiste una invitación para {actionLabel} el documento{' '}
+                        <strong className="font-700 text-slate-800">{info?.documentName}</strong>. Elige cómo
+                        deseas continuar.
                       </p>
                     </>
                   )}
@@ -242,9 +239,6 @@ export default function PortalParticipantePage() {
               </div>
             </main>
 
-            <footer className="border-t border-slate-200 px-5 py-4 text-center text-xs text-slate-500 sm:px-8">
-              © {new Date().getFullYear()} Docubox · Participación documental segura
-            </footer>
           </div>
         </div>
       </div>
