@@ -10,7 +10,6 @@ import {
   LockKeyhole,
   PenLine,
   RotateCcw,
-  ShieldCheck,
 } from 'lucide-react';
 
 import PublicTokenLayout from '@/components/PublicTokenLayout';
@@ -127,40 +126,39 @@ export default function PortalParticipantePage() {
       <div className="min-h-screen bg-slate-50 text-slate-950">
         <div className="grid min-h-screen lg:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.18fr)]">
           <aside className="hidden bg-primary px-10 py-9 text-white lg:flex lg:flex-col xl:px-14">
-            <AppLogo variant="light" className="mb-auto" />
+            <AppLogo variant="light" className="shrink-0" />
 
-            <div className="max-w-md py-12">
-              <div className="mb-5 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/20 bg-white/10">
-                <ShieldCheck size={22} aria-hidden="true" />
-              </div>
-              <h1 className="text-3xl font-700 leading-tight">Tu participación te espera</h1>
+            <div className="flex flex-1 items-center justify-center py-10">
+              <div className="w-full max-w-md">
+                <h1 className="text-3xl font-700 leading-tight">Tu participación te espera</h1>
 
-              <div className="mt-7 border border-white/20 bg-white/10 p-5">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/15">
-                    <FileText size={20} aria-hidden="true" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-xs font-600 uppercase text-white/65">Documento asignado</p>
-                    {loading ? (
-                      <div className="mt-2 h-5 w-48 animate-pulse rounded bg-white/20" />
-                    ) : (
-                      <p className="mt-1 break-words text-sm font-700 leading-5 text-white">
-                        {info?.documentName}
-                      </p>
-                    )}
+                <div className="mt-7 border border-white/20 bg-white/10 p-5">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/15">
+                      <FileText size={20} aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-600 uppercase text-white/65">Documento asignado</p>
+                      {loading ? (
+                        <div className="mt-2 h-5 w-48 animate-pulse rounded bg-white/20" />
+                      ) : (
+                        <p className="mt-1 break-words text-sm font-700 leading-5 text-white">
+                          {info?.documentName}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-5 flex items-center justify-between border-t border-white/15 pt-4 text-sm">
+                    <span className="text-white/70">Acción requerida</span>
+                    <span className="font-700 capitalize">{actionLabel}</span>
                   </div>
                 </div>
-                <div className="mt-5 flex items-center justify-between border-t border-white/15 pt-4 text-sm">
-                  <span className="text-white/70">Acción requerida</span>
-                  <span className="font-700 capitalize">{actionLabel}</span>
+
+                <div className="mt-12 flex items-center gap-2 text-xs text-white/70">
+                  <LockKeyhole size={14} aria-hidden="true" />
+                  Tu acceso está vinculado a esta invitación.
                 </div>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs text-white/70">
-              <LockKeyhole size={14} aria-hidden="true" />
-              Tu acceso está vinculado a esta invitación.
             </div>
           </aside>
 

@@ -133,6 +133,8 @@ test('participant portal resolves a real document name without caching the capab
   assert.match(portalPage, /Cuento con mi usuario y contraseña/);
   assert.match(portalPage, /He firmado previamente/);
   assert.match(portalPage, /Es la primera vez que \$\{isApproval/);
+  assert.match(portalPage, /flex flex-1 items-center justify-center py-10/);
+  assert.doesNotMatch(portalPage, /ShieldCheck/);
   assert.doesNotMatch(portalPage, /Es la primera vez que voy a/);
   assert.match(portalPage, /¡Hola!/);
   assert.doesNotMatch(portalPage, /Conexión segura/);
