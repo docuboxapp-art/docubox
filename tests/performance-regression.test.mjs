@@ -17,6 +17,9 @@ const migration = await read(
 const sessionLockMigration = await read(
   '../supabase/migrations/20260908182213_optimize_session_policy_locking.sql'
 );
+const currentSessionPolicyMigration = await read(
+  '../supabase/migrations/20260909100000_restore_read_only_session_policy.sql'
+);
 
 test('middleware performs no remote authentication without session material', () => {
   assert.match(middleware, /if \(!hasSessionMaterial\(request\)\)/);
@@ -35,6 +38,25 @@ test('invalid refresh material is cleared instead of retried', () => {
   assert.match(middleware, /INVALID_SESSION_ERROR_CODES/);
   assert.match(middleware, /unauthenticatedResponse/);
   assert.doesNotMatch(middleware, /retry/i);
+});
+
+test('current session policy keeps the twenty-minute limit without serializing normal navigation', () => {
+  assert.match(currentSessionPolicyMigration, /CASE WHEN v_is_privileged THEN 600 ELSE 1200 END/);
+  assert.match(
+    currentSessionPolicyMigration,
+    /IF p_record_user_activity THEN[\s\S]*FOR UPDATE;[\s\S]*ELSE[\s\S]*last_user_activity_at[\s\S]*END IF;/
+  );
+  assert.match(
+    currentSessionPolicyMigration,
+    /IF NOT p_record_user_activity THEN[\s\S]*FOR UPDATE;[\s\S]*v_inactivity_expired_at/
+  );
+});
+
+test('middleware exposes phase timing without changing fail-closed session validation', () => {
+  assert.match(middleware, /auth_claims;dur=/);
+  assert.match(middleware, /session_policy;dur=/);
+  assert.match(middleware, /supabase\.rpc\('enforce_docubox_session_policy'/);
+  assert.match(middleware, /p_record_user_activity: false/);
 });
 
 test('participant listing applies authenticated RLS before transferring documents', () => {

@@ -104,12 +104,31 @@ function unauthenticatedResponse(
   return redirectResponse;
 }
 
-function withMiddlewareTiming(response: NextResponse, startedAt: number) {
+type MiddlewareTiming = {
+  claimsMs?: number;
+  sessionPolicyMs?: number;
+};
+
+function withMiddlewareTiming(
+  response: NextResponse,
+  startedAt: number,
+  timing: MiddlewareTiming = {}
+) {
   const duration = performance.now() - startedAt;
-  response.headers.set('Server-Timing', `middleware;dur=${duration.toFixed(1)}`);
+  const serverTiming = [`middleware;dur=${duration.toFixed(1)}`];
+  if (typeof timing.claimsMs === 'number') {
+    serverTiming.push(`auth_claims;dur=${timing.claimsMs.toFixed(1)}`);
+  }
+  if (typeof timing.sessionPolicyMs === 'number') {
+    serverTiming.push(`session_policy;dur=${timing.sessionPolicyMs.toFixed(1)}`);
+  }
+  response.headers.set('Server-Timing', serverTiming.join(', '));
   if (duration >= 1_000) {
     console.warn('[performance] Slow middleware request', {
       middleware_ms: Math.round(duration),
+      auth_claims_ms: timing.claimsMs === undefined ? undefined : Math.round(timing.claimsMs),
+      session_policy_ms:
+        timing.sessionPolicyMs === undefined ? undefined : Math.round(timing.sessionPolicyMs),
       status: response.status,
     });
   }
@@ -257,18 +276,21 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
 
   const accessToken = authorization?.replace(/^Bearer\s+/i, '');
   let claimsError: SessionPolicyError | null = null;
+  const claimsStartedAt = performance.now();
   try {
     const result = await supabase.auth.getClaims(accessToken);
     claimsError = result.error;
   } catch (error) {
     claimsError = error instanceof Error ? { message: error.message } : { message: String(error) };
   }
+  const claimsMs = performance.now() - claimsStartedAt;
 
   if (claimsError) {
     if (isInvalidSessionError(claimsError)) {
       return withMiddlewareTiming(
         unauthenticatedResponse(request, response, isApiRequest, isPublicPage),
-        startedAt
+        startedAt,
+        { claimsMs }
       );
     }
     console.error('[session-policy] Middleware token validation unavailable', {
@@ -276,13 +298,15 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       policyErrorMessage: claimsError.message,
     });
     return withMiddlewareTiming(
-      unavailableSessionPolicyResponse(response, isApiRequest),
-      startedAt
+        unavailableSessionPolicyResponse(response, isApiRequest),
+        startedAt,
+        { claimsMs }
     );
   }
 
   let policyData: unknown = null;
   let policyError: SessionPolicyError | null = null;
+  const sessionPolicyStartedAt = performance.now();
   try {
     const result = await supabase.rpc('enforce_docubox_session_policy', {
       p_record_user_activity: false,
@@ -292,13 +316,15 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   } catch (error) {
     policyError = error instanceof Error ? { message: error.message } : { message: String(error) };
   }
+  const sessionPolicyMs = performance.now() - sessionPolicyStartedAt;
   const policy = getPolicyRow(policyData);
 
   if (policyError) {
     if (isInvalidSessionError(policyError)) {
       return withMiddlewareTiming(
         unauthenticatedResponse(request, response, isApiRequest, isPublicPage),
-        startedAt
+        startedAt,
+        { claimsMs, sessionPolicyMs }
       );
     }
     console.error('[session-policy] Middleware validation unavailable', {
@@ -306,8 +332,9 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       policyErrorMessage: policyError.message,
     });
     return withMiddlewareTiming(
-      unavailableSessionPolicyResponse(response, isApiRequest),
-      startedAt
+        unavailableSessionPolicyResponse(response, isApiRequest),
+        startedAt,
+        { claimsMs, sessionPolicyMs }
     );
   }
 
@@ -321,7 +348,8 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     ) {
       return withMiddlewareTiming(
         unauthenticatedResponse(request, response, isApiRequest, isPublicPage),
-        startedAt
+        startedAt,
+        { claimsMs, sessionPolicyMs }
       );
     }
     console.warn('[session-policy] Middleware sign-out requested', {
@@ -337,11 +365,14 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
           });
         })
     );
-    return withMiddlewareTiming(expiredSessionResponse(request, response, isApiRequest), startedAt);
+    return withMiddlewareTiming(expiredSessionResponse(request, response, isApiRequest), startedAt, {
+      claimsMs,
+      sessionPolicyMs,
+    });
   }
 
   response.headers.set('Cache-Control', 'private, no-store');
-  return withMiddlewareTiming(response, startedAt);
+  return withMiddlewareTiming(response, startedAt, { claimsMs, sessionPolicyMs });
 }
 
 export const config = {

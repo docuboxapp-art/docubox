@@ -2486,56 +2486,48 @@ export default function VisorDocumentoPage() {
           setCamposSolicitados(data.campos_solicitados as CampoSolicitado[]);
         }
 
-        let ownerNombre = 'Usuario';
-        if (data.owner_id) {
-          const { data: profile } = await supabase
-            .from('user_profiles')
-            .select('full_name, nombre, apellido_paterno, apellido_materno')
-            .eq('id', data.owner_id)
-            .single();
-          if (profile) {
-            ownerNombre =
-              profile.full_name ||
-              [profile.nombre, profile.apellido_paterno, profile.apellido_materno]
-                .filter(Boolean)
-                .join(' ') ||
-              'Usuario';
-          }
-        }
-
-        let carpetaNombre = 'Documentos Generales';
-        if (data.carpeta_id) {
-          const { data: carpeta } = await supabase
-            .from('carpetas')
-            .select('nombre')
-            .eq('id', data.carpeta_id)
-            .single();
-          if (carpeta) carpetaNombre = carpeta.nombre;
-        }
-
-        let organizacion = 'Mi Organización';
-        const { data: ws } = await supabase
-          .from('workspaces')
-          .select('name')
-          .eq('owner_id', data.owner_id)
-          .eq('workspace_type', 'personal')
-          .single();
-        if (ws) organizacion = ws.name;
-
-        let docMetadata = null;
-        const { data: metaData } = await supabase
-          .from('document_metadata')
-          .select(
-            'pdf_page_count, pdf_is_native, pdf_has_acroform, pdf_has_prior_sigs, pdf_author, pdf_creator_software, pdf_created_at, pdf_modified_at, pdf_metadata_raw, analyzed_at'
-          )
-          .eq('documentos_id', docId)
-          .maybeSingle();
-        if (metaData) docMetadata = metaData;
-
         // A derived PDF can exist before its PAdES-B-T verification finishes.
         // Start with the original and let the verified certification state switch variants.
         const requestedFileVariant = 'original';
         const viewerFileUrl = `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=${requestedFileVariant}`;
+
+        // Preserve the existing loading state and visible values while removing
+        // three sequential round trips from the viewer bootstrap.
+        const [profileResult, folderResult, workspaceResult, metadataResult] = await Promise.all([
+          data.owner_id
+            ? supabase
+                .from('user_profiles')
+                .select('full_name, nombre, apellido_paterno, apellido_materno')
+                .eq('id', data.owner_id)
+                .single()
+            : Promise.resolve({ data: null }),
+          data.carpeta_id
+            ? supabase.from('carpetas').select('nombre').eq('id', data.carpeta_id).single()
+            : Promise.resolve({ data: null }),
+          supabase
+            .from('workspaces')
+            .select('name')
+            .eq('owner_id', data.owner_id)
+            .eq('workspace_type', 'personal')
+            .single(),
+          supabase
+            .from('document_metadata')
+            .select(
+              'pdf_page_count, pdf_is_native, pdf_has_acroform, pdf_has_prior_sigs, pdf_author, pdf_creator_software, pdf_created_at, pdf_modified_at, pdf_metadata_raw, analyzed_at'
+            )
+            .eq('documentos_id', docId)
+            .maybeSingle(),
+        ]);
+
+        const profile = profileResult.data;
+        const ownerNombre =
+          profile?.full_name ||
+          [profile?.nombre, profile?.apellido_paterno, profile?.apellido_materno]
+            .filter(Boolean)
+            .join(' ') ||
+          'Usuario';
+        const carpetaNombre = folderResult.data?.nombre || 'Documentos Generales';
+        const organizacion = workspaceResult.data?.name || 'Mi Organización';
 
         setDocument({
           ...data,
@@ -2560,7 +2552,7 @@ export default function VisorDocumentoPage() {
           xml_hash_sha256: data.xml_hash_sha256 || undefined,
           xml_generated_at: data.xml_generated_at || undefined,
           es_publico: data.es_publico ?? false,
-          metadata: docMetadata,
+          metadata: metadataResult.data || null,
         });
 
         void loadAdditionalMetadata();

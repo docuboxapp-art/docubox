@@ -21,6 +21,19 @@ test('viewer loading is keyed by stable user identity instead of auth object ref
   assert.doesNotMatch(source, /\}, \[docId, user, authLoading, loadAdditionalMetadata\]\);/);
 });
 
+test('viewer resolves secondary metadata concurrently without changing its loading state', () => {
+  const bootstrap = source.slice(
+    source.indexOf('const loadDocument = async () =>'),
+    source.indexOf('const loadActivity = async () =>')
+  );
+
+  assert.match(bootstrap, /await Promise\.all\(\[[\s\S]*setDocument\(\{[\s\S]*file_url: viewerFileUrl/);
+  assert.match(bootstrap, /from\('user_profiles'\)/);
+  assert.match(bootstrap, /from\('carpetas'\)/);
+  assert.match(bootstrap, /from\('workspaces'\)/);
+  assert.match(bootstrap, /from\('document_metadata'\)/);
+});
+
 test('viewer renders protected PDF bytes before showing fields or signature stamps', () => {
   assert.match(source, /headers: await apiAuthHeaders\(\)/);
   assert.match(source, /credentials: 'same-origin'/);
