@@ -44,6 +44,16 @@ test('desktop flow opens the inline pad directly and keeps expanded and mobile s
   assert.match(source, /MobileSignatureModal/);
 });
 
+test('autograph liveness is retained behind a disabled-by-default capability', () => {
+  const source = read('src/app/firmar-documento/[id]/AutographSignatureFlow.tsx');
+  const capability = read('src/lib/signatures/autographSignatureCapabilities.ts');
+
+  assert.match(capability, /NEXT_PUBLIC_AUTOGRAPH_LIVENESS_ENABLED === 'true'/);
+  assert.match(source, /autographSignatureCapabilities\.liveness/);
+  assert.match(source, /sendOtp\(\);\s*setFlowStep\('otp'\);/);
+  assert.match(source, /continueAfterSignature\(\);/);
+});
+
 test('mobile signing page captures vector strokes and submits them through the temporary session', () => {
   const source = read('src/app/firma-movil/[token]/page.tsx');
   assert.match(source, /import\('signature_pad'\)/);

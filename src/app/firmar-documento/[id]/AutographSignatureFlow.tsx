@@ -22,6 +22,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { autographSignatureCapabilities } from '@/lib/signatures/autographSignatureCapabilities';
 import QRCode from 'qrcode';
 
 // ─── SHA-256 helpers ──────────────────────────────────────────────────────────
@@ -3471,7 +3472,7 @@ export default function AutographSignatureFlow({
     // Save signature data before unmounting the pad
     setSavedSignatureDataUrl(padRef.current.toDataURL('image/png'));
     setSavedSignatureStrokes(padRef.current.toData());
-    setFlowStep('biometric');
+    continueAfterSignature();
   };
 
   const handlePadClear = () => {
@@ -3488,6 +3489,19 @@ export default function AutographSignatureFlow({
       setSavedSignatureStrokes(padRef.current.toData());
     }
     setFlowStep('mobile_signature');
+  };
+
+  // Liveness is retained as an opt-in capability for a future signature policy.
+  // The standard autograph flow confirms the signature with OTP only.
+  const continueAfterSignature = () => {
+    if (autographSignatureCapabilities.liveness) {
+      setFlowStep('biometric');
+      return;
+    }
+
+    setBiometricData(null);
+    sendOtp();
+    setFlowStep('otp');
   };
 
   // ── Handle biometric ───────────────────────────────────────────────────────
@@ -4135,7 +4149,7 @@ export default function AutographSignatureFlow({
           setSavedSignatureStrokes(capture.strokes);
           if (capture.sessionEvidence) setSessionEvidence(capture.sessionEvidence);
           if (capture.deviceFingerprint) setDeviceFingerprint(capture.deviceFingerprint);
-          setFlowStep('biometric');
+          continueAfterSignature();
         }}
       />
     );
