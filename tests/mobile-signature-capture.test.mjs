@@ -44,12 +44,15 @@ test('desktop flow opens the inline pad directly and keeps expanded and mobile s
   assert.match(source, /MobileSignatureModal/);
 });
 
-test('autograph liveness is retained behind a disabled-by-default capability', () => {
+test('autograph identity verification is retained behind a disabled-by-default capability', () => {
   const source = read('src/app/firmar-documento/[id]/AutographSignatureFlow.tsx');
   const capability = read('src/lib/signatures/autographSignatureCapabilities.ts');
 
-  assert.match(capability, /NEXT_PUBLIC_AUTOGRAPH_LIVENESS_ENABLED === 'true'/);
-  assert.match(source, /autographSignatureCapabilities\.liveness/);
+  assert.match(capability, /NEXT_PUBLIC_AUTOGRAPH_IDENTITY_VERIFICATION_ENABLED === 'true'/);
+  assert.match(source, /autographSignatureCapabilities\.identityVerification/);
+  assert.doesNotMatch(capability, /NEXT_PUBLIC_AUTOGRAPH_LIVENESS_ENABLED/);
+  assert.match(source, /setFlowStep\('sending'\);\s*framesRef\.current\.frame3 = await captureFrame\('confirmation'\);\s*await sendAll\(\);/);
+  assert.match(source, /otpEvidenceVerified = autographSignatureCapabilities\.identityVerification && otpVerified/);
   assert.match(source, /sendOtp\(\);\s*setFlowStep\('otp'\);/);
   assert.match(source, /continueAfterSignature\(\);/);
 });

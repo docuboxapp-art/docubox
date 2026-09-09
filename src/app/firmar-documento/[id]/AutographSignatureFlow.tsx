@@ -3472,7 +3472,7 @@ export default function AutographSignatureFlow({
     // Save signature data before unmounting the pad
     setSavedSignatureDataUrl(padRef.current.toDataURL('image/png'));
     setSavedSignatureStrokes(padRef.current.toData());
-    continueAfterSignature();
+    void continueAfterSignature();
   };
 
   const handlePadClear = () => {
@@ -3491,17 +3491,21 @@ export default function AutographSignatureFlow({
     setFlowStep('mobile_signature');
   };
 
-  // Liveness is retained as an opt-in capability for a future signature policy.
-  // The standard autograph flow confirms the signature with OTP only.
-  const continueAfterSignature = () => {
-    if (autographSignatureCapabilities.liveness) {
+  // Identity verification is retained as an opt-in capability for a future
+  // signature policy. The standard autograph flow persists the signature
+  // evidence without proof of life or OTP.
+  const continueAfterSignature = async () => {
+    if (autographSignatureCapabilities.identityVerification) {
       setFlowStep('biometric');
       return;
     }
 
     setBiometricData(null);
-    sendOtp();
-    setFlowStep('otp');
+    setOtpVerified(false);
+    setSendError(null);
+    setFlowStep('sending');
+    framesRef.current.frame3 = await captureFrame('confirmation');
+    await sendAll();
   };
 
   // ── Handle biometric ───────────────────────────────────────────────────────
@@ -3772,6 +3776,8 @@ export default function AutographSignatureFlow({
       const capturedAtVal = sigData.captured_at || new Date().toISOString();
       const evidenceIdVal = sigData.evidence_id || '';
 
+      const otpEvidenceVerified = autographSignatureCapabilities.identityVerification && otpVerified;
+
       // 4. Persist complete evidence to document via our API
       const persistRes = await fetch('/api/firma/persist-evidence', {
         method: 'POST',
@@ -3794,7 +3800,7 @@ export default function AutographSignatureFlow({
           ipAddress: sigData.ip_address || '',
           fingerprintId: deviceFingerprint?.fingerprint_id || '',
           chainHash,
-          otpVerified: otpVerified,
+          otpVerified: otpEvidenceVerified,
           biometric: biometricResult,
           sessionEvidence,
           deviceFingerprint,
@@ -3834,7 +3840,7 @@ export default function AutographSignatureFlow({
         fingerprint_id: deviceFingerprint?.fingerprint_id || '',
         frames,
         chain_hash: chainHash,
-        otp_verified: otpVerified,
+        otp_verified: otpEvidenceVerified,
         biometric: biometricResult,
         geo: sessionEvidence?.geo
           ? { latitude: sessionEvidence.geo.latitude, longitude: sessionEvidence.geo.longitude }
@@ -3849,7 +3855,7 @@ export default function AutographSignatureFlow({
       onComplete(imageDataUrl);
     } catch (err: any) {
       setSendError(err.message || 'Error al enviar la firma');
-      setFlowStep('otp');
+      setFlowStep(autographSignatureCapabilities.identityVerification ? 'otp' : 'pad');
     }
   };
 
@@ -4112,6 +4118,12 @@ export default function AutographSignatureFlow({
                 Cargando pad de firma…
               </div>
             )}
+            {sendError && (
+              <div className="flex items-center gap-2 text-xs text-red-500">
+                <AlertTriangle size={12} />
+                {sendError}
+              </div>
+            )}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -4149,7 +4161,7 @@ export default function AutographSignatureFlow({
           setSavedSignatureStrokes(capture.strokes);
           if (capture.sessionEvidence) setSessionEvidence(capture.sessionEvidence);
           if (capture.deviceFingerprint) setDeviceFingerprint(capture.deviceFingerprint);
-          continueAfterSignature();
+          void continueAfterSignature();
         }}
       />
     );
