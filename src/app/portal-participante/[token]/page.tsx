@@ -6,10 +6,12 @@ import {
   ArrowRight,
   CircleHelp,
   FileText,
+  CalendarClock,
   KeyRound,
   LockKeyhole,
   PenLine,
   RotateCcw,
+  UserRound,
 } from 'lucide-react';
 
 import PublicTokenLayout from '@/components/PublicTokenLayout';
@@ -20,6 +22,20 @@ interface ParticipantInfo {
   acto: string;
   participantName?: string | null;
   isRegistered: boolean;
+  inviterName?: string | null;
+  expiresAt?: string | null;
+}
+
+function formatExpiration(expiresAt?: string | null) {
+  if (!expiresAt || !Number.isFinite(new Date(expiresAt).getTime())) return null;
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(new Date(expiresAt));
 }
 
 export default function PortalParticipantePage() {
@@ -61,6 +77,8 @@ export default function PortalParticipantePage() {
             acto: data.acto || 'firmar',
             participantName: data.participantName || null,
             isRegistered: data.isRegistered === true,
+            inviterName: data.inviterName || null,
+            expiresAt: data.expiresAt || null,
           });
         } else {
           setInfo({ documentName: 'Documento sin nombre', acto: 'firmar', isRegistered: false });
@@ -79,6 +97,8 @@ export default function PortalParticipantePage() {
   const actionLabel = isApproval ? 'aprobar' : 'firmar';
   const actionNoun = isApproval ? 'aprobación' : 'firma';
   const isRegistered = info?.isRegistered === true;
+  const expirationLabel = formatExpiration(info?.expiresAt);
+  const greetingName = info?.participantName?.trim();
 
   const options = isRegistered
     ? [
@@ -145,8 +165,24 @@ export default function PortalParticipantePage() {
                         <p className="mt-1 break-words text-sm font-700 leading-5 text-white">
                           {info?.documentName}
                         </p>
-                      )}
-                    </div>
+                    )}
+                    {!loading && (info?.inviterName || expirationLabel) && (
+                      <div className="mt-4 space-y-2 border-t border-white/15 pt-4 text-xs text-white/75">
+                        {info?.inviterName && (
+                          <p className="flex items-center gap-2">
+                            <UserRound size={13} aria-hidden="true" />
+                            Invitado por <span className="font-600 text-white">{info.inviterName}</span>
+                          </p>
+                        )}
+                        {expirationLabel && (
+                          <p className="flex items-center gap-2">
+                            <CalendarClock size={13} aria-hidden="true" />
+                            Vence <time dateTime={info?.expiresAt || undefined}>{expirationLabel}</time>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   </div>
                   <div className="mt-5 flex items-center justify-between border-t border-white/15 pt-4 text-sm">
                     <span className="text-white/70">Acción requerida</span>
@@ -178,12 +214,10 @@ export default function PortalParticipantePage() {
                   ) : (
                     <>
                       <h2 className="text-2xl font-700 leading-tight text-slate-950 sm:text-3xl">
-                        ¡Hola!
+                        ¡Hola{greetingName ? `, ${greetingName}` : ''}!
                       </h2>
                       <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-                        Tienes una invitación pendiente para {actionLabel}{' '}
-                        <strong className="font-700 text-slate-800">“{info?.documentName}”</strong>. Elige una
-                        opción para continuar.
+                        Tienes una invitación pendiente para {actionLabel}. Selecciona una opción para continuar.
                       </p>
                     </>
                   )}
@@ -199,17 +233,17 @@ export default function PortalParticipantePage() {
                       <p className="mt-1 break-words text-sm font-700 text-slate-900">
                         {info?.documentName || 'Documento sin nombre'}
                       </p>
+                      {(info?.inviterName || expirationLabel) && (
+                        <div className="mt-3 space-y-1.5 text-xs text-slate-500">
+                          {info?.inviterName && <p>Invitado por {info.inviterName}</p>}
+                          {expirationLabel && <p>Vence {expirationLabel}</p>}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {!loading && <section aria-labelledby="continuar-title">
-                  <div className="mb-4">
-                    <h3 id="continuar-title" className="text-base font-700 text-slate-950">
-                      Elige una opción
-                    </h3>
-                  </div>
-
+                {!loading && <section aria-label="Opciones para continuar">
                   <div className={`grid gap-3 ${isRegistered ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                     {options.map((option) => {
                       const Icon = option.icon;

@@ -16,6 +16,24 @@ function resolveDocumentName(document: { nombre?: unknown; file_name?: unknown }
   return candidates[0] || 'Documento sin nombre';
 }
 
+type PortalDocument = {
+  id?: unknown;
+  nombre?: unknown;
+  file_name?: unknown;
+  estado?: unknown;
+  owner_id?: unknown;
+  fecha_vencimiento?: unknown;
+  participantes?: unknown;
+};
+
+function firstText(...values: unknown[]) {
+  return (
+    values
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .find(Boolean) || null
+  );
+}
+
 function isAvailableInvitation(document: { estado?: unknown }, participant: Record<string, unknown>) {
   return !(
     document.estado === 'cancelado' ||
@@ -26,28 +44,67 @@ function isAvailableInvitation(document: { estado?: unknown }, participant: Reco
   );
 }
 
-async function participantHasAccount(participant: Record<string, unknown>) {
+async function resolveParticipantIdentity(participant: Record<string, unknown>) {
   const userId = typeof participant.user_id === 'string' ? participant.user_id.trim() : '';
   const email = String(participant.email || participant.correo || '')
     .trim()
     .toLowerCase();
+  const invitationName = firstText(participant.nombre, participant.name, participant.full_name);
 
   if (userId) {
     const { data } = await supabaseAdmin
       .from('user_profiles')
-      .select('id')
+      .select('id, full_name')
       .eq('id', userId)
       .maybeSingle();
-    if (data?.id) return true;
+    if (data?.id) {
+      return {
+        isRegistered: true,
+        participantName: firstText(data.full_name, invitationName),
+      };
+    }
   }
 
-  if (!email) return false;
+  if (!email) return { isRegistered: false, participantName: invitationName };
   const { data } = await supabaseAdmin
     .from('user_profiles')
-    .select('id')
+    .select('id, full_name')
     .eq('email', email)
     .maybeSingle();
-  return Boolean(data?.id);
+  return {
+    isRegistered: Boolean(data?.id),
+    participantName: firstText(data?.full_name, invitationName),
+  };
+}
+
+async function resolveInvitationInfo(
+  document: PortalDocument,
+  participant: Record<string, unknown>,
+  canonicalToken?: string
+) {
+  const ownerId = typeof document.owner_id === 'string' ? document.owner_id : '';
+  const [participantIdentity, ownerResult] = await Promise.all([
+    resolveParticipantIdentity(participant),
+    ownerId
+      ? supabaseAdmin
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', ownerId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+  const expiresAt = firstText(document.fecha_vencimiento);
+  const expirationIsValid = expiresAt && Number.isFinite(new Date(expiresAt).getTime());
+
+  return {
+    documentName: resolveDocumentName(document),
+    acto: participant.acto || 'firmar',
+    participantName: participantIdentity.participantName,
+    isRegistered: participantIdentity.isRegistered,
+    inviterName: firstText(ownerResult.data?.full_name) || 'Docubox',
+    expiresAt: expirationIsValid ? expiresAt : null,
+    ...(canonicalToken ? { canonicalToken } : {}),
+  };
 }
 
 async function upgradeLegacyDocumentLink(token: string) {
@@ -55,7 +112,7 @@ async function upgradeLegacyDocumentLink(token: string) {
 
   const { data: document, error } = await supabaseAdmin
     .from('documentos')
-    .select('id, nombre, file_name, estado, participantes')
+    .select('id, nombre, file_name, estado, owner_id, fecha_vencimiento, participantes')
     .eq('id', token)
     .maybeSingle();
   if (error || !document || !Array.isArray(document.participantes)) return null;
@@ -96,13 +153,7 @@ async function upgradeLegacyDocumentLink(token: string) {
     if (updateError) throw updateError;
   }
 
-  return {
-    documentName: resolveDocumentName(document),
-    acto: participant.acto || 'firmar',
-    participantName: participant.nombre || participant.name || null,
-    isRegistered: await participantHasAccount(participant),
-    canonicalToken: portalToken,
-  };
+  return resolveInvitationInfo(document, participant, portalToken);
 }
 
 export async function GET(req: NextRequest) {
@@ -117,7 +168,7 @@ export async function GET(req: NextRequest) {
     const tokenHash = hashSecret(token);
     const { data: matchingDocs, error: scanError } = await supabaseAdmin
       .from('documentos')
-      .select('id, nombre, file_name, estado, participantes')
+      .select('id, nombre, file_name, estado, owner_id, fecha_vencimiento, participantes')
       .contains('participantes', JSON.stringify([{ portal_token_hash: tokenHash }]))
       .limit(2);
 
@@ -134,12 +185,7 @@ export async function GET(req: NextRequest) {
             );
           }
           return NextResponse.json(
-            {
-              documentName: resolveDocumentName(doc),
-              acto: match.acto || 'firmar',
-              participantName: match.nombre || match.name || null,
-              isRegistered: await participantHasAccount(match),
-            },
+            await resolveInvitationInfo(doc, match),
             { headers: { 'Cache-Control': 'private, no-store, max-age=0' } }
           );
         }
