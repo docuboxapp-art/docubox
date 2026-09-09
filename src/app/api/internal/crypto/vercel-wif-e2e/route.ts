@@ -6,6 +6,7 @@ import { GoogleCloudKmsProvider } from '@/lib/certification/key-management';
 import { createServiceClient } from '@/lib/supabase/server';
 import { CertificationError } from '@/lib/certification/types';
 import { encryptAndUploadDocumentObject } from '@/lib/crypto/document-encryption';
+import { retryBlockchainEvidenceSubmission } from '@/lib/blockchain-evidence/service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -167,6 +168,7 @@ async function createSafeProductCandidate(service: ReturnType<typeof createServi
       campos_solicitados: [field],
       participation_order: 'paralelo',
       participant_mode: 'solo_yo',
+      blockchain_evidence_enabled: true,
       es_publico: false,
     })
     .select('id,owner_id,workspace_id,nombre,campos_solicitados,file_type')
@@ -327,6 +329,50 @@ async function runProductE2e(request: NextRequest) {
       sealResponse.status >= 400 ? sealResponse.status : 503
     );
   }
+  const blockchainSummary = (seal.blockchain_evidence || {}) as Record<string, unknown>;
+  const blockchainId = String(blockchainSummary.id || '');
+  if (!blockchainId) {
+    throw new CertificationError(
+      'VERCEL_PRODUCT_E2E_OPENTIMESTAMPS_MISSING',
+      'El cierre no creó la evidencia OpenTimestamps requerida.',
+      503
+    );
+  }
+  const blockchainResult = await service
+    .from('document_blockchain_evidence')
+    .select('*')
+    .eq('id', blockchainId)
+    .eq('document_id', document.id)
+    .maybeSingle();
+  if (blockchainResult.error || !blockchainResult.data) {
+    throw new CertificationError(
+      'VERCEL_PRODUCT_E2E_OPENTIMESTAMPS_MISSING',
+      'No se encontró la evidencia OpenTimestamps persistida.',
+      503
+    );
+  }
+  const blockchain = blockchainResult.data.proof_storage_path
+    ? blockchainResult.data
+    : await retryBlockchainEvidenceSubmission(service, blockchainResult.data);
+  if (
+    !blockchain?.proof_sha256 ||
+    !['PENDING_BITCOIN', 'ANCHORED', 'VERIFIED'].includes(String(blockchain.status || ''))
+  ) {
+    throw new CertificationError(
+      'VERCEL_PRODUCT_E2E_OPENTIMESTAMPS_FAILED',
+      'OpenTimestamps no devolvió una prueba persistida válida.',
+      503
+    );
+  }
+  const nom151 = (seal.nom151 || {}) as Record<string, unknown>;
+  const evidenceV2 = (seal.evidence_v2 || {}) as Record<string, unknown>;
+  if (!evidenceV2.package_id || !evidenceV2.xml_sha256) {
+    throw new CertificationError(
+      'VERCEL_PRODUCT_E2E_EVIDENCE_V2_MISSING',
+      'El cierre no persistió Evidence Package v2.',
+      503
+    );
+  }
   const certificationUuid = String(seal.certification_uuid || '');
   const certificationResult = await service
     .from('document_certifications')
@@ -382,6 +428,13 @@ async function runProductE2e(request: NextRequest) {
       503
     );
   }
+  if (nom151.production_trusted !== true) {
+    throw new CertificationError(
+      'NOM151_PROVIDER_NOT_PRODUCTION',
+      'La constancia NOM-151 es verificable, pero el proveedor no está confirmado como productivo.',
+      503
+    );
+  }
 
   return NextResponse.json(
     {
@@ -408,7 +461,14 @@ async function runProductE2e(request: NextRequest) {
       tsaGenTime: timestamp?.gen_time,
       tsaTrustBundleId: timestamp?.trust_bundle_id,
       tsaFallbackUsed: timestamp?.fallback_used,
-      nom151: 'NOM151_PROVIDER_NOT_PRODUCTION',
+      nom151Status: nom151.status,
+      nom151VerificationStatus: nom151.verification_status,
+      nom151ProductionTrusted: nom151.production_trusted,
+      openTimestampsStatus: blockchain.status,
+      openTimestampsProofSha256: blockchain.proof_sha256,
+      evidenceV2PackageId: evidenceV2.package_id,
+      evidenceV2Status: evidenceV2.status,
+      evidenceV2XmlSha256: evidenceV2.xml_sha256,
     },
     { headers: { 'Cache-Control': 'no-store' } }
   );

@@ -615,3 +615,15 @@ test('completion email is queued only after the immutable v2 package closes', ()
   assert.ok(completionEmail > packageClose);
   assert.ok(completionAudit > completionEmail);
 });
+
+test('a production package is not certified with non-production NOM-151 evidence', () => {
+  const service = readFileSync('src/lib/evidence-v2/service.ts', 'utf8');
+  assert.match(
+    service,
+    /runtimeEnvironment !== 'PRODUCTION' \|\| nom151\?\.production_trusted === true/
+  );
+  assert.match(
+    service,
+    /nom\.status === 'verified' &&\s+nom151EnvironmentTrusted &&\s+\(!openTimestamp/s
+  );
+});

@@ -470,4 +470,7 @@ test('production WIF E2E creates an isolated encrypted document version', () => 
   assert.match(vercelWifE2eRoute, /\.from\('signature_evidence'\)\.insert\(\{/);
   assert.match(vercelWifE2eRoute, /evidence_type: 'simple_signature'/);
   assert.match(vercelWifE2eRoute, /document_sha256: pdfSha256/);
+  assert.match(vercelWifE2eRoute, /blockchain_evidence_enabled: true/);
+  assert.match(vercelWifE2eRoute, /retryBlockchainEvidenceSubmission/);
+  assert.match(vercelWifE2eRoute, /NOM151_PROVIDER_NOT_PRODUCTION/);
 });

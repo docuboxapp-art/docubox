@@ -670,9 +670,15 @@ export async function generateEvidenceV2ForDocument(
   ) as EvidenceTimestamp[];
   const nom = nom151Evidence(nom151);
   const openTimestamp = timestamps.find((item) => item.type === 'opentimestamps');
+  const runtimeEnvironment = String(
+    process.env.VERCEL_ENV || process.env.NODE_ENV || 'unknown'
+  ).toUpperCase();
+  const nom151EnvironmentTrusted =
+    runtimeEnvironment !== 'PRODUCTION' || nom151?.production_trusted === true;
   const externalValid =
     timestamps.some((item) => item.type === 'rfc3161' && item.validationStatus === 'valid') &&
     nom.status === 'verified' &&
+    nom151EnvironmentTrusted &&
     (!openTimestamp || openTimestamp.validationStatus === 'valid');
   const signatureEvidenceReady = signatures.every((row) => {
     const method = evidenceMethod(row);
@@ -689,7 +695,7 @@ export async function generateEvidenceV2ForDocument(
     schemaVersion: '2.0',
     generatedAt,
     closedAt,
-    environment: String(process.env.VERCEL_ENV || process.env.NODE_ENV || 'unknown').toUpperCase(),
+    environment: runtimeEnvironment,
     platform: 'Docubox',
     platformVersion: String(process.env.npm_package_version || 'unknown'),
     jurisdiction: 'MX',
