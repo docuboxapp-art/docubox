@@ -131,15 +131,15 @@ export function formatLocalTimestamp(
   if (!date) return 'No disponible';
 
   const timeZone = getEffectiveTimeZone();
+  const offset = getTimeZoneOffsetLabel(timeZone, date);
   const formatted = new Intl.DateTimeFormat(DEFAULT_LOCALE, {
     dateStyle: 'medium',
     timeStyle: 'medium',
     ...options,
     timeZone,
-    timeZoneName: 'shortOffset',
   }).format(date);
 
-  return `${formatted} (${timeZone})`;
+  return `${formatted} (${timeZone}, ${offset})`;
 }
 
 /** Use for legal, cryptographic, and audit evidence that must expose UTC. */

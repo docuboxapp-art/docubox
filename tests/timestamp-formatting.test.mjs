@@ -14,9 +14,23 @@ const expirationMigration = await readFile(
 
 test('timestamp formatter treats stored values as UTC and discloses local zone and offset', () => {
   assert.match(datetime, /const hasOffset =/);
-  assert.match(datetime, /timeZoneName: 'shortOffset'/);
-  assert.match(datetime, /\(\$\{timeZone\}\)/);
+  assert.match(datetime, /const offset = getTimeZoneOffsetLabel\(timeZone, date\)/);
+  assert.match(datetime, /\(\$\{timeZone\}, \$\{offset\}\)/);
   assert.match(datetime, /UTC original: \$\{utcOriginal\}/);
+});
+
+test('localized date styles do not mix incompatible Intl component options', () => {
+  assert.doesNotMatch(
+    datetime,
+    /timeStyle:\s*'medium',[\s\S]{0,200}timeZoneName:\s*'shortOffset'/
+  );
+  assert.doesNotThrow(() =>
+    new Intl.DateTimeFormat('es-MX', {
+      dateStyle: 'long',
+      timeStyle: 'short',
+      timeZone: 'America/Chihuahua',
+    }).format(new Date('2026-09-08T21:30:00Z'))
+  );
 });
 
 test('viewer formats legal, cryptographic, and audit timestamps through the shared formatter', () => {
