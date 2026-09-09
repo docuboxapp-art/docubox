@@ -115,8 +115,13 @@ test('participant portal resolves a real document name without caching the capab
   const portalPage = await read('../src/app/portal-participante/[token]/page.tsx');
   assert.match(portalInfo, /file_name/);
   assert.match(portalInfo, /resolveDocumentName/);
+  assert.match(portalInfo, /upgradeLegacyDocumentLink/);
+  assert.match(portalInfo, /document\.participantes\.length !== 1/);
+  assert.match(portalInfo, /canonicalToken: portalToken/);
   assert.match(portalInfo, /Cache-Control': 'private, no-store, max-age=0'/);
   assert.match(portalPage, /cache: 'no-store'/);
+  assert.match(portalPage, /router\.replace\(`\/portal-participante\/\$\{encodeURIComponent\(data\.canonicalToken\)\}`\)/);
+  assert.match(portalPage, /Tu participación te espera/);
   assert.match(portalPage, /¡Hola!/);
   assert.doesNotMatch(portalPage, /Conexión segura/);
   assert.doesNotMatch(portalPage, /Participación documental segura/);

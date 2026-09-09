@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowRight,
@@ -29,11 +29,12 @@ export default function PortalParticipantePage() {
 
   const [info, setInfo] = useState<ParticipantInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const canonicalRedirectRef = useRef<string | null>(null);
 
   useEffect(() => {
     async function loadParticipantInfo() {
       if (!token) {
-        setInfo({ documentName: 'el documento', acto: 'firmar' });
+        setInfo({ documentName: 'Documento sin nombre', acto: 'firmar' });
         setLoading(false);
         return;
       }
@@ -46,23 +47,32 @@ export default function PortalParticipantePage() {
 
         if (response.ok) {
           const data = await response.json();
+          if (
+            data.canonicalToken &&
+            data.canonicalToken !== token &&
+            canonicalRedirectRef.current !== data.canonicalToken
+          ) {
+            canonicalRedirectRef.current = data.canonicalToken;
+            router.replace(`/portal-participante/${encodeURIComponent(data.canonicalToken)}`);
+            return;
+          }
           setInfo({
-            documentName: data.documentName || 'el documento',
+            documentName: data.documentName || 'Documento sin nombre',
             acto: data.acto || 'firmar',
             participantName: data.participantName || null,
           });
         } else {
-          setInfo({ documentName: 'el documento', acto: 'firmar' });
+          setInfo({ documentName: 'Documento sin nombre', acto: 'firmar' });
         }
       } catch {
-        setInfo({ documentName: 'el documento', acto: 'firmar' });
+        setInfo({ documentName: 'Documento sin nombre', acto: 'firmar' });
       } finally {
         setLoading(false);
       }
     }
 
     loadParticipantInfo();
-  }, [token]);
+  }, [router, token]);
 
   const isApproval = info?.acto === 'aprobar';
   const actionLabel = isApproval ? 'aprobar' : 'firmar';
@@ -109,8 +119,7 @@ export default function PortalParticipantePage() {
               <div className="mb-5 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/20 bg-white/10">
                 <ShieldCheck size={22} aria-hidden="true" />
               </div>
-              <p className="text-sm font-600 text-white/75">Portal de participantes</p>
-              <h1 className="mt-2 text-3xl font-700 leading-tight">Tu participación está lista</h1>
+              <h1 className="text-3xl font-700 leading-tight">Tu participación te espera</h1>
               <p className="mt-4 text-base leading-7 text-white/80">
                 Revisa el documento asignado y elige cómo deseas continuar.
               </p>
@@ -171,8 +180,8 @@ export default function PortalParticipantePage() {
                         ¡Hola!
                       </h2>
                       <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-                        Recibiste una invitación para {actionLabel} el documento{' '}
-                        <strong className="font-700 text-slate-800">{info?.documentName}</strong>. Elige cómo
+                        Recibiste una invitación para {actionLabel}{' '}
+                        <strong className="font-700 text-slate-800">“{info?.documentName}”</strong>. Elige cómo
                         deseas continuar.
                       </p>
                     </>
@@ -187,7 +196,7 @@ export default function PortalParticipantePage() {
                     <div className="min-w-0">
                       <p className="text-xs font-600 text-slate-500">Documento asignado</p>
                       <p className="mt-1 break-words text-sm font-700 text-slate-900">
-                        {info?.documentName || 'el documento'}
+                        {info?.documentName || 'Documento sin nombre'}
                       </p>
                     </div>
                   </div>
