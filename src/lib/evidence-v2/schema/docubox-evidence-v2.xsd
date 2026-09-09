@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  targetNamespace="https://docubox.com.mx/schema/evidence/v2"
+  xmlns="https://docubox.com.mx/schema/evidence/v2"
+  elementFormDefault="qualified"
+  attributeFormDefault="unqualified">
+
+  <xs:element name="DocuboxEvidencePackage">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Paquete" type="OpenBlock"/>
+        <xs:element name="Documento" type="OpenBlock"/>
+        <xs:element name="Firmantes" type="OpenBlock"/>
+        <xs:element name="Firmas" type="OpenBlock"/>
+        <xs:element name="BitacoraProbatoria" type="OpenBlock"/>
+        <xs:element name="CadenaEvidencia" type="OpenBlock"/>
+        <xs:element name="EstampasTiempo" type="OpenBlock"/>
+        <xs:element name="ConservacionNOM151" type="OpenBlock"/>
+        <xs:element name="Integridad" type="OpenBlock"/>
+        <xs:element name="FirmaDocubox" type="OpenBlock"/>
+        <xs:element name="Verificacion" type="OpenBlock"/>
+      </xs:sequence>
+      <xs:attribute name="version" type="xs:string" use="required" fixed="2.0"/>
+      <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="2.0"/>
+    </xs:complexType>
+  </xs:element>
+
+  <!-- The v2 profile accepts extension-safe semantic children inside each named block. -->
+  <xs:complexType name="OpenBlock" mixed="true">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:any processContents="lax"/>
+    </xs:sequence>
+    <xs:anyAttribute processContents="lax"/>
+  </xs:complexType>
+</xs:schema>

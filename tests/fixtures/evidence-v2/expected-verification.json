@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "2.0",
+  "documentSha256": "68d3dbe223d4659eb030429ecc280a437eb6e9b042a59797cbbd9e16f56c1d56",
+  "documentSizeBytes": 77,
+  "xmlIntegrity": "valid",
+  "chainIntegrity": "valid",
+  "docuboxSignature": "not_applied",
+  "overall": "incomplete",
+  "reason": "The golden fixture deliberately has no KMS signature and pending external certifications."
+}
