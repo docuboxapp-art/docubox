@@ -43,6 +43,7 @@ import {
   History,
   Lock,
   Folder,
+  UserCog,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
@@ -383,6 +384,7 @@ function isGeneratedSignatureStampPath(path: string | null | undefined) {
 
 // NEW: participation response data
 interface ParticipationResponse {
+  participante_id: string | null;
   participante_email: string;
   participante_nombre: string;
   campos_completados: Array<{ campo_id: string; label: string; value: string }>;
@@ -443,14 +445,27 @@ interface PdfCanvasProps {
   onTotalPages: (n: number) => void;
   className?: string;
   style?: React.CSSProperties;
+  children?: React.ReactNode;
 }
 
-function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfCanvasProps) {
+interface DocumentAccessPermission {
+  id: string;
+  grantee_user_id: string | null;
+  grantee_email: string | null;
+  access_level: 'view' | 'edit';
+  can_invite: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style, children }: PdfCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
   const pdfDocRef = useRef<any>(null);
   const [error, setError] = useState(false);
   const [rendering, setRendering] = useState(true);
+  const [rendered, setRendered] = useState(false);
   const [requiresAccessCode, setRequiresAccessCode] = useState(false);
   const [accessCode, setAccessCode] = useState('');
   const [accessCodeError, setAccessCodeError] = useState('');
@@ -474,6 +489,7 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
     if (!canvasRef.current) return;
     setRendering(true);
     setError(false);
+    setRendered(false);
     setRequiresAccessCode(false);
 
     try {
@@ -484,14 +500,32 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
       }
       if (!window.pdfjsLib) throw new Error('PDF.js not loaded');
 
-      if (!pdfDocRef.current || pdfDocRef.current._url !== fileUrl) {
+      if (!pdfDocRef.current || pdfDocRef.current._docuboxFileUrl !== fileUrl) {
+        const response = await fetch(fileUrl, {
+          headers: await apiAuthHeaders(),
+          credentials: 'same-origin',
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          const message = payload?.error || `No se pudo abrir el documento (${response.status}).`;
+          const loadError = new Error(payload?.code ? `${payload.code}: ${message}` : message);
+          (loadError as Error & { status?: number }).status = response.status;
+          throw loadError;
+        }
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.toLowerCase().includes('application/pdf')) {
+          throw new Error('El archivo entregado no es un PDF válido.');
+        }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (!bytes.byteLength) throw new Error('El archivo PDF está vacío.');
         const loadingTask = window.pdfjsLib.getDocument({
-          url: fileUrl,
+          data: bytes,
           cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
           cMapPacked: true,
         });
         const pdfDoc = await loadingTask.promise;
-        pdfDoc._url = fileUrl;
+        pdfDoc._docuboxFileUrl = fileUrl;
         pdfDocRef.current = pdfDoc;
         onTotalPages(pdfDoc.numPages);
       }
@@ -525,6 +559,7 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
       renderTaskRef.current = renderTask;
       await renderTask.promise;
       renderTaskRef.current = null;
+      setRendered(true);
     } catch (err: any) {
       if (err?.name !== 'RenderingCancelledException') {
         console.error('[PdfCanvas] render error:', err);
@@ -642,7 +677,10 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style }: PdfC
           <p className="text-xs text-slate-300">No se pudo cargar el archivo PDF</p>
         </div>
       ) : (
-        <canvas ref={canvasRef} style={{ display: 'block' }} />
+        <>
+          <canvas ref={canvasRef} style={{ display: 'block' }} />
+          {rendered && !rendering ? children : null}
+        </>
       )}
     </div>
   );
@@ -754,7 +792,18 @@ export default function VisorDocumentoPage() {
     | 'editar'
     | 'descargas'
     | 'auditoria'
+    | 'permisos'
   >('details');
+  const [documentPermissions, setDocumentPermissions] = useState<DocumentAccessPermission[]>([]);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+  const [permissionsError, setPermissionsError] = useState<string | null>(null);
+  const [canManagePermissions, setCanManagePermissions] = useState(false);
+  const [canInviteViewers, setCanInviteViewers] = useState(false);
+  const [canEditDocument, setCanEditDocument] = useState(false);
+  const [permissionEmail, setPermissionEmail] = useState('');
+  const [permissionAccessLevel, setPermissionAccessLevel] = useState<'view' | 'edit'>('view');
+  const [permissionCanInvite, setPermissionCanInvite] = useState(false);
+  const [permissionSaving, setPermissionSaving] = useState(false);
   const [participantes, setParticipantes] = useState<Participante[]>([]);
   const [additionalMetadata, setAdditionalMetadata] = useState<AdditionalMetadataRecord[]>([]);
   const [canManageAdditionalMetadata, setCanManageAdditionalMetadata] = useState(false);
@@ -2268,6 +2317,94 @@ export default function VisorDocumentoPage() {
     [docId, editingMetadataValue]
   );
 
+  const loadDocumentPermissions = useCallback(async () => {
+    if (!docId || !userId) return;
+    setPermissionsLoading(true);
+    setPermissionsError(null);
+    try {
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/permissions`,
+        { headers: await apiAuthHeaders() }
+      );
+      if (response.status === 403) {
+        setDocumentPermissions([]);
+        setCanManagePermissions(false);
+        setCanInviteViewers(false);
+        setCanEditDocument(false);
+        return;
+      }
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'No fue posible consultar los permisos.');
+      setDocumentPermissions(payload.permissions || []);
+      setCanManagePermissions(payload.capabilities?.canManage === true);
+      setCanInviteViewers(payload.capabilities?.canInvite === true);
+      setCanEditDocument(payload.capabilities?.canEdit === true);
+    } catch (error) {
+      setPermissionsError(
+        error instanceof Error ? error.message : 'No fue posible consultar los permisos.'
+      );
+    } finally {
+      setPermissionsLoading(false);
+    }
+  }, [docId, userId]);
+
+  const saveDocumentPermission = async () => {
+    if (!permissionEmail.trim() || permissionSaving) return;
+    setPermissionSaving(true);
+    setPermissionsError(null);
+    try {
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/permissions`,
+        {
+          method: 'POST',
+          headers: await apiAuthHeaders(true),
+          body: JSON.stringify({
+            email: permissionEmail,
+            accessLevel: permissionAccessLevel,
+            canInvite: permissionCanInvite,
+          }),
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'No fue posible guardar el permiso.');
+      setPermissionEmail('');
+      setPermissionAccessLevel('view');
+      setPermissionCanInvite(false);
+      await loadDocumentPermissions();
+    } catch (error) {
+      setPermissionsError(
+        error instanceof Error ? error.message : 'No fue posible guardar el permiso.'
+      );
+    } finally {
+      setPermissionSaving(false);
+    }
+  };
+
+  const revokeDocumentPermission = async (permissionId: string) => {
+    if (permissionSaving) return;
+    setPermissionSaving(true);
+    setPermissionsError(null);
+    try {
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/permissions?permissionId=${encodeURIComponent(permissionId)}`,
+        { method: 'DELETE', headers: await apiAuthHeaders() }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'No fue posible retirar el permiso.');
+      await loadDocumentPermissions();
+    } catch (error) {
+      setPermissionsError(
+        error instanceof Error ? error.message : 'No fue posible retirar el permiso.'
+      );
+    } finally {
+      setPermissionSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadDocumentPermissions();
+  }, [loadDocumentPermissions]);
+
   // ── Load document + participants + activity ────────────────────────────────
   useEffect(() => {
     if (authLoading) return;
@@ -2888,7 +3025,7 @@ export default function VisorDocumentoPage() {
           const { data, error } = await supabase
             .from('participation_responses')
             .select(
-              'participante_email, participante_nombre, campos_completados, firma_data, firma_completada'
+              'participante_id, participante_email, participante_nombre, campos_completados, firma_data, firma_completada'
             )
             .eq('documento_id', docId);
           if (!error && data && data.length > 0) {
@@ -4157,82 +4294,68 @@ export default function VisorDocumentoPage() {
 
   const effectiveCampos = React.useMemo(() => camposSolicitados, [camposSolicitados]);
 
-  // NEW: Build a map of campo_id/label -> filled value from participation responses
-  const camposFilledMap = React.useMemo(() => {
-    const map: Record<string, string> = {};
-    participationResponses.forEach((resp) => {
-      if (resp.campos_completados && Array.isArray(resp.campos_completados)) {
-        resp.campos_completados.forEach((c) => {
-          if (c.campo_id) map[c.campo_id] = c.value;
-          if (c.label) map[c.label] = c.value;
-          // Also index by "email:label" for participant-specific lookup
-          if (resp.participante_email && c.label) {
-            map[`${resp.participante_email}:${c.label}`] = c.value;
-          }
-          if (resp.participante_email && c.campo_id) {
-            map[`${resp.participante_email}:${c.campo_id}`] = c.value;
-          }
-        });
-      }
-    });
-    return map;
-  }, [participationResponses]);
-
-  // NEW: Get the firma_data for a given campo (by participantId/email match)
+  // A signature may only be rendered when its assigned participant can be
+  // resolved unambiguously. Rendering a different participant's trace is worse
+  // than leaving an unassigned legacy field as a placeholder.
   const getFirmaDataForCampo = React.useCallback(
     (campo: CampoSolicitado): string | null => {
-      if (!campo.participantId && !campo.participantName) {
-        // No specific participant — use first available firma
-        const resp = participationResponses.find((r) => r.firma_data && r.firma_completada);
-        return resp?.firma_data || null;
-      }
-
-      // Resolve participantId (UUID) to email via participantes array
-      const resolvedEmail = (() => {
-        if (!campo.participantId) return null;
-        // Check if participantId is already an email
-        if (campo.participantId.includes('@')) return campo.participantId;
-        // Look up in participantes array by id
-        const matchedPart = participantes.find((p) => p.id === campo.participantId);
-        return matchedPart?.email || null;
-      })();
-
-      // Match by resolved email, participantId directly (if email), or participantName
+      const configuredParticipantId = String(campo.participantId || '').trim();
+      const assignedParticipantId =
+        configuredParticipantId.toLowerCase() === 'current-user'
+          ? String(document?.owner_id || '').trim()
+          : configuredParticipantId;
+      if (!assignedParticipantId) return null;
+      const normalizedAssignedId = assignedParticipantId.toLowerCase();
+      const resolvedEmail = assignedParticipantId.includes('@')
+        ? normalizedAssignedId
+        : participantes.find((participant) => participant.id === assignedParticipantId)?.email
+            ?.trim()
+            .toLowerCase() || null;
       const resp = participationResponses.find(
         (r) =>
-          (resolvedEmail && r.participante_email === resolvedEmail) ||
-          r.participante_email === campo.participantId ||
-          (campo.participantName && r.participante_nombre === campo.participantName)
+          r.firma_completada &&
+          Boolean(r.firma_data) &&
+          (String(r.participante_id || '').trim().toLowerCase() === normalizedAssignedId ||
+            (resolvedEmail && r.participante_email.trim().toLowerCase() === resolvedEmail))
       );
       return resp?.firma_data || null;
     },
-    [participationResponses, participantes]
+    [document?.owner_id, participationResponses, participantes]
   );
 
-  // NEW: Get filled value for a campo
+  // Field values must be linked to the assigned participant and a unique field
+  // identity. A duplicate legacy label is not enough to pick a value.
   const getFilledValueForCampo = React.useCallback(
     (campo: CampoSolicitado): string => {
-      // Resolve participantId (UUID) to email
-      const resolvedEmail = (() => {
-        if (!campo.participantId) return null;
-        if (campo.participantId.includes('@')) return campo.participantId;
-        const matchedPart = participantes.find((p) => p.id === campo.participantId);
-        return matchedPart?.email || null;
-      })();
-
-      // Try participant-specific lookup first (email:campo_id or email:label)
-      if (resolvedEmail) {
-        if (campo.id && camposFilledMap[`${resolvedEmail}:${campo.id}`])
-          return camposFilledMap[`${resolvedEmail}:${campo.id}`];
-        if (campo.label && camposFilledMap[`${resolvedEmail}:${campo.label}`])
-          return camposFilledMap[`${resolvedEmail}:${campo.label}`];
-      }
-      // Fallback to generic lookup
-      if (campo.id && camposFilledMap[campo.id]) return camposFilledMap[campo.id];
-      if (campo.label && camposFilledMap[campo.label]) return camposFilledMap[campo.label];
-      return '';
+      const configuredParticipantId = String(campo.participantId || '').trim();
+      const assignedParticipantId =
+        configuredParticipantId.toLowerCase() === 'current-user'
+          ? String(document?.owner_id || '').trim()
+          : configuredParticipantId;
+      const normalizedAssignedId = assignedParticipantId.toLowerCase();
+      const resolvedEmail = assignedParticipantId.includes('@')
+        ? normalizedAssignedId
+        : participantes.find((participant) => participant.id === assignedParticipantId)?.email
+            ?.trim()
+            .toLowerCase() || null;
+      const eligibleResponses = assignedParticipantId
+        ? participationResponses.filter(
+            (response) =>
+              String(response.participante_id || '').trim().toLowerCase() === normalizedAssignedId ||
+              (resolvedEmail && response.participante_email.trim().toLowerCase() === resolvedEmail)
+          )
+        : participationResponses;
+      const matches = eligibleResponses.flatMap((response) =>
+        (response.campos_completados || []).filter(
+          (completed) =>
+            (campo.id && completed.campo_id === campo.id) ||
+            (!campo.id && campo.label && completed.label === campo.label)
+        )
+      );
+      const values = Array.from(new Set(matches.map((completed) => completed.value).filter(Boolean)));
+      return values.length === 1 ? values[0] : '';
     },
-    [camposFilledMap, participantes]
+    [document?.owner_id, participantes, participationResponses]
   );
 
   // Helper: render a field value correctly based on its type
@@ -4541,11 +4664,22 @@ export default function VisorDocumentoPage() {
     setEditSaved(null);
   };
 
+  const updateDocumentThroughApi = async (updates: Record<string, unknown>) => {
+    if (!document) throw new Error('Documento no disponible.');
+    const response = await fetch(`/api/documentos/${encodeURIComponent(document.id)}/edit`, {
+      method: 'PATCH',
+      headers: await apiAuthHeaders(true),
+      body: JSON.stringify({ updates }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'No fue posible guardar los cambios.');
+    return payload.data;
+  };
+
   const handleSaveDocumentData = async () => {
     if (!document || !editDocConfig.nombre.trim()) return;
     setEditSaving(true);
     try {
-      const supabase = createClient();
       const updates: Record<string, any> = {
         nombre: editDocConfig.nombre.trim(),
       };
@@ -4557,21 +4691,17 @@ export default function VisorDocumentoPage() {
       }
       if (editDocConfig.etiquetasIds?.length) updates.etiquetas_ids = editDocConfig.etiquetasIds;
 
-      const { error } = await supabase.from('documentos').update(updates).eq('id', document.id);
-      if (error) {
-        console.error('[edit] Supabase error saving document data:', error.message, error.code);
-      } else {
-        setDocument((prev) => (prev ? { ...prev, nombre: editDocConfig.nombre.trim() } : prev));
-        logActivity('documento_editado', 'edicion', {
-          campo: 'datos_documento',
-          nombre_nuevo: editDocConfig.nombre.trim(),
-        });
-        setEditSaved('datos');
-        setTimeout(() => {
-          setEditModal(null);
-          setEditSaved(null);
-        }, 800);
-      }
+      await updateDocumentThroughApi(updates);
+      setDocument((prev) => (prev ? { ...prev, nombre: editDocConfig.nombre.trim() } : prev));
+      logActivity('documento_editado', 'edicion', {
+        campo: 'datos_documento',
+        nombre_nuevo: editDocConfig.nombre.trim(),
+      });
+      setEditSaved('datos');
+      setTimeout(() => {
+        setEditModal(null);
+        setEditSaved(null);
+      }, 800);
     } catch (err) {
       console.error('[edit] Error saving document data:', err);
     } finally {
@@ -4652,38 +4782,28 @@ export default function VisorDocumentoPage() {
         mensajePersonalizado: (p as any).mensajePersonalizado,
       }));
 
-      const { error } = await supabase
-        .from('documentos')
-        .update({
-          participantes: newParticipantes,
-        })
-        .eq('id', document.id);
-
-      if (error) {
-        console.error('[edit] Supabase error saving participants:', error.message, error.code);
-      } else {
-        // Refresh local participantes
-        const mapped = newParticipantes.map((p) => ({
-          id: p.id,
-          nombre: p.nombre,
-          email: p.email,
-          estado: p.estado,
-          metodo_firma: p.metodo_firma,
-          orden: p.orden,
-          acto: p.acto,
-          rolDocumento: p.rolDocumento,
-        }));
-        setParticipantes(mapped);
-        logActivity('documento_editado', 'participantes', {
-          campo: 'participantes',
-          total: editParticipants.length,
-        });
-        setEditSaved('participantes');
-        setTimeout(() => {
-          setEditModal(null);
-          setEditSaved(null);
-        }, 800);
-      }
+      await updateDocumentThroughApi({ participantes: newParticipantes });
+      // Refresh local participantes
+      const mapped = newParticipantes.map((p) => ({
+        id: p.id,
+        nombre: p.nombre,
+        email: p.email,
+        estado: p.estado,
+        metodo_firma: p.metodo_firma,
+        orden: p.orden,
+        acto: p.acto,
+        rolDocumento: p.rolDocumento,
+      }));
+      setParticipantes(mapped);
+      logActivity('documento_editado', 'participantes', {
+        campo: 'participantes',
+        total: editParticipants.length,
+      });
+      setEditSaved('participantes');
+      setTimeout(() => {
+        setEditModal(null);
+        setEditSaved(null);
+      }, 800);
     } catch (err) {
       console.error('[edit] Error saving participants:', err);
     } finally {
@@ -4695,7 +4815,6 @@ export default function VisorDocumentoPage() {
     if (!document) return;
     setEditSaving(true);
     try {
-      const supabase = createClient();
       const updates: Record<string, any> = {};
       if (editSettings.deadline) updates.fecha_vencimiento = editSettings.deadline;
       if (editPlacedFields.length > 0) {
@@ -4722,28 +4841,24 @@ export default function VisorDocumentoPage() {
       }
 
       if (Object.keys(updates).length > 0) {
-        const { error } = await supabase.from('documentos').update(updates).eq('id', document.id);
-        if (error) {
-          console.error('[edit] Supabase error saving settings:', error.message, error.code);
-        } else {
-          if (updates.fecha_vencimiento) {
-            setDocument((prev) =>
-              prev ? { ...prev, vencimiento: updates.fecha_vencimiento } : prev
-            );
-          }
-          if (updates.campos_solicitados) {
-            setCamposSolicitados(updates.campos_solicitados);
-          }
-          logActivity('documento_editado', 'edicion', {
-            campo: 'ajustes',
-            campos_actualizados: Object.keys(updates),
-          });
-          setEditSaved('ajustes');
-          setTimeout(() => {
-            setEditModal(null);
-            setEditSaved(null);
-          }, 800);
+        await updateDocumentThroughApi(updates);
+        if (updates.fecha_vencimiento) {
+          setDocument((prev) =>
+            prev ? { ...prev, vencimiento: updates.fecha_vencimiento } : prev
+          );
         }
+        if (updates.campos_solicitados) {
+          setCamposSolicitados(updates.campos_solicitados);
+        }
+        logActivity('documento_editado', 'edicion', {
+          campo: 'ajustes',
+          campos_actualizados: Object.keys(updates),
+        });
+        setEditSaved('ajustes');
+        setTimeout(() => {
+          setEditModal(null);
+          setEditSaved(null);
+        }, 800);
       } else {
         // No updates to apply, just close
         setEditSaved('ajustes');
@@ -4841,6 +4956,16 @@ export default function VisorDocumentoPage() {
       title: 'Participantes',
       label: 'Participantes',
     },
+    ...(canManagePermissions || canInviteViewers
+      ? [
+          {
+            key: 'permisos' as typeof activeTab,
+            icon: <UserCog size={20} />,
+            title: 'Permisos del documento',
+            label: 'Permisos',
+          },
+        ]
+      : []),
     {
       key: 'comments',
       icon: <MessageSquare size={20} />,
@@ -4877,7 +5002,7 @@ export default function VisorDocumentoPage() {
         ]
       : []),
     { key: 'metadata', icon: <Tag size={20} />, title: 'Metadatos', label: 'Metadatos' },
-    ...(document?.estado === 'en_proceso' && user?.id === document?.owner_id
+    ...(document?.estado === 'en_proceso' && canEditDocument
       ? [
           {
             key: 'editar' as typeof activeTab,
@@ -4897,11 +5022,15 @@ export default function VisorDocumentoPage() {
     document.workspace_id === activeWorkspace.id
   );
 
-  const renderPaginationBar = (modal = false) => (
-    <div
-      className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
-    >
-      <div className="flex h-10 items-center overflow-hidden rounded-md border border-slate-200 bg-white/95 shadow-[0_8px_24px_rgba(15,23,42,0.12)] backdrop-blur select-none">
+  const renderPaginationBar = (modal = false) => {
+    const canNavigatePages = totalPages > 1;
+    const canJumpToPage = totalPages > 5;
+
+    return (
+      <div
+        className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
+      >
+        <div className="flex h-10 items-center overflow-hidden rounded-md border border-slate-200 bg-white/95 shadow-[0_8px_24px_rgba(15,23,42,0.12)] backdrop-blur select-none">
         <button
           onClick={handleZoomOut}
           disabled={zoom <= ZOOM_MIN}
@@ -4921,41 +5050,59 @@ export default function VisorDocumentoPage() {
         >
           <ZoomIn size={14} />
         </button>
-        <div className="h-5 w-px bg-slate-200" />
-        <button
-          onClick={handlePrevPage}
-          disabled={currentPage <= 1}
-          className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
-          title="Página anterior"
-        >
-          <ChevronLeft size={14} />
-        </button>
-        <div className="flex min-w-[62px] items-center justify-center gap-1 px-2">
-          <input
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            value={pageInputValue}
-            onChange={handlePageInputChange}
-            onBlur={handlePageInputBlur}
-            onKeyDown={handlePageInputKeyDown}
-            onFocus={(event) => event.currentTarget.select()}
-            aria-label="Ir a página"
-            className="w-7 bg-transparent text-center text-xs font-600 text-slate-800 outline-none focus:text-primary"
-          />
-          <span className="whitespace-nowrap text-xs text-slate-400">/ {totalPages}</span>
+          <div className="h-5 w-px bg-slate-200" />
+          {canNavigatePages ? (
+            <>
+              <button
+                onClick={handlePrevPage}
+                disabled={currentPage <= 1}
+                className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+                title="Página anterior"
+                aria-label="Página anterior"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <div className="flex min-w-[100px] items-center justify-center gap-1 px-2 text-xs" aria-live="polite">
+                {canJumpToPage ? (
+                  <>
+                    <span className="text-slate-400">Página</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={pageInputValue}
+                      onChange={handlePageInputChange}
+                      onBlur={handlePageInputBlur}
+                      onKeyDown={handlePageInputKeyDown}
+                      onFocus={(event) => event.currentTarget.select()}
+                      aria-label="Ir a página"
+                      className="w-8 rounded border border-slate-200 bg-white py-0.5 text-center font-semibold text-slate-800 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+                    />
+                    <span className="whitespace-nowrap text-slate-400">de {totalPages}</span>
+                  </>
+                ) : (
+                  <span className="whitespace-nowrap font-medium text-slate-600">
+                    Página {currentPage} de {totalPages}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={handleNextPage}
+                disabled={currentPage >= totalPages}
+                className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+                title="Página siguiente"
+                aria-label="Página siguiente"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </>
+          ) : (
+            <span className="px-3 text-xs font-medium text-slate-600">Página 1 de 1</span>
+          )}
         </div>
-        <button
-          onClick={handleNextPage}
-          disabled={currentPage >= totalPages}
-          className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
-          title="Página siguiente"
-        >
-          <ChevronRight size={14} />
-        </button>
       </div>
-    </div>
-  );
+    );
+  };
 
   const PDF_SHEET_REF_WIDTH = 800;
 
@@ -5151,14 +5298,15 @@ export default function VisorDocumentoPage() {
                       page={currentPage}
                       zoom={zoom}
                       onTotalPages={handleTotalPages}
-                    />
-                    {showCampos && camposEnPaginaActual.length > 0 && (
-                      <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
-                        {camposEnPaginaActual.map((campo, idx) =>
-                          renderCampoOverlay(campo, idx, 'main')
-                        )}
-                      </div>
-                    )}
+                    >
+                      {showCampos && camposEnPaginaActual.length > 0 && (
+                        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
+                          {camposEnPaginaActual.map((campo, idx) =>
+                            renderCampoOverlay(campo, idx, 'main')
+                          )}
+                        </div>
+                      )}
+                    </PdfCanvas>
                   </div>
                 </div>
               ) : (
@@ -5796,6 +5944,171 @@ export default function VisorDocumentoPage() {
                         </div>
                       )}
                     </div>
+                  </div>
+                </>
+              ) : activeTab === 'permisos' ? (
+                <>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Permisos del documento</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4">
+                    <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 text-xs leading-5 text-slate-600">
+                      Define quién puede consultar o editar este documento. Los permisos se aplican
+                      al iniciar sesión con el correo indicado.
+                    </div>
+
+                    <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-center gap-2">
+                        <Shield size={16} className="text-slate-500" />
+                        <h3 className="text-sm font-semibold text-slate-900">Acceso del flujo</h3>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-slate-500">
+                        El propietario, los administradores activos del espacio y los participantes
+                        del proceso conservan acceso según su función.
+                      </p>
+                      <div className="mt-3 flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="truncate text-slate-700">
+                            {document?.owner_nombre || 'Propietario del documento'}
+                          </span>
+                          <span className="shrink-0 font-medium text-slate-500">Propietario</span>
+                        </div>
+                        {participantes.slice(0, 4).map((participant) => (
+                          <div key={participant.id} className="flex items-center justify-between gap-3 text-xs">
+                            <span className="truncate text-slate-700">
+                              {participant.nombre || participant.email || 'Participante'}
+                            </span>
+                            <span className="shrink-0 font-medium text-slate-500">Participante</span>
+                          </div>
+                        ))}
+                        {participantes.length > 4 && (
+                          <p className="text-xs text-slate-400">y {participantes.length - 4} participantes más</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {permissionsError && (
+                      <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
+                        {permissionsError}
+                      </div>
+                    )}
+
+                    <div className="mb-5 rounded-xl border border-border bg-white p-4">
+                      <div className="mb-3 flex items-center gap-2">
+                        <UserPlus size={16} className="text-primary" />
+                        <h3 className="text-sm font-semibold text-slate-900">
+                          {canManagePermissions ? 'Agregar acceso' : 'Invitar lector'}
+                        </h3>
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-700">
+                          Correo electrónico
+                          <input
+                            type="email"
+                            value={permissionEmail}
+                            onChange={(event) => setPermissionEmail(event.target.value)}
+                            placeholder="persona@ejemplo.com"
+                            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-700">
+                          Acceso
+                          <select
+                            value={permissionAccessLevel}
+                            onChange={(event) => setPermissionAccessLevel(event.target.value as 'view' | 'edit')}
+                            disabled={!canManagePermissions}
+                            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                          >
+                            <option value="view">Puede ver el documento</option>
+                            <option value="edit">Puede editar el documento</option>
+                          </select>
+                        </label>
+                        {canManagePermissions && (
+                          <label className="flex items-start gap-2 text-xs leading-5 text-slate-600">
+                            <input
+                              type="checkbox"
+                              checked={permissionCanInvite}
+                              onChange={(event) => setPermissionCanInvite(event.target.checked)}
+                              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+                            />
+                            <span>Puede invitar a otras personas a ver el documento.</span>
+                          </label>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void saveDocumentPermission()}
+                          disabled={!permissionEmail.trim() || permissionSaving}
+                          className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {permissionSaving ? <RefreshCw size={14} className="animate-spin" /> : <UserPlus size={14} />}
+                          {canManagePermissions ? 'Guardar permiso' : 'Invitar lector'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold text-slate-900">Accesos asignados</h3>
+                      <span className="text-xs text-slate-500">{documentPermissions.length}</span>
+                    </div>
+                    {permissionsLoading ? (
+                      <div className="flex h-28 items-center justify-center">
+                        <RefreshCw size={18} className="animate-spin text-slate-400" />
+                      </div>
+                    ) : documentPermissions.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-7 text-center text-xs leading-5 text-slate-500">
+                        No hay accesos adicionales asignados.
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {documentPermissions.map((permission) => (
+                          <div key={permission.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-slate-900">
+                                  {permission.grantee_email || 'Usuario registrado'}
+                                </p>
+                                <div className="mt-1 flex flex-wrap gap-1.5">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                    {permission.access_level === 'edit' ? <Edit3 size={10} /> : <Eye size={10} />}
+                                    {permission.access_level === 'edit' ? 'Puede editar' : 'Puede ver'}
+                                  </span>
+                                  {permission.can_invite && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                                      <UserPlus size={10} /> Puede invitar
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPermissionEmail(permission.grantee_email || '');
+                                    setPermissionAccessLevel(permission.access_level);
+                                    setPermissionCanInvite(permission.can_invite);
+                                    setPermissionsError(null);
+                                  }}
+                                  disabled={!permission.grantee_email || permissionSaving}
+                                  className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                                  title="Modificar permiso"
+                                >
+                                  <Edit3 size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void revokeDocumentPermission(permission.id)}
+                                  disabled={permissionSaving}
+                                  className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                                  title="Retirar acceso"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </>
               ) : activeTab === 'metadata' ? (
@@ -8310,14 +8623,15 @@ export default function VisorDocumentoPage() {
                   page={currentPage}
                   zoom={zoom}
                   onTotalPages={handleTotalPages}
-                />
-                {showCampos && camposEnPaginaActual.length > 0 && (
-                  <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
-                    {camposEnPaginaActual.map((campo, idx) =>
-                      renderCampoOverlay(campo, idx, 'modal')
-                    )}
-                  </div>
-                )}
+                >
+                  {showCampos && camposEnPaginaActual.length > 0 && (
+                    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
+                      {camposEnPaginaActual.map((campo, idx) =>
+                        renderCampoOverlay(campo, idx, 'modal')
+                      )}
+                    </div>
+                  )}
+                </PdfCanvas>
               </div>
               {renderPaginationBar(true)}
             </div>

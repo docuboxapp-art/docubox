@@ -37,7 +37,7 @@ test('NOM-151 is issued only after persisted and verified PAdES-B-T', () => {
 
 test('NOM-151 failure cannot declare certification completed', () => {
   const nomIssued = sealRoute.indexOf('await issueNom151ForVerifiedPadesBt');
-  const emailQueued = sealRoute.indexOf('await queueVerifiedDocumentCompletionEmails');
+  const emailQueued = sealRoute.indexOf('queueVerifiedDocumentCompletionEmails', nomIssued);
   const completed = sealRoute.indexOf("action: 'certification_completed'");
   assert.ok(nomIssued < emailQueued && emailQueued < completed);
   assert.match(notificationService, /DOCUMENT_COMPLETION_NOM151_REQUIRED/);

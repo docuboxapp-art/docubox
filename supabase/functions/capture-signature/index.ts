@@ -7,6 +7,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function validBrowserGeolocation(geo: any) {
+  const latitude = Number(geo?.latitude)
+  const longitude = Number(geo?.longitude)
+  return Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && latitude >= -90
+    && latitude <= 90
+    && longitude >= -180
+    && longitude <= 180
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -38,6 +49,16 @@ serve(async (req) => {
 
     if (!await userCanAccessDocument(supabase, user, document_id)) {
       return new Response('Forbidden', { status: 403, headers: corsHeaders })
+    }
+
+    if (!validBrowserGeolocation(session_evidence?.geo)) {
+      return new Response(
+        JSON.stringify({
+          error: 'La geolocalización del navegador es obligatoria para registrar la firma.',
+          code: 'GEOLOCATION_REQUIRED',
+        }),
+        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
     // 2. Verificar SHA-256 de la imagen recibida

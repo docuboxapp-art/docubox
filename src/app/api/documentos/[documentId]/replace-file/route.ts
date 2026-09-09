@@ -15,7 +15,7 @@ export async function POST(
   const { documentId } = await params;
   try {
     const { user, document, service } = await requireDocumentAccess(request, documentId, {
-      ownerOrAdminOnly: true,
+      requireEdit: true,
     });
     if (['completado', 'cancelado', 'rechazado'].includes(String(document.estado))) {
       return NextResponse.json(

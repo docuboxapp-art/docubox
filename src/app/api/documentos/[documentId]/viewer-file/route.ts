@@ -131,6 +131,7 @@ export async function GET(
     const owner = document.owner_id === user.id;
     let participant = isParticipant(document.participantes, user.id, email);
     let workspaceManager = false;
+    let explicitPermission = false;
 
     if (!owner && !participant) {
       const participationById = await service
@@ -175,6 +176,18 @@ export async function GET(
     }
 
     if (!owner && !participant && !workspaceManager) {
+      const permission = await service
+        .from('document_access_permissions')
+        .select('id')
+        .eq('document_id', document.id)
+        .or(`grantee_user_id.eq.${user.id},grantee_email.eq.${email}`)
+        .limit(1)
+        .maybeSingle();
+      if (permission.error) throw permission.error;
+      explicitPermission = Boolean(permission.data);
+    }
+
+    if (!owner && !participant && !workspaceManager && !explicitPermission) {
       return NextResponse.json({ error: 'No tienes acceso a este documento.' }, { status: 403 });
     }
 

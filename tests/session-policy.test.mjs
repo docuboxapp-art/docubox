@@ -7,6 +7,9 @@ const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 const migration = await read(
   '../supabase/migrations/20260908044044_enforce_human_session_activity_policy.sql'
 );
+const twentyMinuteTimeoutMigration = await read(
+  '../supabase/migrations/20260909075009_session_inactivity_timeout_twenty_minutes.sql'
+);
 const timeoutHook = await read('../src/hooks/useSessionTimeout.ts');
 const middleware = await read('../src/middleware.ts');
 const loginForm = await read('../src/app/sign-up-login-screen/components/LoginForm.tsx');
@@ -18,6 +21,18 @@ test('server session policy distinguishes ordinary and privileged limits', () =>
   assert.match(migration, /auth\.sessions sessions/);
   assert.match(migration, /sessions\.id = v_session_id/);
   assert.match(migration, /platform_staff staff/);
+});
+
+test('standard session inactivity timeout is twenty minutes', () => {
+  assert.match(
+    twentyMinuteTimeoutMigration,
+    /CASE WHEN v_is_privileged THEN 600 ELSE 1200 END/
+  );
+  assert.match(twentyMinuteTimeoutMigration, /inactividad \(20 minutos\)/);
+  assert.match(
+    twentyMinuteTimeoutMigration,
+    /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/
+  );
 });
 
 test('only explicit human interactions can extend the inactivity window', () => {
@@ -99,9 +114,10 @@ test('post-login checks use the freshly issued session token', () => {
   assert.match(loginForm, /verifiedSession\?\.session\?\.access_token/);
 });
 
-test('post-login endpoint validates the user token without the service-role client', () => {
+test('post-login endpoint validates the user token before retrieving security requirements', () => {
   assert.match(totpCheckRoute, /const auth = createAnonClient\(\)/);
   assert.match(totpCheckRoute, /auth\.auth\.getUser\(token\)/);
   assert.doesNotMatch(totpCheckRoute, /service\.auth\.getUser\(token\)/);
-  assert.match(totpCheckRoute, /resolvePlatformAccess\(data\.user, service\)/);
+  assert.match(totpCheckRoute, /service\.rpc\(\s*'get_login_security_requirements'/);
+  assert.match(totpCheckRoute, /p_user_id: data\.user\.id/);
 });

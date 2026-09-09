@@ -95,7 +95,6 @@ export default function PortalParticipantePage() {
 
   const isApproval = info?.acto === 'aprobar';
   const actionLabel = isApproval ? 'aprobar' : 'firmar';
-  const actionNoun = isApproval ? 'aprobación' : 'firma';
   const isRegistered = info?.isRegistered === true;
   const expirationLabel = formatExpiration(info?.expiresAt);
   const greetingName = info?.participantName?.trim();
@@ -105,22 +104,22 @@ export default function PortalParticipantePage() {
         {
           id: 'login',
           icon: KeyRound,
-          title: 'Acceder a mi cuenta',
-          description: `Inicia sesión para revisar y ${actionLabel} el documento.`,
+          title: 'Acceder con mi cuenta',
+          description: 'Cuento con mi usuario y contraseña para revisar y participar.',
           onClick: () => router.push(`/login?redirect=/visor-documento&portal_token=${token}`),
         },
         {
           id: 'forgot',
           icon: RotateCcw,
           title: 'Restablecer contraseña',
-          description: 'Recupera el acceso a tu cuenta.',
+          description: 'He firmado previamente pero no recuerdo mi contraseña.',
           onClick: () => router.push('/olvide-contrasena'),
         },
         {
           id: 'help',
           icon: CircleHelp,
           title: 'Solicitar ayuda',
-          description: `Te orientamos para completar tu ${actionNoun}.`,
+          description: 'Necesito ayuda con el proceso de participación en el documento.',
           onClick: () => router.push('/ayuda-firmado'),
         },
       ]
@@ -136,7 +135,7 @@ export default function PortalParticipantePage() {
           id: 'help',
           icon: CircleHelp,
           title: 'Solicitar ayuda',
-          description: `Te orientamos para completar tu ${actionNoun}.`,
+          description: 'Necesito ayuda con el proceso de participación en el documento.',
           onClick: () => router.push('/ayuda-firmado'),
         },
       ];
@@ -144,12 +143,12 @@ export default function PortalParticipantePage() {
   return (
     <PublicTokenLayout token={token} luciaScope="external_participant" compactAssistant>
       <div className="min-h-screen bg-slate-50 text-slate-950">
-        <div className="grid min-h-screen lg:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.18fr)]">
-          <aside className="hidden bg-primary px-10 py-9 text-white lg:flex lg:flex-col xl:px-14">
+        <div className="grid min-h-screen lg:grid-cols-[minmax(320px,0.7fr)_minmax(0,1.3fr)]">
+          <aside className="hidden border-r border-white/15 bg-primary px-10 py-9 text-white lg:flex lg:flex-col xl:px-12">
             <AppLogo variant="light" className="shrink-0" />
 
             <div className="flex flex-1 items-center justify-center py-10">
-              <div className="w-full max-w-md">
+              <div className="w-full max-w-sm">
                 <h1 className="text-3xl font-700 leading-tight">Tu participación te espera</h1>
 
                 <div className="mt-7 border border-white/20 bg-white/10 p-5">
@@ -203,9 +202,9 @@ export default function PortalParticipantePage() {
               <AppLogo />
             </header>
 
-            <main className="flex flex-1 items-center px-5 py-10 sm:px-8 lg:px-12 xl:px-16">
-              <div className="mx-auto w-full max-w-2xl">
-                <section className="mb-7">
+            <main className="flex flex-1 items-center px-5 py-10 sm:px-8 lg:px-14 xl:px-20">
+              <div className="mx-auto w-full max-w-3xl">
+                <section className="mb-10">
                   {loading ? (
                     <div className="space-y-3" aria-label="Cargando información">
                       <div className="h-7 w-44 animate-pulse rounded bg-slate-200" />
@@ -216,10 +215,10 @@ export default function PortalParticipantePage() {
                       <h2 className="text-2xl font-700 leading-tight text-slate-950 sm:text-3xl">
                         ¡Hola{greetingName ? `, ${greetingName}` : ''}!
                       </h2>
-                      <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-                        Tienes una invitación a participar en un documento.<br />
-                        Selecciona una opción para continuar.
-                      </p>
+                      <div className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
+                        <p>Tienes una invitación para participar en este documento.</p>
+                        <p className="mt-3">Selecciona una opción para continuar.</p>
+                      </div>
                     </>
                   )}
                 </section>

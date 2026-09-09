@@ -69,6 +69,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'documentId requerido' }, { status: 400 });
     }
 
+    const latitude = Number(sessionEvidence?.geo?.latitude);
+    const longitude = Number(sessionEvidence?.geo?.longitude);
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      latitude < -90 ||
+      latitude > 90 ||
+      longitude < -180 ||
+      longitude > 180
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'La geolocalización del navegador es obligatoria para registrar la firma. Activa el permiso de ubicación e inténtalo nuevamente.',
+          code: 'GEOLOCATION_REQUIRED',
+        },
+        { status: 422 }
+      );
+    }
+
     // Verify user is a participant of this document
     const { data: participacion } = await supabaseAdmin
       .from('participation_responses')

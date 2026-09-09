@@ -113,7 +113,7 @@ test('the final participant automatically requests NOM-151 after PDF sealing', a
     padesPosition,
   );
   const nom151Position = sealSource.indexOf('await issueNom151ForVerifiedPadesBt');
-  const emailPosition = sealSource.indexOf('await queueVerifiedDocumentCompletionEmails', nom151Position);
+  const emailPosition = sealSource.indexOf('queueVerifiedDocumentCompletionEmails', nom151Position);
   assert.ok(padesPosition >= 0 && finalizationPosition > padesPosition);
   assert.ok(emailPosition > nom151Position);
   assert.match(routeSource, /access\.role === 'AUTHORIZED'/);

@@ -5,6 +5,18 @@ import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 const MAX_STROKES_SIZE = 2_000_000;
 
+function validBrowserGeolocation(geo: unknown) {
+  const value = geo as { latitude?: unknown; longitude?: unknown } | null | undefined;
+  const latitude = Number(value?.latitude);
+  const longitude = Number(value?.longitude);
+  return Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && latitude >= -90
+    && latitude <= 90
+    && longitude >= -180
+    && longitude <= 180;
+}
+
 function validToken(token: string) {
   return /^[a-f0-9]{64}$/i.test(token);
 }
@@ -17,6 +29,15 @@ export async function POST(request: NextRequest) {
     const strokes = Array.isArray(body.strokes) ? body.strokes : null;
     if (!validToken(token) || !/^data:image\/png;base64,/i.test(signatureDataUrl) || !strokes) {
       return NextResponse.json({ error: 'La firma no es válida.' }, { status: 400 });
+    }
+    if (!validBrowserGeolocation(body.sessionEvidence?.geo)) {
+      return NextResponse.json(
+        {
+          error: 'La geolocalización del navegador es obligatoria para enviar la firma.',
+          code: 'GEOLOCATION_REQUIRED',
+        },
+        { status: 422 }
+      );
     }
 
     const signatureBase64 = normalizeImageBase64(signatureDataUrl);

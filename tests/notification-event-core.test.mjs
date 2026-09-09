@@ -34,10 +34,10 @@ test('domain event emission sanitizes sensitive metadata and deduplicates per re
 
 test('client notification mutations go through authenticated routes rather than direct table writes', () => {
   const client = read('src/lib/notifications/client.ts');
-  const page = read('src/app/notifications/page.tsx');
+  const page = read('src/app/notificaciones/page.tsx');
   const nav = read('src/components/TopNav.tsx');
   assert.match(client, /fetch\('\/api\/notifications'/i);
-  assert.match(page, /updateNotifications\('archived'/i);
+  assert.match(page, /updateNotifications\('read'/i);
   assert.match(nav, /updateNotifications\('read'/i);
   assert.doesNotMatch(page, /\.from\('notifications'\)\.delete/i);
 });

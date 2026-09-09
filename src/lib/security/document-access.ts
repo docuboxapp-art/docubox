@@ -15,6 +15,7 @@ export class DocumentAccessError extends Error {
 
 type DocumentAccessOptions = {
   ownerOrAdminOnly?: boolean;
+  requireEdit?: boolean;
 };
 
 function bearerToken(request: NextRequest) {
@@ -67,6 +68,16 @@ export async function requireDocumentAccess(
   }
 
   const normalizedEmail = user.email.trim().toLowerCase();
+  const permissionResult = await service
+    .from('document_access_permissions')
+    .select('id,access_level,can_invite,created_by')
+    .eq('document_id', documentId)
+    .or(`grantee_user_id.eq.${user.id},grantee_email.eq.${normalizedEmail}`)
+    .limit(1)
+    .maybeSingle();
+  if (permissionResult.error) throw permissionResult.error;
+  const explicitPermission = permissionResult.data;
+  const canEdit = explicitPermission?.access_level === 'edit';
   const participantEntry = Array.isArray(document.participantes)
     ? document.participantes.find((participant: Record<string, unknown>) =>
         participant.id === user.id
@@ -102,7 +113,11 @@ export async function requireDocumentAccess(
     }
   }
 
-  if (!isOwner && !isWorkspaceManager && !listedParticipant && !hasParticipation) {
+  if (options.requireEdit && !isOwner && !isWorkspaceManager && !canEdit) {
+    throw new DocumentAccessError('DOCUMENT_EDIT_DENIED', 'No tienes permisos para editar este documento.', 403);
+  }
+
+  if (!isOwner && !isWorkspaceManager && !listedParticipant && !hasParticipation && !explicitPermission) {
     throw new DocumentAccessError('DOCUMENT_ACCESS_DENIED', 'No tienes acceso a este documento.', 403);
   }
   const role: 'OWNER' | 'WORKSPACE_ADMIN' | 'AUTHORIZED' = isOwner
@@ -110,7 +125,7 @@ export async function requireDocumentAccess(
     : isWorkspaceManager
       ? 'WORKSPACE_ADMIN'
       : 'AUTHORIZED';
-  return { user: user as User, document, service, role };
+  return { user: user as User, document, service, role, explicitPermission, canEdit };
 }
 
 export function documentAccessResponse(error: unknown) {

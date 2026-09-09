@@ -8,12 +8,17 @@ import { createServiceClient } from '@/lib/supabase/server';
 
 export async function requestUser(request: NextRequest): Promise<User | null> {
   const authorization = request.headers.get('authorization');
+  const service = createServiceClient();
+  if (authorization?.startsWith('Bearer ')) {
+    const result = await service.auth.getUser(authorization.slice(7).trim());
+    if (!result.error && result.data.user) return result.data.user;
+  }
+
   const cookieStore = await cookies();
   const client = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      global: authorization ? { headers: { authorization } } : undefined,
       cookies: { getAll: () => cookieStore.getAll(), setAll: () => undefined },
     }
   );
@@ -41,8 +46,37 @@ export async function canManageDocument(service: SupabaseClient, documentId: str
   return !member.error && ['owner', 'admin'].includes(String(member.data?.role || ''));
 }
 
+function normalizeEmail(value: unknown) {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function isParticipant(participants: unknown, user: User) {
+  if (!Array.isArray(participants)) return false;
+  const email = normalizeEmail(user.email);
+  return participants.some((participant) => {
+    if (!participant || typeof participant !== 'object') return false;
+    const row = participant as Record<string, unknown>;
+    return (
+      row.id === user.id ||
+      row.user_id === user.id ||
+      (email && normalizeEmail(row.email) === email)
+    );
+  });
+}
+
 export async function canAccessDocument(service: SupabaseClient, documentId: string, user: User) {
   if (await canManageDocument(service, documentId, user)) return true;
+  const documentResult = await service
+    .from('documentos')
+    .select('participantes')
+    .eq('id', documentId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (documentResult.error) return false;
+  if (isParticipant(documentResult.data?.participantes, user)) return true;
+
   const byUserId = await service
     .from('participation_responses')
     .select('id')

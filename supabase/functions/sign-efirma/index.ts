@@ -16,6 +16,18 @@ function cleanBase64(value: unknown) {
   return String(value || '').replace(/^data:[^,]+,/, '').replace(/\s/g, '');
 }
 
+function validBrowserGeolocation(geo: unknown) {
+  const value = geo as { latitude?: unknown; longitude?: unknown } | null | undefined;
+  const latitude = Number(value?.latitude);
+  const longitude = Number(value?.longitude);
+  return Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && latitude >= -90
+    && latitude <= 90
+    && longitude >= -180
+    && longitude <= 180;
+}
+
 async function sha256Hex(value: string | Uint8Array) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -52,6 +64,15 @@ serve(async (request) => {
     const password = String(body.password || '');
     if (!documentId || !cerBase64 || !keyBase64 || !password) {
       return json({ error: 'Se requieren document_id, cer_b64, key_b64 y password' }, 400);
+    }
+    if (!validBrowserGeolocation(body.session_evidence?.geo)) {
+      return json(
+        {
+          error: 'La geolocalización del navegador es obligatoria para firmar con e.firma.',
+          code: 'GEOLOCATION_REQUIRED',
+        },
+        422
+      );
     }
     if (cerBase64.length > 400_000 || keyBase64.length > 400_000) {
       return json({ error: 'Los archivos de e.firma exceden el limite permitido' }, 413);
@@ -90,6 +111,9 @@ serve(async (request) => {
 
     const evidenceId = crypto.randomUUID();
     const signedAt = new Date().toISOString();
+    const geoLatitude = Number(body.session_evidence.geo.latitude);
+    const geoLongitude = Number(body.session_evidence.geo.longitude);
+    const geoAccuracyMeters = Number(body.session_evidence.geo.accuracy_meters || 0);
     const signedPayload = JSON.stringify({
       schema: 'DOCUBOX_EFIRMA_ACT',
       version: '1.0',
@@ -100,6 +124,8 @@ serve(async (request) => {
       signer_id: user.id,
       signer_email_sha256: await sha256Hex(user.email.trim().toLowerCase()),
       signed_at: signedAt,
+      geo_latitude: geoLatitude,
+      geo_longitude: geoLongitude,
     });
     const signedPayloadSha256 = await sha256Hex(signedPayload);
 
@@ -169,6 +195,9 @@ serve(async (request) => {
       ip_address: ip,
       user_agent: String(body.session_evidence?.user_agent || request.headers.get('user-agent') || ''),
       timezone: String(body.session_evidence?.timezone || ''),
+      geo_latitude: geoLatitude,
+      geo_longitude: geoLongitude,
+      geo_accuracy_m: Number.isFinite(geoAccuracyMeters) ? geoAccuracyMeters : null,
       fingerprint_id: String(body.device_fingerprint?.fingerprint_id || '') || null,
       validation_provider: String(provider.provider || 'CONFIGURED_GATEWAY'),
       provider_reference: String(provider.signature_id || ''),

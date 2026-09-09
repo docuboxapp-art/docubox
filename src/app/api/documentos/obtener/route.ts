@@ -89,7 +89,16 @@ export async function GET(request: NextRequest) {
       && participantEntry.current_access !== false
     );
 
-    if (!isOwner && !isParticipant) {
+    const { data: explicitPermission, error: permissionError } = await supabaseAdmin
+      .from('document_access_permissions')
+      .select('id')
+      .eq('document_id', doc.id)
+      .or(`grantee_user_id.eq.${user.id},grantee_email.eq.${userEmail}`)
+      .limit(1)
+      .maybeSingle();
+    if (permissionError) throw permissionError;
+
+    if (!isOwner && !isParticipant && !explicitPermission) {
       return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
     }
 

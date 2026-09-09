@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
     // Fetch all participation responses using service role (bypasses RLS)
     const { data: responses, error } = await supabaseAdmin
       .from('participation_responses')
-      .select('participante_email, participante_nombre, campos_completados, firma_data, firma_completada, aprobacion_completada')
+      .select('participante_id, participante_email, participante_nombre, campos_completados, firma_data, firma_completada, aprobacion_completada')
       .eq('documento_id', documentoId);
 
     if (error) {

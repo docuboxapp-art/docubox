@@ -1143,24 +1143,23 @@ function EfirmaFirmarFlow({
             </p>
             {geoDenied && (
               <div
-                className={`flex items-start gap-3 p-3 rounded-lg border ${isDark ? 'bg-red-900/20 border-red-700/50' : 'bg-red-50 border-red-300'}`}
+                className={`flex items-start gap-3 p-3 rounded-lg border ${isDark ? 'bg-amber-900/20 border-amber-700/50' : 'bg-amber-50 border-amber-200'}`}
               >
                 <MapPin
                   size={16}
-                  className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`}
+                  className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}
                 />
                 <div>
                   <p
-                    className={`text-xs font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}
+                    className={`text-xs font-semibold ${isDark ? 'text-amber-300' : 'text-amber-800'}`}
                   >
-                    Ubicación requerida para firmar
+                    Ubicación no disponible
                   </p>
                   <p
-                    className={`text-xs mt-0.5 leading-relaxed ${isDark ? 'text-red-400/80' : 'text-red-600'}`}
+                    className={`text-xs mt-0.5 leading-relaxed ${isDark ? 'text-amber-300/80' : 'text-amber-700'}`}
                   >
-                    Has bloqueado el acceso a tu ubicación. La ubicación es obligatoria para
-                    completar el proceso de firmado. Activa el permiso en la configuración de tu
-                    navegador y recarga la página para continuar.
+                    Puedes continuar. La firma se registrará sin coordenadas geográficas y con la
+                    evidencia disponible del proceso.
                   </p>
                 </div>
               </div>
@@ -4758,25 +4757,57 @@ export default function FirmarDocumentoPage() {
 
   // ── Pre-fetch geolocation on mount so it's ready at submit time ───────────
   const geoRef = useRef<{ lat: number; lng: number } | null>(null);
+  const ipRef = useRef<string | null>(null);
   const [geoDenied, setGeoDenied] = useState(false);
+  const [geoUnavailable, setGeoUnavailable] = useState(false);
   const [geoLoading, setGeoLoading] = useState(true);
+  const geoBlocked = geoDenied || geoUnavailable;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 1500);
+
+    void fetch('https://api.ipify.org?format=json', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = await response.json();
+        ipRef.current = typeof payload?.ip === 'string' ? payload.ip : null;
+      })
+      .catch(() => {})
+      .finally(() => window.clearTimeout(timeout));
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
-      const loadingFrame = window.requestAnimationFrame(() => setGeoLoading(false));
+      const loadingFrame = window.requestAnimationFrame(() => {
+        setGeoUnavailable(true);
+        setGeoLoading(false);
+      });
       return () => window.cancelAnimationFrame(loadingFrame);
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const { latitude, longitude } = pos.coords;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          setGeoUnavailable(true);
+          setGeoLoading(false);
+          return;
+        }
+        geoRef.current = { lat: latitude, lng: longitude };
         setGeoDenied(false);
+        setGeoUnavailable(false);
         setGeoLoading(false);
       },
       (err) => {
-        if (err.code === 1 /* PERMISSION_DENIED */) {
-          setGeoDenied(true);
-        }
+        setGeoDenied(err.code === 1 /* PERMISSION_DENIED */);
+        setGeoUnavailable(err.code !== 1);
         setGeoLoading(false);
-        /* permission denied or unavailable – geoRef stays null */
+        /* Geolocation evidence is required; a missing reading blocks signing. */
       },
       { timeout: 15000, maximumAge: 60000, enableHighAccuracy: false }
     );
@@ -4840,6 +4871,39 @@ export default function FirmarDocumentoPage() {
   const [showDocModal, setShowDocModal] = useState(false);
   const [docModalPage, setDocModalPage] = useState(1);
   const [docModalZoom, setDocModalZoom] = useState(100);
+  const [pageInputValue, setPageInputValue] = useState('1');
+  const [docModalPageInputValue, setDocModalPageInputValue] = useState('1');
+
+  useEffect(() => {
+    setPageInputValue(String(currentPage));
+  }, [currentPage]);
+
+  useEffect(() => {
+    setDocModalPageInputValue(String(docModalPage));
+  }, [docModalPage]);
+
+  const commitPageInput = () => {
+    const page = Number.parseInt(pageInputValue, 10);
+    if (Number.isFinite(page) && page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setPageInputValue(String(page));
+      return;
+    }
+    setPageInputValue(String(currentPage));
+  };
+
+  const commitDocModalPageInput = () => {
+    const page = Number.parseInt(docModalPageInputValue, 10);
+    if (Number.isFinite(page) && page >= 1 && page <= totalPages) {
+      setDocModalPage(page);
+      setDocModalPageInputValue(String(page));
+      return;
+    }
+    setDocModalPageInputValue(String(docModalPage));
+  };
+
+  const canNavigatePages = totalPages > 1;
+  const canJumpToPage = totalPages > 5;
 
   // Exit modal
   const [showExitModal, setShowExitModal] = useState(false);
@@ -6590,7 +6654,7 @@ export default function FirmarDocumentoPage() {
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleAceptarTerminos = () => {
     if (!terminosAceptados) return;
-    if (geoDenied) return;
+    if (geoLoading || geoBlocked) return;
     if (myRole === 'aprobador') {
       setStep('aprobacion');
     } else {
@@ -6599,7 +6663,7 @@ export default function FirmarDocumentoPage() {
   };
 
   const handleContinuarDesdeCampos = () => {
-    if (geoDenied) return;
+    if (geoLoading || geoBlocked) return;
     if (myRole === 'firmante') {
       // Check if firma field is inserted
       if (!hasFirmaInserted) {
@@ -6810,6 +6874,14 @@ export default function FirmarDocumentoPage() {
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!document || !user) return;
+    if (geoLoading || geoBlocked || !geoRef.current) {
+      setSubmitError(
+        geoDenied
+          ? 'Debes permitir el acceso a tu ubicación para firmar este documento.'
+          : 'No fue posible obtener una ubicación válida. Activa la ubicación e inténtalo de nuevo.'
+      );
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -6850,41 +6922,10 @@ export default function FirmarDocumentoPage() {
       let coordinates: { lat: number; lng: number } | null = null;
       let signatureHash = '';
 
-      // Get public IP
-      try {
-        const ipRes = await fetch('https://api.ipify.org?format=json');
-        if (ipRes.ok) {
-          const ipJson = await ipRes.json();
-          ipAddress = ipJson.ip || '—';
-        }
-      } catch {
-        /* ignore */
-      }
-
-      // Get geolocation — use pre-fetched value from mount if available
-      if (geoRef.current) {
-        coordinates = geoRef.current;
-      } else {
-        try {
-          await new Promise<void>((resolve) => {
-            if (!navigator.geolocation) {
-              resolve();
-              return;
-            }
-            navigator.geolocation.getCurrentPosition(
-              (pos) => {
-                coordinates = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                geoRef.current = coordinates;
-                resolve();
-              },
-              () => resolve(),
-              { timeout: 10000, maximumAge: 60000, enableHighAccuracy: false }
-            );
-          });
-        } catch {
-          /* ignore */
-        }
-      }
+      // Optional browser evidence is collected while the signing flow is open.
+      // Do not delay the legally relevant persistence if it is still unavailable.
+      ipAddress = ipRef.current || '—';
+      coordinates = geoRef.current;
 
       // Generate SHA-256 hash of firma data
       try {
@@ -7790,45 +7831,61 @@ export default function FirmarDocumentoPage() {
                       </svg>
                     </button>
                     <div className="w-px h-5 bg-slate-200 mx-1" />
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      disabled={currentPage <= 1}
-                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="15 18 9 12 15 6" />
-                      </svg>
-                    </button>
-                    <span className="text-sm text-slate-600 font-medium min-w-[48px] text-center select-none">
-                      {currentPage} / {totalPages}
-                    </span>
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={currentPage >= totalPages}
-                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </button>
+                    {canNavigatePages ? (
+                      <>
+                        <button
+                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage <= 1}
+                          className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                          title="Página anterior"
+                          aria-label="Página anterior"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="15 18 9 12 15 6" />
+                          </svg>
+                        </button>
+                        <div className="flex min-w-[112px] items-center justify-center gap-1 text-sm" aria-live="polite">
+                          {canJumpToPage ? (
+                            <>
+                              <span className="text-slate-400">Página</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={pageInputValue}
+                                onChange={(event) => setPageInputValue(event.target.value)}
+                                onBlur={commitPageInput}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    commitPageInput();
+                                    event.currentTarget.blur();
+                                  }
+                                }}
+                                onFocus={(event) => event.currentTarget.select()}
+                                aria-label="Ir a página"
+                                className="w-9 rounded border border-slate-200 bg-white py-0.5 text-center font-semibold text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+                              />
+                              <span className="whitespace-nowrap text-slate-400">de {totalPages}</span>
+                            </>
+                          ) : (
+                            <span className="whitespace-nowrap font-medium text-slate-600">Página {currentPage} de {totalPages}</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={currentPage >= totalPages}
+                          className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                          title="Página siguiente"
+                          aria-label="Página siguiente"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 18 15 12 9 6" />
+                          </svg>
+                        </button>
+                      </>
+                    ) : (
+                      <span className="px-2 text-sm font-medium text-slate-600">Página 1 de 1</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -9101,47 +9158,61 @@ export default function FirmarDocumentoPage() {
               </div>
               {/* Pagination */}
               <div className="flex items-center gap-1 bg-white border border-border rounded-full px-3 py-1.5 shadow-sm">
-                <button
-                  onClick={() => setDocModalPage((p) => Math.max(1, p - 1))}
-                  disabled={docModalPage <= 1}
-                  className="w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
-                  title="Página anterior"
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="15 18 9 12 15 6" />
-                  </svg>
-                </button>
-                <span className="text-slate-600 text-xs font-medium select-none">
-                  {docModalPage} / {totalPages}
-                </span>
-                <button
-                  onClick={() => setDocModalPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={docModalPage >= totalPages}
-                  className="w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
-                  title="Página siguiente"
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                </button>
+                {canNavigatePages ? (
+                  <>
+                    <button
+                      onClick={() => setDocModalPage((p) => Math.max(1, p - 1))}
+                      disabled={docModalPage <= 1}
+                      className="w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                      title="Página anterior"
+                      aria-label="Página anterior"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 18 9 12 15 6" />
+                      </svg>
+                    </button>
+                    <div className="flex min-w-[104px] items-center justify-center gap-1 text-xs" aria-live="polite">
+                      {canJumpToPage ? (
+                        <>
+                          <span className="text-slate-400">Página</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={docModalPageInputValue}
+                            onChange={(event) => setDocModalPageInputValue(event.target.value)}
+                            onBlur={commitDocModalPageInput}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                commitDocModalPageInput();
+                                event.currentTarget.blur();
+                              }
+                            }}
+                            onFocus={(event) => event.currentTarget.select()}
+                            aria-label="Ir a página en vista ampliada"
+                            className="w-8 rounded border border-slate-200 bg-white py-0.5 text-center font-semibold text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+                          />
+                          <span className="whitespace-nowrap text-slate-400">de {totalPages}</span>
+                        </>
+                      ) : (
+                        <span className="whitespace-nowrap font-medium text-slate-600">Página {docModalPage} de {totalPages}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setDocModalPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={docModalPage >= totalPages}
+                      className="w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                      title="Página siguiente"
+                      aria-label="Página siguiente"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    </button>
+                  </>
+                ) : (
+                  <span className="px-1 text-xs font-medium text-slate-600">Página 1 de 1</span>
+                )}
               </div>
               {/* Close */}
               <button
@@ -9339,47 +9410,61 @@ export default function FirmarDocumentoPage() {
                       </svg>
                     </button>
                     <div className="w-px h-5 bg-slate-200 mx-1" />
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      disabled={currentPage <= 1}
-                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
-                      title="Página anterior"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="15 18 9 12 15 6" />
-                      </svg>
-                    </button>
-                    <span className="text-sm text-slate-600 font-medium min-w-[48px] text-center select-none">
-                      {currentPage} / {totalPages}
-                    </span>
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={currentPage >= totalPages}
-                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
-                      title="Página siguiente"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </button>
+                    {canNavigatePages ? (
+                      <>
+                        <button
+                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage <= 1}
+                          className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                          title="Página anterior"
+                          aria-label="Página anterior"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="15 18 9 12 15 6" />
+                          </svg>
+                        </button>
+                        <div className="flex min-w-[112px] items-center justify-center gap-1 text-sm" aria-live="polite">
+                          {canJumpToPage ? (
+                            <>
+                              <span className="text-slate-400">Página</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={pageInputValue}
+                                onChange={(event) => setPageInputValue(event.target.value)}
+                                onBlur={commitPageInput}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    commitPageInput();
+                                    event.currentTarget.blur();
+                                  }
+                                }}
+                                onFocus={(event) => event.currentTarget.select()}
+                                aria-label="Ir a página"
+                                className="w-9 rounded border border-slate-200 bg-white py-0.5 text-center font-semibold text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+                              />
+                              <span className="whitespace-nowrap text-slate-400">de {totalPages}</span>
+                            </>
+                          ) : (
+                            <span className="whitespace-nowrap font-medium text-slate-600">Página {currentPage} de {totalPages}</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={currentPage >= totalPages}
+                          className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
+                          title="Página siguiente"
+                          aria-label="Página siguiente"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 18 15 12 9 6" />
+                          </svg>
+                        </button>
+                      </>
+                    ) : (
+                      <span className="px-2 text-sm font-medium text-slate-600">Página 1 de 1</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -9559,8 +9644,8 @@ export default function FirmarDocumentoPage() {
                     </div>
                   )}
 
-                  {/* ── Geo denied — blocking error ───────────────────────── */}
-                  {!geoLoading && geoDenied && (
+                  {/* ── Required geolocation evidence ─────────────────────── */}
+                  {!geoLoading && geoBlocked && (
                     <div
                       className={`flex items-start gap-3 p-4 rounded-lg border ${isDark ? 'bg-red-900/20 border-red-700/50' : 'bg-red-50 border-red-300'}`}
                     >
@@ -9572,15 +9657,14 @@ export default function FirmarDocumentoPage() {
                         <p
                           className={`text-sm font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}
                         >
-                          Ubicación requerida para firmar
+                          {geoDenied ? 'Ubicación requerida para firmar' : 'No fue posible obtener tu ubicación'}
                         </p>
                         <p
                           className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-red-400/80' : 'text-red-600'}`}
                         >
-                          Has bloqueado el acceso a tu ubicación. La ubicación geográfica es
-                          obligatoria para completar el proceso de firmado y garantizar la validez
-                          legal del documento. Activa el permiso de ubicación en la configuración de
-                          tu navegador y recarga la página para continuar.
+                          {geoDenied
+                            ? 'Debes permitir el acceso a ubicación en tu navegador y recargar la página antes de continuar.'
+                            : 'Activa los servicios de ubicación, verifica tu conexión y recarga la página antes de continuar.'}
                         </p>
                       </div>
                     </div>
@@ -11252,7 +11336,7 @@ export default function FirmarDocumentoPage() {
                       <EfirmaFirmarFlow
                         profileEfirma={profileEfirma}
                         isDark={isDark}
-                        geoDenied={geoDenied}
+                        geoDenied={geoBlocked}
                         onValidated={(certInfo, cerB64, keyB64, password, nubariumResult) => {
                           setEfirmaValidated(true);
                           // Store cert info and credentials in memory for sign-efirma call
@@ -12228,14 +12312,10 @@ export default function FirmarDocumentoPage() {
               {step === 'terminos' && (
                 <button
                   onClick={handleAceptarTerminos}
-                  disabled={!terminosAceptados || geoDenied || geoLoading}
+                  disabled={!terminosAceptados || geoBlocked || geoLoading}
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {geoLoading ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <ChevronDown size={14} className="rotate-[-90deg]" />
-                  )}
+                  {geoLoading ? <Loader2 size={14} className="animate-spin" /> : <ChevronDown size={14} className="rotate-[-90deg]" />}
                   Continuar
                 </button>
               )}
@@ -12243,7 +12323,7 @@ export default function FirmarDocumentoPage() {
               {step === 'campos' && (
                 <button
                   onClick={handleContinuarDesdeCampos}
-                  disabled={!allCamposCompleted || geoDenied || geoLoading}
+                  disabled={!allCamposCompleted || geoBlocked || geoLoading}
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {myRole === 'firmante' ? 'Ir a firmar' : 'Continuar'}
@@ -12254,7 +12334,7 @@ export default function FirmarDocumentoPage() {
               {step === 'firma' && (
                 <button
                   onClick={handleSubmit}
-                  disabled={!firmaConfirmada || submitting}
+                  disabled={!firmaConfirmada || submitting || geoBlocked || geoLoading}
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
@@ -12272,7 +12352,7 @@ export default function FirmarDocumentoPage() {
               {step === 'aprobacion' && (
                 <button
                   onClick={handleSubmit}
-                  disabled={submitting}
+                  disabled={submitting || geoBlocked || geoLoading}
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-violet-500 rounded-xl hover:bg-violet-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {submitting ? (

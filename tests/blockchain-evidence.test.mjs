@@ -133,6 +133,17 @@ test('document viewer keeps blockchain evidence visible before a proof exists', 
   assert.doesNotMatch(source, /\{blockchainEvidence && \(\s*<div[^>]+>/);
 });
 
+test('blockchain evidence uses the same authenticated participant access as the document viewer', () => {
+  const access = readFileSync('src/lib/blockchain-evidence/access.ts', 'utf8');
+  const viewer = readFileSync('src/app/api/documentos/[documentId]/viewer-file/route.ts', 'utf8');
+
+  assert.match(access, /service\.auth\.getUser\(authorization\.slice\(7\)\.trim\(\)\)/);
+  assert.match(access, /\.select\('participantes'\)/);
+  assert.match(access, /row\.id === user\.id/);
+  assert.match(access, /normalizeEmail\(row\.email\) === email/);
+  assert.match(viewer, /let participant = isParticipant\(document\.participantes, user\.id, email\)/);
+});
+
 test('blockchain evidence is automatic and cannot be disabled during document creation', () => {
   const upload = readFileSync('src/app/crear-documento/components/StepSubir.tsx', 'utf8');
   const send = readFileSync('src/app/api/documentos/enviar/route.ts', 'utf8');

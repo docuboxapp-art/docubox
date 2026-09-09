@@ -3192,6 +3192,7 @@ export default function AutographSignatureFlow({
   // ── Persisted signature data (survives pad unmount) ────────────────────────
   const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string | null>(null);
   const [savedSignatureStrokes, setSavedSignatureStrokes] = useState<any[] | null>(null);
+  const savedSignatureRef = useRef<{ dataUrl: string; strokes: any[] } | null>(null);
 
   // Frames
   const framesRef = useRef<{
@@ -3244,15 +3245,20 @@ export default function AutographSignatureFlow({
           return resolve(null);
         }
         navigator.geolocation.getCurrentPosition(
-          (pos) =>
+          (pos) => {
+            if (!Number.isFinite(pos.coords.latitude) || !Number.isFinite(pos.coords.longitude)) {
+              setGeoDenied(true);
+              return resolve(null);
+            }
             resolve({
               latitude: pos.coords.latitude,
               longitude: pos.coords.longitude,
               accuracy_meters: pos.coords.accuracy,
               source: 'browser_api',
-            }),
-          (err) => {
-            if (err.code === 1 /* PERMISSION_DENIED */) setGeoDenied(true);
+            });
+          },
+          () => {
+            setGeoDenied(true);
             resolve(null);
           },
           { enableHighAccuracy: true, timeout: 10000 }
@@ -3344,15 +3350,29 @@ export default function AutographSignatureFlow({
       const ratio = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
-      // Save current drawing
+      const priorWidth = canvas.width / ratio || rect.width;
+      const priorHeight = canvas.height / ratio || rect.height;
+      // Preserve the drawing proportionally when compact and expanded views
+      // change the physical canvas dimensions.
       const data = padRef.current?.toData?.() ?? [];
       canvas.width = Math.floor(rect.width * ratio);
       canvas.height = Math.floor(rect.height * ratio);
       const ctx = canvas.getContext('2d');
       if (ctx) ctx.scale(ratio, ratio);
-      // Restore drawing after resize
+      // Restore the drawing in the new coordinate space so every visible part
+      // of the expanded canvas remains interactive.
       if (padRef.current && data.length) {
-        padRef.current.fromData(data);
+        padRef.current.clear();
+        padRef.current.fromData(
+          data.map((stroke: any) => ({
+            ...stroke,
+            points: stroke.points.map((point: any) => ({
+              ...point,
+              x: (point.x * rect.width) / priorWidth,
+              y: (point.y * rect.height) / priorHeight,
+            })),
+          }))
+        );
       }
     };
 
@@ -3405,6 +3425,11 @@ export default function AutographSignatureFlow({
     }
   }, []);
 
+  const captureConfirmationFrame = useCallback(async () => {
+    if (!autographSignatureCapabilities.identityVerification) return;
+    framesRef.current.frame3 = await captureFrame('confirmation');
+  }, [captureFrame]);
+
   // ── Init signature_pad ─────────────────────────────────────────────────────
   useEffect(() => {
     if (flowStep !== 'pad') return;
@@ -3434,14 +3459,20 @@ export default function AutographSignatureFlow({
 
       pad.addEventListener('beginStroke', async () => {
         setHasStrokes(true);
-        if (!framesRef.current.strokeStartCaptured) {
+        setSendError(null);
+        if (
+          autographSignatureCapabilities.identityVerification &&
+          !framesRef.current.strokeStartCaptured
+        ) {
           framesRef.current.strokeStartCaptured = true;
           framesRef.current.frame1 = await captureFrame('stroke_start');
         }
       });
 
       pad.addEventListener('endStroke', async () => {
-        framesRef.current.frame2 = await captureFrame('stroke_end');
+        if (autographSignatureCapabilities.identityVerification) {
+          framesRef.current.frame2 = await captureFrame('stroke_end');
+        }
       });
     };
     initPad();
@@ -3469,14 +3500,23 @@ export default function AutographSignatureFlow({
   // ── Handle pad confirm ─────────────────────────────────────────────────────
   const handlePadConfirm = () => {
     if (!padRef.current || padRef.current.isEmpty()) return;
-    // Save signature data before unmounting the pad
-    setSavedSignatureDataUrl(padRef.current.toDataURL('image/png'));
-    setSavedSignatureStrokes(padRef.current.toData());
+    setSendError(null);
+    // Keep an immediate copy because React state is asynchronous and the pad
+    // unmounts as soon as the flow advances to the sending screen.
+    const capture = {
+      dataUrl: padRef.current.toDataURL('image/png'),
+      strokes: padRef.current.toData(),
+    };
+    savedSignatureRef.current = capture;
+    setSavedSignatureDataUrl(capture.dataUrl);
+    setSavedSignatureStrokes(capture.strokes);
     void continueAfterSignature();
   };
 
   const handlePadClear = () => {
     padRef.current?.clear();
+    setSendError(null);
+    savedSignatureRef.current = null;
     setSavedSignatureDataUrl(null);
     setSavedSignatureStrokes(null);
     setHasStrokes(false);
@@ -3485,8 +3525,13 @@ export default function AutographSignatureFlow({
 
   const openMobileSignature = () => {
     if (padRef.current && !padRef.current.isEmpty()) {
-      setSavedSignatureDataUrl(padRef.current.toDataURL('image/png'));
-      setSavedSignatureStrokes(padRef.current.toData());
+      const capture = {
+        dataUrl: padRef.current.toDataURL('image/png'),
+        strokes: padRef.current.toData(),
+      };
+      savedSignatureRef.current = capture;
+      setSavedSignatureDataUrl(capture.dataUrl);
+      setSavedSignatureStrokes(capture.strokes);
     }
     setFlowStep('mobile_signature');
   };
@@ -3504,7 +3549,7 @@ export default function AutographSignatureFlow({
     setOtpVerified(false);
     setSendError(null);
     setFlowStep('sending');
-    framesRef.current.frame3 = await captureFrame('confirmation');
+    await captureConfirmationFrame();
     await sendAll();
   };
 
@@ -3524,7 +3569,7 @@ export default function AutographSignatureFlow({
       setOtpVerified(true);
       setFlowStep('sending');
       setSendError(null);
-      framesRef.current.frame3 = await captureFrame('confirmation');
+      await captureConfirmationFrame();
       await sendAll(bioData);
       return;
     }
@@ -3535,7 +3580,7 @@ export default function AutographSignatureFlow({
       setOtpVerified(true);
       setFlowStep('sending');
       setSendError(null);
-      framesRef.current.frame3 = await captureFrame('confirmation');
+      await captureConfirmationFrame();
       await sendAll(bioData);
       return;
     }
@@ -3628,7 +3673,7 @@ export default function AutographSignatureFlow({
 
     setFlowStep('sending');
     setSendError(null);
-    framesRef.current.frame3 = await captureFrame('confirmation');
+    await captureConfirmationFrame();
     await sendAll();
   };
 
@@ -3649,7 +3694,10 @@ export default function AutographSignatureFlow({
       if (padRef.current && !padRef.current.isEmpty()) {
         imageDataUrl = padRef.current.toDataURL('image/png');
         rawStrokes = padRef.current.toData();
-      } else if (savedSignatureDataUrl && savedSignatureStrokes) {
+      } else if (savedSignatureRef.current?.dataUrl && savedSignatureRef.current.strokes.length) {
+        imageDataUrl = savedSignatureRef.current.dataUrl;
+        rawStrokes = savedSignatureRef.current.strokes;
+      } else if (savedSignatureDataUrl && savedSignatureStrokes?.length) {
         imageDataUrl = savedSignatureDataUrl;
         rawStrokes = savedSignatureStrokes;
       } else {
@@ -3816,11 +3864,16 @@ export default function AutographSignatureFlow({
       let finalEvidenceId = evidenceIdVal;
       let finalCapturedAt = capturedAtVal;
 
-      if (persistRes?.ok) {
-        const persistData = await persistRes.json().catch(() => ({}));
-        finalEvidenceId = persistData.evidenceId || evidenceIdVal;
-        finalCapturedAt = persistData.capturedAt || capturedAtVal;
+      if (!persistRes?.ok) {
+        const persistData = await persistRes?.json().catch(() => ({}));
+        throw new Error(
+          persistData?.error ||
+            'No fue posible registrar la evidencia obligatoria de la firma.'
+        );
       }
+      const persistData = await persistRes.json().catch(() => ({}));
+      finalEvidenceId = persistData.evidenceId || evidenceIdVal;
+      finalCapturedAt = persistData.capturedAt || capturedAtVal;
 
       setPersistedEvidenceId(finalEvidenceId);
       setPersistedCapturedAt(finalCapturedAt);
@@ -3896,7 +3949,7 @@ export default function AutographSignatureFlow({
           </p>
           {geoDenied && (
             <div
-              className={`flex items-start gap-3 p-3 rounded-lg border ${isDark ? 'bg-amber-900/20 border-amber-700/50' : 'bg-amber-50 border-amber-200'}`}
+              className={`flex items-start gap-3 p-3 rounded-lg border ${isDark ? 'bg-red-900/20 border-red-700/50' : 'bg-red-50 border-red-300'}`}
             >
               <svg
                 width="16"
@@ -3907,7 +3960,7 @@ export default function AutographSignatureFlow({
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="text-amber-500 flex-shrink-0 mt-0.5"
+                className="text-red-500 flex-shrink-0 mt-0.5"
               >
                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                 <line x1="12" y1="9" x2="12" y2="13" />
@@ -3915,16 +3968,15 @@ export default function AutographSignatureFlow({
               </svg>
               <div>
                 <p
-                  className={`text-xs font-semibold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}
+                  className={`text-xs font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}
                 >
-                  Acceso a ubicación bloqueado
+                  Ubicación requerida para firmar
                 </p>
                 <p
-                  className={`text-xs mt-0.5 leading-relaxed ${isDark ? 'text-amber-300/80' : 'text-amber-600'}`}
+                  className={`text-xs mt-0.5 leading-relaxed ${isDark ? 'text-red-300/80' : 'text-red-600'}`}
                 >
-                  Has bloqueado el acceso a tu ubicación. La firma se registrará sin coordenadas
-                  geográficas. Para incluir tu ubicación, activa el permiso en la configuración de
-                  tu navegador y recarga la página.
+                  Debes permitir el acceso a ubicación en tu navegador y recargar la página. Sin
+                  coordenadas válidas no se puede registrar esta firma.
                 </p>
               </div>
             </div>
@@ -3932,10 +3984,12 @@ export default function AutographSignatureFlow({
           <button
             type="button"
             onClick={() => {
+              if (geoDenied) return;
               onNoticeAccepted?.();
               setFlowStep('pad');
             }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
+            disabled={geoDenied}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Check size={14} />
             Entendido — Continuar
@@ -4157,6 +4211,10 @@ export default function AutographSignatureFlow({
         isDark={isDark}
         onBack={() => setFlowStep('pad')}
         onSignatureCaptured={(capture) => {
+          savedSignatureRef.current = {
+            dataUrl: capture.signatureDataUrl,
+            strokes: capture.strokes,
+          };
           setSavedSignatureDataUrl(capture.signatureDataUrl);
           setSavedSignatureStrokes(capture.strokes);
           if (capture.sessionEvidence) setSessionEvidence(capture.sessionEvidence);

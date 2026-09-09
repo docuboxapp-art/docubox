@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Loader2, PenLine, RotateCcw, RotateCw, ShieldCheck, X } from 'lucide-react';
+import { Check, Loader2, MapPin, PenLine, RotateCcw, RotateCw, ShieldCheck, X } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 
 type StrokeSize = 'thin' | 'medium' | 'thick';
+type GeolocationStatus = 'loading' | 'ready' | 'denied' | 'unavailable';
 
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
@@ -25,7 +26,41 @@ export default function MobileSignaturePage() {
   const [penColor, setPenColor] = useState('#0a0a0f');
   const [strokeSize, setStrokeSize] = useState<StrokeSize>('thin');
   const [orientationMessage, setOrientationMessage] = useState('');
-  const [secondsUntilClose, setSecondsUntilClose] = useState(3);
+  const [secondsUntilClose, setSecondsUntilClose] = useState(5);
+  const [geolocationStatus, setGeolocationStatus] = useState<GeolocationStatus>('loading');
+  const geolocationRef = useRef<{
+    latitude: number;
+    longitude: number;
+    accuracy_meters: number;
+    source: 'browser_api';
+  } | null>(null);
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setGeolocationStatus('unavailable');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          setGeolocationStatus('unavailable');
+          return;
+        }
+        geolocationRef.current = {
+          latitude,
+          longitude,
+          accuracy_meters: Number.isFinite(accuracy) ? accuracy : 0,
+          source: 'browser_api',
+        };
+        setGeolocationStatus('ready');
+      },
+      (positionError) => {
+        setGeolocationStatus(positionError.code === 1 ? 'denied' : 'unavailable');
+      },
+      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 }
+    );
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -77,12 +112,24 @@ export default function MobileSignaturePage() {
           }))
         );
       };
-      resizePad();
-      const onViewportResize = () => window.requestAnimationFrame(resizePad);
+      let resizeFrame: number | null = null;
+      const scheduleResize = () => {
+        if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+        resizeFrame = window.requestAnimationFrame(() => {
+          resizeFrame = null;
+          resizePad();
+        });
+      };
+      const observer = new ResizeObserver(scheduleResize);
+      observer.observe(canvas);
+      scheduleResize();
+      const onViewportResize = scheduleResize;
       window.addEventListener('resize', onViewportResize);
       window.visualViewport?.addEventListener('resize', onViewportResize);
       setPadReady(true);
       return () => {
+        observer.disconnect();
+        if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
         window.removeEventListener('resize', onViewportResize);
         window.visualViewport?.removeEventListener('resize', onViewportResize);
       };
@@ -114,13 +161,13 @@ export default function MobileSignaturePage() {
   useEffect(() => {
     if (screen !== 'success') return;
 
-    setSecondsUntilClose(3);
+    setSecondsUntilClose(5);
     const startedAt = Date.now();
     const interval = window.setInterval(() => {
-      const secondsRemaining = Math.max(0, 3 - Math.floor((Date.now() - startedAt) / 1000));
+      const secondsRemaining = Math.max(0, 5 - Math.floor((Date.now() - startedAt) / 1000));
       setSecondsUntilClose(secondsRemaining);
     }, 200);
-    const closeTimer = window.setTimeout(closePage, 3_000);
+    const closeTimer = window.setTimeout(closePage, 5_000);
 
     return () => {
       window.clearInterval(interval);
@@ -175,6 +222,14 @@ export default function MobileSignaturePage() {
   const submit = useCallback(async () => {
     const pad = padRef.current;
     if (!pad || pad.isEmpty()) return;
+    if (geolocationStatus !== 'ready' || !geolocationRef.current) {
+      setError(
+        geolocationStatus === 'denied'
+          ? 'Debes permitir el acceso a tu ubicación para enviar la firma.'
+          : 'No fue posible obtener una ubicación válida. Activa la ubicación e inténtalo de nuevo.'
+      );
+      return;
+    }
     setScreen('sending');
     try {
       const fingerprintSeed = JSON.stringify({
@@ -199,7 +254,7 @@ export default function MobileSignaturePage() {
             screen: `${globalThis.screen.width}x${globalThis.screen.height}x${globalThis.screen.colorDepth}`,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             touch_points: navigator.maxTouchPoints,
-            geo: null,
+            geo: geolocationRef.current,
           },
           deviceFingerprint: {
             visitor_id: fingerprintId,
@@ -220,7 +275,7 @@ export default function MobileSignaturePage() {
       setError(submitError instanceof Error ? submitError.message : 'No fue posible enviar la firma.');
       setScreen('draw');
     }
-  }, [token]);
+  }, [geolocationStatus, token]);
 
   const darkLine = '#475569';
   const thicknesses: Array<{ size: StrokeSize; width: number; label: string }> = [
@@ -230,10 +285,10 @@ export default function MobileSignaturePage() {
   ];
 
   return (
-    <main className="min-h-dvh bg-slate-50 px-4 py-7 text-slate-900 landscape:px-3 landscape:py-3">
-      <div className="mx-auto w-full max-w-lg landscape:max-w-3xl">
-        <AppLogo className="mb-6 justify-center landscape:mb-3" imageClassName="h-auto" />
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <main className="min-h-dvh bg-slate-50 px-4 py-7 text-slate-900 landscape:h-dvh landscape:min-h-0 landscape:overflow-hidden landscape:px-3 landscape:py-3">
+      <div className="mx-auto w-full max-w-lg landscape:flex landscape:h-full landscape:max-w-3xl landscape:flex-col">
+        <AppLogo className="mb-6 justify-center landscape:mb-1.5" imageClassName="h-auto" />
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm landscape:flex landscape:min-h-0 landscape:flex-1 landscape:flex-col">
           {screen === 'loading' && (
             <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="animate-spin" size={18} /> Abriendo firma segura…</div>
           )}
@@ -250,16 +305,22 @@ export default function MobileSignaturePage() {
             </div>
           )}
           {(screen === 'draw' || screen === 'sending') && (
-            <>
+            <div className="landscape:flex landscape:min-h-0 landscape:flex-1 landscape:flex-col">
               <header className="border-b border-slate-200 bg-slate-50 px-4 py-3 landscape:px-3 landscape:py-2">
                 <div className="flex items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-2"><PenLine size={17} className="shrink-0 text-primary" /><h1 className="truncate text-sm font-semibold">Firma autógrafa digital</h1></div><button type="button" onClick={requestLandscape} title="Gira el teléfono para firmar en horizontal" aria-label="Gira el teléfono para firmar en horizontal" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600 landscape:hidden"><RotateCw size={15} /> Girar teléfono</button></div>
                 <p className="mt-1 truncate pl-6 text-xs text-slate-500">{documentName}</p>
               </header>
-              <div className="p-4 landscape:p-3">
+              <div className="p-4 landscape:flex landscape:min-h-0 landscape:flex-1 landscape:flex-col landscape:p-3">
                 <p className="mb-3 text-sm text-slate-600 landscape:mb-2">Dibuja tu firma en el recuadro.</p>
+                {geolocationStatus !== 'ready' && (
+                  <div className={`mb-3 flex items-start gap-2 rounded-md border px-3 py-2 text-xs landscape:mb-2 ${geolocationStatus === 'loading' ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                    {geolocationStatus === 'loading' ? <Loader2 className="mt-0.5 shrink-0 animate-spin" size={14} /> : <MapPin className="mt-0.5 shrink-0" size={14} />}
+                    <span>{geolocationStatus === 'loading' ? 'Verificando la ubicación requerida para firmar…' : geolocationStatus === 'denied' ? 'Debes permitir el acceso a ubicación en este teléfono y recargar la página antes de firmar.' : 'No fue posible obtener tu ubicación. Activa los servicios de ubicación, verifica tu conexión y recarga la página.'}</span>
+                  </div>
+                )}
                 {orientationMessage && <p className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 landscape:mb-2">{orientationMessage}</p>}
-                <div className="flex flex-col gap-2 landscape:flex-row">
-                  <div className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:flex-1 landscape:aspect-auto landscape:h-[calc(100dvh-185px)] landscape:min-h-[230px] landscape:max-h-[420px]" style={{ touchAction: 'none' }}>
+                <div className="flex flex-col gap-2 landscape:min-h-0 landscape:flex-1 landscape:flex-row">
+                  <div className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:h-auto landscape:min-h-0 landscape:flex-1 landscape:aspect-auto" style={{ touchAction: 'none' }}>
                     <canvas ref={canvasRef} className="block h-full w-full cursor-crosshair" style={{ touchAction: 'none' }} />
                     {!hasStrokes && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-center text-slate-400"><div><PenLine size={28} className="mx-auto mb-1 text-slate-300" /><p className="text-xs">Dibuja tu firma aquí</p></div></div>}
                     <div className="pointer-events-none absolute bottom-10 left-6 right-6 border-b border-slate-200" />
@@ -272,13 +333,13 @@ export default function MobileSignaturePage() {
                 </div>
                 {!padReady && <p className="mt-3 flex items-center gap-2 text-xs text-slate-400"><Loader2 className="animate-spin" size={13} /> Cargando pad de firma…</p>}
                 {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
-                <div className="mt-4 flex gap-2 landscape:mt-2">
+                <div className="mt-4 flex shrink-0 gap-2 landscape:mt-2">
                   <button type="button" onClick={clear} disabled={screen === 'sending'} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 disabled:opacity-50"><RotateCcw size={14} /> Limpiar</button>
-                  <button type="button" onClick={submit} disabled={!hasStrokes || screen === 'sending'} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{screen === 'sending' ? <Loader2 className="animate-spin" size={15} /> : <Check size={15} />} Confirmar firma</button>
+                  <button type="button" onClick={submit} disabled={!hasStrokes || screen === 'sending' || geolocationStatus !== 'ready'} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{screen === 'sending' ? <Loader2 className="animate-spin" size={15} /> : geolocationStatus === 'loading' ? <Loader2 className="animate-spin" size={15} /> : <Check size={15} />} Confirmar firma</button>
                 </div>
-                <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-slate-400 landscape:mt-2"><ShieldCheck size={13} /> Enlace temporal y de un solo uso</p>
+                <p className="mt-4 flex shrink-0 items-center justify-center gap-1.5 text-center text-xs text-slate-400 landscape:mt-2"><ShieldCheck size={13} /> Enlace temporal y de un solo uso</p>
               </div>
-            </>
+            </div>
           )}
         </section>
       </div>

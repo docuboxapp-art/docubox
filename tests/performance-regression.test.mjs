@@ -32,7 +32,7 @@ test('protected namespaces cannot bypass the session policy with static-looking 
 test('invalid refresh material is cleared instead of retried', () => {
   assert.match(middleware, /refresh_token_not_found/);
   assert.match(middleware, /hasMalformedSessionCookie/);
-  assert.match(middleware, /error\.code === '42501'/);
+  assert.match(middleware, /INVALID_SESSION_ERROR_CODES/);
   assert.match(middleware, /unauthenticatedResponse/);
   assert.doesNotMatch(middleware, /retry/i);
 });
