@@ -86,22 +86,22 @@ export default function PortalParticipantePage() {
         {
           id: 'login',
           icon: KeyRound,
-          title: 'Acceder a mi cuenta',
-          description: `Inicia sesión para revisar y ${actionLabel} el documento.`,
+          title: 'Cuento con mi usuario y contraseña',
+          description: `Ingresar para ${actionLabel} el documento.`,
           onClick: () => router.push(`/login?redirect=/visor-documento&portal_token=${token}`),
         },
         {
           id: 'forgot',
           icon: RotateCcw,
-          title: 'Restablecer contraseña',
-          description: 'Recupera el acceso a tu cuenta.',
+          title: 'He firmado previamente',
+          description: 'No recuerdo mi usuario o contraseña.',
           onClick: () => router.push('/olvide-contrasena'),
         },
         {
           id: 'help',
           icon: CircleHelp,
-          title: 'Solicitar ayuda',
-          description: `Te orientamos para completar tu ${actionNoun}.`,
+          title: 'Necesito ayuda',
+          description: `Necesito ayuda en el proceso de ${actionNoun} del documento.`,
           onClick: () => router.push('/ayuda-firmado'),
         },
       ]
@@ -109,15 +109,15 @@ export default function PortalParticipantePage() {
         {
           id: 'register',
           icon: PenLine,
-          title: 'Crear mi acceso',
-          description: `Regístrate para revisar y ${actionLabel} el documento.`,
+          title: `Es la primera vez que ${isApproval ? 'apruebo' : 'firmo'} un documento`,
+          description: 'Iniciar proceso.',
           onClick: () => router.push(`/registro-participante/${token}`),
         },
         {
           id: 'help',
           icon: CircleHelp,
-          title: 'Solicitar ayuda',
-          description: `Te orientamos para completar tu ${actionNoun}.`,
+          title: 'Necesito ayuda',
+          description: `Necesito ayuda en el proceso de ${actionNoun} del documento.`,
           onClick: () => router.push('/ayuda-firmado'),
         },
       ];
@@ -180,12 +180,12 @@ export default function PortalParticipantePage() {
                   ) : (
                     <>
                       <h2 className="text-2xl font-700 leading-tight text-slate-950 sm:text-3xl">
-                        ¡Hola!
+                        ¡Hola! Has recibido una invitación para {actionLabel}{' '}
+                        <span className="whitespace-nowrap">un documento.</span>
                       </h2>
                       <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-                        Tienes una invitación pendiente para {actionLabel}{' '}
-                        <strong className="font-700 text-slate-800">“{info?.documentName}”</strong>. Elige una
-                        opción para continuar.
+                        <strong className="font-700 text-slate-800">“{info?.documentName}”</strong>. Para
+                        ayudarte mejor, selecciona una de las siguientes opciones.
                       </p>
                     </>
                   )}
@@ -208,7 +208,7 @@ export default function PortalParticipantePage() {
                 {!loading && <section aria-labelledby="continuar-title">
                   <div className="mb-4">
                     <h3 id="continuar-title" className="text-base font-700 text-slate-950">
-                      Elige una opción
+                      ¿Cómo deseas continuar?
                     </h3>
                   </div>
 
