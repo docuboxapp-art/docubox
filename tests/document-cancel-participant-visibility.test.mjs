@@ -131,7 +131,8 @@ test('participant portal resolves a real document name without caching the capab
   assert.match(portalPage, /const options = isRegistered/);
   assert.match(portalPage, /id: 'login'/);
   assert.match(portalPage, /id: 'register'/);
-  assert.match(portalPage, /Tienes una invitación pendiente para/);
+  assert.match(portalPage, /Tienes una invitación a \{actionLabel\} un documento/);
+  assert.match(portalPage, /Selecciona una opción para continuar/);
   assert.match(portalPage, /¡Hola\{greetingName/);
   assert.match(portalPage, /formatExpiration/);
   assert.match(portalPage, /Invitado por/);

@@ -217,7 +217,8 @@ export default function PortalParticipantePage() {
                         ¡Hola{greetingName ? `, ${greetingName}` : ''}!
                       </h2>
                       <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-                        Tienes una invitación pendiente para {actionLabel}. Selecciona una opción para continuar.
+                        Tienes una invitación a {actionLabel} un documento.<br />
+                        Selecciona una opción para continuar.
                       </p>
                     </>
                   )}
