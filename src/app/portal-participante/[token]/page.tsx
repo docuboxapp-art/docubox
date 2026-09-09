@@ -78,6 +78,7 @@ export default function PortalParticipantePage() {
 
   const isApproval = info?.acto === 'aprobar';
   const actionLabel = isApproval ? 'aprobar' : 'firmar';
+  const actionNoun = isApproval ? 'aprobación' : 'firma';
   const isRegistered = info?.isRegistered === true;
 
   const options = isRegistered
@@ -85,22 +86,22 @@ export default function PortalParticipantePage() {
         {
           id: 'login',
           icon: KeyRound,
-          title: 'Ingresar con mi cuenta',
-          description: `Accede para ${actionLabel} el documento.`,
+          title: 'Acceder a mi cuenta',
+          description: `Inicia sesión para revisar y ${actionLabel} el documento.`,
           onClick: () => router.push(`/login?redirect=/visor-documento&portal_token=${token}`),
         },
         {
           id: 'forgot',
           icon: RotateCcw,
-          title: 'Recuperar mi contraseña',
-          description: 'Restablece tu acceso para continuar.',
+          title: 'Restablecer contraseña',
+          description: 'Recupera el acceso a tu cuenta.',
           onClick: () => router.push('/olvide-contrasena'),
         },
         {
           id: 'help',
           icon: CircleHelp,
-          title: 'Necesito ayuda',
-          description: `Obtén ayuda con tu ${isApproval ? 'aprobación' : 'firma'}.`,
+          title: 'Solicitar ayuda',
+          description: `Te orientamos para completar tu ${actionNoun}.`,
           onClick: () => router.push('/ayuda-firmado'),
         },
       ]
@@ -108,15 +109,15 @@ export default function PortalParticipantePage() {
         {
           id: 'register',
           icon: PenLine,
-          title: 'Registrarme para participar',
-          description: `Crea tu acceso para ${actionLabel} el documento.`,
+          title: 'Crear mi acceso',
+          description: `Regístrate para revisar y ${actionLabel} el documento.`,
           onClick: () => router.push(`/registro-participante/${token}`),
         },
         {
           id: 'help',
           icon: CircleHelp,
-          title: 'Necesito ayuda',
-          description: `Obtén ayuda con tu ${isApproval ? 'aprobación' : 'firma'}.`,
+          title: 'Solicitar ayuda',
+          description: `Te orientamos para completar tu ${actionNoun}.`,
           onClick: () => router.push('/ayuda-firmado'),
         },
       ];
@@ -182,9 +183,9 @@ export default function PortalParticipantePage() {
                         ¡Hola!
                       </h2>
                       <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-                        Tienes una participación pendiente en{' '}
-                        <strong className="font-700 text-slate-800">“{info?.documentName}”</strong>. Elige cómo
-                        deseas continuar.
+                        Tienes una invitación pendiente para {actionLabel}{' '}
+                        <strong className="font-700 text-slate-800">“{info?.documentName}”</strong>. Elige una
+                        opción para continuar.
                       </p>
                     </>
                   )}
@@ -207,7 +208,7 @@ export default function PortalParticipantePage() {
                 {!loading && <section aria-labelledby="continuar-title">
                   <div className="mb-4">
                     <h3 id="continuar-title" className="text-base font-700 text-slate-950">
-                      ¿Cómo deseas continuar?
+                      Elige una opción
                     </h3>
                   </div>
 
