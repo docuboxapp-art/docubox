@@ -24,7 +24,11 @@ const currentSessionPolicyMigration = await read(
 test('middleware performs no remote authentication without session material', () => {
   assert.match(middleware, /if \(!hasSessionMaterial\(request\)\)/);
   assert.doesNotMatch(middleware, /supabase\.auth\.getUser\(\)/);
-  assert.equal(middleware.match(/supabase\.rpc\('enforce_docubox_session_policy'/g)?.length, 1);
+  assert.ok(
+    middleware.indexOf('if (!hasSessionMaterial(request))') <
+      middleware.indexOf("supabase.rpc('enforce_docubox_session_policy'"),
+    'the session-policy RPC must remain after the no-session fast path'
+  );
 });
 
 test('protected namespaces cannot bypass the session policy with static-looking suffixes', () => {
@@ -37,7 +41,10 @@ test('invalid refresh material is cleared instead of retried', () => {
   assert.match(middleware, /hasMalformedSessionCookie/);
   assert.match(middleware, /INVALID_SESSION_ERROR_CODES/);
   assert.match(middleware, /unauthenticatedResponse/);
-  assert.doesNotMatch(middleware, /retry/i);
+  assert.doesNotMatch(
+    middleware,
+    /if \(isInvalidSessionError\(result\.error\)\)[\s\S]{0,220}waitForSessionPolicyRetry\(\)/
+  );
 });
 
 test('current session policy keeps the twenty-minute limit without serializing normal navigation', () => {

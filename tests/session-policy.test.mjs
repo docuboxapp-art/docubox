@@ -94,6 +94,14 @@ test('temporary policy or permission errors do not erase an otherwise valid sess
   assert.match(middleware, /status: 503/);
 });
 
+test('a transient PostgREST schema-cache miss receives one bounded retry', () => {
+  assert.match(middleware, /TRANSIENT_SESSION_POLICY_ERROR_CODES = new Set\(\['PGRST002'\]\)/);
+  assert.match(middleware, /SESSION_POLICY_RETRY_DELAY_MS = 350/);
+  assert.match(middleware, /if \(isTransientSessionPolicyError\(result\.error\)\)/);
+  assert.match(middleware, /await waitForSessionPolicyRetry\(\);/);
+  assert.match(middleware, /persistent failure still blocks protected traffic/);
+});
+
 test('session expiry is auditable and protected from direct table access', () => {
   assert.match(migration, /session_timeout_inactivity/);
   assert.match(migration, /session_timeout_absolute/);

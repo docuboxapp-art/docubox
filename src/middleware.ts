@@ -45,6 +45,8 @@ type SessionPolicyRow = { active?: unknown; reason?: unknown };
 type SessionPolicyError = { code?: string; message?: string; status?: number };
 
 const INVALID_SESSION_ERROR_CODES = new Set(['refresh_token_not_found', 'bad_jwt', 'PGRST301']);
+const TRANSIENT_SESSION_POLICY_ERROR_CODES = new Set(['PGRST002']);
+const SESSION_POLICY_RETRY_DELAY_MS = 350;
 
 function getPolicyRow(value: unknown): SessionPolicyRow | null {
   const row = Array.isArray(value) ? value[0] : value;
@@ -91,6 +93,16 @@ function isInvalidSessionError(error: SessionPolicyError | null) {
     message.includes('jwt expired') ||
     message.includes('invalid jwt')
   );
+}
+
+function isTransientSessionPolicyError(error: SessionPolicyError | null) {
+  if (!error) return false;
+  if (error.code && TRANSIENT_SESSION_POLICY_ERROR_CODES.has(error.code)) return true;
+  return (error.message?.toLowerCase() || '').includes('schema cache');
+}
+
+function waitForSessionPolicyRetry() {
+  return new Promise<void>((resolve) => setTimeout(resolve, SESSION_POLICY_RETRY_DELAY_MS));
 }
 
 function unauthenticatedResponse(
@@ -310,9 +322,17 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   let policyError: SessionPolicyError | null = null;
   const sessionPolicyStartedAt = performance.now();
   try {
-    const result = await supabase.rpc('enforce_docubox_session_policy', {
+    let result = await supabase.rpc('enforce_docubox_session_policy', {
       p_record_user_activity: false,
     });
+    if (isTransientSessionPolicyError(result.error)) {
+      // PostgREST can briefly return PGRST002 while rebuilding its schema cache.
+      // Retry once only; a persistent failure still blocks protected traffic.
+      await waitForSessionPolicyRetry();
+      result = await supabase.rpc('enforce_docubox_session_policy', {
+        p_record_user_activity: false,
+      });
+    }
     policyData = result.data;
     policyError = result.error;
   } catch (error) {
