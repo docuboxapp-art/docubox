@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { AlertTriangle, Save, AlertCircle } from 'lucide-react';
+import { Save, AlertCircle } from 'lucide-react';
 
 export function ExitConfirmModal({
   onClose,
@@ -26,14 +26,9 @@ export function ExitConfirmModal({
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         <div className="p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
-              <AlertTriangle size={20} className="text-amber-500" />
-            </div>
-            <div>
+          <div className="mb-4">
               <h2 className="text-lg font-bold text-gray-900">¿Deseas salir?</h2>
               <p className="text-sm text-gray-500">Tienes cambios sin guardar en este documento.</p>
-            </div>
           </div>
           <p className="text-sm text-gray-600 mb-4">
             Puedes guardar tu avance como borrador para continuar más tarde, o salir sin guardar y perder los cambios realizados.
@@ -48,7 +43,7 @@ export function ExitConfirmModal({
             <button
               onClick={onSaveDraft}
               disabled={saving || !canSave}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? (
                 <>
@@ -64,13 +59,13 @@ export function ExitConfirmModal({
             </button>
             <button
               onClick={onExitWithoutSave}
-              className="w-full px-4 py-2.5 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors"
+              className="h-9 w-full rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
             >
               Salir sin guardar
             </button>
             <button
               onClick={onClose}
-              className="w-full px-4 py-2.5 border border-gray-200 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+              className="h-9 w-full rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
               Cancelar
             </button>

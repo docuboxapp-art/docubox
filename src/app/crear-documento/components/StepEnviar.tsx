@@ -167,7 +167,7 @@ const ALLOWED_MIME_TYPES = [
   'image/png',
   'image/jpeg',
 ];
-const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
+const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 // ─── CAPA 2: Sanitización PDF con pdf-lib (cliente) ──────────────────────────
 async function sanitizePDFClient(file: File): Promise<Uint8Array> {
@@ -428,7 +428,7 @@ export const StepEnviar = forwardRef<
       if (!docuboxSource && preProcessedFile && preProcessedFile.status !== 'ready') {
         if (preProcessedFile.status === 'error_grande') {
           setScanState('error_grande');
-          throw new Error('El archivo supera el límite de 50MB.');
+          throw new Error('El archivo supera el límite de 25MB.');
         }
         if (preProcessedFile.status === 'error_tipo') {
           setScanState('error_tipo');
@@ -445,7 +445,7 @@ export const StepEnviar = forwardRef<
       if (docuboxSource) {
         if (file.size > MAX_FILE_SIZE_BYTES) {
           setScanState('error_grande');
-          throw new Error('El archivo supera el límite de 50MB.');
+          throw new Error('El archivo supera el límite de 25MB.');
         }
         detectedMime = await validateMimeByMagicBytes(file);
         if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
@@ -470,7 +470,7 @@ export const StepEnviar = forwardRef<
         );
         if (file.size > MAX_FILE_SIZE_BYTES) {
           setScanState('error_grande');
-          throw new Error('El archivo supera el límite de 50MB.');
+          throw new Error('El archivo supera el límite de 25MB.');
         }
         detectedMime = await validateMimeByMagicBytes(file);
         if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
@@ -619,6 +619,16 @@ export const StepEnviar = forwardRef<
           selloUbicacion: effectiveSecurity?.selloUbicacion || 'calce',
           estampaAutenticacion: effectiveSecurity?.estampaAutenticacion ?? false,
           blockchainEvidence: true,
+          vencimientoEnabled: effectiveSecurity?.vencimientoEnabled ?? false,
+          fechaVencimiento: effectiveSecurity?.fechaVencimiento || null,
+          fechaVencimientoTimezone: effectiveSecurity?.fechaVencimientoTimezone || null,
+          recordatorioFrecuencia: effectiveSecurity?.recordatorioFrecuencia || null,
+          proteccionAdicionalEnabled: effectiveSecurity?.proteccionAdicionalEnabled ?? false,
+          impedirImpresion: effectiveSecurity?.impedirImpresion ?? false,
+          evitarCopiaTexto: effectiveSecurity?.evitarCopiaTexto ?? false,
+          impedirModificacion: effectiveSecurity?.impedirModificacion ?? false,
+          impedirExtraccion: effectiveSecurity?.impedirExtraccion ?? false,
+          evitarMontaje: effectiveSecurity?.evitarMontaje ?? false,
           legalHoldEnabled: effectiveSecurity?.legalHoldEnabled ?? false,
           legalHoldReason: effectiveSecurity?.legalHoldReason || null,
           urgente: effectiveSecurity?.urgente ?? false,
@@ -846,7 +856,12 @@ export const StepEnviar = forwardRef<
       },
     };
 
-    return schemes[scheme] || { label: 'Sin especificar', description: 'El esquema se define al configurar participantes.' };
+    return (
+      schemes[scheme] || {
+        label: 'Sin especificar',
+        description: 'El esquema se define al configurar participantes.',
+      }
+    );
   })();
 
   const documentAdditionalMetadata = (docConfig.additionalMetadata || []).filter(
@@ -859,13 +874,20 @@ export const StepEnviar = forwardRef<
     placedFields.forEach((f) => {
       const pid = f.participantId || 'sin-asignar';
       if (!fieldsByParticipant[pid]) {
-        fieldsByParticipant[pid] = { name: f.participantName || 'Asignado al documento', fields: [] };
+        fieldsByParticipant[pid] = {
+          name: f.participantName || 'Asignado al documento',
+          fields: [],
+        };
       }
       if (!fieldsByParticipant[pid].fields.includes(f.label)) {
         fieldsByParticipant[pid].fields.push(f.label);
       }
     });
   }
+  const participantFieldEntries = Object.entries(fieldsByParticipant).filter(
+    ([participantId]) => participantId !== 'sin-asignar'
+  );
+  const documentFields = fieldsByParticipant['sin-asignar']?.fields ?? [];
 
   return (
     <div className="mx-auto w-full max-w-[1180px] pb-8">
@@ -954,7 +976,7 @@ export const StepEnviar = forwardRef<
       {scanState === 'error_grande' && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <AlertTriangle size={16} className="text-red-500 shrink-0" />
-          <p className="text-sm text-red-600">El archivo supera el límite de 50MB.</p>
+          <p className="text-sm text-red-600">El archivo supera el límite de 25MB.</p>
         </div>
       )}
       {scanState === 'error_infected' && (
@@ -1334,7 +1356,7 @@ export const StepEnviar = forwardRef<
                         )}
                         {grupo.mensaje && (
                           <p className="text-xs text-gray-500 mt-2 ml-7 italic">
-                            "{grupo.mensaje}"
+                            &quot;{grupo.mensaje}&quot;
                           </p>
                         )}
                       </div>
@@ -1381,9 +1403,9 @@ export const StepEnviar = forwardRef<
               </div>
             )}
 
-            {Object.keys(fieldsByParticipant).length === 0 ? null : (
+            {participantFieldEntries.length === 0 ? null : (
               <div className="divide-y divide-slate-100">
-                {Object.entries(fieldsByParticipant).map(([pid, data], idx) => {
+                {participantFieldEntries.map(([pid, data], idx) => {
                   const participantName = data.name;
                   const participantFields = data.fields;
                   const initials = (participantName || '?').charAt(0).toUpperCase();
@@ -1427,6 +1449,42 @@ export const StepEnviar = forwardRef<
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {documentFields.length > 0 && (
+              <div className="-mx-5 mt-5 border-y border-slate-200 bg-slate-50/80 px-5 py-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <FileText size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <p className="text-sm font-600 text-slate-900">
+                        Campos asignados al documento
+                      </p>
+                      <span className="text-xs tabular-nums text-slate-500">
+                        {documentFields.length} campo{documentFields.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Se integran al documento y no requieren la intervención de un participante.
+                    </p>
+                    <ul className="mt-3 flex flex-wrap gap-2">
+                      {documentFields.map((label) => {
+                        const FieldIcon = REQUESTED_FIELD_ICONS[label] ?? Tag;
+                        return (
+                          <li
+                            key={label}
+                            className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-600 text-slate-600"
+                          >
+                            <FieldIcon size={13} strokeWidth={1.9} className="text-slate-500" />
+                            <span>{label}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </div>
               </div>
             )}
           </div>

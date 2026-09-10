@@ -17,6 +17,20 @@ const TERMINAL_SUB_ESTADOS = [
 // Capitalized versions used in some legacy entries
 const TERMINAL_STATUSES_CAPITALIZED = ['Firmado', 'Rechazado', 'Aprobado', 'Cancelado'];
 
+const DASHBOARD_PARTICIPATION_SELECT = `
+  id,
+  documento_id,
+  owner_id,
+  nombre,
+  estado,
+  priority,
+  es_urgente,
+  fecha_vencimiento,
+  tiene_vencimiento,
+  created_at,
+  participantes
+`;
+
 function isTerminalSubEstado(sub: string): boolean {
   const lower = (sub ?? '').toLowerCase();
   return TERMINAL_SUB_ESTADOS.includes(lower) || TERMINAL_STATUSES_CAPITALIZED.includes(sub ?? '');
@@ -111,13 +125,18 @@ export async function GET(request: NextRequest) {
 
     const userEmail = user.email?.toLowerCase() ?? '';
     const userId = user.id;
+    const { searchParams } = new URL(request.url);
+    const dashboardSummary = searchParams.get('view') === 'dashboard';
+    const excludeOwned = searchParams.get('exclude_owned') === 'true';
 
     // RLS admits only owner, authorized workspace administrator or participant rows.
     // The participant filter below preserves this endpoint's narrower response contract.
-    const { data: docs, error } = await supabase
+    let query = supabase
       .from('documentos')
       .select(
-        `
+        dashboardSummary
+          ? DASHBOARD_PARTICIPATION_SELECT
+          : `
         id,
         documento_id,
         owner_id,
@@ -146,6 +165,9 @@ export async function GET(request: NextRequest) {
       )
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
+    if (excludeOwned) query = query.neq('owner_id', userId);
+
+    const { data: docs, error } = await query;
 
     if (error) {
       console.error('[mis-participaciones] DB error:', error.message);
@@ -153,7 +175,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch owner profiles separately to avoid join issues
-    const ownerIds = [...new Set((docs ?? []).map((d: any) => d.owner_id).filter(Boolean))];
+    const ownerIds = dashboardSummary
+      ? []
+      : [...new Set((docs ?? []).map((d: any) => d.owner_id).filter(Boolean))];
     let ownerMap: Record<string, { full_name: string; email: string }> = {};
     if (ownerIds.length > 0) {
       const { data: profiles } = await createServiceClient()
@@ -242,6 +266,24 @@ export async function GET(request: NextRequest) {
       // Determine my participation status from sub_estado
       const mySubEstado = myEntry?.sub_estado ?? myEntry?.status ?? 'sin_revisar';
       const myParticipationStatus = mapSubEstadoToDisplay(mySubEstado);
+
+      if (dashboardSummary) {
+        return {
+          id: doc.documento_id ?? doc.id,
+          supabaseId: doc.id,
+          documentName: doc.nombre ?? 'Sin nombre',
+          status,
+          priority:
+            doc.priority === 'urgent' || doc.es_urgente
+              ? 'Urgente'
+              : doc.priority === 'high'
+                ? 'Alta'
+                : 'Normal',
+          receivedAt: doc.created_at,
+          expiresAt: doc.fecha_vencimiento ?? null,
+          mySignatureStatus: myParticipationStatus,
+        };
+      }
 
       const myRol = myEntry?.rol ?? myEntry?.role ?? myEntry?.rolDocumento ?? undefined;
       const myActo = myEntry?.acto ?? myEntry?.action ?? undefined;

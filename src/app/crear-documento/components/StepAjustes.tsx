@@ -133,7 +133,7 @@ function FieldLabelConfigModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             Cancelar
           </button>
@@ -146,7 +146,7 @@ function FieldLabelConfigModal({
               });
               onClose();
             }}
-            className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
           >
             Guardar Cambios
           </button>
@@ -389,14 +389,14 @@ function FieldTypeConfigModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
           >
             Guardar Cambios
           </button>
@@ -459,7 +459,7 @@ function CasillaLabelModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             Cancelar
           </button>
@@ -469,7 +469,7 @@ function CasillaLabelModal({
               onSave(label.trim() || 'Casilla');
               onClose();
             }}
-            className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
           >
             Guardar Cambios
           </button>
@@ -670,7 +670,7 @@ function DropdownOptionsModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             Cancelar
           </button>
@@ -680,7 +680,7 @@ function DropdownOptionsModal({
               onSave(localOptions.filter((o) => o.trim() !== ''));
               onClose();
             }}
-            className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
           >
             Guardar Cambios
           </button>
@@ -1861,7 +1861,7 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
                 type="button"
                 onClick={handleSaveCode}
                 disabled={saving || !security.codigoAcceso}
-                className="px-4 py-2.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Guardar
               </button>
@@ -1948,8 +1948,11 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
               { key: 'impedirImpresion' as const, label: 'Impedir la impresión de documentos.' },
               { key: 'evitarCopiaTexto' as const, label: 'Evite la copia de texto e imágenes.' },
               { key: 'impedirModificacion' as const, label: 'Impedir la modificación.' },
-              { key: 'impedirExtraccion' as const, label: 'Impedir la extracción de contenido.' },
-              { key: 'evitarMontaje' as const, label: 'Evitar el montaje de documentos.' },
+              { key: 'impedirExtraccion' as const, label: 'Impedir la extracción de páginas.' },
+              {
+                key: 'evitarMontaje' as const,
+                label: 'Impedir reorganizar, insertar o eliminar páginas.',
+              },
             ].map(({ key, label }) => (
               <label key={key} className="flex items-center gap-3 cursor-pointer group">
                 <input
@@ -1968,6 +1971,11 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
                 </span>
               </label>
             ))}
+            <p className="pt-1 text-xs leading-5 text-slate-500">
+              Estas restricciones se aplicarán al PDF final descargable y serán respetadas por
+              lectores compatibles con el estándar PDF. Su comportamiento puede variar según el visor
+              utilizado.
+            </p>
           </div>
         )}
       </div>
@@ -2022,6 +2030,7 @@ export function StepAjustes({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [pageInputValue, setPageInputValue] = useState('1');
   const [placedFields, setPlacedFields] = useState<PlacedField[]>(initialPlacedFields ?? []);
   const [isDragOver, setIsDragOver] = useState(false);
   const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
@@ -2061,6 +2070,14 @@ export function StepAjustes({
   useEffect(() => {
     setDisplayZoom(zoomLevel);
   }, [zoomLevel]);
+
+  useEffect(() => {
+    setPageInputValue(String(currentPage));
+  }, [currentPage]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(Math.max(page, 1), totalPages));
+  }, [totalPages]);
 
   const isPdf = file?.name?.toLowerCase().endsWith('.pdf');
   const displayParticipants =
@@ -2298,6 +2315,19 @@ export function StepAjustes({
     if (!isPdf || pdfLoading || pdfPageImages[currentPage]) return;
     void renderPdfPage(currentPage);
   }, [currentPage, isPdf, pdfLoading, pdfPageImages, renderPdfPage]);
+
+  const commitPageInput = () => {
+    const page = Number.parseInt(pageInputValue, 10);
+    if (Number.isFinite(page) && page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setPageInputValue(String(page));
+      return;
+    }
+    setPageInputValue(String(currentPage));
+  };
+
+  const canNavigatePages = totalPages > 1;
+  const canJumpToPage = totalPages > 5;
 
   const participantFields = [
     { icon: <PenLine size={15} className="text-gray-400" />, label: 'Firma', required: true },
@@ -2873,7 +2903,7 @@ export function StepAjustes({
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
                 >
                   Cancelar
                 </button>
@@ -2886,7 +2916,7 @@ export function StepAjustes({
                     setFixarCampos(false);
                     setShowDeleteConfirm(false);
                   }}
-                  className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
+                  className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
                 >
                   Sí, eliminar todo
                 </button>
@@ -3064,24 +3094,82 @@ export function StepAjustes({
                 ))}
             </div>
           </div>
-          <div className="border-t border-gray-200 px-4 py-3 flex items-center justify-center gap-3 shrink-0">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronDown size={14} className="rotate-90" />
-            </button>
-            <span className="text-sm font-600 text-slate-600">
-              Página {currentPage} de {totalPages}
-            </span>
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronDown size={14} className="-rotate-90" />
-            </button>
+          <div className="flex shrink-0 items-center justify-center border-t border-gray-200 px-4 py-3">
+            {canNavigatePages ? (
+              <div className="flex items-center gap-2" aria-live="polite">
+                <button
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage <= 1}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-slate-500 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Página anterior"
+                  aria-label="Página anterior"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                </button>
+                <div className="flex min-w-[124px] items-center justify-center gap-1 text-sm">
+                  {canJumpToPage ? (
+                    <>
+                      <span className="text-slate-400">Página</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={pageInputValue}
+                        onChange={(event) => setPageInputValue(event.target.value)}
+                        onBlur={commitPageInput}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            commitPageInput();
+                            event.currentTarget.blur();
+                          }
+                        }}
+                        onFocus={(event) => event.currentTarget.select()}
+                        aria-label="Ir a página"
+                        className="w-9 rounded border border-slate-200 bg-white py-0.5 text-center text-sm font-semibold text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      />
+                      <span className="whitespace-nowrap text-slate-400">de {totalPages}</span>
+                    </>
+                  ) : (
+                    <span className="whitespace-nowrap font-medium text-slate-600">
+                      Página {currentPage} de {totalPages}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-slate-500 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Página siguiente"
+                  aria-label="Página siguiente"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <span className="px-2 text-sm font-medium text-slate-600">Página 1 de 1</span>
+            )}
           </div>
         </div>
       </div>

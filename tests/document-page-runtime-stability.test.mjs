@@ -64,3 +64,28 @@ test('required browser location evidence blocks signing when unavailable', () =>
   assert.match(efirmaFunction, /validBrowserGeolocation\(body\.session_evidence\?\.geo\)/);
   assert.match(efirmaFunction, /geo_latitude: geoLatitude/);
 });
+
+test('a profile e.firma check cannot falsely enable cryptographic signing', () => {
+  const source = read('src/app/firmar-documento/[id]/page.tsx');
+  assert.match(source, /setProfileValidationNotice\(/);
+  assert.doesNotMatch(source, /onValidated\(undefined, undefined, undefined, undefined,/);
+  assert.match(source, /if \(isEfirmaSAT && \(!efirmaValidated \|\| !efirmaCerB64 \|\| !efirmaKeyB64 \|\| !efirmaPassword\)\)/);
+  assert.match(source, /Para firmar con e\.firma, carga y valida los archivos \.cer y \.key/);
+});
+
+test('capturing an autograph never finalizes participation before explicit submission', () => {
+  const signingPage = read('src/app/firmar-documento/[id]/page.tsx');
+  const evidenceRoute = read('src/app/api/firma/persist-evidence/route.ts');
+  assert.match(signingPage, /firma_data: null,/);
+  assert.match(evidenceRoute, /action: 'autografa_capturada'/);
+  assert.doesNotMatch(evidenceRoute, /update_participante_sub_estado/);
+  assert.doesNotMatch(evidenceRoute, /document\.participation\.completed/);
+  assert.doesNotMatch(evidenceRoute, /estado: 'completado'/);
+});
+
+test('finalized signing is not blocked by a cross-account browser notification', () => {
+  const source = read('src/app/firmar-documento/[id]/page.tsx');
+  assert.doesNotMatch(source, /await createNotification\(/);
+  assert.doesNotMatch(source, /import \{ createNotification \} from '@\/lib\/notificationsInApp';/);
+  assert.match(source, /setStep\('completado'\);/);
+});

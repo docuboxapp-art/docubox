@@ -486,8 +486,8 @@ function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentU
               </div>
             )}
             <div className="flex items-center justify-end gap-3">
-              <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Cancelar</button>
-              <button onClick={handleSave} disabled={!canSave} className="px-5 py-2.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Guardar Configuración</button>
+              <button onClick={onClose} className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">Cancelar</button>
+              <button onClick={handleSave} disabled={!canSave} className="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">Guardar Configuración</button>
             </div>
           </div>
         </div>

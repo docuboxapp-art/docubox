@@ -1,14 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FileText, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
-import {
-  fetchDashboardOwnedDocuments,
-  fetchDashboardParticipations,
-} from '@/lib/dashboard/participations';
 
 interface DocItem {
   id: string;
@@ -16,30 +10,29 @@ interface DocItem {
   esUrgente: boolean;
 }
 
-export default function DocumentosSinRevisionWidget() {
-  const { user } = useAuth();
-  const userId = user?.id ?? '';
-  const userEmail = (user?.email ?? '').toLowerCase();
+export default function DocumentosSinRevisionWidget({
+  ownedDocs,
+  participaciones,
+  loading,
+  onRefresh,
+  userId,
+  userEmail,
+}: {
+  ownedDocs: any[];
+  participaciones: any[];
+  loading: boolean;
+  onRefresh: () => void;
+  userId: string;
+  userEmail: string;
+}) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
     'no_revisados_por_mi' | 'no_revisados_por_participantes'
   >('no_revisados_por_mi');
-  const [propiosDocs, setPropiosDocs] = useState<DocItem[]>([]);
-  const [participantesDocs, setParticipantesDocs] = useState<DocItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const loadDocs = useCallback(async () => {
-    if (!userId) return;
-    setLoading(true);
-    try {
-      const [participaciones, allOwnedData] = await Promise.all([
-        fetchDashboardParticipations(),
-        fetchDashboardOwnedDocuments(userId),
-      ]);
-      const ownedData = allOwnedData.filter((document: any) => document.estado === 'en_proceso');
-
-      const propios: DocItem[] = [];
-      const participantes: DocItem[] = [];
+  const { propiosDocs, participantesDocs } = useMemo(() => {
+    const ownedData = ownedDocs.filter((document: any) => document.estado === 'en_proceso');
+    const propios: DocItem[] = [];
+    const participantes: DocItem[] = [];
 
       // No revisados por mí: participaciones where my sub_estado is sin_revisar
       participaciones.forEach((p: any) => {
@@ -70,22 +63,8 @@ export default function DocumentosSinRevisionWidget() {
         }
       });
 
-      setPropiosDocs(propios);
-      setParticipantesDocs(participantes);
-    } catch (_) {
-      // silent
-    } finally {
-      setLoading(false);
-    }
-  }, [userEmail, userId]);
-
-  // Real-time: refresh on any documentos/participantes change for this user
-  useDocumentRealtime(userId || undefined, loadDocs, 'sin-revision-widget');
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void loadDocs(), 0);
-    return () => window.clearTimeout(timer);
-  }, [loadDocs]);
+    return { propiosDocs: propios, participantesDocs: participantes };
+  }, [ownedDocs, participaciones, userEmail, userId]);
 
   const docs = activeTab === 'no_revisados_por_mi' ? propiosDocs : participantesDocs;
 
@@ -95,7 +74,7 @@ export default function DocumentosSinRevisionWidget() {
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-700 text-slate-950">Documentos sin revisión</h2>
           <button
-            onClick={loadDocs}
+            onClick={onRefresh}
             disabled={loading}
             className="flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
           >

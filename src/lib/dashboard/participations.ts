@@ -1,23 +1,55 @@
 import { createClient } from '@/lib/supabase/client';
 
-let pendingParticipations: Promise<any[]> | null = null;
+const pendingParticipations = new Map<string, Promise<any[]>>();
 const pendingOwnedDocuments = new Map<string, Promise<any[]>>();
+const DASHBOARD_CACHE_TTL_MS = 15_000;
+const cachedParticipations = new Map<string, { value: any[]; expiresAt: number }>();
+const cachedOwnedDocuments = new Map<string, { value: any[]; expiresAt: number }>();
+
+type DashboardFetchOptions = {
+  force?: boolean;
+};
+
+export function invalidateDashboardDocumentData(userId?: string) {
+  if (userId) {
+    cachedParticipations.delete(userId);
+    cachedOwnedDocuments.delete(userId);
+    return;
+  }
+  cachedParticipations.clear();
+  cachedOwnedDocuments.clear();
+}
 
 /**
- * Shares the same in-flight request between dashboard widgets. The result is not
- * retained after completion, so real-time updates and manual refreshes stay fresh.
+ * Shares the dashboard participation read and retains it briefly for fast return visits.
+ * Real-time updates and manual refreshes invalidate the cache before reloading.
  */
-export function fetchDashboardParticipations(): Promise<any[]> {
-  if (pendingParticipations) return pendingParticipations;
+export function fetchDashboardParticipations(
+  userId: string,
+  options: DashboardFetchOptions = {}
+): Promise<any[]> {
+  const now = Date.now();
+  const cached = cachedParticipations.get(userId);
+  if (!options.force && cached && cached.expiresAt > now) {
+    return Promise.resolve(cached.value);
+  }
+  const pending = pendingParticipations.get(userId);
+  if (pending) return pending;
 
-  const request = fetch(`/api/documentos/mis-participaciones?t=${Date.now()}`)
+  const request = fetch('/api/documentos/mis-participaciones?view=dashboard&exclude_owned=true', {
+    cache: 'no-store',
+  })
     .then((response) => (response.ok ? response.json() : null))
-    .then((data) => data?.participaciones ?? [])
+    .then((data) => {
+      const value = data?.participaciones ?? [];
+      cachedParticipations.set(userId, { value, expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS });
+      return value;
+    })
     .catch(() => []);
 
-  pendingParticipations = request;
+  pendingParticipations.set(userId, request);
   void request.finally(() => {
-    if (pendingParticipations === request) pendingParticipations = null;
+    if (pendingParticipations.get(userId) === request) pendingParticipations.delete(userId);
   });
 
   return request;
@@ -25,9 +57,15 @@ export function fetchDashboardParticipations(): Promise<any[]> {
 
 /**
  * Shares the RLS-protected owned-document lookup used by the dashboard widgets.
- * Only concurrent requests are deduplicated so realtime refreshes still read fresh data.
+ * Results are short-lived; realtime refreshes force a fresh read.
  */
-export function fetchDashboardOwnedDocuments(userId: string): Promise<any[]> {
+export function fetchDashboardOwnedDocuments(
+  userId: string,
+  options: DashboardFetchOptions = {}
+): Promise<any[]> {
+  const now = Date.now();
+  const cached = cachedOwnedDocuments.get(userId);
+  if (!options.force && cached && cached.expiresAt > now) return Promise.resolve(cached.value);
   const pending = pendingOwnedDocuments.get(userId);
   if (pending) return pending;
 
@@ -41,7 +79,9 @@ export function fetchDashboardOwnedDocuments(userId: string): Promise<any[]> {
         )
         .eq('owner_id', userId)
         .is('deleted_at', null);
-      return data ?? [];
+      const value = data ?? [];
+      cachedOwnedDocuments.set(userId, { value, expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS });
+      return value;
     } catch {
       return [];
     }

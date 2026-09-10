@@ -142,6 +142,26 @@ export function formatLocalTimestamp(
   return `${formatted} (${timeZone}, ${offset})`;
 }
 
+/** Compact local display for regular UI surfaces where the IANA zone is redundant. */
+export function formatLocalTimestampWithOffset(
+  value: string | Date | null | undefined,
+  options: Intl.DateTimeFormatOptions = {}
+) {
+  const date = parseUtcTimestamp(value);
+  if (!date) return 'No disponible';
+
+  const timeZone = getEffectiveTimeZone();
+  const offset = getTimeZoneOffsetLabel(timeZone, date);
+  const formatted = new Intl.DateTimeFormat(DEFAULT_LOCALE, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+    ...options,
+    timeZone,
+  }).format(date);
+
+  return `${formatted} (${offset})`;
+}
+
 /** Use for legal, cryptographic, and audit evidence that must expose UTC. */
 export function formatUtcTimestamp(
   value: string | Date | null | undefined,

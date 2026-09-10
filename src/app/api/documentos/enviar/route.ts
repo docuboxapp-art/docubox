@@ -349,6 +349,16 @@ export async function POST(req: NextRequest) {
       selloDigital,
       selloUbicacion,
       estampaAutenticacion,
+      vencimientoEnabled,
+      fechaVencimiento,
+      fechaVencimientoTimezone,
+      recordatorioFrecuencia,
+      proteccionAdicionalEnabled,
+      impedirImpresion,
+      evitarCopiaTexto,
+      impedirModificacion,
+      impedirExtraccion,
+      evitarMontaje,
       legalHoldEnabled,
       legalHoldReason,
       urgente,
@@ -386,6 +396,20 @@ export async function POST(req: NextRequest) {
     }
 
     const requestedLegalHold = legalHoldEnabled === true;
+    const expirationDate =
+      vencimientoEnabled && typeof fechaVencimiento === 'string' && fechaVencimiento
+        ? new Date(fechaVencimiento)
+        : null;
+    const expirationAt =
+      expirationDate && !Number.isNaN(expirationDate.getTime())
+        ? expirationDate.toISOString()
+        : null;
+    if (vencimientoEnabled && !expirationAt) {
+      return NextResponse.json(
+        { error: 'La fecha de vencimiento no es válida.', code: 'INVALID_EXPIRATION' },
+        { status: 400 }
+      );
+    }
     const validLegalHoldReason = getLegalHoldReason(legalHoldReason);
     if (requestedLegalHold && !validLegalHoldReason) {
       return NextResponse.json(
@@ -616,6 +640,19 @@ export async function POST(req: NextRequest) {
       ruta_guardado: ruta || 'raiz',
       etiquetas_ids: etiquetasIds || [],
       estado: 'en_proceso',
+      tiene_vencimiento: vencimientoEnabled === true,
+      fecha_vencimiento: expirationAt,
+      fecha_vencimiento_timezone:
+        expirationAt && typeof fechaVencimientoTimezone === 'string'
+          ? fechaVencimientoTimezone
+          : null,
+      recordatorio_frecuencia: recordatorioFrecuencia || null,
+      proteccion_firmado: proteccionAdicionalEnabled === true,
+      impedir_impresion: impedirImpresion === true,
+      evitar_copia_texto: evitarCopiaTexto === true,
+      impedir_modificacion: impedirModificacion === true,
+      impedir_extraccion: impedirExtraccion === true,
+      evitar_montaje: evitarMontaje === true,
       participantes: participantesConVisibilidad,
       campos_solicitados: camposSolicitados || [],
       participation_order: effectiveOrder,

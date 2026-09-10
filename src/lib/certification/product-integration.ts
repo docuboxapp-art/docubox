@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { CertificationOrchestrator } from './orchestrator';
 import { IndependentPadesVerificationProvider } from './independent-verification';
 import { PadesBbPdfSignatureProvider } from './pades';
+import { PyHankoProtectedPdfSignatureProvider } from './pdf-security';
 import { createCertificationProviderSet, type CertificationProviderSet } from './providers';
 import { UnavailableTimestampAuthorityProvider, type TimestampResult } from './timestamp';
 import { CertificationError } from './types';
@@ -11,6 +12,10 @@ import {
   encryptAndUploadDocumentObject,
   readDocumentStorageObject,
 } from '@/lib/crypto/document-encryption';
+import {
+  hasPdfNativeProtection,
+  type PdfNativeProtectionPolicy,
+} from '@/lib/documents/pdf-native-protection';
 
 const DOCUMENT_BUCKET = 'documents';
 const CERTIFICATION_BUCKET = 'certification-artifacts';
@@ -25,6 +30,7 @@ type FinalDocumentInput = {
   visualPdfSha256: string;
   completedAt: string;
   signaturesApplied: number;
+  pdfProtectionPolicy?: PdfNativeProtectionPolicy;
 };
 
 export type PadesBbProductResult = {
@@ -120,14 +126,23 @@ export function getRequiredPadesLevel(
  * This work package promotes only PAdES-B-B and leaves B-T to its own rollout.
  */
 export function createPadesBbProductProviderSet(
-  base: CertificationProviderSet = createCertificationProviderSet()
+  base: CertificationProviderSet = createCertificationProviderSet(),
+  pdfProtectionPolicy?: PdfNativeProtectionPolicy
 ): CertificationProviderSet {
   const timestampAuthority = new UnavailableTimestampAuthorityProvider();
-  const pdfSignature = new PadesBbPdfSignatureProvider(
+  const standardPdfSignature = new PadesBbPdfSignatureProvider(
     base.keyManagement,
     base.certificate,
     timestampAuthority
   );
+  const pdfSignature =
+    pdfProtectionPolicy && hasPdfNativeProtection(pdfProtectionPolicy)
+      ? new PyHankoProtectedPdfSignatureProvider(
+          pdfProtectionPolicy,
+          base.certificate,
+          standardPdfSignature
+        )
+      : standardPdfSignature;
   const independentVerification = new IndependentPadesVerificationProvider(
     new PadesBbPdfSignatureProvider(base.keyManagement, base.certificate, timestampAuthority)
   );
@@ -1089,7 +1104,7 @@ export async function integratePadesBbFinalDocument(
     );
   }
 
-  const providers = createPadesBbProductProviderSet(configuredProviders);
+  const providers = createPadesBbProductProviderSet(configuredProviders, input.pdfProtectionPolicy);
   const health = await providers.healthCheck();
   if (!health.ready) {
     throw new CertificationError(
@@ -1103,12 +1118,7 @@ export async function integratePadesBbFinalDocument(
   const visualStoragePath = requestedVersionId
     ? `tenants/${input.workspaceId}/documents/${input.documentId}/versions/${requestedVersionId}/visual.enc`
     : `documents-signed/${input.workspaceId}/${input.documentId}/visual/${input.visualPdfSha256}.pdf`;
-  const version = await ensureVisualVersion(
-    supabase,
-    input,
-    visualStoragePath,
-    requestedVersionId
-  );
+  const version = await ensureVisualVersion(supabase, input, visualStoragePath, requestedVersionId);
   try {
     await storeVersionPdf(supabase, {
       tenantId: input.workspaceId,
@@ -1195,6 +1205,14 @@ export async function integratePadesBbFinalDocument(
       final_pdf_path: finalPath,
       final_pdf_sha256: certifiedSha256,
       promoted_after_verification: true,
+      pdf_native_protection:
+        input.pdfProtectionPolicy && hasPdfNativeProtection(input.pdfProtectionPolicy)
+          ? {
+              applied: true,
+              algorithm: 'AES-256',
+              policy: input.pdfProtectionPolicy,
+            }
+          : { applied: false },
     },
   };
 

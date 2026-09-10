@@ -102,24 +102,27 @@ test('dashboard reuses the hydrated auth user and loads independent data concurr
   assert.match(dashboardSource, /void loadDashboardData\(user\.id\)/);
 });
 
-test('dashboard widgets share only an in-flight participation request', () => {
-  assert.match(participationsSource, /if \(pendingParticipations\) return pendingParticipations;/);
+test('dashboard loads shared document data once and widgets only render that shared state', () => {
+  assert.match(participationsSource, /if \(pending\) return pending;/);
   assert.match(
     participationsSource,
-    /if \(pendingParticipations === request\) pendingParticipations = null;/
+    /if \(pendingParticipations\.get\(userId\) === request\) pendingParticipations\.delete\(userId\);/
   );
   assert.match(participationsSource, /if \(pendingOwnedDocuments\.get\(userId\) === request\)/);
+  assert.match(participationsSource, /view=dashboard&exclude_owned=true/);
+  assert.match(dashboardSource, /const \[ownedDocuments, participations\] = await Promise\.all\(/);
+  assert.match(dashboardSource, /useDocumentRealtime\(user\?\.id, refreshDashboardDocuments, 'documents-dashboard'\)/);
   for (const source of [
     estadoSource,
     estadoParticipacionesSource,
     sugeridosSource,
     sinRevisionSource,
   ]) {
-    assert.match(source, /fetchDashboardParticipations\(\)/);
-    assert.match(source, /fetchDashboardOwnedDocuments\(userId\)/);
+    assert.doesNotMatch(source, /fetchDashboardParticipations/);
+    assert.doesNotMatch(source, /fetchDashboardOwnedDocuments/);
+    assert.doesNotMatch(source, /useDocumentRealtime/);
     assert.doesNotMatch(source, /fetch\(`\/api\/documentos\/mis-participaciones/);
     assert.doesNotMatch(source, /\.from\('documentos'\)/);
-    assert.doesNotMatch(source, /\}, \[user\]\);/);
   }
 });
 

@@ -91,6 +91,22 @@
   .font-mono {
     font-family: 'IBM Plex Mono', monospace;
   }
+
+  /* One neutral text treatment for every command across the application. */
+  button,
+  button * {
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+  }
+
+  /* Dense two-line workspace control: preserve its compact information hierarchy. */
+  .workspace-selector-button .workspace-selector-caption {
+    font-size: 0.625rem !important;
+  }
+
+  .workspace-selector-button .workspace-selector-name {
+    font-size: 0.8125rem !important;
+  }
 }
 
 @layer utilities {
@@ -580,6 +596,17 @@ hr.page-break::after {
  * horizontal strip based on the workspace width, not the window breakpoint. */
 .document-viewer-workspace {
   container-type: inline-size;
+}
+
+/* The global button typography must not enlarge the compact viewer rail. */
+.document-viewer-tabs .document-viewer-tab-label {
+  font-size: 0.5rem !important;
+  line-height: 0.5rem !important;
+}
+
+.topnav-notification-count {
+  font-size: 0.5625rem !important;
+  line-height: 1 !important;
 }
 
 @container (max-width: 560px) {

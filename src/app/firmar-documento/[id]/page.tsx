@@ -46,7 +46,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import AppLogo from '@/components/ui/AppLogo';
-import { createNotification } from '@/lib/notificationsInApp';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
 import { isDocumentGeneratedCryptographicField } from '@/lib/documentFields';
 import AutographSignatureFlow from './AutographSignatureFlow';
@@ -499,6 +498,7 @@ function EfirmaFirmarFlow({
   const [showPassword, setShowPassword] = useState(false);
   const [validating, setValidating] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [profileValidationNotice, setProfileValidationNotice] = useState('');
   const [validated, setValidated] = useState(false);
 
   // User profile data for CURP/RFC cross-validation
@@ -572,13 +572,13 @@ function EfirmaFirmarFlow({
         data.estado === 'Activo' ||
         data.estatus === 'Activo';
       if (isValid) {
-        setValidated(true);
-        const nubariumResult: NubariumValidationResult = {
-          estado: data._estado_normalizado || data.estado || data.estatus || 'Vigente',
-          fechaConsulta: new Date().toISOString(),
-          codigoValidacion: data.codigo_validacion || null,
-        };
-        onValidated(undefined, undefined, undefined, undefined, nubariumResult);
+        // The profile retains public certificate metadata only. Producing a
+        // signature still requires the temporary .cer, .key, and password.
+        setProfileValidationNotice(
+          'La e.firma registrada está vigente. Para generar la firma criptográfica, carga tus archivos .cer, .key y la contraseña. No se almacenan.'
+        );
+        setUsePreloaded(false);
+        setNoticeAccepted(true);
       } else {
         const cm = data.clave_mensaje || data._clave_mensaje_detectada || 0;
         const msg =
@@ -973,7 +973,7 @@ function EfirmaFirmarFlow({
                 className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
               />
               <p className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
-                Existe una e.firma registrada en tu perfil, ¿deseas utilizarla?
+                Hay una e.firma registrada en tu perfil. Puedes verificar su vigencia antes de cargar los archivos para firmar.
               </p>
             </div>
             <div className="flex gap-2">
@@ -983,14 +983,14 @@ function EfirmaFirmarFlow({
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
               >
                 <Check size={14} />
-                Sí
+                Ver datos
               </button>
               <button
                 type="button"
                 onClick={() => setUsePreloaded(false)}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
               >
-                No usar
+                Cargar archivos
               </button>
             </div>
           </div>
@@ -1027,7 +1027,7 @@ function EfirmaFirmarFlow({
               <p
                 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
               >
-                E.FIRMA REGISTRADA EN PERFIL
+                DATOS DE E.FIRMA REGISTRADOS
               </p>
             </div>
             <button
@@ -1114,7 +1114,7 @@ function EfirmaFirmarFlow({
                 </>
               ) : (
                 <>
-                  <Shield size={14} /> Validar e.firma y firmar
+                  <Shield size={14} /> Verificar vigencia y continuar
                 </>
               )}
             </button>
@@ -1158,8 +1158,8 @@ function EfirmaFirmarFlow({
                   <p
                     className={`text-xs mt-0.5 leading-relaxed ${isDark ? 'text-amber-300/80' : 'text-amber-700'}`}
                   >
-                    Puedes continuar. La firma se registrará sin coordenadas geográficas y con la
-                    evidencia disponible del proceso.
+                    Para continuar, permite el acceso a tu ubicación y vuelve a intentarlo. La firma
+                    no puede registrarse sin coordenadas geográficas.
                   </p>
                 </div>
               </div>
@@ -1191,6 +1191,16 @@ function EfirmaFirmarFlow({
             </p>
           </div>
           <div className={`p-4 space-y-4 ${isDark ? 'bg-gray-800' : ''}`}>
+            {profileValidationNotice && (
+              <div
+                className={`flex items-start gap-2 rounded-lg border px-3 py-2 ${isDark ? 'border-green-800 bg-green-900/20' : 'border-green-200 bg-green-50'}`}
+              >
+                <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-green-600" />
+                <p className={`text-xs leading-relaxed ${isDark ? 'text-green-300' : 'text-green-700'}`}>
+                  {profileValidationNotice}
+                </p>
+              </div>
+            )}
             {/* .cer file */}
             <div>
               <label
@@ -6858,7 +6868,9 @@ export default function FirmarDocumentoPage() {
         terminos_aceptados: true,
         terminos_aceptados_at: now,
         campos_completados: camposCompletados,
-        firma_data: step === 'firma' && firmaData ? firmaData : null,
+        // A draft must never contain a signable visual mark. The final payload
+        // is the only operation allowed to persist firma_data.
+        firma_data: null,
         firma_completada: false,
         firma_completada_at: null,
         aprobacion_completada: false,
@@ -6887,6 +6899,12 @@ export default function FirmarDocumentoPage() {
         geoDenied
           ? 'Debes permitir el acceso a tu ubicación para firmar este documento.'
           : 'No fue posible obtener una ubicación válida. Activa la ubicación e inténtalo de nuevo.'
+      );
+      return;
+    }
+    if (isEfirmaSAT && (!efirmaValidated || !efirmaCerB64 || !efirmaKeyB64 || !efirmaPassword)) {
+      setSubmitError(
+        'Para firmar con e.firma, carga y valida los archivos .cer y .key junto con la contraseña. Estos datos sólo se usan durante esta firma.'
       );
       return;
     }
@@ -7250,24 +7268,6 @@ export default function FirmarDocumentoPage() {
           hash: signatureHash,
         },
       });
-
-      if (document.owner_id && user.id !== document.owner_id) {
-        await createNotification({
-          userId: document.owner_id,
-          type: 'document',
-          title:
-            myRole === 'firmante'
-              ? 'Participante firmó el documento'
-              : 'Participante aprobó el documento',
-          description: `${actorNombre} ha ${myRole === 'firmante' ? 'firmado' : 'aprobado'} "${document.nombre}".`,
-          priority: 'media',
-          metadata: {
-            documentoId: document.id,
-            documentName: document.nombre,
-            signerEmail: user.email,
-          },
-        });
-      }
 
       setStep('completado');
       // Trigger green success animation after a short delay
@@ -11346,6 +11346,7 @@ export default function FirmarDocumentoPage() {
                         isDark={isDark}
                         geoDenied={geoBlocked}
                         onValidated={(certInfo, cerB64, keyB64, password, nubariumResult) => {
+                          if (!cerB64 || !keyB64 || !password) return;
                           setEfirmaValidated(true);
                           // Store cert info and credentials in memory for sign-efirma call
                           setEfirmaCertInfo(certInfo || null);
@@ -12342,7 +12343,14 @@ export default function FirmarDocumentoPage() {
               {step === 'firma' && (
                 <button
                   onClick={handleSubmit}
-                  disabled={!firmaConfirmada || submitting || geoBlocked || geoLoading}
+                  disabled={
+                    !firmaConfirmada ||
+                    submitting ||
+                    geoBlocked ||
+                    geoLoading ||
+                    (isEfirmaSAT &&
+                      (!efirmaValidated || !efirmaCerB64 || !efirmaKeyB64 || !efirmaPassword))
+                  }
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {submitting ? (

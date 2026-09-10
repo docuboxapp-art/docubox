@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
-  Copy,
   Eye,
   FileCheck2,
   FileClock,
@@ -255,11 +254,7 @@ export function DocuboxSourceSelector({ open, onClose, onSelect }: Props) {
               >
                 <ArrowLeft size={17} />
               </button>
-            ) : (
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                <Copy size={18} />
-              </div>
-            )}
+            ) : null}
             <div className="min-w-0">
               <h2 className="truncate text-base font-700 text-slate-950">
                 {versionDocument ? 'Versiones e historial' : 'Seleccionar desde Docubox'}

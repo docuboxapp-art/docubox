@@ -160,6 +160,7 @@ export interface LocatedVerificationDocument {
   completedAt?: string | null;
   fileUrl?: string | null;
   sealedPdfPath?: string | null;
+  sealedPdfHash?: string | null;
   participants: PublicVerificationParticipant[];
   hashes: VerificationArtifactMatch[];
   xmlPresent: boolean;

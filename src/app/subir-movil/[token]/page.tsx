@@ -159,7 +159,7 @@ export default function MobileUploadPage() {
         <div className="bg-white rounded-2xl shadow-lg p-6">
           <h1 className="text-lg font-bold text-gray-900 mb-1">Subir documento</h1>
           <p className="text-sm text-gray-500 mb-5">
-            Selecciona un archivo PDF o DOCX desde tu dispositivo.
+            Selecciona un archivo PDF desde tu dispositivo.
           </p>
 
           {/* Drop zone */}
@@ -188,7 +188,7 @@ export default function MobileUploadPage() {
               <>
                 <Upload size={32} className="text-gray-400 mb-3" />
                 <p className="text-sm text-primary font-medium text-center">Toca para seleccionar archivo</p>
-                <p className="text-xs text-gray-400 mt-1 text-center">PDF, DOCX hasta 25MB</p>
+                <p className="text-xs text-gray-400 mt-1 text-center">PDF hasta 25MB</p>
               </>
             )}
           </div>
@@ -196,7 +196,7 @@ export default function MobileUploadPage() {
           <input
             ref={inputRef}
             type="file"
-            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".pdf,application/pdf"
             className="hidden"
             onChange={handleInputChange}
           />

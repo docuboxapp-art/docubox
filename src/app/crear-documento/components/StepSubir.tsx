@@ -707,10 +707,7 @@ function EtiquetasSearchFieldWithModal({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <Tag size={18} className="text-primary" />
-                <h3 className="text-base font-semibold text-gray-900">Etiquetas</h3>
-              </div>
+              <h3 className="text-base font-semibold text-gray-900">Etiquetas</h3>
               <button
                 onClick={() => setOpen(false)}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -1036,10 +1033,7 @@ function DocumentTypeSelectorModal({
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <Layers size={18} className="text-primary" />
-                <h3 className="text-base font-semibold text-gray-900">Tipo de documento</h3>
-              </div>
+              <h3 className="text-base font-semibold text-gray-900">Tipo de documento</h3>
               <button
                 onClick={() => setOpen(false)}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -1509,10 +1503,7 @@ function MetadatosModal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <Tag size={18} className="text-primary" />
-            <h3 className="text-base font-semibold text-gray-900">Metaetiquetas del documento</h3>
-          </div>
+          <h3 className="text-base font-semibold text-gray-900">Metaetiquetas del documento</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={18} />
           </button>
@@ -1770,7 +1761,7 @@ function MetadatosModal({
         <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             Cerrar
           </button>
@@ -1778,7 +1769,7 @@ function MetadatosModal({
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center gap-2"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
               {saving && (
                 <svg
@@ -1948,31 +1939,26 @@ function AdditionalMetadataModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
       <section
-        className="flex max-h-[90vh] w-full max-w-[680px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-[640px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
         onMouseDown={(event) => event.stopPropagation()}
         aria-modal="true"
         role="dialog"
         aria-labelledby="additional-metadata-title"
       >
-        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-50 text-primary">
-              <Tag size={17} />
-            </span>
-            <div>
+        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+          <div>
               <h3 id="additional-metadata-title" className="text-[15px] font-semibold text-slate-950">
                 Metadatos adicionales
               </h3>
               <p className="mt-0.5 text-[12px] leading-5 text-slate-500">
                 Agrega información de negocio sin modificar los metadatos técnicos de Docubox.
               </p>
-            </div>
           </div>
           <button
             type="button"
@@ -1984,10 +1970,10 @@ function AdditionalMetadataModal({
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-5">
-          <p className="mb-2.5 text-xs font-medium text-slate-700">Selecciona el tipo de metadato</p>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+          <p className="mb-2 text-xs font-medium text-slate-700">Selecciona el tipo de metadato</p>
           <div
-            className="grid gap-3 sm:grid-cols-2"
+            className="grid gap-2.5 sm:grid-cols-2"
             role="radiogroup"
             aria-label="Alcance del metadato"
           >
@@ -2002,11 +1988,11 @@ function AdditionalMetadataModal({
                     role="radio"
                     aria-checked={selected}
                     onClick={() => setDraft((current) => ({ ...current, scope }))}
-                    className={`min-h-[82px] rounded-lg border p-3 text-left transition-colors ${selected ? 'border-primary bg-blue-50/70 ring-1 ring-primary/10' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}
+                    className={`min-h-[74px] rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-100 ${selected ? 'border-blue-300 bg-blue-50/70' : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/30'}`}
                   >
                     <span className="flex items-center gap-2">
                       <span
-                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${selected ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'}`}
+                        className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500"
                       >
                         {scope === 'document' ? <Lock size={14} /> : <Folder size={14} />}
                       </span>
@@ -2014,7 +2000,7 @@ function AdditionalMetadataModal({
                         {copy.title}
                       </span>
                     </span>
-                    <span className="mt-1.5 block text-[12px] leading-[17px] text-slate-500">
+                    <span className="mt-1 block text-[12px] leading-4 text-slate-500">
                       {copy.description}
                     </span>
                   </button>
@@ -2023,7 +2009,7 @@ function AdditionalMetadataModal({
             )}
           </div>
 
-          <div className="mt-5 grid gap-4 sm:grid-cols-[1.15fr_0.85fr]">
+          <div className="mt-4 grid gap-3 sm:grid-cols-[1.15fr_0.85fr]">
             <label className="block">
               <span className="mb-1.5 block text-[12px] font-semibold text-slate-700">Nombre</span>
               <input
@@ -2032,7 +2018,7 @@ function AdditionalMetadataModal({
                   setDraft((current) => ({ ...current, name: event.target.value }))
                 }
                 placeholder="Ej. Centro de costo"
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/15"
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               />
             </label>
             <label className="block">
@@ -2048,7 +2034,7 @@ function AdditionalMetadataModal({
                     value: event.target.value === 'boolean' ? false : '',
                   }))
                 }
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               >
                 {ADDITIONAL_METADATA_TYPES.map((type) => (
                   <option key={type.value} value={type.value}>
@@ -2058,7 +2044,7 @@ function AdditionalMetadataModal({
               </select>
             </label>
           </div>
-          <label className="mt-3 block">
+          <label className="mt-2.5 block">
             <span className="mb-1.5 block text-[12px] font-semibold text-slate-700">Valor</span>
             {draft.dataType === 'boolean' ? (
               <div className="flex gap-2" role="radiogroup" aria-label="Valor Sí o No">
@@ -2072,7 +2058,7 @@ function AdditionalMetadataModal({
                     role="radio"
                     aria-checked={draft.value === option.value}
                     onClick={() => setDraft((current) => ({ ...current, value: option.value }))}
-                    className={`h-10 flex-1 rounded-lg border text-[13px] font-medium transition-colors ${draft.value === option.value ? 'border-primary bg-primary text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                    className={`h-10 flex-1 rounded-lg border text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-100 ${draft.value === option.value ? 'border-blue-300 bg-blue-50 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50/30'}`}
                   >
                     {option.label}
                   </button>
@@ -2101,7 +2087,7 @@ function AdditionalMetadataModal({
                     ? 'Ej. Contrato, factura o convenio'
                     : `Valor de tipo ${typeLabel.toLocaleLowerCase()}`
                 }
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/15"
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               />
             )}
           </label>
@@ -2111,19 +2097,19 @@ function AdditionalMetadataModal({
             </p>
           )}
           {error && <p className="mt-3 text-xs font-medium text-red-600">{error}</p>}
-          <div className="mt-4 flex justify-end border-b border-slate-100 pb-5">
+          <div className="mt-3.5 flex justify-end border-b border-slate-100 pb-4">
             <button
               type="button"
               onClick={addOrUpdate}
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
             >
               <Plus size={16} />
               {editingId ? 'Actualizar metadato' : 'Agregar metadato'}
             </button>
           </div>
 
-          <div className="pt-4">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="pt-3.5">
+            <div className="mb-2.5 flex items-center justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Metadatos agregados
               </p>
@@ -2132,7 +2118,7 @@ function AdditionalMetadataModal({
               </span>
             </div>
             {savedEntries.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/40 px-3 py-4 text-center text-xs text-slate-500">
+              <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/40 px-3 py-3.5 text-center text-xs text-slate-500">
                 Aún no has agregado metadatos.
               </p>
             ) : (
@@ -2198,14 +2184,14 @@ function AdditionalMetadataModal({
           <button
             type="button"
             onClick={onClose}
-            className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={() => onSave(savedEntries)}
-            className="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90"
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90"
           >
             Guardar metadatos
           </button>
@@ -2238,13 +2224,13 @@ function SelloUbicacionModal({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-50 text-primary">
-              <ShieldCheck size={17} />
-            </span>
-            <h3 id="sello-ubicacion-title" className="text-base font-semibold text-slate-900">
-              Ubicación de la certificación
-            </h3>
+          <div>
+              <h3 id="sello-ubicacion-title" className="text-base font-semibold text-slate-900">
+                Ubicación de la certificación
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Define dónde se integrará el sello digital y la cadena original.
+              </p>
           </div>
           <button
             type="button"
@@ -2256,9 +2242,6 @@ function SelloUbicacionModal({
           </button>
         </header>
         <div className="space-y-4 px-5 py-5">
-          <p className="text-sm leading-5 text-slate-500">
-            Define dónde se integrará el sello digital y la cadena original.
-          </p>
           <div>
             <p className="mb-2 text-xs font-medium text-slate-700">Selecciona una ubicación</p>
             <div
@@ -2323,13 +2306,40 @@ function SelloUbicacionModal({
           </div>
         </div>
         <footer className="flex justify-end gap-3 border-t border-slate-100 px-5 py-3">
-          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">
+          <button type="button" onClick={onClose} className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">
             Cancelar
           </button>
-          <button type="button" onClick={() => onSave(value)} className="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90">
+          <button type="button" onClick={() => onSave(value)} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90">
             Guardar ubicación
           </button>
         </footer>
+      </section>
+    </div>
+  );
+}
+
+function SecurityConfigurationModal({
+  title,
+  description,
+  onSave,
+  onClose,
+  children,
+}: {
+  title: string;
+  description: string;
+  onSave: () => void;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section role="dialog" aria-modal="true" aria-labelledby="security-configuration-title" className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+          <div><h3 id="security-configuration-title" className="text-[15px] font-semibold text-slate-950">{title}</h3><p className="mt-0.5 text-xs text-slate-500">{description}</p></div>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X size={18} /></button>
+        </header>
+        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3"><button type="button" onClick={onClose} className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button><button type="button" onClick={() => { onSave(); onClose(); }} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90">Guardar configuración</button></footer>
       </section>
     </div>
   );
@@ -2473,15 +2483,19 @@ function CodigoAccesoModal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <Lock size={18} className="text-primary" />
-            <h3 className="text-base font-semibold text-gray-900">
-              {confirmDelete
-                ? 'Confirmar eliminación'
-                : isEditing
-                  ? 'Cambiar código de acceso'
-                  : 'Proteger visualización'}
-            </h3>
+          <div>
+              <h3 className="text-base font-semibold text-gray-900">
+                {confirmDelete
+                  ? 'Confirmar eliminación'
+                  : isEditing
+                    ? 'Cambiar código de acceso'
+                    : 'Proteger visualización'}
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {confirmDelete
+                  ? 'Esta acción quitará la protección de visualización del documento.'
+                  : 'Define un código que será necesario para visualizar el contenido de este documento.'}
+              </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={18} />
@@ -2489,12 +2503,6 @@ function CodigoAccesoModal({
         </div>
 
         <div className="px-5 py-4 space-y-4">
-          <p className="text-sm text-gray-500">
-            {confirmDelete
-              ? 'Esta acción quitará la protección de visualización del documento.'
-              : 'Define un código que será necesario para visualizar el contenido de este documento.'}
-          </p>
-
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1.5">
               Código de acceso <span className="text-red-500">*</span>
@@ -2596,7 +2604,7 @@ function CodigoAccesoModal({
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-red-200 text-red-500 rounded-lg text-sm hover:bg-red-50 transition-colors"
+              className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-red-200 px-4 text-sm text-red-500 transition-colors hover:bg-red-50"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -2649,7 +2657,7 @@ function CodigoAccesoModal({
         <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             Cancelar
           </button>
@@ -2657,7 +2665,7 @@ function CodigoAccesoModal({
             <button
               onClick={handleSave}
               disabled={saving || saved}
-              className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center gap-2"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
               {saving && (
                 <svg
@@ -2747,6 +2755,7 @@ function FileUploadedLayout({
   // Default to 'general' tab (Configuración general first)
   const [activeTab, setActiveTab] = useState<'seguridad' | 'general'>('general');
   const [vencimiento, setVencimiento] = useState(false);
+  const [showVencimientoModal, setShowVencimientoModal] = useState(false);
   // Vencimiento sub-options
   const [vencimientoSolicitud, setVencimientoSolicitud] = useState(false);
   const [vencimientoCompletar, setVencimientoCompletar] = useState(false);
@@ -2768,6 +2777,7 @@ function FileUploadedLayout({
   const [showCodigoAccesoModal, setShowCodigoAccesoModal] = useState(false);
   const [showCodigoAccesoDeleteConfirm, setShowCodigoAccesoDeleteConfirm] = useState(false);
   const [proteccionFirmado, setProteccionFirmado] = useState(false);
+  const [showProteccionFirmadoModal, setShowProteccionFirmadoModal] = useState(false);
   const [proteccionParticipacion, setProteccionParticipacion] = useState(false);
   const [urgente, setUrgente] = useState(false);
   const [publico, setPublico] = useState(false);
@@ -2792,6 +2802,7 @@ function FileUploadedLayout({
   const [impedirExtraccion, setImpedirExtraccion] = useState(false);
   const [evitarMontaje, setEvitarMontaje] = useState(false);
   const [legalHoldEnabled, setLegalHoldEnabled] = useState(false);
+  const [showLegalHoldModal, setShowLegalHoldModal] = useState(false);
   const [legalHoldReason, setLegalHoldReason] =
     useState<import('./types').SecuritySettings['legalHoldReason']>('');
 
@@ -3275,12 +3286,12 @@ function FileUploadedLayout({
               <div className="space-y-1.5">
                 {/* Vencimiento */}
                 <div>
-                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
+                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg" onClick={(event) => { event.preventDefault(); setShowVencimientoModal(true); }}>
                     <input
                       type="checkbox"
                       checked={vencimiento}
-                      onChange={(e) => setVencimiento(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-300 accent-primary"
+                      onChange={() => {}}
+                      className="w-4 h-4 rounded border-gray-300 accent-primary pointer-events-none"
                     />
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Establecer vencimiento para este documento
@@ -3288,8 +3299,9 @@ function FileUploadedLayout({
                     <InfoTooltip showOnParentHover text="Define una fecha límite después de la cual el documento ya no podrá ser firmado o accedido." />
                   </label>
 
-                  {vencimiento && (
-                    <div className="ml-10 mr-3 mb-2 space-y-4 border border-gray-100 rounded-xl p-4 bg-gray-50/50">
+                  {showVencimientoModal && (
+                    <SecurityConfigurationModal title="Vencimiento del documento" description="Define el plazo y los recordatorios para completar la participación." onSave={() => setVencimiento(true)} onClose={() => setShowVencimientoModal(false)}>
+                    <div className="space-y-4">
                       {/* Sub-opciones de vencimiento */}
                       <div className="space-y-2">
                         <p className="text-xs font-semibold text-gray-700 mb-1">
@@ -3509,6 +3521,7 @@ function FileUploadedLayout({
                         )}
                       </div>
                     </div>
+                    </SecurityConfigurationModal>
                   )}
                 </div>
 
@@ -3588,20 +3601,21 @@ function FileUploadedLayout({
 
                 {/* Protección adicional */}
                 <div>
-                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg">
+                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg" onClick={(event) => { event.preventDefault(); setShowProteccionFirmadoModal(true); }}>
                     <input
                       type="checkbox"
                       checked={proteccionFirmado}
-                      onChange={(e) => setProteccionFirmado(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-300 accent-primary"
+                      onChange={() => {}}
+                      className="w-4 h-4 rounded border-gray-300 accent-primary pointer-events-none"
                     />
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Protección adicional a documento firmado
                     </span>
                     <InfoTooltip showOnParentHover text="Aplica una capa extra de seguridad al documento una vez que ha sido firmado, evitando modificaciones." />
                   </label>
-                  {proteccionFirmado && (
-                    <div className="ml-10 mr-3 mb-2 space-y-2">
+                  {showProteccionFirmadoModal && (
+                    <SecurityConfigurationModal title="Protección del documento firmado" description="Selecciona las restricciones que se aplicarán al PDF final." onSave={() => setProteccionFirmado(true)} onClose={() => setShowProteccionFirmadoModal(false)}>
+                    <div className="space-y-2">
                       <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                         <p className="text-xs text-amber-700">
                           <span className="font-bold">¡Atención!</span> Esta acción es irreversible
@@ -3625,12 +3639,12 @@ function FileUploadedLayout({
                           set: setImpedirModificacion,
                         },
                         {
-                          label: 'Impedir la extracción de contenido.',
+                          label: 'Impedir la extracción de páginas.',
                           state: impedirExtraccion,
                           set: setImpedirExtraccion,
                         },
                         {
-                          label: 'Evitar el montaje de documentos.',
+                          label: 'Impedir reorganizar, insertar o eliminar páginas.',
                           state: evitarMontaje,
                           set: setEvitarMontaje,
                         },
@@ -3648,20 +3662,23 @@ function FileUploadedLayout({
                           <span className="text-sm text-gray-700">{label}</span>
                         </label>
                       ))}
+                      <p className="px-2 pt-2 text-xs leading-5 text-slate-500">
+                        Estas restricciones se aplicarán al PDF final descargable y serán respetadas
+                        por lectores compatibles con el estándar PDF. Su comportamiento puede variar
+                        según el visor utilizado.
+                      </p>
                     </div>
+                    </SecurityConfigurationModal>
                   )}
                 </div>
                 {/* Legal Hold */}
                 <div>
-                  <label className="group/option flex items-start gap-3 rounded-lg px-3 py-2 cursor-pointer hover:bg-amber-50/60">
+                  <label className="group/option flex items-start gap-3 rounded-lg px-3 py-2 cursor-pointer hover:bg-amber-50/60" onClick={(event) => { event.preventDefault(); setShowLegalHoldModal(true); }}>
                     <input
                       type="checkbox"
                       checked={legalHoldEnabled}
-                      onChange={(event) => {
-                        setLegalHoldEnabled(event.target.checked);
-                        if (!event.target.checked) setLegalHoldReason('');
-                      }}
-                      className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-primary"
+                      onChange={() => {}}
+                      className="pointer-events-none mt-0.5 h-4 w-4 rounded border-gray-300 accent-primary"
                     />
                     <div className="min-w-0 flex-1">
                       <span className="text-sm font-normal text-gray-700">
@@ -3676,8 +3693,9 @@ function FileUploadedLayout({
                     </div>
                     <InfoTooltip showOnParentHover text="Legal Hold preserva el documento y su evidencia ante litigio, requerimiento de autoridad o auditoría. Requiere motivo, queda auditado y solo el propietario o un administrador podrá solicitar su liberación." />
                   </label>
-                  {legalHoldEnabled && (
-                    <div className="ml-10 mr-3 mb-2 rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+                  {showLegalHoldModal && (
+                    <SecurityConfigurationModal title="Legal Hold" description="Define el motivo de conservación legal del documento." onSave={() => setLegalHoldEnabled(true)} onClose={() => setShowLegalHoldModal(false)}>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
                       <label className="mb-1.5 block text-xs font-600 text-amber-900">
                         Motivo de Legal Hold <span className="text-red-600">*</span>
                       </label>
@@ -3699,6 +3717,7 @@ function FileUploadedLayout({
                         La activación y el motivo quedarán registrados en la bitácora del documento.
                       </p>
                     </div>
+                    </SecurityConfigurationModal>
                   )}
                 </div>
               </div>
@@ -3918,6 +3937,9 @@ export function StepSubir({
   onPdfMetadata,
   sourceSelection,
   onSourceSelectionChange,
+  isPreparingDocument = false,
+  showPreparationMessage = false,
+  documentPreparationError = null,
 }: {
   file: File | null;
   onFileChange: (f: File | null) => void;
@@ -3945,6 +3967,9 @@ export function StepSubir({
   }) => void;
   sourceSelection?: DocuboxSourceSelection | null;
   onSourceSelectionChange?: (selection: DocuboxSourceSelection | null) => void;
+  isPreparingDocument?: boolean;
+  showPreparationMessage?: boolean;
+  documentPreparationError?: string | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -3999,6 +4024,8 @@ export function StepSubir({
   const handleDragLeave = () => setDragging(false);
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0] ?? null;
+    // Clear it immediately so selecting the same file is a real retry after a failed preparation.
+    e.target.value = '';
     onSourceSelectionChange?.(null);
     onFileChange(selected);
   };
@@ -4106,31 +4133,44 @@ export function StepSubir({
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
-                    className={`mb-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-4 py-10 transition-colors ${dragging ? 'border-primary bg-primary/5' : 'border-slate-300 bg-slate-50/40 hover:border-primary/60 hover:bg-primary/[0.02]'}`}
-                    onClick={() => inputRef.current?.click()}
+                    className={`mb-3 flex flex-col items-center justify-center rounded-lg border border-dashed px-4 py-10 transition-colors ${isPreparingDocument ? 'cursor-wait border-slate-200 bg-slate-50/70' : dragging ? 'cursor-pointer border-primary bg-primary/5' : 'cursor-pointer border-slate-300 bg-slate-50/40 hover:border-primary/60 hover:bg-primary/[0.02]'}`}
+                    onClick={() => !isPreparingDocument && inputRef.current?.click()}
                   >
                     <Upload size={32} className="text-gray-400 mb-3" />
                     <p className="text-sm text-primary font-medium text-center">
                       Arrastra un archivo para subir
                     </p>
-                    <p className="text-xs text-gray-400 mt-1 text-center">
-                      Archivos PDF, DOCX hasta 25MB
+                    <p className="mt-1 text-center text-xs text-gray-400">
+                      PDF recomendado. También Word (.doc, .docx), Excel (.xls, .xlsx) y
+                      PowerPoint (.ppt, .pptx), hasta 25 MB.
                     </p>
+                    {showPreparationMessage && (
+                      <p className="mt-3 text-sm font-medium text-slate-600">
+                        Preparando documento…
+                      </p>
+                    )}
                   </div>
                   <input
                     ref={inputRef}
                     type="file"
-                    accept=".pdf,.docx"
+                    accept="application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                    aria-label="Seleccionar PDF, Word, Excel o PowerPoint"
                     className="hidden"
                     onChange={handleInputChange}
                   />
                   <button
-                    className="w-full border border-gray-200 rounded-lg py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2 transition-colors"
+                    disabled={isPreparingDocument}
+                    className="w-full border border-gray-200 rounded-lg py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60 flex items-center justify-center gap-2 transition-colors"
                     onClick={() => inputRef.current?.click()}
                   >
                     <Upload size={15} />
                     Elegir archivo
                   </button>
+                  {documentPreparationError && (
+                    <p role="alert" className="mt-3 text-sm text-red-600">
+                      {documentPreparationError}
+                    </p>
+                  )}
                 </div>
               )}
               {activeTab === 'telefono' && (

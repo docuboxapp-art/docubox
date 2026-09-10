@@ -1,12 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
-import {
-  fetchDashboardOwnedDocuments,
-  fetchDashboardParticipations,
-} from '@/lib/dashboard/participations';
+import React, { useState, useEffect, useRef } from 'react';
 
 const PERIOD_OPTIONS = [
   { value: '7d', label: 'Últimos 7 días' },
@@ -89,39 +83,23 @@ function PeriodFilter({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
-export default function EstadoParticipacionesWidget() {
-  const { user } = useAuth();
-  const userId = user?.id ?? '';
+export default function EstadoParticipacionesWidget({
+  ownedDocs,
+  participaciones,
+  loading,
+  userId,
+  userEmail,
+}: {
+  ownedDocs: any[];
+  participaciones: any[];
+  loading: boolean;
+  userId: string;
+  userEmail: string;
+}) {
   const [period, setPeriod] = useState('30d');
-  // participaciones: docs where I am a participant (from API, bypasses RLS)
-  const [participaciones, setParticipaciones] = useState<any[]>([]);
-  // ownedDocs: docs I own (direct Supabase query is fine since owner can see their own docs)
-  const [ownedDocs, setOwnedDocs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'mis_participaciones' | 'participantes_en_mis_docs'>(
     'mis_participaciones'
   );
-
-  const fetchData = useCallback(async () => {
-    if (!userId) return;
-    setLoading(true);
-
-    Promise.all([fetchDashboardParticipations(), fetchDashboardOwnedDocuments(userId)]).then(
-      ([parts, owned]) => {
-        setParticipaciones(parts);
-        setOwnedDocs(owned);
-        setLoading(false);
-      }
-    );
-  }, [userId]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void fetchData(), 0);
-    return () => window.clearTimeout(timer);
-  }, [fetchData]);
-
-  // Real-time: refresh on any documentos/participantes change for this user
-  useDocumentRealtime(userId || undefined, fetchData, 'estado-participaciones-widget');
 
   const periodStart = getPeriodStartDate(period);
 
@@ -192,7 +170,7 @@ export default function EstadoParticipacionesWidget() {
     parts.forEach((p: any) => {
       const pId = p.id || p.user_id || p.userId;
       const pEmail = (p.email || '').toLowerCase();
-      if (pId === user?.id || pEmail === (user?.email || '').toLowerCase()) return; // skip self
+      if (pId === userId || pEmail === userEmail.toLowerCase()) return; // skip self
       const sub = p.sub_estado || 'sin_revisar';
       if (isVencido) {
         partVencidaCount++;

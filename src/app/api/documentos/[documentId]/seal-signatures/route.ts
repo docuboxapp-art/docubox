@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createServiceClient } from '@/lib/supabase/server';
 import { resolveLegacyDocumentStoragePath } from '@/lib/documents/internal-source';
+import { pdfNativeProtectionPolicy } from '@/lib/documents/pdf-native-protection';
 import type { FinalPdfTechnicalMetadata } from '@/lib/documents/final-pdf-metadata';
 import {
   createSignedDocumentPdf,
@@ -237,7 +238,7 @@ export async function POST(
     const documentResult = await service
       .from('documentos')
       .select(
-        'id,documento_id,owner_id,workspace_id,estado,nombre,descripcion,numero_oficio,tipo_documento_id,otro_tipo_documento,participantes,campos_solicitados,storage_path,file_url,file_name,file_type,file_hash_sha256,participation_order,created_at,fecha_completado,sealed_pdf_path,sealed_pdf_hash'
+        'id,documento_id,owner_id,workspace_id,estado,nombre,descripcion,numero_oficio,tipo_documento_id,otro_tipo_documento,participantes,campos_solicitados,storage_path,file_url,file_name,file_type,file_hash_sha256,participation_order,created_at,fecha_completado,sealed_pdf_path,sealed_pdf_hash,proteccion_firmado,impedir_impresion,evitar_copia_texto,impedir_modificacion,impedir_extraccion,evitar_montaje'
       )
       .eq('id', documentId)
       .is('deleted_at', null)
@@ -688,6 +689,7 @@ export async function POST(
       visualPdfSha256,
       completedAt: closedAt,
       signaturesApplied: stampsApplied,
+      pdfProtectionPolicy: pdfNativeProtectionPolicy(document),
       requiredLevel: requiredPadesLevel,
     });
     if (pades.profile !== 'PAdES-B-T' || !pades.timestamp) {

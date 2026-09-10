@@ -3,7 +3,6 @@ import type { NextRequest } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LocatedVerificationDocument, PublicVerificationResult } from './types';
 import { VERIFIER_VERSION } from './types';
-import { documentEncryptionPolicy } from '@/lib/crypto/document-encryption';
 import { createServiceClient } from '@/lib/supabase/server';
 
 export class PublicRateLimitUnavailableError extends Error {
@@ -85,49 +84,25 @@ export async function logVerificationRun(input: {
 export async function attachTemporaryDocumentUrl(
   supabase: SupabaseClient,
   document: LocatedVerificationDocument,
-  result: PublicVerificationResult
+  result: PublicVerificationResult,
+  publicToken: string
 ) {
-  if (!document.isPublic || !result.document) return result;
-  if (documentEncryptionPolicy().enabled) {
-    return {
-      ...result,
-      document: {
-        ...result.document,
-        documentUrl: `/api/verificacion/documentos/${document.id}/archivo`,
-      },
-    };
+  void supabase;
+  if (
+    !document.isPublic ||
+    !document.publicLinkId ||
+    !document.sealedPdfPath ||
+    !document.sealedPdfHash ||
+    !result.document
+  ) {
+    return result;
   }
-  const candidates: Array<{ bucket: string; path: string }> = [];
-  if (document.sealedPdfPath) {
-    candidates.push({ bucket: 'documents-signed', path: document.sealedPdfPath });
-    candidates.push({ bucket: 'documents', path: document.sealedPdfPath });
-  }
-  if (document.fileUrl) {
-    const reference = extractStorageReference(document.fileUrl);
-    if (reference) candidates.push(reference);
-    else if (!/^https?:\/\//i.test(document.fileUrl))
-      candidates.push({ bucket: 'documents', path: document.fileUrl });
-  }
-  for (const candidate of candidates) {
-    const { data } = await supabase.storage
-      .from(candidate.bucket)
-      .createSignedUrl(candidate.path, 5 * 60);
-    if (data?.signedUrl)
-      return { ...result, document: { ...result.document, documentUrl: data.signedUrl } };
-  }
-  return result;
-}
-
-function extractStorageReference(rawUrl: string) {
-  try {
-    const parsed = new URL(rawUrl);
-    const match = parsed.pathname.match(
-      /\/storage\/v1\/object\/(?:sign|public|authenticated)\/([^/]+)\/(.+)$/
-    );
-    return match
-      ? { bucket: decodeURIComponent(match[1]), path: decodeURIComponent(match[2]) }
-      : null;
-  } catch {
-    return null;
-  }
+  const accessToken = encodeURIComponent(publicToken);
+  return {
+    ...result,
+    document: {
+      ...result.document,
+      documentUrl: `/api/verificacion/documentos/${document.id}/archivo?token=${accessToken}`,
+    },
+  };
 }

@@ -87,7 +87,7 @@ function sanitizeParticipants(
   });
 }
 
-async function findPublicLink(supabase: SupabaseClient, identifier: string) {
+export async function findActivePublicLink(supabase: SupabaseClient, identifier: string) {
   const digest = sha256Token(identifier);
   const { data, error } = await supabase
     .from('public_verifications')
@@ -106,7 +106,7 @@ export async function locateVerificationDocument(
 ): Promise<LocatedVerificationDocument | null> {
   const clean = decodeURIComponent(identifier).trim();
   if (!clean || clean.length > 160) return null;
-  const publicLink = await findPublicLink(supabase, clean);
+  const publicLink = await findActivePublicLink(supabase, clean);
   let documentId = publicLink?.document_id || null;
 
   if (!documentId && UUID_PATTERN.test(clean)) {
@@ -218,6 +218,7 @@ export async function locateVerificationDocument(
     completedAt: document.fecha_completado || document.updated_at,
     fileUrl: document.file_url,
     sealedPdfPath: document.sealed_pdf_path,
+    sealedPdfHash: document.sealed_pdf_hash,
     participants: sanitizeParticipants(document.participantes, evidenceResult.data || []),
     hashes: deduplicateHashes(hashes),
     xmlPresent: Boolean(document.xml_evidencia_path || document.xml_hash_sha256),

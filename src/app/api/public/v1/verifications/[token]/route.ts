@@ -27,7 +27,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         ? 'FOLIO'
         : 'TOKEN';
     let result = await verifyLocatedDocument({ supabase, document, method });
-    result = await attachTemporaryDocumentUrl(supabase, document, result);
+    result = await attachTemporaryDocumentUrl(supabase, document, result, token);
     await logVerificationRun({ supabase, request, result, documentId: document.id, publicVerificationId: document.publicLinkId, durationMs: Date.now() - startedAt });
     return json(result);
   } catch (error) {

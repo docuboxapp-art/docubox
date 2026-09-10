@@ -25,6 +25,12 @@ import SugeridosParaTiWidget from './components/SugeridosParaTiWidget';
 import DocumentosSinRevisionWidget from './components/DocumentosSinRevisionWidget';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
+import {
+  fetchDashboardOwnedDocuments,
+  fetchDashboardParticipations,
+  invalidateDashboardDocumentData,
+} from '@/lib/dashboard/participations';
 
 const ActivityAuditLog = dynamic(() => import('@/app/mis-documentos/components/ActivityAuditLog'), {
   ssr: false,
@@ -120,6 +126,9 @@ export default function DocumentsDashboardPage() {
     docsTotal: 2,
     planName: 'Plan Gratuito',
   });
+  const [dashboardOwnedDocuments, setDashboardOwnedDocuments] = useState<any[]>([]);
+  const [dashboardParticipations, setDashboardParticipations] = useState<any[]>([]);
+  const [dashboardDocumentsLoading, setDashboardDocumentsLoading] = useState(true);
 
   // Personalizar mode
   const [customizing, setCustomizing] = useState(false);
@@ -266,6 +275,42 @@ export default function DocumentsDashboardPage() {
     const timer = window.setTimeout(() => void loadDashboardData(user.id), 0);
     return () => window.clearTimeout(timer);
   }, [authLoading, loadDashboardData, user?.id]);
+
+  // The four document widgets derive different views from exactly the same two datasets.
+  // Loading them once avoids duplicate requests and four independent Realtime channels.
+  const loadDashboardDocuments = useCallback(
+    async (force = false) => {
+      if (!user?.id) {
+        setDashboardDocumentsLoading(false);
+        return;
+      }
+      setDashboardDocumentsLoading(true);
+      try {
+        const [ownedDocuments, participations] = await Promise.all([
+          fetchDashboardOwnedDocuments(user.id, { force }),
+          fetchDashboardParticipations(user.id, { force }),
+        ]);
+        setDashboardOwnedDocuments(ownedDocuments);
+        setDashboardParticipations(participations);
+      } finally {
+        setDashboardDocumentsLoading(false);
+      }
+    },
+    [user?.id]
+  );
+
+  useEffect(() => {
+    if (authLoading || !user?.id) return;
+    const timer = window.setTimeout(() => void loadDashboardDocuments(), 0);
+    return () => window.clearTimeout(timer);
+  }, [authLoading, loadDashboardDocuments, user?.id]);
+
+  const refreshDashboardDocuments = useCallback(() => {
+    invalidateDashboardDocumentData(user?.id);
+    void loadDashboardDocuments(true);
+  }, [loadDashboardDocuments, user?.id]);
+
+  useDocumentRealtime(user?.id, refreshDashboardDocuments, 'documents-dashboard');
 
   // ── Layout persistence ─────────────────────────────────────────────────────
 
@@ -546,7 +591,11 @@ export default function DocumentsDashboardPage() {
             onDrop={() => handleDrop(w.id)}
           >
             <CustomizeOverlay />
-            <EstadoDocumentosWidget />
+            <EstadoDocumentosWidget
+              ownedDocs={dashboardOwnedDocuments}
+              participaciones={dashboardParticipations}
+              loading={dashboardDocumentsLoading}
+            />
           </div>
         );
 
@@ -559,7 +608,13 @@ export default function DocumentsDashboardPage() {
             onDrop={() => handleDrop(w.id)}
           >
             <CustomizeOverlay />
-            <EstadoParticipacionesWidget />
+            <EstadoParticipacionesWidget
+              ownedDocs={dashboardOwnedDocuments}
+              participaciones={dashboardParticipations}
+              loading={dashboardDocumentsLoading}
+              userId={user?.id ?? ''}
+              userEmail={user?.email ?? ''}
+            />
           </div>
         );
 
@@ -572,7 +627,11 @@ export default function DocumentsDashboardPage() {
             onDrop={() => handleDrop(w.id)}
           >
             <CustomizeOverlay />
-            <SugeridosParaTiWidget />
+            <SugeridosParaTiWidget
+              ownedDocs={dashboardOwnedDocuments}
+              participaciones={dashboardParticipations}
+              loading={dashboardDocumentsLoading}
+            />
           </div>
         );
 
@@ -585,7 +644,14 @@ export default function DocumentsDashboardPage() {
             onDrop={() => handleDrop(w.id)}
           >
             <CustomizeOverlay />
-            <DocumentosSinRevisionWidget />
+            <DocumentosSinRevisionWidget
+              ownedDocs={dashboardOwnedDocuments}
+              participaciones={dashboardParticipations}
+              loading={dashboardDocumentsLoading}
+              onRefresh={refreshDashboardDocuments}
+              userId={user?.id ?? ''}
+              userEmail={user?.email ?? ''}
+            />
           </div>
         );
 

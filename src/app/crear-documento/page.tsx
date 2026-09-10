@@ -20,6 +20,10 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
+import {
+  ClientDocumentConversionError,
+  prepareDocument,
+} from '@/lib/document-conversion/client';
 import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { StepSubir } from './components/StepSubir';
 import { StepParticipantes } from './components/StepParticipantes';
@@ -72,7 +76,7 @@ const ALLOWED_MIME_TYPES_PAGE = [
   'image/png',
   'image/jpeg',
 ];
-const MAX_FILE_SIZE_BYTES_PAGE = 50 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES_PAGE = 25 * 1024 * 1024;
 
 async function validateMimeByMagicBytesPage(file: File): Promise<string | null> {
   const slice = file.slice(0, 8);
@@ -189,6 +193,11 @@ function CrearDocumentoPageInner() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [file, setFile] = useState<File | null>(null);
+  const [isPreparingDocument, setIsPreparingDocument] = useState(false);
+  const [showPreparationMessage, setShowPreparationMessage] = useState(false);
+  const [documentPreparationError, setDocumentPreparationError] = useState<string | null>(null);
+  const documentPreparationAbortRef = useRef<AbortController | null>(null);
+  const documentPreparationTimerRef = useRef<number | null>(null);
   const [docuboxSource, setDocuboxSource] = useState<DocuboxSourceSelection | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [participantMode, setParticipantMode] = useState<ParticipantMode>(null);
@@ -258,6 +267,68 @@ function CrearDocumentoPageInner() {
       } as Record<string, string>
     )[currentStepLabel] ?? 'Configura el documento antes de enviarlo.';
   const completionPercent = Math.round(((currentStep - 1) / Math.max(STEPS.length - 1, 1)) * 100);
+
+  useEffect(() => {
+    return () => {
+      documentPreparationAbortRef.current?.abort();
+      if (documentPreparationTimerRef.current !== null) {
+        window.clearTimeout(documentPreparationTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleDocumentSelection = async (selectedFile: File | null) => {
+    documentPreparationAbortRef.current?.abort();
+    if (documentPreparationTimerRef.current !== null) {
+      window.clearTimeout(documentPreparationTimerRef.current);
+      documentPreparationTimerRef.current = null;
+    }
+    setDocumentPreparationError(null);
+    setShowPreparationMessage(false);
+    if (!selectedFile) {
+      setFile(null);
+      setPreProcessedFile(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    documentPreparationAbortRef.current = controller;
+    setIsPreparingDocument(true);
+    documentPreparationTimerRef.current = window.setTimeout(() => {
+      setShowPreparationMessage(true);
+    }, 2_500);
+    try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new ClientDocumentConversionError('UNAUTHORIZED');
+      const preparedFile = await prepareDocument(selectedFile, session.access_token, controller.signal);
+      if (!controller.signal.aborted) {
+        setFile(preparedFile);
+        setPreProcessedFile(null);
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setFile(null);
+      setPreProcessedFile(null);
+      setDocumentPreparationError(
+        error instanceof ClientDocumentConversionError &&
+        (error.code === 'CONVERSION_QUOTA_EXHAUSTED' || error.code === 'CONVERSION_USAGE_LIMITED')
+          ? 'No fue posible preparar el documento en este momento. Intenta nuevamente más tarde.'
+          : 'No fue posible preparar el documento. Intenta nuevamente o selecciona otro archivo.'
+      );
+    } finally {
+      if (documentPreparationTimerRef.current !== null) {
+        window.clearTimeout(documentPreparationTimerRef.current);
+        documentPreparationTimerRef.current = null;
+      }
+      if (!controller.signal.aborted) {
+        setShowPreparationMessage(false);
+        setIsPreparingDocument(false);
+      }
+    }
+  };
 
   // Load draft from Supabase if draftId is in URL
   useEffect(() => {
@@ -753,10 +824,10 @@ function CrearDocumentoPageInner() {
           {currentStep === 1 && (
             <StepSubir
               file={file}
-              onFileChange={(nextFile) => {
-                setFile(nextFile);
-                setPreProcessedFile(null);
-              }}
+              onFileChange={handleDocumentSelection}
+              isPreparingDocument={isPreparingDocument}
+              showPreparationMessage={showPreparationMessage}
+              documentPreparationError={documentPreparationError}
               config={docConfig}
               onConfigChange={setDocConfig}
               viewMode={viewMode}

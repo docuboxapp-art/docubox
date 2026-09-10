@@ -13,10 +13,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
     }
 
-    const allowedTypes = new Set([
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    ]);
+    const allowedTypes = new Set(['application/pdf']);
     if (!allowedTypes.has(fileType)) {
       return NextResponse.json({ error: 'Tipo de archivo no permitido' }, { status: 415 });
     }

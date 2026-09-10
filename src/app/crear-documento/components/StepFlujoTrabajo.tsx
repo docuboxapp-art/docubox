@@ -713,10 +713,7 @@ function WorkflowEditorModal({ participants, onClose, documentoId }: { participa
         {/* Header */}
         <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200">
           <div>
-            <div className="flex items-center gap-2">
-              <GitBranch size={20} className="text-primary" />
-              <h2 className="text-lg font-bold text-gray-900">Editor de Flujo de Trabajo Avanzado</h2>
-            </div>
+            <h2 className="text-lg font-bold text-gray-900">Editor de Flujo de Trabajo Avanzado</h2>
             <p className="text-sm text-gray-500 mt-0.5">
               Configura condiciones complejas y acciones automatizadas. Arrastra los elementos para reordenar.
             </p>
@@ -756,7 +753,7 @@ function WorkflowEditorModal({ participants, onClose, documentoId }: { participa
               </div>
               <button
                 onClick={addStep}
-                className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors shadow-sm"
+                className="flex h-9 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90"
               >
                 + Añadir Primer Paso
               </button>
@@ -808,7 +805,7 @@ function WorkflowEditorModal({ participants, onClose, documentoId }: { participa
         <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 bg-white rounded-b-xl">
           <button
             onClick={addStep}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex h-9 items-center gap-2 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             + Añadir Paso
           </button>
@@ -816,14 +813,14 @@ function WorkflowEditorModal({ participants, onClose, documentoId }: { participa
             <button
               onClick={onClose}
               disabled={saving}
-              className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="h-9 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               onClick={handleGuardarFlujo}
               disabled={saving || steps.length === 0}
-              className="flex items-center gap-2 px-5 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Save size={14} />
               {saving ? 'Guardando...' : 'Guardar Flujo'}

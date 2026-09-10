@@ -44,7 +44,13 @@ test('only a legally relevant action creates effective participation', () => {
   );
   assert.equal(
     visibility.hasEffectiveParticipation(participant, [], [{ captured_by: 'user-1' }]),
-    true
+    false
+  );
+  assert.equal(
+    visibility.hasEffectiveParticipation(participant, [
+      { participante_id: 'user-1', terminos_aceptados: true, firma_data: 'data:image/png;base64,draft' },
+    ]),
+    false
   );
   assert.equal(
     visibility.hasEffectiveParticipation({ ...participant, sub_estado: 'rechazo' }),

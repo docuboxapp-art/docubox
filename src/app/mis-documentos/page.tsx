@@ -3147,7 +3147,7 @@ function MisDocumentosContent() {
         fetch('/api/documentos/listar?tipo=todos', {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch('/api/documentos/mis-participaciones', {
+        fetch('/api/documentos/mis-participaciones?exclude_owned=true', {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);

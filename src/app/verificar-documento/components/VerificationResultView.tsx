@@ -445,9 +445,7 @@ function DocumentAccess({ result }: { result: PublicVerificationResult }) {
             {expanded ? 'Ocultar' : 'Ver documento'}
           </button>
           <a
-            href={document.documentUrl}
-            target="_blank"
-            rel="noreferrer"
+            href={`${document.documentUrl}${document.documentUrl.includes('?') ? '&' : '?'}download=1`}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#4f46e5] px-4 text-sm font-650 text-white hover:bg-[#4338ca]"
           >
             <Download size={16} />

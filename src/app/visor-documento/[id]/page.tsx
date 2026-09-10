@@ -54,7 +54,12 @@ import { useSidebar } from '@/contexts/SidebarContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createNotification } from '@/lib/notificationsInApp';
 import { getNom151Presentation } from '@/lib/nom151/presentation';
-import { formatEvidenceTimestamp, formatLocalTimestamp, getEffectiveTimeZone } from '@/lib/datetime';
+import {
+  formatEvidenceTimestamp,
+  formatLocalTimestampWithOffset,
+  getEffectiveTimeZone,
+  getTimeZoneOffsetLabel,
+} from '@/lib/datetime';
 import { StepSubir } from '@/app/crear-documento/components/StepSubir';
 import { StepParticipantes } from '@/app/crear-documento/components/StepParticipantes';
 import { StepAjustes } from '@/app/crear-documento/components/StepAjustes';
@@ -3993,11 +3998,18 @@ export default function VisorDocumentoPage() {
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return 'Sin vencimiento';
-    return formatLocalTimestamp(dateStr, { dateStyle: 'long', timeStyle: 'short' });
+    return formatLocalTimestampWithOffset(dateStr, {
+      dateStyle: 'long',
+      timeStyle: 'short',
+    });
   };
 
   const formatChatTime = (dateStr: string) => {
-    return formatLocalTimestamp(dateStr, { dateStyle: 'short', timeStyle: 'short', hour12: false });
+    return formatLocalTimestampWithOffset(dateStr, {
+      dateStyle: 'short',
+      timeStyle: 'short',
+      hour12: false,
+    });
   };
 
   const formatSize = (bytes?: number) => {
@@ -5126,39 +5138,39 @@ export default function VisorDocumentoPage() {
       <div
         className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
       >
-        <div className="flex h-10 items-center overflow-hidden rounded-md border border-slate-200 bg-white/95 shadow-[0_8px_24px_rgba(15,23,42,0.12)] backdrop-blur select-none">
+        <div className="flex items-center gap-1 rounded-full border border-border bg-white/90 px-3 py-1.5 shadow-md backdrop-blur-sm select-none">
         <button
           onClick={handleZoomOut}
           disabled={zoom <= ZOOM_MIN}
-          className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-40"
           title="Reducir zoom"
         >
           <ZoomOut size={14} />
         </button>
-        <span className="min-w-[48px] border-x border-slate-100 px-2 text-center text-xs font-500 text-slate-600">
+        <span className="min-w-[44px] text-center text-sm font-medium text-slate-600">
           {zoom}%
         </span>
         <button
           onClick={handleZoomIn}
           disabled={zoom >= ZOOM_MAX}
-          className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-40"
           title="Aumentar zoom"
         >
           <ZoomIn size={14} />
         </button>
-          <div className="h-5 w-px bg-slate-200" />
+          <div className="mx-1 h-5 w-px bg-slate-200" />
           {canNavigatePages ? (
             <>
               <button
                 onClick={handlePrevPage}
                 disabled={currentPage <= 1}
-                className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+                className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-40"
                 title="Página anterior"
                 aria-label="Página anterior"
               >
                 <ChevronLeft size={14} />
               </button>
-              <div className="flex min-w-[100px] items-center justify-center gap-1 px-2 text-xs" aria-live="polite">
+              <div className="flex min-w-[112px] items-center justify-center gap-1 text-sm" aria-live="polite">
                 {canJumpToPage ? (
                   <>
                     <span className="text-slate-400">Página</span>
@@ -5172,7 +5184,7 @@ export default function VisorDocumentoPage() {
                       onKeyDown={handlePageInputKeyDown}
                       onFocus={(event) => event.currentTarget.select()}
                       aria-label="Ir a página"
-                      className="w-8 rounded border border-slate-200 bg-white py-0.5 text-center font-semibold text-slate-800 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      className="w-9 rounded border border-slate-200 bg-white py-0.5 text-center font-semibold text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
                     />
                     <span className="whitespace-nowrap text-slate-400">de {totalPages}</span>
                   </>
@@ -5185,7 +5197,7 @@ export default function VisorDocumentoPage() {
               <button
                 onClick={handleNextPage}
                 disabled={currentPage >= totalPages}
-                className="flex h-10 w-10 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+                className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-40"
                 title="Página siguiente"
                 aria-label="Página siguiente"
               >
@@ -5193,7 +5205,7 @@ export default function VisorDocumentoPage() {
               </button>
             </>
           ) : (
-            <span className="px-3 text-xs font-medium text-slate-600">Página 1 de 1</span>
+            <span className="px-2 text-sm font-medium text-slate-600">Página 1 de 1</span>
           )}
         </div>
       </div>
@@ -5419,7 +5431,7 @@ export default function VisorDocumentoPage() {
           <div className="hidden flex-shrink-0 md:flex">
             <nav
               aria-label="Secciones del documento"
-              className="document-viewer-tabs z-30 flex w-16 flex-col items-center gap-1 border-x border-slate-200 bg-white px-1.5 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]"
+              className="document-viewer-tabs z-30 flex w-[72px] min-w-[72px] flex-col items-center gap-1 border-x border-slate-200 bg-white px-2 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]"
             >
               {toolbarItems.map((item) => (
                 <button
@@ -5427,7 +5439,7 @@ export default function VisorDocumentoPage() {
                   onClick={() => setActiveTab(item.key)}
                   title={item.title}
                   aria-current={activeTab === item.key ? 'page' : undefined}
-                  className={`relative flex h-12 w-[52px] flex-col items-center justify-center gap-1 rounded-md border transition-colors ${
+                  className={`relative flex h-12 w-full max-w-[56px] flex-col items-center justify-center gap-1 rounded-md border transition-colors ${
                     activeTab === item.key
                       ? 'border-blue-200 bg-blue-50 text-[#1E6BFF]'
                       : 'border-transparent text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900'
@@ -5439,7 +5451,7 @@ export default function VisorDocumentoPage() {
                   {React.cloneElement(item.icon as React.ReactElement<{ size?: number }>, {
                     size: 16,
                   })}
-                  <span className="document-viewer-tab-label max-w-full whitespace-nowrap text-[8px] font-medium leading-none tracking-normal">
+                  <span className="document-viewer-tab-label block w-full truncate whitespace-nowrap text-[8px] font-medium leading-none tracking-normal">
                     {item.label}
                   </span>
                 </button>
@@ -5465,7 +5477,7 @@ export default function VisorDocumentoPage() {
               )}
             </nav>
 
-            <div className="document-viewer-panel absolute inset-y-0 right-16 z-20 flex w-[376px] max-w-[calc(100%-4rem)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50 shadow-[-12px_0_28px_rgba(15,23,42,0.08)] lg:static lg:z-auto lg:w-[376px] lg:shadow-none 2xl:w-[416px]">
+            <div className="document-viewer-panel absolute inset-y-0 right-[72px] z-20 flex w-[376px] max-w-[calc(100%-72px)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50 shadow-[-12px_0_28px_rgba(15,23,42,0.08)] lg:static lg:z-auto lg:w-[376px] lg:shadow-none 2xl:w-[416px]">
               {activeTab === 'details' ? (
                 <>
                   <div className="viewer-panel-header">
@@ -5691,7 +5703,8 @@ export default function VisorDocumentoPage() {
                               ZONA HORARIA
                             </p>
                             <p className="text-sm text-foreground">
-                              Hora local del visor: {getEffectiveTimeZone()}
+                              Hora local del visor: {getEffectiveTimeZone()} (
+                              {getTimeZoneOffsetLabel(getEffectiveTimeZone())})
                             </p>
                           </div>
                         </div>

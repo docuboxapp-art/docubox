@@ -1,14 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import { FileText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
-import {
-  fetchDashboardOwnedDocuments,
-  fetchDashboardParticipations,
-} from '@/lib/dashboard/participations';
 
 interface SuggestedDoc {
   id: string;
@@ -16,21 +10,20 @@ interface SuggestedDoc {
   esUrgente: boolean;
 }
 
-export default function SugeridosParaTiWidget() {
-  const { user } = useAuth();
-  const userId = user?.id ?? '';
+export default function SugeridosParaTiWidget({
+  ownedDocs,
+  participaciones,
+  loading,
+}: {
+  ownedDocs: any[];
+  participaciones: any[];
+  loading: boolean;
+}) {
   const router = useRouter();
-  const [docs, setDocs] = useState<SuggestedDoc[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const loadDocs = useCallback(async () => {
-    if (!userId) return;
-
-    Promise.all([fetchDashboardParticipations(), fetchDashboardOwnedDocuments(userId)]).then(
-      ([participaciones, allOwnedData]) => {
-        const ownedData = allOwnedData.filter((document: any) => document.estado === 'en_proceso');
-        const sugeridos: SuggestedDoc[] = [];
-        const addedIds = new Set<string>();
+  const docs = useMemo(() => {
+    const ownedData = ownedDocs.filter((document: any) => document.estado === 'en_proceso');
+    const sugeridos: SuggestedDoc[] = [];
+    const addedIds = new Set<string>();
 
         participaciones.forEach((p: any) => {
           if (p.status !== 'en-progreso' && p.status !== 'pendiente') return;
@@ -69,19 +62,8 @@ export default function SugeridosParaTiWidget() {
           return 0;
         });
 
-        setDocs(sugeridos.slice(0, 10));
-        setLoading(false);
-      }
-    );
-  }, [userId]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void loadDocs(), 0);
-    return () => window.clearTimeout(timer);
-  }, [loadDocs]);
-
-  // Real-time: refresh on any documentos/participantes change for this user
-  useDocumentRealtime(userId || undefined, loadDocs, 'sugeridos-widget');
+    return sugeridos.slice(0, 10);
+  }, [ownedDocs, participaciones]);
 
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">

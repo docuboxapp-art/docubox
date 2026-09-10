@@ -25,6 +25,8 @@ test('folder deletion is server-authorized and restricted to empty folders', asy
   assert.match(source, /\.eq\('owner_id', user\.id\)/);
   assert.match(source, /\.eq\('carpeta_id', folderId\)/);
   assert.match(source, /\.eq\('parent_id', folderId\)/);
+  assert.match(source, /\.eq\('carpeta_id', folderId\)\s*\.is\('deleted_at', null\)/);
+  assert.match(source, /\.eq\('parent_id', folderId\)\s*\.eq\('owner_id', user\.id\)\s*\.is\('deleted_at', null\)/);
   assert.match(source, /Solo puedes eliminar carpetas vacías/);
   assert.match(source, /status: 409/);
   assert.match(source, /folder_deletion_tombstones/);

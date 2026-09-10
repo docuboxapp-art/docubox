@@ -170,12 +170,14 @@ export async function DELETE(request: Request) {
       supabase
         .from('documentos')
         .select('id', { count: 'exact', head: true })
-        .eq('carpeta_id', folderId),
+        .eq('carpeta_id', folderId)
+        .is('deleted_at', null),
       supabase
         .from('carpetas')
         .select('id', { count: 'exact', head: true })
         .eq('parent_id', folderId)
-        .eq('owner_id', user.id),
+        .eq('owner_id', user.id)
+        .is('deleted_at', null),
     ]);
 
     if (documentCountError || childCountError) {

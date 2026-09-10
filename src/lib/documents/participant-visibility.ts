@@ -49,7 +49,7 @@ function participantIds(participant: ParticipantRecord) {
 export function hasEffectiveParticipation(
   participant: ParticipantRecord,
   responses: ParticipationResponseRecord[] = [],
-  evidence: SignatureEvidenceRecord[] = []
+  _evidence: SignatureEvidenceRecord[] = []
 ) {
   if (participant.historical_participation === true) return true;
 
@@ -69,18 +69,12 @@ export function hasEffectiveParticipation(
   );
   if (
     response?.firma_completada === true ||
-    response?.aprobacion_completada === true ||
-    response?.terminos_aceptados === true ||
-    (typeof response?.firma_data === 'string' && response.firma_data.trim().length > 0)
+    response?.aprobacion_completada === true
   ) {
     return true;
   }
 
-  return evidence.some(
-    (candidate) =>
-      (typeof candidate.captured_by === 'string' && ids.includes(candidate.captured_by)) ||
-      sameEmail(candidate.participant_email, participant.email)
-  );
+  return false;
 }
 
 export function canAccessParticipantRecord(participant: ParticipantRecord) {

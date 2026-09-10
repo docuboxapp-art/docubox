@@ -1,24 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendOwnerParticipantActionEmail } from '@/lib/emailNotifications';
-import { createNotificationServer } from '@/lib/notificationsInApp.server';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-// Terminal sub_estados that count as "participated"
-const TERMINAL_SUB_ESTADOS = [
-  'firmo',
-  'firmado',
-  'aprobo',
-  'aprobado',
-  'rechazo',
-  'rechazado',
-  'cancelo',
-  'cancelado',
-];
 
 function toNullableInteger(value: unknown) {
   const numericValue = Number(value);
@@ -120,27 +106,8 @@ export async function POST(req: NextRequest) {
     );
     const participantAccessRevoked = participantEntry?.current_access === false;
 
-    let participacion: { id: string; participante_id: string | null } | null = null;
-    const { data: participationById } = await supabaseAdmin
-      .from('participation_responses')
-      .select('id, participante_id')
-      .eq('documento_id', documentId)
-      .eq('participante_id', user.id)
-      .maybeSingle();
-    participacion = participationById;
-
-    if (!participacion && normalizedUserEmail) {
-      const { data: participationByEmail } = await supabaseAdmin
-        .from('participation_responses')
-        .select('id, participante_id')
-        .eq('documento_id', documentId)
-        .ilike('participante_email', normalizedUserEmail)
-        .maybeSingle();
-      participacion = participationByEmail;
-    }
-
     const isOwner = documento.owner_id === user.id;
-    if (participantAccessRevoked || (!participacion && !isDocumentParticipant && !isOwner)) {
+    if (participantAccessRevoked || (!isDocumentParticipant && !isOwner)) {
       return NextResponse.json(
         { error: 'No tienes permiso para firmar este documento' },
         { status: 403 }
@@ -295,104 +262,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Update participation_responses to mark as signed
-    if (participacion) {
-      await supabaseAdmin
-        .from('participation_responses')
-        .update({
-          estado: 'firmado',
-          fecha_respuesta: new Date().toISOString(),
-        })
-        .eq('id', participacion.id);
-    }
-
-    // Update participant sub_estado in documentos.participantes JSONB
-    const userEmailLower = (user.email || '').toLowerCase();
-    if (userEmailLower) {
-      const { error: participantStateError } = await supabaseAdmin.rpc(
-        'update_participante_sub_estado',
-        {
-          p_documento_id: documentId,
-          p_email: user.email,
-          p_sub_estado: 'firmado',
-        }
-      );
-      if (participantStateError) {
-        console.warn(
-          '[persist-evidence] No se pudo actualizar el subestado:',
-          participantStateError.message
-        );
-      }
-    }
-
-    // ── Check if ALL participants have completed and close document if so ──
-    // Re-fetch updated participantes
-    const { data: updatedDoc } = await supabaseAdmin
-      .from('documentos')
-      .select('participantes, estado')
-      .eq('id', documentId)
-      .maybeSingle();
-
-    if (updatedDoc && updatedDoc.estado !== 'completado' && updatedDoc.estado !== 'cancelado') {
-      const participantes: any[] = updatedDoc.participantes ?? [];
-      const allCompleted =
-        participantes.length > 0 &&
-        participantes.every((p: any) => {
-          const sub = (p.sub_estado ?? '').toLowerCase();
-          return TERMINAL_SUB_ESTADOS.includes(sub);
-        });
-
-      if (allCompleted) {
-        const now = new Date().toISOString();
-        await supabaseAdmin
-          .from('documentos')
-          .update({ estado: 'completado', fecha_completado: now })
-          .eq('id', documentId);
-
-        // Log completion activity
-        const { error: completionLogError } = await supabaseAdmin
-          .from('document_activity_log')
-          .insert({
-            documento_id: documentId,
-            user_id: user.id,
-            action: 'documento_completado',
-            details: {
-              motivo: 'Todos los participantes han completado su participación',
-              total_participantes: participantes.length,
-            },
-          });
-        if (completionLogError) {
-          console.warn(
-            '[persist-evidence] No se pudo registrar el cierre:',
-            completionLogError.message
-          );
-        }
-      } else {
-        // ── Advance participation chain for sequential/mixed orders ──────────
-        // Call advance-participation to notify the next participant(s) in line
-        try {
-          const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || '';
-          const authHeader = req.headers.get('authorization') || '';
-          await fetch(`${siteUrl}/api/documentos/advance-participation`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: authHeader,
-            },
-            body: JSON.stringify({ documentoId: documentId }),
-          });
-        } catch (advErr) {
-          console.error('[persist-evidence] Error advancing participation chain:', advErr);
-          // Non-critical — document is already saved
-        }
-      }
-    }
-
-    // Log activity
+    // Capturing a trace is not a legal signature. Only handleSubmit may change
+    // participant or document state after the user explicitly confirms the action.
     const { error: signatureLogError } = await supabaseAdmin.from('document_activity_log').insert({
       documento_id: documentId,
       user_id: user.id,
-      action: 'firma_autografa_completada',
+      action: 'autografa_capturada',
       details: {
         evidence_id: insertedEvidence?.id || evidenceId,
         otp_verified: otpVerified,
@@ -401,52 +276,7 @@ export async function POST(req: NextRequest) {
       },
     });
     if (signatureLogError) {
-      console.warn('[persist-evidence] No se pudo registrar la firma:', signatureLogError.message);
-    }
-
-    // ── Notify owner when participant signs/approves ───────────────────────
-    if (documento.owner_id && documento.owner_id !== user.id) {
-      const actorName = userName || user.email || 'Un participante';
-      const docName = documento.nombre || documentName || 'Documento';
-
-      // In-app notification to owner
-      createNotificationServer({
-        userId: documento.owner_id,
-        type: 'document',
-        eventType: 'document.participation.completed',
-        category: 'SIGNATURE',
-        severity: 'success',
-        title: 'Participante firmó el documento',
-        description: `${actorName} ha firmado "${docName}".`,
-        priority: 'media',
-        workspaceId: documento.workspace_id || null,
-        actorUserId: user.id,
-        entityType: 'document',
-        entityId: documentId,
-        actionUrl: `/visor-documento/${documentId}`,
-        actionLabel: 'Ver documento',
-        deduplicationKey: `document.participation.completed:${documentId}:${user.id}:${capturedAt}`,
-        metadata: { documentoId: documentId, documentName: docName, signerEmail: user.email },
-      }).catch(() => {});
-
-      // Email to owner
-      const { data: ownerProfile } = await supabaseAdmin
-        .from('profiles')
-        .select('full_name, email')
-        .eq('id', documento.owner_id)
-        .maybeSingle();
-
-      if (ownerProfile?.email) {
-        sendOwnerParticipantActionEmail({
-          ownerEmail: ownerProfile.email,
-          ownerName: ownerProfile.full_name || undefined,
-          documentName: docName,
-          participantName: actorName,
-          participantEmail: userEmail || user.email,
-          action: 'firmado',
-          completedAt: new Date().toISOString(),
-        }).catch(() => {});
-      }
+      console.warn('[persist-evidence] No se pudo registrar la captura:', signatureLogError.message);
     }
 
     return NextResponse.json({

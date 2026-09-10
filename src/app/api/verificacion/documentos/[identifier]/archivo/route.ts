@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { resolveLegacyDocumentStoragePath } from '@/lib/documents/internal-source';
 import { readDocumentStorageObject } from '@/lib/crypto/document-encryption';
 import { enforcePublicRateLimit } from '@/lib/public-verification/gateway';
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import { findActivePublicLink } from '@/lib/public-verification/repository';
 
 function safeFileName(value: unknown) {
   return String(value || 'documento.pdf').replace(/[\r\n"\\/:*?<>|]/g, '_');
@@ -26,37 +24,49 @@ export async function GET(
   }
   const { identifier: rawIdentifier } = await params;
   const identifier = decodeURIComponent(rawIdentifier || '').trim();
-  if (!identifier || identifier.length > 120) {
+  const token = request.nextUrl.searchParams.get('token')?.trim() || '';
+  if (!identifier || identifier.length > 120 || !token || token.length > 160) {
     return NextResponse.json({ error: 'Identificador invalido.' }, { status: 400 });
   }
 
   const service = createServiceClient();
-  const select =
-    'id,documento_id,nombre,estado,es_publico,file_name,file_type,storage_path,file_url,file_hash_sha256,sealed_pdf_path,sealed_pdf_hash';
-  const base = () =>
-    service.from('documentos').select(select).eq('estado', 'completado').eq('es_publico', true);
-  let document = UUID_PATTERN.test(identifier)
-    ? (await base().eq('id', identifier).maybeSingle()).data
-    : (await base().eq('documento_id', identifier).maybeSingle()).data;
-  if (!document && !UUID_PATTERN.test(identifier)) {
-    document = (await base().eq('folio_interno', identifier).maybeSingle()).data;
+  const publicLink = await findActivePublicLink(service, token);
+  if (
+    !publicLink ||
+    publicLink.document_id !== identifier ||
+    publicLink.visibility_level !== 'document'
+  ) {
+    return NextResponse.json(
+      { error: 'El enlace publico no permite acceder al archivo.' },
+      { status: 404 }
+    );
   }
+  const select =
+    'id,documento_id,nombre,estado,es_publico,file_name,file_type,sealed_pdf_path,sealed_pdf_hash';
+  const { data: document } = await service
+    .from('documentos')
+    .select(select)
+    .eq('id', publicLink.document_id)
+    .eq('estado', 'completado')
+    .eq('es_publico', true)
+    .maybeSingle();
   if (!document) {
     return NextResponse.json({ error: 'Documento publico no encontrado.' }, { status: 404 });
   }
 
   const finalPath = String(document.sealed_pdf_path || '').trim();
-  const storagePath =
-    finalPath || resolveLegacyDocumentStoragePath(document.storage_path, document.file_url);
-  if (!storagePath) {
-    return NextResponse.json({ error: 'Archivo no disponible.' }, { status: 404 });
+  if (!finalPath || !document.sealed_pdf_hash) {
+    return NextResponse.json(
+      { error: 'El PDF final firmado aun no esta disponible.' },
+      { status: 409 }
+    );
   }
   try {
     const file = await readDocumentStorageObject({
       service,
       storageBucket: 'documents',
-      storagePath,
-      expectedPlaintextSha256: finalPath ? document.sealed_pdf_hash : document.file_hash_sha256,
+      storagePath: finalPath,
+      expectedPlaintextSha256: document.sealed_pdf_hash,
       requestId: request.headers.get('x-request-id'),
       accessEvent: 'DOCUMENT_VIEWED',
     });
@@ -65,7 +75,7 @@ export async function GET(
       headers: {
         'Content-Type': file.mimeType || document.file_type || 'application/pdf',
         'Content-Length': String(file.plaintext.byteLength),
-        'Content-Disposition': `inline; filename="${filename}"`,
+        'Content-Disposition': `${request.nextUrl.searchParams.get('download') === '1' ? 'attachment' : 'inline'}; filename="${filename}"`,
         'Cache-Control': 'private, no-store, max-age=0',
         Pragma: 'no-cache',
         'Referrer-Policy': 'no-referrer',

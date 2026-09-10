@@ -889,10 +889,10 @@ export default function TopNav() {
             <div ref={workspaceRef} className="relative hidden md:block">
               <button
                 onClick={() => setWorkspaceOpen(!workspaceOpen)}
-                className={`flex h-10 items-center gap-2.5 rounded-lg border bg-background px-3 text-sm transition-colors hover:bg-slate-50 focus:outline-none ${
+                className={`workspace-selector-button flex h-10 items-center gap-2.5 rounded-lg border bg-background px-3 text-sm transition-colors hover:bg-slate-50 focus:outline-none ${
                   usesWorkspaceChrome
-                    ? 'w-80 border-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.03)] 2xl:w-[22rem]'
-                    : 'w-80 border-border'
+                    ? 'w-[30rem] max-w-[42vw] border-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+                    : 'w-[30rem] max-w-[42vw] border-border'
                 } ${workspaceOpen ? 'border-primary/50 bg-white ring-2 ring-primary/10' : ''}`}
               >
                 <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
@@ -903,10 +903,10 @@ export default function TopNav() {
                   )}
                 </div>
                 <div className="text-left flex-1 min-w-0">
-                  <p className="text-[10px] font-600 uppercase leading-none tracking-[0.1em] text-slate-500">
+                  <p className="workspace-selector-caption text-[10px] font-500 uppercase leading-none tracking-[0.1em] text-slate-500">
                     {isPersonal ? 'Espacio de Trabajo Personal' : 'Espacio de Trabajo'}
                   </p>
-                  <p className="mt-0.5 truncate text-sm font-600 leading-none text-slate-950">
+                  <p className="workspace-selector-name mt-0.5 truncate text-[13px] font-500 leading-none text-slate-950">
                     {displayName}
                   </p>
                 </div>
@@ -1363,7 +1363,7 @@ export default function TopNav() {
                 <Bell className="h-5 w-5" />
                 {unreadCount > 0 && (
                   <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-0.5">
-                    <span className="text-white text-[9px] font-700 leading-none">
+                    <span className="topnav-notification-count text-white text-[9px] font-700 leading-none">
                       {unreadCount}
                     </span>
                   </span>
@@ -1517,8 +1517,8 @@ export default function TopNav() {
                 title="Mi cuenta"
                 aria-label="Mi cuenta"
               >
-                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary">
-                  <span className="text-[10px] font-700 leading-none text-white">
+                <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary">
+                  <span className="text-[9px] font-700 leading-none text-white">
                     {userInitials || 'U'}
                   </span>
                 </div>
