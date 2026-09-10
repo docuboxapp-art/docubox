@@ -20,6 +20,11 @@ const TERMINAL_SUB_ESTADOS = [
   'cancelado',
 ];
 
+function toNullableInteger(value: unknown) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? Math.round(numericValue) : null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization');
@@ -89,14 +94,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verify user is a participant of this document
-    const { data: participacion } = await supabaseAdmin
-      .from('participation_responses')
-      .select('id, participante_id')
-      .eq('documento_id', documentId)
-      .eq('participante_id', user.id)
-      .maybeSingle();
-
     // Fetch document with workspace and file info
     const { data: documento } = await supabaseAdmin
       .from('documentos')
@@ -108,8 +105,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
     }
 
+    const normalizedUserEmail = (user.email || '').trim().toLowerCase();
+    const participantEntry = Array.isArray(documento.participantes)
+      ? (documento.participantes.find(
+          (participant: Record<string, unknown>) =>
+            participant.id === user.id ||
+            participant.user_id === user.id ||
+            String(participant.email || '')
+              .trim()
+              .toLowerCase() === normalizedUserEmail
+        ) as Record<string, unknown> | undefined)
+      : undefined;
+    const isDocumentParticipant = Boolean(
+      participantEntry && participantEntry.current_access !== false
+    );
+    const participantAccessRevoked = participantEntry?.current_access === false;
+
+    let participacion: { id: string; participante_id: string | null } | null = null;
+    const { data: participationById } = await supabaseAdmin
+      .from('participation_responses')
+      .select('id, participante_id')
+      .eq('documento_id', documentId)
+      .eq('participante_id', user.id)
+      .maybeSingle();
+    participacion = participationById;
+
+    if (!participacion && normalizedUserEmail) {
+      const { data: participationByEmail } = await supabaseAdmin
+        .from('participation_responses')
+        .select('id, participante_id')
+        .eq('documento_id', documentId)
+        .ilike('participante_email', normalizedUserEmail)
+        .maybeSingle();
+      participacion = participationByEmail;
+    }
+
     const isOwner = documento.owner_id === user.id;
-    if (!participacion && !isOwner) {
+    if (participantAccessRevoked || (!participacion && !isDocumentParticipant && !isOwner)) {
       return NextResponse.json(
         { error: 'No tienes permiso para firmar este documento' },
         { status: 403 }
@@ -145,7 +177,12 @@ export async function POST(req: NextRequest) {
     if (!participantRole && documento.participantes) {
       const parts: any[] = documento.participantes ?? [];
       const myPart = parts.find(
-        (p: any) => p.email?.toLowerCase() === (user.email ?? '').toLowerCase() || p.id === user.id
+        (p: any) =>
+          p.id === user.id ||
+          p.user_id === user.id ||
+          String(p.email || '')
+            .trim()
+            .toLowerCase() === normalizedUserEmail
       );
       if (myPart) {
         participantRole = myPart.rol ?? myPart.role ?? null;
@@ -167,6 +204,7 @@ export async function POST(req: NextRequest) {
     const documentSizeKb = documento.file_size
       ? Math.round((documento.file_size / 1024) * 100) / 100
       : null;
+    const geoAccuracyMeters = toNullableInteger(sessionEvidence?.geo?.accuracy_meters);
 
     // Insert into signature_evidence using service role (bypasses RLS)
     const evidencePayload: Record<string, any> = {
@@ -177,15 +215,15 @@ export async function POST(req: NextRequest) {
       combined_sha256: combinedSha256,
       human_score: humanScore,
       anomaly_flags: anomalyFlags || [],
-      total_strokes: totalStrokes,
-      total_duration_ms: totalDurationMs,
+      total_strokes: toNullableInteger(totalStrokes),
+      total_duration_ms: toNullableInteger(totalDurationMs),
       avg_pressure: avgPressure,
       ip_address: ipAddress,
       user_agent: sessionEvidence?.user_agent,
       timezone: sessionEvidence?.timezone,
       geo_latitude: sessionEvidence?.geo?.latitude,
       geo_longitude: sessionEvidence?.geo?.longitude,
-      geo_accuracy_m: sessionEvidence?.geo?.accuracy_meters,
+      geo_accuracy_m: geoAccuracyMeters,
       fingerprint_id: fingerprintId,
       chain_hash: chainHash,
       captured_at: capturedAt || new Date().toISOString(),
@@ -196,7 +234,7 @@ export async function POST(req: NextRequest) {
       language: sessionEvidence?.language ?? deviceFingerprint?.language ?? null,
       screen_resolution: sessionEvidence?.screen ?? deviceFingerprint?.screen_resolution ?? null,
       device_type: deviceType,
-      cpu_cores: deviceFingerprint?.cpu_cores ?? null,
+      cpu_cores: toNullableInteger(deviceFingerprint?.cpu_cores),
       device_memory_gb: deviceFingerprint?.device_memory_gb ?? null,
 
       // Device fingerprint extras
@@ -215,14 +253,14 @@ export async function POST(req: NextRequest) {
       client_timestamp: clientTimestamp ?? null,
 
       // Human behavior metrics
-      total_points: humanBehavior?.total_points ?? null,
+      total_points: toNullableInteger(humanBehavior?.total_points),
       avg_speed_px_s: humanBehavior?.avg_speed_px_s ?? null,
       max_speed_px_s: humanBehavior?.max_speed_px_s ?? null,
 
       // Document context snapshot
       workspace_id: documento.workspace_id ?? null,
       workspace_name: workspaceName,
-      document_pages: documentPages,
+      document_pages: toNullableInteger(documentPages),
       document_size_kb: documentSizeKb,
       document_created_at: documento.created_at ?? null,
 

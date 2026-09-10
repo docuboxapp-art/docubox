@@ -6312,15 +6312,23 @@ export default function FirmarDocumentoPage() {
       setDocument(data);
 
       const rawParts: any[] = data.participantes || [];
+      const normalizedUserEmail = (user?.email || '').trim().toLowerCase();
       const myPart = rawParts.find(
-        (p: any) => p.email === user?.email || p.id === user?.id || p.user_id === user?.id
+        (p: any) =>
+          p.id === user?.id ||
+          p.user_id === user?.id ||
+          (normalizedUserEmail && String(p.email || '').trim().toLowerCase() === normalizedUserEmail)
       );
 
-      // ── Access control: only allow if participant sub_estado is 'en_revision'
-      // and document estado is 'en_proceso'. Otherwise redirect silently.
-      const participantSubEstado = myPart?.sub_estado || '';
-      const documentoEstadoActual = data.estado || '';
-      if (participantSubEstado !== 'en_revision' || documentoEstadoActual !== 'en_proceso') {
+      // Documents created by earlier versions may still have the legacy
+      // `en_progreso` value. Both values are active signing states.
+      const participantSubEstado = String(myPart?.sub_estado || '').toLowerCase();
+      const documentoEstadoActual = String(data.estado || '').toLowerCase();
+      const canSign =
+        myPart?.current_access !== false &&
+        participantSubEstado === 'en_revision' &&
+        ['en_proceso', 'en_progreso'].includes(documentoEstadoActual);
+      if (!canSign) {
         router.replace(`/visor-documento/${data.id}`);
         return;
       }
@@ -7135,10 +7143,10 @@ export default function FirmarDocumentoPage() {
               .update({ estado: 'completado', fecha_completado: completedAt })
               .eq('id', document.id);
           } else {
-            // Some participants still pending — mark as en_progreso
+            // Some participants still pending — preserve the canonical active state.
             await supabase
               .from('documentos')
-              .update({ estado: 'en_progreso' })
+              .update({ estado: 'en_proceso' })
               .eq('id', document.id);
 
             // ── Advance participation chain for sequential/mixed orders ────

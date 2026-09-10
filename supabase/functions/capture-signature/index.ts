@@ -18,6 +18,11 @@ function validBrowserGeolocation(geo: any) {
     && longitude <= 180
 }
 
+function toNullableInteger(value: unknown) {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? Math.round(numericValue) : null
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -129,8 +134,8 @@ serve(async (req) => {
       human_score,
       anomaly_flags,
       avg_pressure,
-      total_strokes,
-      total_duration_ms,
+      total_strokes: toNullableInteger(total_strokes),
+      total_duration_ms: toNullableInteger(total_duration_ms),
       storage_image_path: storagePath,
       storage_strokes_path: strokesPath,
       ip_address: ip,
@@ -138,7 +143,7 @@ serve(async (req) => {
       timezone: session_evidence?.timezone,
       geo_latitude: session_evidence?.geo?.latitude,
       geo_longitude: session_evidence?.geo?.longitude,
-      geo_accuracy_m: session_evidence?.geo?.accuracy_meters,
+      geo_accuracy_m: toNullableInteger(session_evidence?.geo?.accuracy_meters),
       fingerprint_id: device_fingerprint?.fingerprint_id,
       captured_by: user.id,
       captured_at: new Date().toISOString(),

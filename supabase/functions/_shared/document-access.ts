@@ -28,10 +28,14 @@ export async function userCanAccessDocument(
   if (options.ownerOrAdminOnly) return false;
 
   const normalizedEmail = String(user.email || '').trim().toLowerCase();
-  if (Array.isArray(document.participantes) && document.participantes.some((participant: any) =>
-    participant?.id === user.id
-    || (normalizedEmail && String(participant?.email || '').trim().toLowerCase() === normalizedEmail)
-  )) return true;
+  const participant = Array.isArray(document.participantes)
+    ? document.participantes.find((candidate: any) =>
+        candidate?.id === user.id
+        || candidate?.user_id === user.id
+        || (normalizedEmail && String(candidate?.email || '').trim().toLowerCase() === normalizedEmail)
+      )
+    : null;
+  if (participant) return participant.current_access !== false;
 
   const { data: byId } = await admin
     .from('participation_responses')

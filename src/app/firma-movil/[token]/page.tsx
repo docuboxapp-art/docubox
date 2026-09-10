@@ -26,6 +26,9 @@ export default function MobileSignaturePage() {
   const [penColor, setPenColor] = useState('#0a0a0f');
   const [strokeSize, setStrokeSize] = useState<StrokeSize>('thin');
   const [orientationMessage, setOrientationMessage] = useState('');
+  const [isLandscape, setIsLandscape] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(orientation: landscape)').matches
+  );
   const [secondsUntilClose, setSecondsUntilClose] = useState(5);
   const [geolocationStatus, setGeolocationStatus] = useState<GeolocationStatus>('loading');
   const geolocationRef = useRef<{
@@ -77,6 +80,18 @@ export default function MobileSignaturePage() {
     };
     if (token) load();
   }, [token]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(orientation: landscape)');
+    const updateOrientation = () => setIsLandscape(mediaQuery.matches);
+
+    mediaQuery.addEventListener('change', updateOrientation);
+    window.addEventListener('orientationchange', updateOrientation);
+    return () => {
+      mediaQuery.removeEventListener('change', updateOrientation);
+      window.removeEventListener('orientationchange', updateOrientation);
+    };
+  }, []);
 
   useEffect(() => {
     if (screen !== 'draw') return;
@@ -177,7 +192,7 @@ export default function MobileSignaturePage() {
 
   const requestLandscape = async () => {
     const orientation = window.screen.orientation as ScreenOrientation & {
-      lock?: (mode: 'landscape') => Promise<void>;
+      lock?: (mode: 'landscape' | 'portrait') => Promise<void>;
     };
 
     if (!orientation?.lock) {
@@ -197,6 +212,24 @@ export default function MobileSignaturePage() {
       setOrientationMessage('La pantalla está en horizontal para firmar.');
     } catch {
       setOrientationMessage('Gira el teléfono para firmar en horizontal.');
+    }
+  };
+
+  const requestPortrait = async () => {
+    const orientation = window.screen.orientation as ScreenOrientation & {
+      lock?: (mode: 'landscape' | 'portrait') => Promise<void>;
+    };
+
+    if (!orientation?.lock) {
+      setOrientationMessage('Gira el teléfono a vertical para continuar en esa orientación.');
+      return;
+    }
+
+    try {
+      await orientation.lock('portrait');
+      setOrientationMessage('La pantalla está en vertical.');
+    } catch {
+      setOrientationMessage('Gira el teléfono a vertical para continuar en esa orientación.');
     }
   };
 
@@ -285,9 +318,9 @@ export default function MobileSignaturePage() {
   ];
 
   return (
-    <main className="min-h-dvh bg-slate-50 px-4 py-7 text-slate-900 landscape:h-dvh landscape:min-h-0 landscape:overflow-hidden landscape:px-3 landscape:py-3">
-      <div className="mx-auto w-full max-w-lg landscape:flex landscape:h-full landscape:max-w-3xl landscape:flex-col">
-        <AppLogo className="mb-6 justify-center landscape:mb-1.5" imageClassName="h-auto" />
+    <main className="min-h-dvh bg-slate-50 px-4 py-7 text-slate-900 landscape:h-dvh landscape:min-h-0 landscape:overflow-hidden landscape:px-2 landscape:py-2">
+      <div className="mx-auto w-full max-w-lg landscape:flex landscape:h-full landscape:max-w-none landscape:flex-col">
+        <AppLogo className="mb-6 justify-center landscape:hidden" imageClassName="h-auto" />
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm landscape:flex landscape:min-h-0 landscape:flex-1 landscape:flex-col">
           {screen === 'loading' && (
             <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="animate-spin" size={18} /> Abriendo firma segura…</div>
@@ -307,11 +340,11 @@ export default function MobileSignaturePage() {
           {(screen === 'draw' || screen === 'sending') && (
             <div className="landscape:flex landscape:min-h-0 landscape:flex-1 landscape:flex-col">
               <header className="border-b border-slate-200 bg-slate-50 px-4 py-3 landscape:px-3 landscape:py-2">
-                <div className="flex items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-2"><PenLine size={17} className="shrink-0 text-primary" /><h1 className="truncate text-sm font-semibold">Firma autógrafa digital</h1></div><button type="button" onClick={requestLandscape} title="Gira el teléfono para firmar en horizontal" aria-label="Gira el teléfono para firmar en horizontal" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600 landscape:hidden"><RotateCw size={15} /> Girar teléfono</button></div>
-                <p className="mt-1 truncate pl-6 text-xs text-slate-500">{documentName}</p>
+                <div className="flex items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-2"><PenLine size={17} className="shrink-0 text-primary" /><h1 className="truncate text-sm font-semibold">Firma autógrafa digital</h1></div>{isLandscape ? <button type="button" onClick={requestPortrait} title="Volver a vertical" aria-label="Volver a vertical" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600"><RotateCcw size={15} /> Volver a vertical</button> : <button type="button" onClick={requestLandscape} title="Gira el teléfono para firmar en horizontal" aria-label="Gira el teléfono para firmar en horizontal" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600"><RotateCw size={15} /> Girar teléfono</button>}</div>
+                <p className="mt-1 truncate pl-6 text-xs text-slate-500 landscape:hidden">{documentName}</p>
               </header>
               <div className="p-4 landscape:flex landscape:min-h-0 landscape:flex-1 landscape:flex-col landscape:p-3">
-                <p className="mb-3 text-sm text-slate-600 landscape:mb-2">Dibuja tu firma en el recuadro.</p>
+                <p className="mb-3 text-sm text-slate-600 landscape:hidden">Dibuja tu firma en el recuadro.</p>
                 {geolocationStatus !== 'ready' && (
                   <div className={`mb-3 flex items-start gap-2 rounded-md border px-3 py-2 text-xs landscape:mb-2 ${geolocationStatus === 'loading' ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
                     {geolocationStatus === 'loading' ? <Loader2 className="mt-0.5 shrink-0 animate-spin" size={14} /> : <MapPin className="mt-0.5 shrink-0" size={14} />}
@@ -320,12 +353,12 @@ export default function MobileSignaturePage() {
                 )}
                 {orientationMessage && <p className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 landscape:mb-2">{orientationMessage}</p>}
                 <div className="flex flex-col gap-2 landscape:min-h-0 landscape:flex-1 landscape:flex-row">
-                  <div className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:h-auto landscape:min-h-0 landscape:flex-1 landscape:aspect-auto" style={{ touchAction: 'none' }}>
+                  <div className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:min-h-0 landscape:flex-1 landscape:self-stretch landscape:aspect-auto" style={{ touchAction: 'none' }}>
                     <canvas ref={canvasRef} className="block h-full w-full cursor-crosshair" style={{ touchAction: 'none' }} />
                     {!hasStrokes && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-center text-slate-400"><div><PenLine size={28} className="mx-auto mb-1 text-slate-300" /><p className="text-xs">Dibuja tu firma aquí</p></div></div>}
                     <div className="pointer-events-none absolute bottom-10 left-6 right-6 border-b border-slate-200" />
                   </div>
-                  <div className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 landscape:flex-col landscape:gap-1.5">
+                  <div className="flex shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 landscape:flex-col landscape:gap-1.5">
                     {thicknesses.map(({ size, width, label }) => <button key={size} type="button" title={label} onClick={() => updateStrokeSize(size)} className={`flex h-9 w-9 items-center justify-center rounded-md ${strokeSize === size ? 'border-2 border-primary bg-primary/10' : 'border border-slate-200 bg-white'}`}><svg width="22" height="22" viewBox="0 0 22 22"><line x1="3" y1="11" x2="19" y2="11" stroke={darkLine} strokeWidth={width} strokeLinecap="round" /></svg></button>)}
                     <div className="h-6 w-px bg-slate-200 landscape:h-px landscape:w-6" />
                     {['#0a0a0f', '#1d4ed8', '#dc2626'].map((color) => <button key={color} type="button" title={color === '#0a0a0f' ? 'Negro' : color === '#1d4ed8' ? 'Azul' : 'Rojo'} onClick={() => updateColor(color)} className={`h-7 w-7 self-center rounded-full ${penColor === color ? 'ring-2 ring-slate-500 ring-offset-2' : ''}`} style={{ backgroundColor: color }} />)}
@@ -337,7 +370,7 @@ export default function MobileSignaturePage() {
                   <button type="button" onClick={clear} disabled={screen === 'sending'} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 disabled:opacity-50"><RotateCcw size={14} /> Limpiar</button>
                   <button type="button" onClick={submit} disabled={!hasStrokes || screen === 'sending' || geolocationStatus !== 'ready'} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{screen === 'sending' ? <Loader2 className="animate-spin" size={15} /> : geolocationStatus === 'loading' ? <Loader2 className="animate-spin" size={15} /> : <Check size={15} />} Confirmar firma</button>
                 </div>
-                <p className="mt-4 flex shrink-0 items-center justify-center gap-1.5 text-center text-xs text-slate-400 landscape:mt-2"><ShieldCheck size={13} /> Enlace temporal y de un solo uso</p>
+                <p className="mt-4 flex shrink-0 items-center justify-center gap-1.5 text-center text-xs text-slate-400 landscape:hidden"><ShieldCheck size={13} /> Enlace temporal y de un solo uso</p>
               </div>
             </div>
           )}
