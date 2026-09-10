@@ -61,7 +61,6 @@ export async function POST(req: NextRequest) {
       capturedAt,
       ipAddress,
       fingerprintId,
-      chainHash,
       otpVerified,
       biometric,
       sessionEvidence,
@@ -225,7 +224,6 @@ export async function POST(req: NextRequest) {
       geo_longitude: sessionEvidence?.geo?.longitude,
       geo_accuracy_m: geoAccuracyMeters,
       fingerprint_id: fingerprintId,
-      chain_hash: chainHash,
       captured_at: capturedAt || new Date().toISOString(),
       captured_by: user.id,
 

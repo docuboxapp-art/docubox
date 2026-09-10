@@ -17,6 +17,7 @@ export default function MobileSignaturePage() {
   const params = useParams<{ token: string }>();
   const token = typeof params?.token === 'string' ? params.token : '';
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const padContainerRef = useRef<HTMLDivElement>(null);
   const padRef = useRef<any>(null);
   const [screen, setScreen] = useState<'loading' | 'draw' | 'sending' | 'success' | 'error'>('loading');
   const [documentName, setDocumentName] = useState('Documento');
@@ -104,16 +105,20 @@ export default function MobileSignaturePage() {
       pad.addEventListener('beginStroke', () => setHasStrokes(true));
       padRef.current = pad;
       const resizePad = () => {
-        const priorWidth = canvas.width / (window.devicePixelRatio || 1) || 1;
-        const priorHeight = canvas.height / (window.devicePixelRatio || 1) || 1;
-        const strokes = pad.toData();
+        const container = padContainerRef.current;
+        if (!container) return;
         const ratio = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
+        const rect = container.getBoundingClientRect();
         const nextWidth = Math.max(Math.floor(rect.width), 1);
         const nextHeight = Math.max(Math.floor(rect.height), 1);
+        const priorWidth = canvas.width / ratio || nextWidth;
+        const priorHeight = canvas.height / ratio || nextHeight;
+        if (priorWidth === nextWidth && priorHeight === nextHeight) return;
+
+        const strokes = pad.toData();
         canvas.width = Math.floor(nextWidth * ratio);
         canvas.height = Math.floor(nextHeight * ratio);
-        canvas.getContext('2d')?.scale(ratio, ratio);
+        canvas.getContext('2d')?.setTransform(ratio, 0, 0, ratio, 0, 0);
         if (!strokes.length) return;
         pad.clear();
         pad.fromData(
@@ -136,17 +141,26 @@ export default function MobileSignaturePage() {
         });
       };
       const observer = new ResizeObserver(scheduleResize);
-      observer.observe(canvas);
+      observer.observe(padContainerRef.current || canvas);
       scheduleResize();
       const onViewportResize = scheduleResize;
+      let orientationTimer: number | null = window.setTimeout(scheduleResize, 180);
+      const onOrientationChange = () => {
+        scheduleResize();
+        if (orientationTimer !== null) window.clearTimeout(orientationTimer);
+        orientationTimer = window.setTimeout(scheduleResize, 180);
+      };
       window.addEventListener('resize', onViewportResize);
       window.visualViewport?.addEventListener('resize', onViewportResize);
+      window.addEventListener('orientationchange', onOrientationChange);
       setPadReady(true);
       return () => {
         observer.disconnect();
         if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+        if (orientationTimer !== null) window.clearTimeout(orientationTimer);
         window.removeEventListener('resize', onViewportResize);
         window.visualViewport?.removeEventListener('resize', onViewportResize);
+        window.removeEventListener('orientationchange', onOrientationChange);
       };
     };
     let cleanup: (() => void) | undefined;
@@ -353,7 +367,7 @@ export default function MobileSignaturePage() {
                 )}
                 {orientationMessage && <p className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 landscape:mb-2">{orientationMessage}</p>}
                 <div className="flex flex-col gap-2 landscape:min-h-0 landscape:flex-1 landscape:flex-row">
-                  <div className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:min-h-0 landscape:flex-1 landscape:self-stretch landscape:aspect-auto" style={{ touchAction: 'none' }}>
+                  <div ref={padContainerRef} className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:min-h-[10rem] landscape:flex-1 landscape:basis-0 landscape:self-stretch landscape:aspect-auto" style={{ touchAction: 'none' }}>
                     <canvas ref={canvasRef} className="block h-full w-full cursor-crosshair" style={{ touchAction: 'none' }} />
                     {!hasStrokes && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-center text-slate-400"><div><PenLine size={28} className="mx-auto mb-1 text-slate-300" /><p className="text-xs">Dibuja tu firma aquí</p></div></div>}
                     <div className="pointer-events-none absolute bottom-10 left-6 right-6 border-b border-slate-200" />
