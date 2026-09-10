@@ -5347,7 +5347,7 @@ export default function VisorDocumentoPage() {
         </div>
 
         {/* Body: pdf viewer + right panel */}
-        <div className="relative flex flex-1 overflow-hidden bg-gray-100">
+        <div className="document-viewer-workspace relative flex flex-1 overflow-hidden bg-gray-100">
           {/* PDF Viewer Area */}
           <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-gray-100">
             <div className="pointer-events-none absolute left-4 right-4 top-3 z-10 flex items-center justify-between">
@@ -5419,7 +5419,7 @@ export default function VisorDocumentoPage() {
           <div className="hidden flex-shrink-0 md:flex">
             <nav
               aria-label="Secciones del documento"
-              className="z-30 flex w-16 flex-col items-center gap-1 border-x border-slate-200 bg-white px-1.5 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]"
+              className="document-viewer-tabs z-30 flex w-16 flex-col items-center gap-1 border-x border-slate-200 bg-white px-1.5 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]"
             >
               {toolbarItems.map((item) => (
                 <button
@@ -5439,7 +5439,7 @@ export default function VisorDocumentoPage() {
                   {React.cloneElement(item.icon as React.ReactElement<{ size?: number }>, {
                     size: 16,
                   })}
-                  <span className="max-w-full whitespace-nowrap text-[8px] font-medium leading-none tracking-normal">
+                  <span className="document-viewer-tab-label max-w-full whitespace-nowrap text-[8px] font-medium leading-none tracking-normal">
                     {item.label}
                   </span>
                 </button>

@@ -367,7 +367,7 @@ export default function MobileSignaturePage() {
                 )}
                 {orientationMessage && <p className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 landscape:mb-2">{orientationMessage}</p>}
                 <div className="flex flex-col gap-2 landscape:min-h-0 landscape:flex-1 landscape:flex-row">
-                  <div ref={padContainerRef} className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:min-h-[10rem] landscape:flex-1 landscape:basis-0 landscape:self-stretch landscape:aspect-auto" style={{ touchAction: 'none' }}>
+                <div ref={padContainerRef} className="relative min-w-0 w-full aspect-[2/1] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-white landscape:h-auto landscape:min-h-0 landscape:flex-1 landscape:aspect-auto landscape:basis-0 landscape:self-stretch" style={{ touchAction: 'none' }}>
                     <canvas ref={canvasRef} className="block h-full w-full cursor-crosshair" style={{ touchAction: 'none' }} />
                     {!hasStrokes && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-center text-slate-400"><div><PenLine size={28} className="mx-auto mb-1 text-slate-300" /><p className="text-xs">Dibuja tu firma aquí</p></div></div>}
                     <div className="pointer-events-none absolute bottom-10 left-6 right-6 border-b border-slate-200" />

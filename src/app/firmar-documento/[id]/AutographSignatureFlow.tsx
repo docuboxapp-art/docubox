@@ -41,6 +41,77 @@ async function sha256Bytes(buffer: ArrayBuffer): Promise<string> {
     .join('');
 }
 
+/**
+ * Produces a presentation image that contains only the handwritten area plus
+ * a small transparent margin. This keeps the signed mark visually consistent
+ * when it was captured on a compact, expanded, or landscape canvas.
+ */
+async function normalizeAutographSignatureImage(dataUrl: string): Promise<string> {
+  if (!dataUrl.startsWith('data:image/')) return dataUrl;
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const source = document.createElement('canvas');
+        source.width = image.naturalWidth;
+        source.height = image.naturalHeight;
+        const sourceContext = source.getContext('2d', { willReadFrequently: true });
+        if (!sourceContext || !source.width || !source.height) return resolve(dataUrl);
+
+        sourceContext.drawImage(image, 0, 0);
+        const pixels = sourceContext.getImageData(0, 0, source.width, source.height).data;
+        let left = source.width;
+        let top = source.height;
+        let right = -1;
+        let bottom = -1;
+
+        for (let y = 0; y < source.height; y += 1) {
+          for (let x = 0; x < source.width; x += 1) {
+            if (pixels[(y * source.width + x) * 4 + 3] <= 10) continue;
+            left = Math.min(left, x);
+            top = Math.min(top, y);
+            right = Math.max(right, x);
+            bottom = Math.max(bottom, y);
+          }
+        }
+
+        if (right < left || bottom < top) return resolve(dataUrl);
+
+        const inkWidth = right - left + 1;
+        const inkHeight = bottom - top + 1;
+        const margin = Math.max(12, Math.round(Math.max(inkWidth, inkHeight) * 0.08));
+        const cropLeft = Math.max(0, left - margin);
+        const cropTop = Math.max(0, top - margin);
+        const cropRight = Math.min(source.width, right + margin + 1);
+        const cropBottom = Math.min(source.height, bottom + margin + 1);
+        const target = document.createElement('canvas');
+        target.width = cropRight - cropLeft;
+        target.height = cropBottom - cropTop;
+        const targetContext = target.getContext('2d');
+        if (!targetContext) return resolve(dataUrl);
+
+        targetContext.drawImage(
+          source,
+          cropLeft,
+          cropTop,
+          target.width,
+          target.height,
+          0,
+          0,
+          target.width,
+          target.height
+        );
+        resolve(target.toDataURL('image/png'));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    image.onerror = () => resolve(dataUrl);
+    image.src = dataUrl;
+  });
+}
+
 // ─── User-Agent Parser ────────────────────────────────────────────────────────
 function parseUserAgent(ua: string): { deviceType: string; browserName: string; osName: string } {
   // OS detection
@@ -3358,7 +3429,7 @@ export default function AutographSignatureFlow({
       canvas.width = Math.floor(rect.width * ratio);
       canvas.height = Math.floor(rect.height * ratio);
       const ctx = canvas.getContext('2d');
-      if (ctx) ctx.scale(ratio, ratio);
+      if (ctx) ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       // Restore the drawing in the new coordinate space so every visible part
       // of the expanded canvas remains interactive.
       if (padRef.current && data.length) {
@@ -3377,13 +3448,13 @@ export default function AutographSignatureFlow({
     };
 
     const observer = new ResizeObserver(() => resizeCanvas());
-    observer.observe(canvas);
+    observer.observe(canvas.parentElement || canvas);
     // Initial resize after layout
     requestAnimationFrame(resizeCanvas);
 
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowStep]);
+  }, [flowStep, padExpanded]);
 
   // ── Capture frame ──────────────────────────────────────────────────────────
   const captureFrame = useCallback(async (event: string): Promise<FrameCapture> => {
@@ -3704,6 +3775,10 @@ export default function AutographSignatureFlow({
         throw new Error('No hay datos de firma disponibles');
       }
 
+      // Preserve the original bitmap and its hash as evidence. The normalized
+      // derivative is exclusively for the visible stamp in the document.
+      const presentationImageDataUrl = await normalizeAutographSignatureImage(imageDataUrl);
+
       const enrichedStrokes = rawStrokes.map((stroke: any, strokeIdx: number) => ({
         stroke_index: strokeIdx,
         duration_ms:
@@ -3898,14 +3973,14 @@ export default function AutographSignatureFlow({
         geo: sessionEvidence?.geo
           ? { latitude: sessionEvidence.geo.latitude, longitude: sessionEvidence.geo.longitude }
           : null,
-        signature_data_url: imageDataUrl,
+        signature_data_url: presentationImageDataUrl,
         device_type: parseUserAgent(navigator.userAgent).deviceType,
         browser_name: parseUserAgent(navigator.userAgent).browserName,
         os_name: parseUserAgent(navigator.userAgent).osName,
       });
 
       setFlowStep('constancia');
-      onComplete(imageDataUrl);
+      onComplete(presentationImageDataUrl);
     } catch (err: any) {
       setSendError(err.message || 'Error al enviar la firma');
       setFlowStep(autographSignatureCapabilities.identityVerification ? 'otp' : 'pad');

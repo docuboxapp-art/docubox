@@ -575,6 +575,64 @@ hr.page-break::after {
   letter-spacing: 0;
 }
 
+/* The viewer can be narrow even on a desktop viewport when its global sidebar
+ * is open or browser zoom is elevated. Switch the section rail to a compact
+ * horizontal strip based on the workspace width, not the window breakpoint. */
+.document-viewer-workspace {
+  container-type: inline-size;
+}
+
+@container (max-width: 560px) {
+  .document-viewer-workspace .document-viewer-tabs {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 30;
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    height: 52px;
+    gap: 0.25rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-inline: 0;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 0.375rem 0.5rem;
+    scrollbar-width: none;
+  }
+
+  .document-viewer-workspace .document-viewer-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .document-viewer-workspace .document-viewer-tabs > button {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    gap: 0;
+  }
+
+  .document-viewer-workspace .document-viewer-tab-label {
+    display: none;
+  }
+
+  .document-viewer-workspace .document-viewer-tabs > button > span:first-child {
+    inset: auto 0 -0.375rem;
+    width: auto;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+  }
+
+  .document-viewer-workspace .document-viewer-panel {
+    position: absolute !important;
+    inset: 52px 0 0 !important;
+    z-index: 20 !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0;
+    border-left: 0;
+  }
+}
+
 .dark .document-viewer-panel {
   background: hsl(var(--muted));
 }
