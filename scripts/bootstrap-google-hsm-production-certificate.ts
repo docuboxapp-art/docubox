@@ -21,6 +21,7 @@ const cacheDirectory = join(
 const bundlePath = join(cacheDirectory, 'production-hsm-certificate.cjs');
 const outputDirectory = join(process.cwd(), '.docubox', 'crypto', 'production');
 const certificatePath = join(outputDirectory, 'google-cloud-hsm-production-signing.crt.pem');
+const EXPECTED_EXTERNAL_COMMON_NAME = 'Docubox';
 
 try {
   await mkdir(cacheDirectory, { recursive: true });
@@ -44,11 +45,15 @@ try {
   const runtime = createRequire(import.meta.url)(bundlePath);
   const keyProvider = runtime.GoogleCloudKmsProvider.fromEnvironment('production');
   const keyId = required('GOOGLE_KMS_PRODUCTION_KEY_NAME');
+  const commonName = required('DOCUBOX_PRODUCTION_CERTIFICATE_COMMON_NAME');
+  if (commonName !== EXPECTED_EXTERNAL_COMMON_NAME) {
+    throw new Error('PRODUCTION_CERTIFICATE_COMMON_NAME_INVALID');
+  }
   const generated = await runtime.createKmsSelfSignedProductionCertificate({
     keyProvider,
     keyId,
     subject: {
-      commonName: required('DOCUBOX_PRODUCTION_CERTIFICATE_COMMON_NAME'),
+      commonName,
       organization: required('DOCUBOX_PRODUCTION_CERTIFICATE_ORGANIZATION'),
       organizationalUnit: required('DOCUBOX_PRODUCTION_CERTIFICATE_ORGANIZATIONAL_UNIT'),
       country: required('DOCUBOX_PRODUCTION_CERTIFICATE_COUNTRY'),

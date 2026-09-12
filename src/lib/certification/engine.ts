@@ -34,6 +34,7 @@ import {
   serializeDocuboxDocumentChain,
 } from './document-chain';
 import { createCertificationProviderSet, type CertificationProviderSet } from './providers';
+import { DOCUBOX_INSTITUTIONAL_SIGNATURE_REASON, DOCUBOX_INSTITUTIONAL_SIGNER_NAME } from './pades';
 import { createStoredZip } from './zip';
 import { CertificationError, CertificationStatus, CertificationSummary, EvidenceItem } from './types';
 import type { CertificationArtifactKind } from './types';
@@ -958,8 +959,8 @@ export async function createCertification(
     await transition(supabase, certification, 'SIGNING_FINAL_PDF', userId);
     const preparedPdf = await providers.pdfSignature.preparePdf({
       pdfBytes: documentWithVisibleCertification,
-      reason: 'Certificacion criptografica Docubox',
-      signerName: 'Docubox',
+      reason: DOCUBOX_INSTITUTIONAL_SIGNATURE_REASON,
+      signerName: DOCUBOX_INSTITUTIONAL_SIGNER_NAME,
       contactInfo: verificationUrl,
     });
     const timestampHealth = await providers.timestampAuthority.healthCheck();

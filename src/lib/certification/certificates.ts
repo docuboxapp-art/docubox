@@ -492,6 +492,17 @@ export class ProductionCertificateProvider implements CertificateProvider {
     if (developmentNamed) {
       return { ...result, status: 'environment_mismatch' as const, trusted: false, detail: 'PRODUCTION_CERTIFICATE_DEVELOPMENT_NAMED' };
     }
+    const normalizedIdentity = result.certificate
+      ? /(?:^|\n)CN=Docubox(?:\n|$)/.test(result.certificate.subject)
+      : false;
+    if (result.certificate && !normalizedIdentity) {
+      return {
+        ...result,
+        status: 'environment_mismatch' as const,
+        trusted: false,
+        detail: 'PRODUCTION_CERTIFICATE_VISIBLE_IDENTITY_INVALID',
+      };
+    }
     return result;
   }
 

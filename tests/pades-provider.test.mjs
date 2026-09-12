@@ -32,7 +32,8 @@ await Promise.all([
   build({ entryPoints: [fileURLToPath(timestampSourcePath)], bundle: true, platform: 'node', format: 'cjs', outfile: timestampBundlePath, logLevel: 'silent' }),
 ]);
 const { PadesBbPdfSignatureProvider } = createRequire(import.meta.url)(padesBundlePath);
-const { createRemotePkcs10Csr } = createRequire(import.meta.url)(certificatesBundlePath);
+const { createKmsSelfSignedProductionCertificate, createRemotePkcs10Csr } =
+  createRequire(import.meta.url)(certificatesBundlePath);
 const { LocalRfc3161Provider } = createRequire(import.meta.url)(timestampBundlePath);
 
 function sha256Hex(value) {
@@ -65,7 +66,7 @@ function pyHankoOrderedSignatureFixture({ malformed = false } = {}) {
   return Buffer.from(pdf, 'latin1');
 }
 
-function managedKeyProvider() {
+function managedKeyProvider(protectionLevel = 'software') {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
   const provider = {
@@ -73,7 +74,7 @@ function managedKeyProvider() {
     signCallCount: 0,
     async getPublicKey() { return publicKeyPem; },
     async getKeyMetadata() {
-      return { provider: 'test', keyId: 'docubox-development-signing', keyVersion: '1', algorithm: 'RSA-PSS-SHA256', keySizeBits: 2048, protectionLevel: 'software', createdAt: '2026-08-21T00:00:00.000Z', status: 'active', publicKeyPem };
+      return { provider: 'test', keyId: 'docubox-development-signing', keyVersion: '1', algorithm: 'RSA-PSS-SHA256', keySizeBits: 2048, protectionLevel, createdAt: '2026-08-21T00:00:00.000Z', status: 'active', publicKeyPem };
     },
     async healthCheck() { return { ready: true, missing: [], provider: 'test', keyId: 'docubox-development-signing', keyVersion: '1' }; },
     async signDigest(input) {
@@ -284,6 +285,65 @@ test('PAdES verification rejects a post-signature byte mutation and a malformed 
   const malformedByteRange = await provider.verifyPdf({ pdfBytes: slashPrefixedByteRange });
   assert.equal(malformedByteRange.valid, false);
   assert.equal(malformedByteRange.detail, 'PADES_BYTERANGE_INVALID');
+});
+
+test('PAdES verification preserves historical certificates reissued over the same managed key', async () => {
+  const keyProvider = managedKeyProvider('hsm');
+  const baseSubject = {
+    organization: 'Docubox',
+    organizationalUnit: 'Production Trust Services',
+    country: 'MX',
+  };
+  const previous = await createKmsSelfSignedProductionCertificate({
+    keyProvider,
+    keyId: 'docubox-development-signing',
+    subject: { ...baseSubject, commonName: 'Docubox Production Document Signing' },
+    validityDays: 30,
+  });
+  const current = await createKmsSelfSignedProductionCertificate({
+    keyProvider,
+    keyId: 'docubox-development-signing',
+    subject: { ...baseSubject, commonName: 'Docubox' },
+    validityDays: 30,
+  });
+  const certificateProvider = (certificate) => ({
+    async verifyCertificateChain() {
+      return {
+        status: 'valid',
+        trusted: true,
+        keyMatches: true,
+        chainValid: true,
+        expiresInDays: 30,
+        certificate,
+        detail: null,
+      };
+    },
+    async healthCheck() {
+      return { ready: true, missing: [], provider: 'test-certificate' };
+    },
+  });
+  const historicalSigner = new PadesBbPdfSignatureProvider(
+    keyProvider,
+    certificateProvider(previous.certificate)
+  );
+  const historicalPdf = await historicalSigner.embedSignature({
+    prepared: await historicalSigner.preparePdf({ pdfBytes: await sourcePdf() }),
+    profile: 'PAdES-B-B',
+  });
+  const currentVerifier = new PadesBbPdfSignatureProvider(
+    keyProvider,
+    certificateProvider(current.certificate)
+  );
+  const verification = await currentVerifier.verifyPdf({
+    pdfBytes: historicalPdf.pdfBytes,
+    expectedCertificateFingerprintSha256: previous.certificate.fingerprintSha256,
+  });
+
+  assert.notEqual(previous.certificate.fingerprintSha256, current.certificate.fingerprintSha256);
+  assert.equal(previous.publicKeyFingerprintSha256, current.publicKeyFingerprintSha256);
+  assert.equal(verification.certificateKeyMatches, true);
+  assert.equal(verification.certificateValid, true);
+  assert.equal(verification.valid, true);
 });
 
 test('PAdES-B-T embeds and verifies a real RFC 3161 signature timestamp', async (context) => {

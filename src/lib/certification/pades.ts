@@ -27,6 +27,8 @@ import type {
 import { timestampSignatureDigest } from './timestamp';
 
 export type PadesProfile = 'PAdES-B-B' | 'PAdES-B-T';
+export const DOCUBOX_INSTITUTIONAL_SIGNER_NAME = 'Docubox';
+export const DOCUBOX_INSTITUTIONAL_SIGNATURE_REASON = 'Certificación de integridad del documento';
 const RFC3161_SIGNATURE_TIMESTAMP_OID = '1.2.840.113549.1.9.16.2.14';
 const CMS_CONTENT_TYPE_ATTRIBUTE_OID = '1.2.840.113549.1.9.3';
 const CMS_MESSAGE_DIGEST_ATTRIBUTE_OID = '1.2.840.113549.1.9.4';
@@ -410,6 +412,12 @@ function remotePrivateKey(keyMetadata: KeyMetadata): CryptoKey {
   } as unknown as CryptoKey;
 }
 
+function certificatesSharePublicKey(leftPem: string, rightPem: string) {
+  const left = new X509Certificate(leftPem).publicKey.export({ type: 'spki', format: 'der' });
+  const right = new X509Certificate(rightPem).publicKey.export({ type: 'spki', format: 'der' });
+  return Buffer.from(left).equals(Buffer.from(right));
+}
+
 export class PadesBbPdfSignatureProvider implements PdfSignatureProvider {
   readonly providerId = 'pades-remote-kms' as const;
 
@@ -441,9 +449,9 @@ export class PadesBbPdfSignatureProvider implements PdfSignatureProvider {
       );
     pdflibAddPlaceholder({
       pdfDoc: pdf,
-      reason: input.reason || 'Certificacion criptografica Docubox',
+      reason: input.reason || DOCUBOX_INSTITUTIONAL_SIGNATURE_REASON,
       contactInfo: input.contactInfo || 'https://docubox.mx',
-      name: input.signerName || 'Docubox',
+      name: input.signerName || DOCUBOX_INSTITUTIONAL_SIGNER_NAME,
       location: input.location || 'Mexico',
       signatureLength: SIGNATURE_RESERVATION_BYTES,
       byteRangePlaceholder: BYTE_RANGE_PLACEHOLDER,
@@ -653,11 +661,12 @@ export class PadesBbPdfSignatureProvider implements PdfSignatureProvider {
       const expectedFingerprintMatches =
         !input.expectedCertificateFingerprintSha256 ||
         parsedFingerprint === input.expectedCertificateFingerprintSha256.toLowerCase();
-      const managedFingerprintMatches = Boolean(
+      const certificateKeyMatches = Boolean(
+        managedCertificate.keyMatches &&
         managedCertificate.certificate &&
-        parsedFingerprint === managedCertificate.certificate.fingerprintSha256
+        signerPem &&
+        certificatesSharePublicKey(signerPem, managedCertificate.certificate.pem)
       );
-      const certificateKeyMatches = managedCertificate.keyMatches && managedFingerprintMatches;
       const certificateValid =
         Boolean(result.signerCertificateVerified) &&
         expectedFingerprintMatches &&

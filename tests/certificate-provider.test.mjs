@@ -190,9 +190,9 @@ test('production certificate is self-signed by the HSM key and preserves SPKI bi
     keyProvider: provider,
     keyId: 'docubox-development-signing',
     subject: {
-      commonName: 'DOCUBOX Document Signing',
-      organization: 'DOCUBOX',
-      organizationalUnit: 'Document Trust Services',
+      commonName: 'Docubox',
+      organization: 'Docubox',
+      organizationalUnit: 'Production Trust Services',
       country: 'MX',
     },
     validityDays: 30,
@@ -209,6 +209,8 @@ test('production certificate is self-signed by the HSM key and preserves SPKI bi
   assert.equal(result.keyMatches, true);
   assert.equal(result.chainValid, true);
   assert.equal(result.certificate?.environment, 'PRODUCTION');
+  assert.match(result.certificate?.subject || '', /CN=Docubox(?:\n|$)/);
+  assert.doesNotMatch(result.certificate?.subject || '', /Production Document Signing/);
 });
 
 test('production certificate generation rejects a Software key', async () => {
@@ -217,14 +219,40 @@ test('production certificate generation rejects a Software key', async () => {
       keyProvider: keyProvider('software'),
       keyId: 'docubox-development-signing',
       subject: {
-        commonName: 'DOCUBOX Document Signing',
-        organization: 'DOCUBOX',
-        organizationalUnit: 'Document Trust Services',
+        commonName: 'Docubox',
+        organization: 'Docubox',
+        organizationalUnit: 'Production Trust Services',
         country: 'MX',
       },
     }),
     { code: 'PRODUCTION_HSM_REQUIRED' }
   );
+});
+
+test('production provider rejects the retired external certificate identity', async () => {
+  const provider = keyProvider('hsm');
+  const retired = await createKmsSelfSignedProductionCertificate({
+    keyProvider: provider,
+    keyId: 'docubox-development-signing',
+    subject: {
+      commonName: 'Docubox Production Document Signing',
+      organization: 'Docubox',
+      organizationalUnit: 'Production Trust Services',
+      country: 'MX',
+    },
+    validityDays: 30,
+  });
+  const certificateProvider = new ProductionCertificateProvider(provider, {
+    environment: 'PRODUCTION',
+    signingCertificatePem: retired.certificatePem,
+    trustRootPem: retired.certificatePem,
+    signingKeyId: 'docubox-development-signing',
+    expiringSoonDays: 5,
+  });
+  const result = await certificateProvider.verifyCertificateChain();
+
+  assert.equal(result.status, 'environment_mismatch');
+  assert.equal(result.detail, 'PRODUCTION_CERTIFICATE_VISIBLE_IDENTITY_INVALID');
 });
 
 test('production provider rejects a development-named X.509 certificate', async (context) => {

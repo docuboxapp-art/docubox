@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString, rgb } from 'pdf-lib';
 import { build } from 'esbuild';
 import nextEnv from '@next/env';
 import { embedDocuboxPdfFonts } from '../src/lib/pdf/embedded-fonts';
@@ -30,8 +30,10 @@ async function loadRuntime() {
   await mkdir(cacheDirectory, { recursive: true });
   await build({
     stdin: {
-      contents:
+      contents: [
         "export { createCertificationProviderSet } from './src/lib/certification/providers';",
+        "export { DOCUBOX_INSTITUTIONAL_SIGNATURE_REASON, DOCUBOX_INSTITUTIONAL_SIGNER_NAME } from './src/lib/certification/pades';",
+      ].join('\n'),
       resolveDir: process.cwd(),
       sourcefile: 'adobe-pades-interoperability-entry.ts',
       loader: 'ts',
@@ -117,13 +119,19 @@ try {
   ) {
     throw new Error('PRODUCTION_X509_BINDING_INVALID');
   }
+  if (
+    !/(?:^|\n)CN=Docubox(?:\n|$)/.test(certificate.certificate.subject) ||
+    /Production Document Signing/.test(certificate.certificate.subject)
+  ) {
+    throw new Error('PRODUCTION_X509_VISIBLE_IDENTITY_INVALID');
+  }
 
   const visualPdf = await sourcePdf();
   await assertPdfFontsEmbedded(visualPdf);
   const prepared = await providers.pdfSignature.preparePdf({
     pdfBytes: visualPdf,
-    signerName: 'Docubox',
-    reason: 'Prueba de interoperabilidad PAdES-B-T',
+    signerName: runtime.DOCUBOX_INSTITUTIONAL_SIGNER_NAME,
+    reason: runtime.DOCUBOX_INSTITUTIONAL_SIGNATURE_REASON,
     location: 'Mexico',
   });
   const bb = await providers.pdfSignature.embedSignature({
@@ -194,6 +202,26 @@ try {
   ) {
     throw new Error('PDF_BYTERANGE_DIRECT_NUMBERS_REQUIRED');
   }
+  const parsedPdf = await PDFDocument.load(bt.pdfBytes, { updateMetadata: false });
+  const signatureMetadata = [...parsedPdf.context.enumerateIndirectObjects()]
+    .map(([, object]) => object)
+    .find(
+      (object) =>
+        object instanceof PDFDict && String(object.get(PDFName.of('Type'))) === '/Sig'
+    );
+  if (!(signatureMetadata instanceof PDFDict)) {
+    throw new Error('PDF_SIGNATURE_METADATA_MISSING');
+  }
+  const signerName = signatureMetadata.get(PDFName.of('Name'));
+  const signatureReason = signatureMetadata.get(PDFName.of('Reason'));
+  const decodePdfText = (value: unknown) =>
+    value instanceof PDFString || value instanceof PDFHexString ? value.decodeText() : null;
+  if (decodePdfText(signerName) !== runtime.DOCUBOX_INSTITUTIONAL_SIGNER_NAME) {
+    throw new Error('PDF_VISIBLE_SIGNER_INVALID');
+  }
+  if (decodePdfText(signatureReason) !== runtime.DOCUBOX_INSTITUTIONAL_SIGNATURE_REASON) {
+    throw new Error('PDF_SIGNATURE_REASON_INVALID');
+  }
 
   const altered = new Uint8Array(bt.pdfBytes);
   altered[20] ^= 1;
@@ -212,6 +240,8 @@ try {
   console.info('------------------------------------------------');
   console.info('Google Cloud HSM RSA 3072 / SHA-256: PASS');
   console.info('X.509 public-key binding: PASS');
+  console.info('Visible signer identity (Docubox): PASS');
+  console.info('Signature reason normalization: PASS');
   console.info('PAdES-B-B: PASS');
   console.info(`RFC3161 provider: ${bt.timestamp.provider}`);
   console.info('PAdES-B-T: PASS');
