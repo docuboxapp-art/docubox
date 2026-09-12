@@ -16,6 +16,10 @@
     {
       "path": "/api/internal/blockchain-evidence/upgrade",
       "schedule": "17 5 * * *"
+    },
+    {
+      "path": "/api/internal/jobs/evidence-finalization",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

@@ -138,12 +138,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const orchestrator = new CertificationOrchestrator(supabase);
     const summary = await orchestrator.getStatus(documentId, user.id);
     const certification = await enrichViewerEvidence(supabase, documentId, summary);
-    const hasVerifiedPades = certification?.status === 'COMPLETED'
+    const hasVerifiedPadesBt = certification?.status === 'COMPLETED'
+      && certification.padesProfile === 'PAdES-B-T'
       && certification.pdfSignatureStatus === 'valid'
       && certification.certificateStatus === 'valid'
+      && certification.timestampStatus === 'valid'
       && certification.verificationStatus === 'valid';
-    const readiness = hasVerifiedPades ? null : await padesReadiness();
-    const providerStatus = hasVerifiedPades
+    const readiness = hasVerifiedPadesBt ? null : await padesReadiness();
+    const providerStatus = hasVerifiedPadesBt
       ? { ready: true, missing: [], checked: false }
       : {
           ready: Boolean(readiness?.ready),

@@ -5,9 +5,13 @@ import test from 'node:test';
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
 const sealRoute = await read('../src/app/api/documentos/[documentId]/seal-signatures/route.ts');
+const evidenceOrchestrator = await read('../src/lib/evidence-v2/orchestrator.ts');
 const signingPage = await read('../src/app/firmar-documento/[id]/page.tsx');
 const viewerPage = await read('../src/app/visor-documento/[id]/page.tsx');
 const viewerRoute = await read('../src/app/api/documentos/[documentId]/viewer-file/route.ts');
+const certificationsRoute = await read(
+  '../src/app/api/documents/[documentId]/certifications/route.ts'
+);
 const storage = await read('../src/lib/crypto/document-encryption/storage.ts');
 const notificationService = await read('../src/lib/notifications/document-completion.ts');
 const emailService = await read('../src/lib/emailNotifications.ts');
@@ -25,21 +29,49 @@ test('KMS or PAdES failure cannot reach TSA, NOM-151 or completion email', () =>
   assert.doesNotMatch(signingPage, /\/api\/nom151\/generate/);
 });
 
+test('a signed participation response is persisted only after evidence consolidation', () => {
+  const consolidation = signingPage.indexOf("fetch('/api/firma/finalize-evidence'");
+  const responseUpsert = signingPage.indexOf(
+    ".upsert(responsePayload, { onConflict: 'documento_id,participante_email' })"
+  );
+  const participantState = signingPage.indexOf("supabase.rpc('update_participante_sub_estado'");
+  assert.ok(consolidation >= 0);
+  assert.ok(responseUpsert > consolidation);
+  assert.ok(participantState > responseUpsert);
+});
+
+test('PDF security infrastructure details are not exposed to the signer', () => {
+  assert.match(sealRoute, /publicCertificationErrorMessage/);
+  assert.match(
+    sealRoute,
+    /No fue posible preparar la firma final en este momento\. Intenta nuevamente\./
+  );
+  assert.match(sealRoute, /error\.code\.startsWith\('PDF_SECURITY_'\)/);
+  assert.match(
+    sealRoute,
+    /if \(error instanceof CertificationError\) \{[\s\S]*?\{ error: publicCertificationErrorMessage\(error\), code: error\.code \}/
+  );
+});
+
 test('NOM-151 is issued only after persisted and verified PAdES-B-T', () => {
   assert.match(sealRoute, /FINAL_CERTIFICATION_REQUIRES_PADES_BT/);
   assert.match(sealRoute, /action: 'pades_bt_verified'/);
   const padesVerified = sealRoute.indexOf("action: 'pades_bt_verified'");
-  const nomRequested = sealRoute.indexOf("action: 'nom151_requested'");
-  const nomIssued = sealRoute.indexOf('await issueNom151ForVerifiedPadesBt');
-  const nomVerified = sealRoute.indexOf("action: 'nom151_verified'");
-  assert.ok(padesVerified < nomRequested && nomRequested < nomIssued && nomIssued < nomVerified);
+  const finalizationEnqueued = sealRoute.indexOf('await enqueueEvidenceFinalization', padesVerified);
+  const nomIssued = evidenceOrchestrator.indexOf('issueNom151ForVerifiedPadesBt(service');
+  const evidenceGenerated = evidenceOrchestrator.indexOf('generateEvidenceV2ForDocument(service');
+  assert.ok(padesVerified >= 0 && finalizationEnqueued > padesVerified);
+  assert.ok(nomIssued >= 0 && evidenceGenerated > nomIssued);
 });
 
-test('NOM-151 failure cannot declare certification completed', () => {
-  const nomIssued = sealRoute.indexOf('await issueNom151ForVerifiedPadesBt');
-  const emailQueued = sealRoute.indexOf('queueVerifiedDocumentCompletionEmails', nomIssued);
-  const completed = sealRoute.indexOf("action: 'certification_completed'");
-  assert.ok(nomIssued < emailQueued && emailQueued < completed);
+test('recoverable NOM-151 failure is explicit and email waits for immutable package closure', () => {
+  const nomIssued = evidenceOrchestrator.indexOf('issueNom151ForVerifiedPadesBt(service');
+  const nomPending = evidenceOrchestrator.indexOf("checkpoints.nom151 = 'pending_supplement'", nomIssued);
+  const evidenceGenerated = evidenceOrchestrator.indexOf('generateEvidenceV2ForDocument(service', nomPending);
+  const finalState = evidenceOrchestrator.indexOf('const finalState = pending', evidenceGenerated);
+  const emailQueued = evidenceOrchestrator.indexOf('queueVerifiedDocumentCompletionEmails(service', finalState);
+  assert.ok(nomIssued >= 0 && nomPending > nomIssued);
+  assert.ok(evidenceGenerated > nomPending && finalState > evidenceGenerated && emailQueued > finalState);
   assert.match(notificationService, /DOCUMENT_COMPLETION_NOM151_REQUIRED/);
   assert.match(notificationService, /\.eq\('verification_status', 'verified'\)/);
 });
@@ -85,6 +117,19 @@ test('viewer keeps the original PDF visible until PAdES-B-T is verified', () => 
   assert.match(viewerPage, /requestedArchivo === 'original' \|\| !padesBtVerified/);
   assert.match(viewerPage, /file_url: `\/api\/documentos\/\$\{encodeURIComponent\(document\.id\)\}\/viewer-file\?variant=original`/);
   assert.match(viewerPage, /if \(!padesBtVerified\)/);
+});
+
+test('viewer reports RFC 3161 only after the B-T record replaces the interim B-B state', () => {
+  assert.match(
+    viewerPage,
+    /certification\.padesProfile === 'PAdES-B-T' &&\s*certification\.timestampStatus === 'valid'/
+  );
+  assert.match(viewerPage, /const integralEvidenceVerified = padesBtVerified && nom151EvidenceStatus === 'valid'/);
+  assert.match(viewerPage, /await loadCryptographicCertification\(\);/);
+  assert.match(viewerPage, /'Estampa pendiente'/);
+  assert.match(certificationsRoute, /const hasVerifiedPadesBt = certification\?\.status === 'COMPLETED'/);
+  assert.match(certificationsRoute, /certification\.padesProfile === 'PAdES-B-T'/);
+  assert.match(certificationsRoute, /certification\.timestampStatus === 'valid'/);
 });
 
 test('authorized viewer still reads valid encrypted documents through verified decryption', () => {

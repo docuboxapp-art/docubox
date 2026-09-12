@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CertificateProvider } from './certificates';
 import type { ProviderHealth } from './key-management';
@@ -49,14 +50,35 @@ function runtimePolicy(policy: PdfNativeProtectionPolicy) {
   };
 }
 
-function runtimeCommand() {
+export function resolvePdfSecurityRuntimeCommand(
+  options: {
+    cwd?: string;
+    platform?: NodeJS.Platform;
+    pythonBin?: string;
+    script?: string;
+  } = {}
+) {
+  const cwd = options.cwd || process.cwd();
+  const platform = options.platform || process.platform;
+  const localCandidates =
+    platform === 'win32'
+      ? [join(cwd, '.venv-pdf-security', 'Scripts', 'python.exe')]
+      : [
+          join(cwd, '.venv-pdf-security', 'bin', 'python3'),
+          join(cwd, '.venv-pdf-security', 'bin', 'python'),
+        ];
+  const localPython = localCandidates.find((candidate) => existsSync(candidate));
+
   return {
     executable:
+      options.pythonBin?.trim() ||
       process.env.DOCUBOX_PDF_SECURITY_PYTHON_BIN?.trim() ||
-      (process.platform === 'win32' ? 'py' : 'python3'),
+      localPython ||
+      (platform === 'win32' ? 'py' : 'python3'),
     script:
+      options.script?.trim() ||
       process.env.DOCUBOX_PDF_SECURITY_SCRIPT?.trim() ||
-      join(process.cwd(), 'vps', 'signer', 'pdf_security.py'),
+      join(cwd, 'vps', 'signer', 'pdf_security.py'),
   };
 }
 
@@ -125,7 +147,7 @@ async function callRemoteRuntime(
 async function callRuntime(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   const remoteUrl = process.env.DOCUBOX_PDF_SECURITY_URL?.trim();
   if (remoteUrl) return callRemoteRuntime(remoteUrl, payload);
-  const command = runtimeCommand();
+  const command = resolvePdfSecurityRuntimeCommand();
   return new Promise((resolve, reject) => {
     const child = spawn(command.executable, [command.script], {
       cwd: process.cwd(),

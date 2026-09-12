@@ -270,6 +270,10 @@ serve(async (request) => {
       'unknown';
     const { error: evidenceError } = await supabase.from('signature_evidence').insert({
       id: evidenceId,
+      capture_id: evidenceId,
+      signature_id: evidenceId,
+      participant_record_id: body.participant_id || user.id,
+      evidence_role: 'FINAL_SIGNATURE',
       document_id: documentId,
       evidence_type: 'efirma_sat',
       cert_serial_number: String(certificate.serial_number || ''),
@@ -284,9 +288,11 @@ serve(async (request) => {
       ocsp_checked_at: String(provider.revocation_checked_at || signedAt),
       document_sha256: documentSha256,
       digital_seal_sha256: signatureSha256,
+      digital_seal: signatureBase64,
       digital_seal_path: sealPath,
       efirma_bundle_path: bundlePath,
       efirma_bundle_sha256: bundleSha256,
+      bundle_storage_bucket: 'evidence',
       signed_payload_sha256: signedPayloadSha256,
       sign_algorithm: String(provider.signature_algorithm || 'RSA-SHA256'),
       signed_at: signedAt,
@@ -303,6 +309,9 @@ serve(async (request) => {
       provider_reference: String(provider.signature_id || ''),
       captured_by: user.id,
       captured_at: signedAt,
+      context_ip_status: ip === 'unknown' ? 'unavailable' : 'available',
+      context_geo_status: geoLatitude === null || geoLongitude === null ? 'unavailable' : 'available',
+      context_user_agent_status: body.session_evidence?.user_agent || request.headers.get('user-agent') ? 'available' : 'unavailable',
     });
     if (evidenceError) {
       await supabase.storage.from('evidence').remove([sealPath, bundlePath]);

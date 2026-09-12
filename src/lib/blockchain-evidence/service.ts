@@ -149,7 +149,16 @@ export async function createBlockchainEvidenceForFinalDocument(
     .eq('schema_version', '1.0')
     .maybeSingle();
   if (existing.error) throw existing.error;
-  if (existing.data) return existing.data;
+  if (existing.data) {
+    const existingStatus = String(existing.data.status || '').toUpperCase();
+    if (
+      input.submitImmediately !== false &&
+      (!existing.data.proof_storage_path || !existing.data.proof_sha256 || existingStatus === 'GENERATED')
+    ) {
+      return retryBlockchainEvidenceSubmission(service, existing.data, provider);
+    }
+    return existing.data;
+  }
 
   const evidenceId = randomUUID();
   const evidenceHash = String(certification.evidence_chain_sha256).toLowerCase();

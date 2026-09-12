@@ -22,14 +22,19 @@ function status(name: string, value: VerificationStatus) {
   return `<${name} status="${esc(value)}"/>`;
 }
 
-function renderParticipants(value: EvidenceV2Package['participants']) {
+function renderParticipants(value: EvidenceV2Package['participants'], isV21: boolean) {
   return value
     .map(
       (participant) => `
     <Firmante ref="${esc(participant.participantRef)}" tipo="${esc(participant.participantType)}">
+      ${isV21 ? tag('FirmanteID', participant.firmanteId) : ''}
+      ${isV21 ? tag('Nombre', participant.name) : ''}
+      ${isV21 ? tag('Correo', participant.email) : ''}
       ${tag('Rol', participant.role)}
       ${tag('Orden', participant.order)}
       ${tag('Obligatorio', participant.required === null || participant.required === undefined ? null : String(participant.required))}
+      ${isV21 ? tag('MetodoEsperado', participant.expectedMethod) : ''}
+      ${isV21 ? tag('EstadoParticipacion', participant.participationStatus) : ''}
       ${tag('FechaInvitacion', participant.invitationAt)}
       ${tag('FechaPrimerAcceso', participant.firstAccessAt)}
       ${tag('FechaFirma', participant.signedAt)}
@@ -47,18 +52,51 @@ function renderParticipants(value: EvidenceV2Package['participants']) {
     .join('');
 }
 
-function renderSignatures(value: EvidenceV2Package['signatures']) {
+function renderSignatures(value: EvidenceV2Package['signatures'], isV21: boolean) {
   return value
     .map(
       (signature) => `
     <Firma ref="${esc(signature.signatureRef)}" firmanteRef="${esc(signature.participantRef)}" metodo="${esc(signature.method)}">
+      ${isV21 ? tag('SignatureID', signature.signatureRef) : ''}
+      ${isV21 ? tag('ParticipantRef', signature.participantId || signature.participantRef) : ''}
+      ${isV21 ? tag('DocumentVersionRef', signature.documentVersionRef) : ''}
+      ${isV21 ? tag('SignatureType', signature.method) : ''}
       ${tag('HashObjetoFirmado', signature.signedObjectHash, ' algoritmo="SHA-256"')}
       ${tag('FechaCaptura', signature.capturedAt)}
+      ${isV21 ? tag('SignedAt', signature.signedAt) : ''}
+      ${isV21 && signature.evidenceRole ? tag('EvidenceRole', signature.evidenceRole) : ''}
+      ${
+        isV21 && signature.context
+          ? `<Contexto>
+        <IP status="${esc(signature.context.ipStatus)}">${esc(signature.context.ipAddress)}</IP>
+        <Geolocalizacion status="${esc(signature.context.geolocationStatus)}">
+          ${tag('Latitude', signature.context.latitude)}${tag('Longitude', signature.context.longitude)}${tag('AccuracyMeters', signature.context.accuracyMeters)}
+          ${tag('City', signature.context.city)}${tag('Region', signature.context.region)}${tag('Country', signature.context.country)}${tag('CountryCode', signature.context.countryCode)}
+        </Geolocalizacion>
+        <UserAgent status="${esc(signature.context.userAgentStatus)}">${esc(signature.context.userAgent)}</UserAgent>
+        ${tag('DeviceInfo', signature.context.deviceInfo)}
+      </Contexto>`
+          : ''
+      }
+      ${
+        isV21 && signature.consent
+          ? `<Consentimiento>
+        ${tag('ConsentTextVersion', signature.consent.textVersion)}
+        ${tag('ConsentTextSHA256', signature.consent.textHash, ' algoritmo="SHA-256"')}
+        ${tag('Accepted', String(signature.consent.accepted))}
+        ${tag('AcceptedAt', signature.consent.acceptedAt)}
+      </Consentimiento>`
+          : ''
+      }
       ${
         signature.autograph
           ? `<EvidenciaAutografa>
+        ${isV21 ? tag('CaptureID', signature.autograph.captureId) : ''}
         ${tag('HashTrazo', signature.autograph.strokesHash, ' algoritmo="SHA-256"')}
         ${tag('HashImagenFirma', signature.autograph.imageHash, ' algoritmo="SHA-256"')}
+        ${isV21 ? tag('HashCombinado', signature.autograph.combinedHash, ' algoritmo="SHA-256"') : ''}
+        ${isV21 ? tag('ImageArtifactRef', signature.autograph.imageArtifactRef) : ''}
+        ${isV21 ? tag('StrokesArtifactRef', signature.autograph.strokesArtifactRef) : ''}
         ${tag('EvidenceObjectID', signature.autograph.evidenceObjectId)}
         ${
           signature.autograph.consent
@@ -90,6 +128,8 @@ function renderSignatures(value: EvidenceV2Package['signatures']) {
       ${
         signature.cryptographicEvidence
           ? `<EvidenciaCriptografica estadoValidacion="${esc(signature.cryptographicEvidence.validationStatus)}">
+        ${isV21 ? tag('SignatureValue', signature.cryptographicEvidence.signatureValue) : ''}
+        ${isV21 ? tag('SignedPayloadBase64', signature.cryptographicEvidence.signedPayloadBase64) : ''}
         ${tag('SignedPayloadHash', signature.cryptographicEvidence.signedPayloadHash, ' algoritmo="SHA-256"')}
         ${tag('SignatureHash', signature.cryptographicEvidence.signatureHash, ' algoritmo="SHA-256"')}
         ${tag('SignatureAlgorithm', signature.cryptographicEvidence.signatureAlgorithm)}
@@ -105,13 +145,18 @@ function renderSignatures(value: EvidenceV2Package['signatures']) {
     .join('');
 }
 
-function renderEvents(value: EvidenceV2Package['events']) {
+function renderEvents(value: EvidenceV2Package['events'], isV21: boolean) {
   return value
     .map(
       (event) => `
     <Evento sequence="${event.sequence}" ref="${esc(event.eventId)}" tipo="${esc(event.type)}" resultado="${esc(event.result)}" timestamp="${esc(event.occurredAt)}">
       ${tag('ActorRef', event.actorRef)}
       ${tag('ObjectRef', event.objectRef)}
+      ${isV21 ? tag('EventCategory', event.eventCategory) : ''}
+      ${isV21 ? tag('ActorType', event.actorType) : ''}
+      ${isV21 ? tag('DocumentHash', event.documentHash, ' algoritmo="SHA-256"') : ''}
+      ${isV21 ? tag('PayloadHash', event.payloadHash, ' algoritmo="SHA-256"') : ''}
+      ${isV21 ? tag('ChainMaterial', event.chainMaterial) : ''}
       ${tag('SourceEventHash', event.sourceEventHash, ' algoritmo="SHA-256"')}
       ${tag('HashEvento', event.canonicalHash, ' algoritmo="SHA-256"')}
       ${tag('PreviousHash', event.previousHash, ' algoritmo="SHA-256"')}
@@ -157,8 +202,13 @@ export function renderEvidenceV2Xml(value: EvidenceV2Package, xmlSha256 = '') {
     )
     .join('');
   const signature = value.docuboxSignature;
+  const isV21 = value.schemaVersion === '2.1';
+  const extract = value.document.extract;
+  const relations = (value.document.relations || [])
+    .map((relation) => `<Relacion tipo="${esc(relation.type)}" ref="${esc(relation.ref)}"/>`)
+    .join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<DocuboxEvidencePackage xmlns="${EVIDENCE_V2_NAMESPACE}" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" version="2.0" schemaVersion="2.0">
+<DocuboxEvidencePackage xmlns="${EVIDENCE_V2_NAMESPACE}"${isV21 ? '' : ' xmlns:ds="http://www.w3.org/2000/09/xmldsig#"'} version="${esc(value.version)}" schemaVersion="${esc(value.schemaVersion)}">
   <Paquete estado="${esc(value.status)}">
     ${tag('EvidenceID', value.evidenceId)}
     ${tag('PackageID', value.packageId)}
@@ -194,8 +244,19 @@ export function renderEvidenceV2Xml(value: EvidenceV2Package, xmlSha256 = '') {
       ${tag('PreviousVersionID', value.document.previousVersionId)}
       ${tag('PreviousVersionHash', value.document.previousVersionHash, ' algoritmo="SHA-256"')}
     </Versionado>
+    ${
+      isV21
+        ? `<ExtractoDocumento status="${extract ? 'available' : 'not_applicable'}">${
+            extract
+              ? `${tag('Source', extract.source)}${tag('SourceRef', extract.sourceRef)}${tag('Content', extract.content)}${tag('ReviewedAt', extract.reviewedAt)}`
+              : ''
+          }</ExtractoDocumento>`
+        : ''
+    }
     <MetadatosDocumento>${metadata}
+      ${isV21 ? tag('MetadataSnapshotHash', value.document.metadataSnapshotHash, ' algoritmo="SHA-256" canonicalization="RFC8785"') : ''}
     </MetadatosDocumento>
+    ${isV21 ? `<ContenidoCanonico mediaType="application/pdf"><DocumentVersionRef>${esc(value.document.versionId)}</DocumentVersionRef></ContenidoCanonico>` : ''}
     <Integridad>
       ${tag('HashOriginal', value.document.originalHash, ' algoritmo="SHA-256"')}
       ${tag('HashPreparado', value.document.preparedHash, ' algoritmo="SHA-256"')}
@@ -206,17 +267,20 @@ export function renderEvidenceV2Xml(value: EvidenceV2Package, xmlSha256 = '') {
       ${tag('SignatureFlowStartedAt', value.document.flowStartedAt)}
       ${tag('ClosedAt', value.closedAt)}
     </Fechas>
+    ${isV21 ? `<Workflow status="${esc(value.document.workflow?.status || 'COMPLETED')}">${tag('CompletedAt', value.document.workflow?.completedAt || value.closedAt)}</Workflow>` : ''}
+    ${isV21 ? `<Relaciones>${relations}</Relaciones>` : ''}
   </Documento>
-  <Firmantes>${renderParticipants(value.participants)}
+  <Firmantes>${renderParticipants(value.participants, isV21)}
   </Firmantes>
-  <Firmas>${renderSignatures(value.signatures)}
+  <Firmas>${renderSignatures(value.signatures, isV21)}
   </Firmas>
-  <BitacoraProbatoria>${renderEvents(value.events)}
+  <BitacoraProbatoria>${renderEvents(value.events, isV21)}
   </BitacoraProbatoria>
   <CadenaEvidencia algoritmo="SHA-256" version="${value.chain.algorithmVersion}">
     ${tag('GenesisHash', value.chain.genesisHash, ' algoritmo="SHA-256"')}
     ${tag('RootHash', value.chain.rootHash, ' algoritmo="SHA-256"')}
     ${tag('TotalEvents', value.chain.totalEvents)}
+    ${isV21 ? tag('WatermarkSequence', value.chain.watermarkSequence ?? value.chain.totalEvents) : ''}
     ${tag('ClosedAt', value.closedAt)}
   </CadenaEvidencia>
   <EstampasTiempo>${renderTimestamps(value.timestamps)}
@@ -235,6 +299,18 @@ export function renderEvidenceV2Xml(value: EvidenceV2Package, xmlSha256 = '') {
     ${tag('ArtifactRef', value.nom151.artifactRef)}
   </ConservacionNOM151>
   <Integridad>
+    ${
+      value.evidenceRoot
+        ? `<EvidenceRoot algoritmo="SHA-256" canonicalization="RFC8785">
+      ${tag('DocumentFinalHash', value.evidenceRoot.documentFinalHash, ' algoritmo="SHA-256"')}
+      ${tag('MetadataSnapshotHash', value.evidenceRoot.metadataSnapshotHash, ' algoritmo="SHA-256"')}
+      ${tag('EvidenceEventRootHash', value.evidenceRoot.evidenceEventRootHash, ' algoritmo="SHA-256"')}
+      ${tag('SignaturesDigest', value.evidenceRoot.signaturesDigest, ' algoritmo="SHA-256"')}
+      ${tag('PackageCoreDigest', value.evidenceRoot.packageCoreDigest, ' algoritmo="SHA-256"')}
+      ${tag('Value', value.evidenceRoot.value, ' algoritmo="SHA-256"')}
+    </EvidenceRoot>`
+        : ''
+    }
     ${tag('EvidencePackageDigest', value.packageDigest, ' algoritmo="SHA-256" canonicalization="docubox-evidence-root-v1"')}
     <HashXML algoritmo="SHA-256" canonicalization="docubox-evidence-xml-v2">${esc(xmlSha256)}</HashXML>
   </Integridad>
@@ -245,7 +321,7 @@ export function renderEvidenceV2Xml(value: EvidenceV2Package, xmlSha256 = '') {
     ${tag('KeyID', signature.keyId)}
     ${tag('KeyVersion', signature.keyVersion)}
     ${tag('PublicKeyFingerprint', signature.publicKeyFingerprintSha256, ' algoritmo="SHA-256"')}
-    ${tag('PublicKeyPemBase64', Buffer.from(signature.publicKeyPem, 'utf8').toString('base64'))}
+    ${signature.publicKeyPem ? tag('PublicKeyPemBase64', Buffer.from(signature.publicKeyPem, 'utf8').toString('base64')) : ''}
     ${tag('SignatureValue', signature.signatureBase64)}
     ${tag('SignatureHash', signature.signatureSha256, ' algoritmo="SHA-256"')}
     ${tag('SignedAt', signature.signedAt)}`
@@ -281,7 +357,7 @@ export function validateEvidenceV2Xml(xml: string) {
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) errors.push('DTD and entity declarations are not permitted');
   if (
     !new RegExp(
-      `<DocuboxEvidencePackage[^>]+xmlns="${EVIDENCE_V2_NAMESPACE}"[^>]+version="2\\.0"`
+      `<DocuboxEvidencePackage[^>]+xmlns="${EVIDENCE_V2_NAMESPACE}"[^>]+version="2\\.[01]"`
     ).test(xml)
   )
     errors.push('The document does not declare the v2 root namespace and version');
@@ -299,6 +375,18 @@ export function validateEvidenceV2Xml(xml: string) {
   ]) {
     if (!new RegExp(`<${block}(?:\\s|>)`).test(xml))
       errors.push(`Missing required block: ${block}`);
+  }
+  if (/schemaVersion="2\.1"/.test(xml)) {
+    if (/xmlns:ds=/.test(xml)) errors.push('Evidence 2.1 must not claim XMLDSig');
+    for (const block of [
+      'ExtractoDocumento',
+      'ContenidoCanonico',
+      'Workflow',
+      'Relaciones',
+      'EvidenceRoot',
+    ]) {
+      if (!new RegExp(`<${block}(?:\\s|>)`).test(xml)) errors.push(`Missing v2.1 block: ${block}`);
+    }
   }
   const xmlDigestMatches = xml.match(/<HashXML[^>]*>([a-f0-9]{64})<\/HashXML>/g) || [];
   if (xmlDigestMatches.length !== 1) errors.push('Exactly one SHA-256 XML digest is required');

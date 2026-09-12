@@ -3,9 +3,8 @@
  * certification provider set. Private-key material never crosses this boundary.
  */
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import nextEnv from '@next/env';
@@ -24,7 +23,9 @@ function errorCode(error) {
 }
 
 async function runtime() {
-  cacheDirectory = await mkdtemp(join(tmpdir(), 'docubox-pyhanko-kms-'));
+  const cacheRoot = join(process.cwd(), 'node_modules', '.cache');
+  await mkdir(cacheRoot, { recursive: true });
+  cacheDirectory = await mkdtemp(join(cacheRoot, 'docubox-pyhanko-kms-'));
   const bundlePath = join(cacheDirectory, 'runtime.cjs');
   await build({
     stdin: {

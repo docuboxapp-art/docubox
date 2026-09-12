@@ -90,8 +90,11 @@ test('temporary policy or permission errors do not erase an otherwise valid sess
     middleware,
     /permission denied for function enforce_docubox_session_policy/
   );
-  assert.match(middleware, /Tu sesión continúa activa\. Espera un momento y vuelve a intentar\./);
+  assert.match(middleware, /Tu sesión continúa activa\. La conexión tardó más de lo esperado\./);
   assert.match(middleware, /status: 503/);
+  assert.match(middleware, /Retry-After': '5'/);
+  assert.match(middleware, /<a href="">Reintentar<\/a>/);
+  assert.doesNotMatch(middleware, /window\.location\.reload/);
 });
 
 test('a transient PostgREST schema-cache miss receives one bounded retry', () => {
@@ -100,6 +103,22 @@ test('a transient PostgREST schema-cache miss receives one bounded retry', () =>
   assert.match(middleware, /if \(isTransientSessionPolicyError\(result\.error\)\)/);
   assert.match(middleware, /await waitForSessionPolicyRetry\(\);/);
   assert.match(middleware, /persistent failure still blocks protected traffic/);
+});
+
+test('temporary auth gateway failures receive one bounded retry without trusting the session', () => {
+  assert.match(middleware, /TRANSIENT_SESSION_HTTP_STATUSES = new Set\(\[0, 502, 503, 504\]\)/);
+  assert.match(middleware, /error\.name === 'AuthRetryableFetchError'/);
+  assert.match(middleware, /SESSION_VALIDATION_TIMEOUT_MS = 8_000/);
+  assert.match(middleware, /fetchWithSessionValidationTimeout/);
+  assert.match(
+    middleware,
+    /let result = await supabase\.auth\.getClaims\(accessToken\);[\s\S]*if \(isTransientSessionPolicyError\(result\.error\)\)[\s\S]*result = await supabase\.auth\.getClaims\(accessToken\);/
+  );
+  assert.match(middleware, /unavailableSessionPolicyResponse\(response, isApiRequest\)/);
+  assert.doesNotMatch(
+    middleware,
+    /if \(claimsError\)[\s\S]{0,500}NextResponse\.next\(\)/
+  );
 });
 
 test('session expiry is auditable and protected from direct table access', () => {

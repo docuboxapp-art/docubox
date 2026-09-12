@@ -7,6 +7,9 @@ import { sha256Hex } from '@/lib/certification/canonical';
 import { readDocumentStorageObject } from '@/lib/crypto/document-encryption';
 import { createEvidenceV2Package } from './generator';
 import { isEvidenceV2KmsSigningEnabled } from './feature-flags';
+import { metadataSnapshotDigest } from './canonical';
+import { validateEvidenceV21Readiness } from './readiness';
+import { registerEvidenceSigningKey, verifyEvidenceSealAgainstRegistry } from './trust-registry';
 import type {
   EvidenceNom151,
   EvidenceTimestamp,
@@ -17,6 +20,9 @@ import type {
 const XML_BUCKET = 'evidence-v2-artifacts';
 const CERTIFICATION_BUCKET = 'certification-artifacts';
 const EVIDENCE_BUCKET = 'evidence';
+const SIGNATURES_BUCKET = 'signatures';
+const NOM151_BUCKET = 'nom151-constancias';
+const OTS_BUCKET = 'blockchain-evidence';
 const SHA256 = /^[a-f0-9]{64}$/i;
 
 interface EvidenceDocumentRow extends Record<string, unknown> {
@@ -101,19 +107,20 @@ function signatureParticipantRef(
   participants: Array<Record<string, unknown>>
 ) {
   const capturedBy = String(row.captured_by || '').trim();
-  const email = normalized(row.participant_email);
+  const participantRecordId = String(row.participant_record_id || '').trim();
   const participant = participants.find((candidate) => {
     const candidateIds = [candidate.id, candidate.user_id]
       .map((candidateId) => String(candidateId || '').trim())
       .filter(Boolean);
     return (
       (capturedBy && candidateIds.includes(capturedBy)) ||
-      (email && normalized(candidate.email) === email)
+      (participantRecordId && candidateIds.includes(participantRecordId))
     );
   });
   if (participant) return participantRef(participant);
+  if (participantRecordId) return `participant:${participantRecordId}`;
   if (capturedBy) return `participant:${capturedBy}`;
-  return email ? `participant-email-sha256:${sha256Hex(email)}` : 'participant:unresolved';
+  return 'participant:unresolved';
 }
 
 function participantKind(role: unknown) {
@@ -354,7 +361,7 @@ async function packageArtifacts(
       artifact_status:
         normalized(nom151.verification_status) === 'verified' ? 'verified' : 'issued',
       object_sha256: nomHash,
-      storage_bucket: CERTIFICATION_BUCKET,
+      storage_bucket: NOM151_BUCKET,
       storage_path: nomPath,
       provider: nom151.psc_name
         ? String(nom151.psc_name)
@@ -378,7 +385,7 @@ async function packageArtifacts(
       artifact_type: 'opentimestamps_proof',
       artifact_status: normalized(ots.status) === 'verified' ? 'verified' : 'pending',
       object_sha256: otsHash,
-      storage_bucket: CERTIFICATION_BUCKET,
+      storage_bucket: OTS_BUCKET,
       storage_path: otsPath,
       provider: 'OpenTimestamps',
       issued_at: ots.anchored_at ? String(ots.anchored_at) : null,
@@ -399,7 +406,7 @@ async function packageArtifacts(
       artifact_type: 'efirma_signature_bundle',
       artifact_status: 'verified',
       object_sha256: bundleHash,
-      storage_bucket: EVIDENCE_BUCKET,
+      storage_bucket: String(signature.bundle_storage_bucket || EVIDENCE_BUCKET),
       storage_path: bundlePath,
       provider: signature.validation_provider ? String(signature.validation_provider) : null,
       issued_at: signature.signed_at
@@ -429,7 +436,7 @@ async function packageArtifacts(
         artifact_type: 'autograph_signature_image',
         artifact_status: 'verified',
         object_sha256: imageHash,
-        storage_bucket: EVIDENCE_BUCKET,
+        storage_bucket: String(signature.image_storage_bucket || SIGNATURES_BUCKET),
         storage_path: imagePath,
         provider: 'Docubox signature capture',
         issued_at: signature.captured_at ? String(signature.captured_at) : null,
@@ -445,7 +452,7 @@ async function packageArtifacts(
         artifact_type: 'autograph_signature_strokes',
         artifact_status: 'verified',
         object_sha256: strokesHash,
-        storage_bucket: EVIDENCE_BUCKET,
+        storage_bucket: String(signature.strokes_storage_bucket || EVIDENCE_BUCKET),
         storage_path: strokesPath,
         provider: 'Docubox signature capture',
         issued_at: signature.captured_at ? String(signature.captured_at) : null,
@@ -460,7 +467,12 @@ async function packageArtifacts(
 
 export async function generateEvidenceV2ForDocument(
   service: SupabaseClient,
-  input: { documentId: string; actorId: string | null }
+  input: {
+    documentId: string;
+    actorId: string | null;
+    allowNom151Pending?: boolean;
+    onStage?: (stage: 'SIGNING_EVIDENCE' | 'STORING_EVIDENCE') => Promise<void>;
+  }
 ) {
   const documentResult = await service
     .from('documentos')
@@ -523,56 +535,72 @@ export async function generateEvidenceV2ForDocument(
       'id,evidence_id,package_id,public_verification_token,xml_sha256,xml_storage_path,status,generated_at,closed_at,document_final_sha256,evidence_root_sha256,package_digest_sha256,verification_summary'
     )
     .eq('document_id', input.documentId)
-    .eq('evidence_version', '2.0')
+    .eq('evidence_version', '2.1')
     .not('closed_at', 'is', null)
     .order('generated_at', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (existingResult.error) throw existingResult.error;
 
-  const [timestampResult, nom151Result, otsResult, signaturesResult] = await Promise.all([
-    service
-      .from('timestamp_records')
-      .select(
-        'id,status,message_imprint_sha256,timestamp_token_sha256,gen_time,tsa_name,tsa_policy_oid,tsa_serial_number,token_storage_path,verified_at'
-      )
-      .eq('document_certification_id', certification.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    service
-      .from('nom151_constancias_doc')
-      .select(
-        'id,status,verification_status,provider,psc_name,environment,production_trusted,operation_id,folio,document_digest,constancia_sha256,constancia_path,constancia_storage_path,issued_at,verified_at,certificate_serial,tst_policy_oid,created_at'
-      )
-      .eq('documento_id', input.documentId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    service
-      .from('document_blockchain_evidence')
-      .select(
-        'id,status,evidence_hash,manifest_hash,proof_sha256,proof_storage_path,anchored_at,verified_at,bitcoin_block_height'
-      )
-      .eq('document_id', input.documentId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    service
-      .from('signature_evidence')
-      .select(
-        'id,captured_by,participant_email,evidence_type,image_sha256,strokes_sha256,storage_image_path,storage_strokes_path,captured_at,document_sha256,cert_serial_number,cert_rfc,cert_curp,cert_subject,cert_issuer,cert_not_before,cert_not_after,cert_fingerprint_sha256,ocsp_status,ocsp_checked_at,signed_at,signed_payload_sha256,digital_seal_sha256,digital_seal_path,sign_algorithm,validation_provider,provider_reference,efirma_bundle_path,efirma_bundle_sha256'
-      )
-      .eq('document_id', input.documentId)
-      .eq('is_voided', false)
-      .order('captured_at', { ascending: true }),
-  ]);
-  for (const result of [timestampResult, nom151Result, otsResult, signaturesResult])
+  const [timestampResult, nom151Result, otsResult, signaturesResult, responsesResult] =
+    await Promise.all([
+      service
+        .from('timestamp_records')
+        .select(
+          'id,status,message_imprint_sha256,timestamp_token_sha256,gen_time,tsa_name,tsa_policy_oid,tsa_serial_number,token_storage_path,verified_at'
+        )
+        .eq('document_certification_id', certification.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      service
+        .from('nom151_constancias_doc')
+        .select(
+          'id,status,verification_status,provider,psc_name,environment,production_trusted,operation_id,folio,document_digest,constancia_sha256,constancia_path,constancia_storage_path,issued_at,verified_at,certificate_serial,tst_policy_oid,created_at'
+        )
+        .eq('documento_id', input.documentId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      service
+        .from('document_blockchain_evidence')
+        .select(
+          'id,status,evidence_hash,manifest_hash,proof_sha256,proof_storage_path,anchored_at,verified_at,bitcoin_block_height'
+        )
+        .eq('document_id', input.documentId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      service
+        .from('signature_evidence')
+        .select(
+          'id,capture_id,signature_id,participant_record_id,document_version_id,evidence_role,captured_by,participant_email,evidence_type,image_sha256,strokes_sha256,combined_sha256,storage_image_path,storage_strokes_path,image_storage_bucket,strokes_storage_bucket,captured_at,document_sha256,cert_serial_number,cert_rfc,cert_curp,cert_subject,cert_issuer,cert_not_before,cert_not_after,cert_fingerprint_sha256,ocsp_status,ocsp_checked_at,signed_at,signed_payload_sha256,digital_seal,digital_seal_sha256,digital_seal_path,sign_algorithm,validation_provider,provider_reference,efirma_bundle_path,efirma_bundle_sha256,bundle_storage_bucket,consent_text_version,consent_text_sha256,consent_accepted,consent_accepted_at,ip_address,user_agent,timezone,geo_latitude,geo_longitude,geo_accuracy_m,city,region,country,country_code,device_type,screen_resolution,context_ip_status,context_geo_status,context_user_agent_status'
+        )
+        .eq('document_id', input.documentId)
+        .eq('is_voided', false)
+        .order('captured_at', { ascending: true }),
+      service
+        .from('participation_responses')
+        .select(
+          'id,participante_id,participant_record_id,participante_email,firma_completada_at,respondido_at,signature_evidence_id,consent_text_version,consent_text_sha256,consent_accepted,consent_accepted_at'
+        )
+        .eq('documento_id', input.documentId),
+    ]);
+  for (const result of [
+    timestampResult,
+    nom151Result,
+    otsResult,
+    signaturesResult,
+    responsesResult,
+  ])
     if (result.error) throw result.error;
   const timestamp = timestampResult.data as Record<string, unknown> | null;
   const nom151 = nom151Result.data as Record<string, unknown> | null;
   const ots = otsResult.data as Record<string, unknown> | null;
-  const signatures = (signaturesResult.data || []) as Array<Record<string, unknown>>;
+  const signatures = ((signaturesResult.data || []) as Array<Record<string, unknown>>).filter(
+    (row) => row.evidence_role === 'FINAL_SIGNATURE'
+  );
+  const responses = (responsesResult.data || []) as Array<Record<string, unknown>>;
 
   if (existingResult.data) {
     if (normalized(existingResult.data.document_final_sha256) !== finalHash) {
@@ -582,24 +610,6 @@ export async function generateEvidenceV2ForDocument(
         409
       );
     }
-    await synchronizeArtifacts(
-      service,
-      existingResult.data.id,
-      input.actorId,
-      await packageArtifacts(certification, timestamp, nom151, ots, finalHash, signatures)
-    );
-    await appendPackageClosedEvent(service, {
-      documentId: input.documentId,
-      actorId: input.actorId,
-      certificationId: String(certification.id),
-      packageDatabaseId: String(existingResult.data.id),
-      evidenceId: String(existingResult.data.evidence_id),
-      packageId: String(existingResult.data.package_id),
-      finalHash,
-      rootHash: String(existingResult.data.evidence_root_sha256),
-      packageDigest: String(existingResult.data.package_digest_sha256),
-      xmlHash: String(existingResult.data.xml_sha256),
-    });
     return { ...existingResult.data, alreadyGenerated: true };
   }
 
@@ -628,9 +638,9 @@ export async function generateEvidenceV2ForDocument(
       p_event_result: 'SUCCESS',
       p_actor_id: input.actorId,
       p_actor_type: input.actorId ? 'USER' : 'SERVICE',
-      p_payload: { evidence_version: '2.0', document_final_sha256: finalHash },
+      p_payload: { evidence_version: '2.1', document_final_sha256: finalHash },
       p_document_sha256: finalHash,
-      p_idempotency_key: `evidence-v2-closing:${certification.id}`,
+      p_idempotency_key: `evidence-v2.1-closing:${certification.id}`,
       p_source_system: 'DOCUBOX_EVIDENCE_V2',
       p_source_record_id: certification.id,
     })
@@ -641,7 +651,9 @@ export async function generateEvidenceV2ForDocument(
   const [eventsResult, metadataResult, versionResult] = await Promise.all([
     service
       .from('legal_evidence_events')
-      .select('event_uuid,sequence_number,event_type,event_result,event_hash,occurred_at,actor_id')
+      .select(
+        'event_uuid,sequence_number,event_type,event_category,event_result,event_hash,previous_event_hash,payload_sha256,chain_material,document_sha256,occurred_at,actor_id,actor_type,source_record_id'
+      )
       .eq('document_id', input.documentId)
       .order('sequence_number', { ascending: true }),
     service
@@ -653,7 +665,7 @@ export async function generateEvidenceV2ForDocument(
     certification.document_version_id
       ? service
           .from('document_versions')
-          .select('id,version_number,sha256,created_at')
+          .select('id,version_number,sha256,created_at,evidence_version,evidence_schema_version')
           .eq('id', certification.document_version_id)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -668,7 +680,10 @@ export async function generateEvidenceV2ForDocument(
   const timestamps = [rfc3161Timestamp(timestamp, finalHash), otsTimestamp(ots, finalHash)].filter(
     Boolean
   ) as EvidenceTimestamp[];
-  const nom = nom151Evidence(nom151);
+  const nom =
+    input.allowNom151Pending && (!nom151 || normalized(nom151.status) === 'failed')
+      ? ({ status: 'pending' } satisfies EvidenceNom151)
+      : nom151Evidence(nom151);
   const openTimestamp = timestamps.find((item) => item.type === 'opentimestamps');
   const runtimeEnvironment = String(
     process.env.VERCEL_ENV || process.env.NODE_ENV || 'unknown'
@@ -677,22 +692,95 @@ export async function generateEvidenceV2ForDocument(
     runtimeEnvironment !== 'PRODUCTION' || nom151?.production_trusted === true;
   const externalValid =
     timestamps.some((item) => item.type === 'rfc3161' && item.validationStatus === 'valid') &&
-    nom.status === 'verified' &&
-    nom151EnvironmentTrusted &&
-    (!openTimestamp || openTimestamp.validationStatus === 'valid');
+    ['verified', 'pending', 'not_requested'].includes(nom.status) &&
+    (nom.status !== 'verified' || nom151EnvironmentTrusted) &&
+    (!openTimestamp || Boolean(openTimestamp.artifactHash));
   const signatureEvidenceReady = signatures.every((row) => {
     const method = evidenceMethod(row);
-    return method !== 'efirma_sat' || Boolean(row.efirma_bundle_sha256 && row.efirma_bundle_path);
+    return (
+      row.evidence_role === 'FINAL_SIGNATURE' &&
+      Boolean(row.signed_at) &&
+      row.consent_accepted === true &&
+      Boolean(row.consent_text_version && row.consent_text_sha256 && row.consent_accepted_at) &&
+      (method !== 'efirma_sat' || Boolean(row.efirma_bundle_sha256 && row.efirma_bundle_path))
+    );
   });
   const generatedAt = new Date().toISOString();
   const closedAt = String(
     certification.completed_at || document.fecha_completado || document.updated_at || generatedAt
   );
+  const versionRow = versionResult.data as Record<string, unknown> | null;
+  if (!versionRow) {
+    throw new EvidenceV2ServiceError(
+      'EVIDENCE_V2_VERSION_REQUIRED',
+      'No existe una versión documental final.',
+      409
+    );
+  }
+  if (
+    versionRow.evidence_version !== null &&
+    versionRow.evidence_version !== undefined &&
+    (Number(versionRow.evidence_version) !== 2 ||
+      String(versionRow.evidence_schema_version) !== '2.1')
+  ) {
+    throw new EvidenceV2ServiceError(
+      'EVIDENCE_VERSION_CONFLICT',
+      'La versión documental ya tiene otro contrato de evidencia.',
+      409
+    );
+  }
+  const metadata = (metadataResult.error ? [] : metadataResult.data || []).map(
+    (item: Record<string, unknown>) => ({
+      id: String(item.id),
+      key: String(item.name),
+      name: String(item.name),
+      type: String(item.data_type || 'text'),
+      value: ['string', 'number', 'boolean'].includes(typeof item.snapshot_value)
+        ? (item.snapshot_value as string | number | boolean)
+        : null,
+      source: 'user' as const,
+      createdByRef: item.created_by ? `user:${String(item.created_by)}` : null,
+      recordedAt: item.created_at ? String(item.created_at) : null,
+      snapshotHash: hashOrNull(item.snapshot_hash),
+    })
+  );
+  const metadataHash = metadataSnapshotDigest(metadata);
+  const policySnapshot = {
+    schema: 'docubox-evidence-policy-v1',
+    evidence_version: 2,
+    schema_version: '2.1',
+    nom151: nom.status === 'not_requested' ? 'not_applicable' : 'required_with_pending_supplement',
+    opentimestamps: openTimestamp ? 'required_with_pending_upgrade' : 'not_applicable',
+    rfc3161: 'required',
+  };
+  const versionSelection = await service
+    .from('document_versions')
+    .update({
+      evidence_version: 2,
+      evidence_schema_version: '2.1',
+      evidence_selected_at: generatedAt,
+      evidence_policy_snapshot: policySnapshot,
+      evidence_policy_sha256: sha256Hex(JSON.stringify(policySnapshot)),
+    })
+    .eq('id', String(versionRow.id))
+    .is('evidence_version', null);
+  if (versionSelection.error) throw versionSelection.error;
+
+  const responseForParticipant = (participant: Record<string, unknown>) => {
+    const stableIds = [participant.id, participant.user_id]
+      .map((value) => String(value || ''))
+      .filter(Boolean);
+    return responses.find(
+      (response) =>
+        stableIds.includes(String(response.participant_record_id || '')) ||
+        stableIds.includes(String(response.participante_id || ''))
+    );
+  };
   const packageInput: EvidenceV2BuildInput = {
     evidenceId: randomUUID(),
     packageId: randomUUID(),
-    version: '2.0',
-    schemaVersion: '2.0',
+    version: '2.1',
+    schemaVersion: '2.1',
     generatedAt,
     closedAt,
     environment: runtimeEnvironment,
@@ -732,43 +820,74 @@ export async function generateEvidenceV2ForDocument(
         ? String((versionResult.data as Record<string, unknown>).created_at)
         : null,
       flowStartedAt: document.fecha_envio || null,
-      metadata: (metadataResult.error ? [] : metadataResult.data || []).map(
-        (item: Record<string, unknown>) => ({
-          id: String(item.id),
-          key: String(item.name),
-          name: String(item.name),
-          type: String(item.data_type || 'text'),
-          value: ['string', 'number', 'boolean'].includes(typeof item.snapshot_value)
-            ? (item.snapshot_value as string | number | boolean)
-            : null,
-          source: 'user' as const,
-          createdByRef: item.created_by ? `user:${String(item.created_by)}` : null,
-          recordedAt: item.created_at ? String(item.created_at) : null,
-          snapshotHash: hashOrNull(item.snapshot_hash),
-        })
-      ),
+      metadata,
+      metadataSnapshotHash: metadataHash,
+      extract: null,
+      workflow: { status: 'COMPLETED', completedAt: closedAt },
+      relations: certification.document_version_id
+        ? [{ type: 'document_version', ref: String(certification.document_version_id) }]
+        : [],
     },
-    participants: participants.map((participant, index) => ({
-      participantRef: participantRef(participant),
-      role: String(participant.rol || participant.role || 'participant'),
-      participantType: participantKind(participant.rol || participant.role),
-      order: index + 1,
-      required: participant.required === undefined ? null : Boolean(participant.required),
-      invitationAt: participant.fecha_invitacion ? String(participant.fecha_invitacion) : null,
-      firstAccessAt: participant.fecha_primer_acceso
-        ? String(participant.fecha_primer_acceso)
-        : null,
-      signedAt:
-        participant.fecha_firma || participant.fecha_participacion
-          ? String(participant.fecha_firma || participant.fecha_participacion)
+    participants: participants.map((participant, index) => {
+      const response = responseForParticipant(participant);
+      const stableId = String(participant.id || participant.user_id || '');
+      return {
+        participantRef: participantRef(participant),
+        firmanteId: stableId || null,
+        name: participant.nombre
+          ? String(participant.nombre)
+          : participant.name
+            ? String(participant.name)
+            : null,
+        email: participant.email ? String(participant.email) : null,
+        role: String(participant.rol || participant.role || 'participant'),
+        participantType: participantKind(participant.rol || participant.role),
+        order: index + 1,
+        required:
+          participant.required === undefined
+            ? participantKind(participant.rol || participant.role) === 'signer'
+            : Boolean(participant.required),
+        expectedMethod: participant.metodo_firma
+          ? String(participant.metodo_firma)
+          : participant.signature_method
+            ? String(participant.signature_method)
+            : null,
+        participationStatus: participant.estado ? String(participant.estado) : null,
+        invitationAt: participant.fecha_invitacion ? String(participant.fecha_invitacion) : null,
+        firstAccessAt: participant.fecha_primer_acceso
+          ? String(participant.fecha_primer_acceso)
           : null,
-    })),
+        signedAt: response?.firma_completada_at
+          ? String(response.firma_completada_at)
+          : response?.respondido_at
+            ? String(response.respondido_at)
+            : participant.fecha_firma || participant.fecha_participacion
+              ? String(participant.fecha_firma || participant.fecha_participacion)
+              : null,
+      };
+    }),
     signatures: signatures.map((row: Record<string, unknown>) => {
       const method = evidenceMethod(row);
       const certificatePresent = Boolean(row.cert_serial_number || row.cert_rfc);
+      const response = responses.find(
+        (candidate) =>
+          String(candidate.signature_evidence_id || '') === String(row.id) ||
+          String(candidate.participant_record_id || '') ===
+            String(row.participant_record_id || '') ||
+          String(candidate.participante_id || '') === String(row.captured_by || '')
+      );
+      const signedAt = row.signed_at
+        ? String(row.signed_at)
+        : response?.firma_completada_at
+          ? String(response.firma_completada_at)
+          : null;
       return {
-        signatureRef: `signature:${String(row.id)}`,
+        signatureRef: `signature:${String(row.signature_id || row.id)}`,
         participantRef: signatureParticipantRef(row, participants),
+        participantId: row.participant_record_id ? String(row.participant_record_id) : null,
+        documentVersionRef: certification.document_version_id
+          ? String(certification.document_version_id)
+          : null,
         method,
         signedObjectHash: hashOrNull(row.document_sha256),
         capturedAt: row.signed_at
@@ -776,12 +895,61 @@ export async function generateEvidenceV2ForDocument(
           : row.captured_at
             ? String(row.captured_at)
             : null,
+        signedAt,
+        evidenceRole: 'FINAL_SIGNATURE' as const,
+        context: {
+          ipStatus: (row.context_ip_status || (row.ip_address ? 'available' : 'unavailable')) as
+            'available' | 'unavailable' | 'denied' | 'not_applicable',
+          ipAddress: row.ip_address ? String(row.ip_address) : null,
+          geolocationStatus: (row.context_geo_status ||
+            (row.geo_latitude !== null && row.geo_longitude !== null
+              ? 'available'
+              : 'unavailable')) as 'available' | 'unavailable' | 'denied' | 'not_applicable',
+          latitude:
+            row.geo_latitude === null || row.geo_latitude === undefined
+              ? null
+              : Number(row.geo_latitude),
+          longitude:
+            row.geo_longitude === null || row.geo_longitude === undefined
+              ? null
+              : Number(row.geo_longitude),
+          accuracyMeters:
+            row.geo_accuracy_m === null || row.geo_accuracy_m === undefined
+              ? null
+              : Number(row.geo_accuracy_m),
+          city: row.city ? String(row.city) : null,
+          region: row.region ? String(row.region) : null,
+          country: row.country ? String(row.country) : null,
+          countryCode: row.country_code ? String(row.country_code) : null,
+          userAgentStatus: (row.context_user_agent_status ||
+            (row.user_agent ? 'available' : 'unavailable')) as
+            'available' | 'unavailable' | 'denied' | 'not_applicable',
+          userAgent: row.user_agent ? String(row.user_agent) : null,
+          deviceInfo: [row.device_type, row.screen_resolution].filter(Boolean).join('; ') || null,
+        },
+        consent:
+          row.consent_text_version && row.consent_text_sha256 && row.consent_accepted_at
+            ? {
+                textVersion: String(row.consent_text_version),
+                textHash: String(row.consent_text_sha256),
+                accepted: row.consent_accepted === true,
+                acceptedAt: String(row.consent_accepted_at),
+              }
+            : undefined,
         autograph:
           method === 'autografa_digital'
             ? {
+                captureId: row.capture_id ? String(row.capture_id) : null,
                 strokesHash: hashOrNull(row.strokes_sha256),
                 imageHash: hashOrNull(row.image_sha256),
+                combinedHash: hashOrNull(row.combined_sha256),
                 evidenceObjectId: `signature:${String(row.id)}`,
+                imageArtifactRef: row.storage_image_path
+                  ? `storage:${SIGNATURES_BUCKET}/${String(row.storage_image_path)}`
+                  : null,
+                strokesArtifactRef: row.storage_strokes_path
+                  ? `storage:${EVIDENCE_BUCKET}/${String(row.storage_strokes_path)}`
+                  : null,
               }
             : undefined,
         certificate: certificatePresent
@@ -800,6 +968,7 @@ export async function generateEvidenceV2ForDocument(
         cryptographicEvidence:
           method === 'efirma_sat'
             ? {
+                signatureValue: row.digital_seal ? String(row.digital_seal) : null,
                 signedPayloadHash: hashOrNull(row.signed_payload_sha256),
                 signatureHash: hashOrNull(row.digital_seal_sha256),
                 signatureAlgorithm: row.sign_algorithm ? String(row.sign_algorithm) : null,
@@ -826,17 +995,48 @@ export async function generateEvidenceV2ForDocument(
       result: String(event.event_result),
       occurredAt: String(event.occurred_at),
       actorRef: event.actor_id ? `user:${String(event.actor_id)}` : null,
-      objectRef: `document:${input.documentId}`,
+      objectRef: event.source_record_id
+        ? `record:${String(event.source_record_id)}`
+        : `document:${input.documentId}`,
+      eventCategory: event.event_category ? String(event.event_category) : null,
+      actorType: event.actor_type ? String(event.actor_type) : null,
+      documentHash: hashOrNull(event.document_sha256),
+      payloadHash: hashOrNull(event.payload_sha256),
+      chainMaterial: event.chain_material ? String(event.chain_material) : null,
+      previousSourceHash: hashOrNull(event.previous_event_hash) || '0'.repeat(64),
       sourceEventHash: hashOrNull(event.event_hash),
     })),
     timestamps,
     nom151: nom,
   };
 
-  const signer = isEvidenceV2KmsSigningEnabled()
-    ? createCertificationProviderSet().keyManagement
-    : null;
+  if (!isEvidenceV2KmsSigningEnabled()) {
+    throw new EvidenceV2ServiceError(
+      'EVIDENCE_SEAL_KMS_NOT_ENABLED',
+      'La firma KMS dedicada EVIDENCE_SEAL no está habilitada para Evidence V2.1.',
+      503
+    );
+  }
+  const signer = createCertificationProviderSet().keyManagement;
+  await input.onStage?.('SIGNING_EVIDENCE');
   const built = await createEvidenceV2Package(packageInput, signer);
+  const readiness = validateEvidenceV21Readiness(built.package, { requireSeal: true });
+  if (readiness.status !== 'READY') {
+    throw new EvidenceV2ServiceError(
+      `EVIDENCE_V2_${readiness.status}`,
+      `Evidence V2.1 no está listo: ${readiness.codes.join(', ')}`,
+      readiness.status === 'ERROR' ? 422 : 409
+    );
+  }
+  await registerEvidenceSigningKey(service, built.package.docuboxSignature!);
+  if (!(await verifyEvidenceSealAgainstRegistry(service, built.package))) {
+    throw new EvidenceV2ServiceError(
+      'EVIDENCE_SEAL_UNTRUSTED',
+      'El sello de evidencia no coincide con el registro de confianza.',
+      422
+    );
+  }
+  await input.onStage?.('STORING_EVIDENCE');
   const storagePath = `${document.workspace_id || document.owner_id}/${input.documentId}/${packageInput.document.versionId || 'legacy'}/evidence-v2/${built.package.packageId}/evidence.xml`;
   const upload = await service.storage
     .from(XML_BUCKET)
@@ -845,6 +1045,20 @@ export async function generateEvidenceV2ForDocument(
       upsert: false,
     });
   if (upload.error) throw upload.error;
+  const readBack = await service.storage.from(XML_BUCKET).download(storagePath);
+  if (readBack.error) {
+    await service.storage.from(XML_BUCKET).remove([storagePath]);
+    throw readBack.error;
+  }
+  const persistedXmlHash = sha256Hex(new Uint8Array(await readBack.data.arrayBuffer()));
+  if (persistedXmlHash !== built.xmlSha256) {
+    await service.storage.from(XML_BUCKET).remove([storagePath]);
+    throw new EvidenceV2ServiceError(
+      'EVIDENCE_XML_READBACK_HASH_MISMATCH',
+      'El XML persistido no superó la verificación de lectura.',
+      500
+    );
+  }
   const insert = await service
     .from('evidence_packages')
     .insert({
@@ -855,12 +1069,12 @@ export async function generateEvidenceV2ForDocument(
       document_id: input.documentId,
       document_version_id: packageInput.document.versionId,
       source_certification_id: certification.id,
-      evidence_version: '2.0',
-      schema_version: '2.0',
-      canonicalization_version: 'docubox-evidence-root-v1',
-      status: built.package.status,
+      evidence_version: '2.1',
+      schema_version: '2.1',
+      canonicalization_version: 'docubox-evidence-root-v2.1',
+      status: 'closing',
       document_final_sha256: finalHash,
-      evidence_root_sha256: built.package.chain.rootHash,
+      evidence_root_sha256: built.package.evidenceRoot!.value,
       package_digest_sha256: built.package.packageDigest,
       xml_sha256: built.xmlSha256,
       xml_storage_bucket: XML_BUCKET,
@@ -868,7 +1082,7 @@ export async function generateEvidenceV2ForDocument(
       docubox_signature: built.package.docuboxSignature,
       verification_summary: built.package.verification,
       generated_at: built.package.generatedAt,
-      closed_at: built.package.closedAt,
+      closed_at: null,
       created_by: input.actorId,
     })
     .select(
@@ -885,6 +1099,20 @@ export async function generateEvidenceV2ForDocument(
     input.actorId,
     await packageArtifacts(certification, timestamp, nom151, ots, finalHash, signatures)
   );
+  const closeResult = await service
+    .from('evidence_packages')
+    .update({
+      status: built.package.status,
+      closed_at: built.package.closedAt,
+      verification_summary: { ...built.package.verification, readiness },
+    })
+    .eq('id', insert.data.id)
+    .is('closed_at', null)
+    .select(
+      'id,evidence_id,package_id,public_verification_token,xml_sha256,xml_storage_path,status,generated_at,closed_at,document_final_sha256,verification_summary'
+    )
+    .single();
+  if (closeResult.error) throw closeResult.error;
   await appendPackageClosedEvent(service, {
     documentId: input.documentId,
     actorId: input.actorId,
@@ -893,11 +1121,11 @@ export async function generateEvidenceV2ForDocument(
     evidenceId: built.package.evidenceId,
     packageId: built.package.packageId,
     finalHash,
-    rootHash: built.package.chain.rootHash,
+    rootHash: built.package.evidenceRoot!.value,
     packageDigest: built.package.packageDigest,
     xmlHash: built.xmlSha256,
   });
-  return { ...insert.data, alreadyGenerated: false };
+  return { ...closeResult.data, alreadyGenerated: false, readiness };
 }
 
 export async function getEvidenceV2ForDocument(service: SupabaseClient, documentId: string) {
@@ -907,75 +1135,12 @@ export async function getEvidenceV2ForDocument(service: SupabaseClient, document
       'id,evidence_id,package_id,public_verification_token,evidence_version,schema_version,status,source_certification_id,document_final_sha256,evidence_root_sha256,package_digest_sha256,xml_sha256,xml_storage_bucket,xml_storage_path,generated_at,closed_at,verification_summary'
     )
     .eq('document_id', documentId)
-    .eq('evidence_version', '2.0')
+    .in('evidence_version', ['2.0', '2.1'])
     .order('generated_at', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (result.error) throw result.error;
   if (!result.data) return null;
-  if (result.data.source_certification_id) {
-    const certificationResult = await service
-      .from('document_certifications')
-      .select(
-        'id,certified_pdf_path,certified_pdf_sha256,completed_at,pades_profile,pades_verified_at'
-      )
-      .eq('id', result.data.source_certification_id)
-      .maybeSingle();
-    if (certificationResult.error) throw certificationResult.error;
-    if (certificationResult.data) {
-      const [timestampResult, nom151Result, otsResult, signaturesResult] = await Promise.all([
-        service
-          .from('timestamp_records')
-          .select(
-            'id,status,timestamp_token_sha256,gen_time,tsa_name,tsa_policy_oid,tsa_serial_number,token_storage_path,verified_at'
-          )
-          .eq('document_certification_id', result.data.source_certification_id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        service
-          .from('nom151_constancias_doc')
-          .select(
-            'id,status,verification_status,provider,psc_name,environment,production_trusted,constancia_sha256,constancia_path,constancia_storage_path,issued_at,verified_at'
-          )
-          .eq('documento_id', documentId)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        service
-          .from('document_blockchain_evidence')
-          .select(
-            'id,status,manifest_hash,proof_sha256,proof_storage_path,anchored_at,verified_at,bitcoin_block_height'
-          )
-          .eq('document_id', documentId)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        service
-          .from('signature_evidence')
-          .select(
-            'id,captured_at,signed_at,image_sha256,strokes_sha256,storage_image_path,storage_strokes_path,signed_payload_sha256,digital_seal_sha256,sign_algorithm,cert_fingerprint_sha256,ocsp_checked_at,validation_provider,efirma_bundle_path,efirma_bundle_sha256'
-          )
-          .eq('document_id', documentId)
-          .eq('is_voided', false),
-      ]);
-      for (const source of [timestampResult, nom151Result, otsResult, signaturesResult])
-        if (source.error) throw source.error;
-      await synchronizeArtifacts(
-        service,
-        result.data.id,
-        null,
-        await packageArtifacts(
-          certificationResult.data as Record<string, unknown>,
-          timestampResult.data as Record<string, unknown> | null,
-          nom151Result.data as Record<string, unknown> | null,
-          otsResult.data as Record<string, unknown> | null,
-          String(result.data.document_final_sha256),
-          (signaturesResult.data || []) as Array<Record<string, unknown>>
-        )
-      );
-    }
-  }
   const artifacts = await service
     .from('evidence_package_artifacts')
     .select(

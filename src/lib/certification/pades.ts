@@ -204,33 +204,51 @@ async function cadesSignedAttributes(
 
 function locateSignature(pdf: Uint8Array) {
   const text = buffer(pdf).toString('latin1');
-  const byteRangeMatch = /\/ByteRange\s*\[\s*0\s+([^\s\]]+)\s+([^\s\]]+)\s+([^\s\]]+)\s*\]/.exec(
-    text
+  const objectPattern = /(?:^|[\r\n])(\d+)\s+(\d+)\s+obj\b/g;
+  const objectStarts: number[] = [];
+  let objectMatch: RegExpExecArray | null;
+  while ((objectMatch = objectPattern.exec(text))) {
+    objectStarts.push(objectMatch.index + objectMatch[0].search(/\d/));
+  }
+
+  for (let index = objectStarts.length - 1; index >= 0; index -= 1) {
+    const objectStart = objectStarts[index];
+    const objectEnd = text.indexOf('endobj', objectStart);
+    if (objectEnd < 0) continue;
+    const signatureObject = text.slice(objectStart, objectEnd);
+    if (!/\/Type\s*\/Sig(?![A-Za-z0-9])/.test(signatureObject)) continue;
+
+    const byteRangeMatch =
+      /\/ByteRange\s*\[\s*([^\s\]]+)\s+([^\s\]]+)\s+([^\s\]]+)\s+([^\s\]]+)\s*\]/.exec(
+        signatureObject
+      );
+    if (!byteRangeMatch || byteRangeMatch.index === undefined) continue;
+    const contentsMatch = /\/Contents\s*</.exec(signatureObject);
+    if (!contentsMatch || contentsMatch.index === undefined)
+      throw new CertificationError(
+        'PADES_CONTENTS_NOT_FOUND',
+        'El PDF no contiene un contenedor CMS de firma.',
+        422
+      );
+
+    const rangeStart = objectStart + byteRangeMatch.index;
+    const rangeEnd = rangeStart + byteRangeMatch[0].length;
+    const contentsStart = objectStart + contentsMatch.index + contentsMatch[0].length;
+    const contentsEnd = text.indexOf('>', contentsStart);
+    if (contentsEnd < 0 || contentsEnd >= objectEnd)
+      throw new CertificationError(
+        'PADES_CONTENTS_NOT_CLOSED',
+        'El contenedor CMS de firma es invalido.',
+        422
+      );
+    return { byteRangeMatch, rangeStart, rangeEnd, contentsStart, contentsEnd };
+  }
+
+  throw new CertificationError(
+    'PADES_BYTERANGE_NOT_FOUND',
+    'El PDF no contiene un campo ByteRange de firma.',
+    422
   );
-  if (!byteRangeMatch || byteRangeMatch.index === undefined)
-    throw new CertificationError(
-      'PADES_BYTERANGE_NOT_FOUND',
-      'El PDF no contiene un campo ByteRange de firma.',
-      422
-    );
-  const rangeStart = byteRangeMatch.index;
-  const rangeEnd = rangeStart + byteRangeMatch[0].length;
-  const contentsIndex = text.indexOf('/Contents <', rangeEnd);
-  if (contentsIndex < 0)
-    throw new CertificationError(
-      'PADES_CONTENTS_NOT_FOUND',
-      'El PDF no contiene un contenedor CMS de firma.',
-      422
-    );
-  const contentsStart = contentsIndex + '/Contents <'.length;
-  const contentsEnd = text.indexOf('>', contentsStart);
-  if (contentsEnd < 0)
-    throw new CertificationError(
-      'PADES_CONTENTS_NOT_CLOSED',
-      'El contenedor CMS de firma es invalido.',
-      422
-    );
-  return { byteRangeMatch, rangeStart, rangeEnd, contentsStart, contentsEnd };
 }
 
 function writeByteRange(pdf: Uint8Array) {
@@ -240,7 +258,7 @@ function writeByteRange(pdf: Uint8Array) {
   const second = contentsStart - 1;
   const third = contentsEnd + 1;
   const fourth = pdf.byteLength - third;
-  const tokens = [byteRangeMatch[1], byteRangeMatch[2], byteRangeMatch[3]];
+  const tokens = [byteRangeMatch[2], byteRangeMatch[3], byteRangeMatch[4]];
   const widths = tokens.map((value) => value.replace(/^\//, '').length);
   const numbers = [second, third, fourth];
   if (numbers.some((value, index) => String(value).length > widths[index])) {
@@ -294,7 +312,7 @@ function validateByteRange(pdf: Uint8Array, byteRange: [number, number, number, 
 
 function parseByteRange(pdf: Uint8Array) {
   const located = locateSignature(pdf);
-  const tokens = [located.byteRangeMatch[1], located.byteRangeMatch[2], located.byteRangeMatch[3]];
+  const tokens = located.byteRangeMatch.slice(1, 5);
   if (tokens.some((value) => !/^\d+$/.test(value)))
     throw new CertificationError(
       'PADES_BYTERANGE_INVALID',
@@ -310,7 +328,7 @@ function parseByteRange(pdf: Uint8Array) {
     );
   return {
     ...located,
-    byteRange: [0, values[0], values[1], values[2]] as [number, number, number, number],
+    byteRange: values as [number, number, number, number],
   };
 }
 

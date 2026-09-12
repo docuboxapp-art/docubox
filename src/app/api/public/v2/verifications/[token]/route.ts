@@ -5,6 +5,8 @@ import { verifyEvidenceV2Package } from '@/lib/evidence-v2/verifier';
 import { createCertificationProviderSet } from '@/lib/certification/providers';
 import { createOpenTimestampProvider } from '@/lib/blockchain-evidence/provider';
 import { createNom151Provider } from '@/lib/nom151/provider';
+import { parseEvidenceV2Xml } from '@/lib/evidence-v2/parser';
+import { verifyEvidenceSealAgainstRegistry } from '@/lib/evidence-v2/trust-registry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,7 +35,7 @@ export async function GET(
     const service = createServiceClient();
     const packageResult = await service.from('evidence_packages').select(
       'id,package_id,evidence_version,status,document_id,document_final_sha256,evidence_root_sha256,xml_storage_bucket,xml_storage_path,xml_sha256,generated_at,closed_at'
-    ).eq('public_verification_token', token).eq('evidence_version', '2.0').maybeSingle();
+    ).eq('public_verification_token', token).in('evidence_version', ['2.0', '2.1']).maybeSingle();
     if (packageResult.error) throw packageResult.error;
     if (!packageResult.data) return response({ error: 'No se encontró la evidencia solicitada.' }, 404);
     const packageRow = packageResult.data;
@@ -96,6 +98,15 @@ export async function GET(
         },
       },
     });
+    const registrySealValid = packageRow.evidence_version === '2.1'
+      ? await verifyEvidenceSealAgainstRegistry(service, parseEvidenceV2Xml(xml))
+      : verification.docuboxSignature === 'valid';
+    if (!registrySealValid) {
+      verification.docuboxSignature = 'invalid';
+      verification.overall = 'invalid';
+      verification.valid = false;
+      verification.errors.push('Evidence seal is not trusted by the signing key registry');
+    }
     pdfBytes.fill(0);
     return response({
       packageId: packageRow.package_id,

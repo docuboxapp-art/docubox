@@ -46,6 +46,7 @@ serve(async (req) => {
     const body = await req.json()
     const {
       document_id, image_b64, strokes,
+      participant_id,
       image_sha256, strokes_sha256, combined_sha256,
       human_score, anomaly_flags, avg_pressure,
       total_strokes, total_duration_ms,
@@ -126,6 +127,9 @@ serve(async (req) => {
     const evidenceId = crypto.randomUUID()
     const { error: dbError } = await supabase.from('signature_evidence').insert({
       id: evidenceId,
+      capture_id: evidenceId,
+      participant_record_id: participant_id || user.id,
+      evidence_role: 'CAPTURE',
       document_id,
       evidence_type: 'autograph_signature',
       image_sha256,
@@ -138,6 +142,8 @@ serve(async (req) => {
       total_duration_ms: toNullableInteger(total_duration_ms),
       storage_image_path: storagePath,
       storage_strokes_path: strokesPath,
+      image_storage_bucket: 'signatures',
+      strokes_storage_bucket: 'evidence',
       ip_address: ip,
       user_agent: session_evidence?.user_agent,
       timezone: session_evidence?.timezone,
@@ -147,6 +153,9 @@ serve(async (req) => {
       fingerprint_id: device_fingerprint?.fingerprint_id,
       captured_by: user.id,
       captured_at: new Date().toISOString(),
+      context_ip_status: ip === 'unknown' ? 'unavailable' : 'available',
+      context_geo_status: 'available',
+      context_user_agent_status: session_evidence?.user_agent ? 'available' : 'unavailable',
     })
 
     if (dbError) {

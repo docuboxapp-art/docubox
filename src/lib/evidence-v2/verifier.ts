@@ -2,6 +2,7 @@ import { constants, createPublicKey, verify, X509Certificate } from 'node:crypto
 import { sha256Hex } from '@/lib/certification/canonical';
 import {
   buildEvidenceV2Chain,
+  buildEvidenceRoot,
   evidenceV2LegacyPackageDigest,
   evidenceV2PackageDigest,
   evidenceV2SigningPayload,
@@ -70,6 +71,12 @@ function verifyChain(value: EvidenceV2Package) {
         actorRef: event.actorRef,
         objectRef: event.objectRef,
         sourceEventHash: event.sourceEventHash,
+        eventCategory: event.eventCategory,
+        actorType: event.actorType,
+        documentHash: event.documentHash,
+        payloadHash: event.payloadHash,
+        chainMaterial: event.chainMaterial,
+        previousSourceHash: event.previousSourceHash,
       })),
     });
     return (
@@ -99,10 +106,14 @@ function verifyDocuboxSignature(value: EvidenceV2Package, packageIntegrity: bool
     const signatureBytes = Buffer.from(signature.signatureBase64, 'base64');
     if (sha256Hex(signatureBytes) !== signature.signatureSha256.toLowerCase())
       return 'invalid' as const;
-    if (sha256Hex(signature.publicKeyPem) !== signature.publicKeyFingerprintSha256.toLowerCase())
+    if (!signature.publicKeyPem) return 'invalid' as const;
+    const publicKey = createPublicKey(signature.publicKeyPem);
+    if (
+      sha256Hex(publicKey.export({ type: 'spki', format: 'der' })) !==
+      signature.publicKeyFingerprintSha256.toLowerCase()
+    )
       return 'invalid' as const;
     const payload = evidenceV2SigningPayload(value);
-    const publicKey = createPublicKey(signature.publicKeyPem);
     const valid =
       signature.algorithm === 'RSA-PSS-SHA256'
         ? verify(
@@ -168,6 +179,17 @@ export function verifyEvidenceV2Xml(xml: string): EvidenceV2Verification {
   const chainIntegrity = verifyChain(value) ? ('valid' as const) : ('invalid' as const);
   if (chainIntegrity === 'invalid')
     errors.push('Evidence events do not match the declared chain and RootHash');
+  if (value.schemaVersion === '2.1') {
+    try {
+      if (!value.evidenceRoot || buildEvidenceRoot(value).value !== value.evidenceRoot.value) {
+        errors.push('EvidenceRoot does not match its canonical RFC8785 inputs');
+        packageIntegrity = 'invalid';
+      }
+    } catch {
+      errors.push('EvidenceRoot is invalid');
+      packageIntegrity = 'invalid';
+    }
+  }
 
   const docuboxSignature = verifyDocuboxSignature(
     value,

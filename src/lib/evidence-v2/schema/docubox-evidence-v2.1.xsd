@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  targetNamespace="https://docubox.com.mx/schema/evidence/v2"
+  xmlns:tns="https://docubox.com.mx/schema/evidence/v2"
+  xmlns="https://docubox.com.mx/schema/evidence/v2"
+  elementFormDefault="qualified" attributeFormDefault="unqualified">
+  <xs:complexType name="OpenBlock">
+    <xs:sequence>
+      <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax"/>
+    </xs:sequence>
+    <xs:anyAttribute processContents="lax"/>
+  </xs:complexType>
+  <xs:element name="DocuboxEvidencePackage">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Paquete" type="tns:OpenBlock"/>
+        <xs:element name="Documento" type="tns:OpenBlock"/>
+        <xs:element name="Firmantes" type="tns:OpenBlock"/>
+        <xs:element name="Firmas" type="tns:OpenBlock"/>
+        <xs:element name="BitacoraProbatoria" type="tns:OpenBlock"/>
+        <xs:element name="CadenaEvidencia" type="tns:OpenBlock"/>
+        <xs:element name="EstampasTiempo" type="tns:OpenBlock"/>
+        <xs:element name="ConservacionNOM151" type="tns:OpenBlock"/>
+        <xs:element name="Integridad" type="tns:OpenBlock"/>
+        <xs:element name="FirmaDocubox" type="tns:OpenBlock"/>
+        <xs:element name="Verificacion" type="tns:OpenBlock"/>
+      </xs:sequence>
+      <xs:attribute name="version" use="required" fixed="2.1"/>
+      <xs:attribute name="schemaVersion" use="required" fixed="2.1"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

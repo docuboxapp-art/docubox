@@ -112,6 +112,33 @@ async function normalizeAutographSignatureImage(dataUrl: string): Promise<string
   });
 }
 
+function fitSignatureStrokes(strokes: any[], width: number, height: number) {
+  const points = strokes.flatMap((stroke) => stroke.points || []);
+  if (!points.length || width <= 0 || height <= 0) return strokes;
+
+  const left = Math.min(...points.map((point) => point.x));
+  const right = Math.max(...points.map((point) => point.x));
+  const top = Math.min(...points.map((point) => point.y));
+  const bottom = Math.max(...points.map((point) => point.y));
+  const inkWidth = Math.max(1, right - left);
+  const inkHeight = Math.max(1, bottom - top);
+  const padding = Math.min(24, Math.max(12, Math.min(width, height) * 0.08));
+  const availableWidth = Math.max(1, width - padding * 2);
+  const availableHeight = Math.max(1, height - padding * 2);
+  const scale = Math.min(availableWidth / inkWidth, availableHeight / inkHeight);
+  const offsetX = (width - inkWidth * scale) / 2 - left * scale;
+  const offsetY = (height - inkHeight * scale) / 2 - top * scale;
+
+  return strokes.map((stroke) => ({
+    ...stroke,
+    points: (stroke.points || []).map((point: any) => ({
+      ...point,
+      x: point.x * scale + offsetX,
+      y: point.y * scale + offsetY,
+    })),
+  }));
+}
+
 // ─── User-Agent Parser ────────────────────────────────────────────────────────
 function parseUserAgent(ua: string): { deviceType: string; browserName: string; osName: string } {
   // OS detection
@@ -188,6 +215,56 @@ interface SessionEvidence {
     city?: string;
     formatted?: string;
   } | null;
+}
+
+type BrowserGeolocation = NonNullable<SessionEvidence['geo']>;
+
+function validBrowserGeolocation(geo: SessionEvidence['geo'] | undefined): geo is BrowserGeolocation {
+  return Boolean(
+    geo &&
+      Number.isFinite(geo.latitude) &&
+      Number.isFinite(geo.longitude) &&
+      geo.latitude >= -90 &&
+      geo.latitude <= 90 &&
+      geo.longitude >= -180 &&
+      geo.longitude <= 180
+  );
+}
+
+function requestBrowserGeolocation(): Promise<BrowserGeolocation | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const geo: BrowserGeolocation = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy_meters: Number.isFinite(position.coords.accuracy)
+            ? position.coords.accuracy
+            : 0,
+          source: 'browser_api',
+        };
+        resolve(validBrowserGeolocation(geo) ? geo : null);
+      },
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+    );
+  });
+}
+
+function createSessionEvidence(geo: BrowserGeolocation): SessionEvidence {
+  return {
+    user_agent: navigator.userAgent,
+    language: navigator.language,
+    platform: navigator.platform,
+    screen: `${screen.width}x${screen.height}x${screen.colorDepth}`,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    touch_points: navigator.maxTouchPoints,
+    geo,
+  };
 }
 
 interface DeviceFingerprint {
@@ -356,13 +433,15 @@ interface BiometricEnrollment {
 
 interface Props {
   documentId: string;
+  participantRecordId: string;
   userId: string;
   userToken: string;
   userEmail?: string;
   userName?: string;
   documentName?: string;
   isDark: boolean;
-  onComplete: (firmaDataUrl: string) => void;
+  initialGeolocation: BrowserGeolocation | null;
+  onComplete: (firmaDataUrl: string, evidenceId: string) => void;
   onNoticeAccepted?: () => void;
 }
 
@@ -3225,12 +3304,14 @@ function MobileSignatureModal({
 // ─── Main AutographSignatureFlow Component ────────────────────────────────────
 export default function AutographSignatureFlow({
   documentId,
+  participantRecordId,
   userId,
   userToken,
   userEmail,
   userName,
   documentName,
   isDark,
+  initialGeolocation,
   onComplete,
   onNoticeAccepted,
 }: Props) {
@@ -3305,36 +3386,16 @@ export default function AutographSignatureFlow({
   // ── Collect session evidence on mount ──────────────────────────────────────
   useEffect(() => {
     const collect = async () => {
-      const rawGeo = await new Promise<{
-        latitude: number;
-        longitude: number;
-        accuracy_meters: number;
-        source: string;
-      } | null>((resolve) => {
-        if (!navigator.geolocation) {
-          setGeoDenied(true);
-          return resolve(null);
-        }
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            if (!Number.isFinite(pos.coords.latitude) || !Number.isFinite(pos.coords.longitude)) {
-              setGeoDenied(true);
-              return resolve(null);
-            }
-            resolve({
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-              accuracy_meters: pos.coords.accuracy,
-              source: 'browser_api',
-            });
-          },
-          () => {
-            setGeoDenied(true);
-            resolve(null);
-          },
-          { enableHighAccuracy: true, timeout: 10000 }
-        );
-      });
+      const rawGeo = validBrowserGeolocation(initialGeolocation)
+        ? initialGeolocation
+        : await requestBrowserGeolocation();
+
+      if (!rawGeo) {
+        setGeoDenied(true);
+        return;
+      }
+      setGeoDenied(false);
+      setSessionEvidence(createSessionEvidence(rawGeo));
 
       // Enrich geo with reverse geocoding via get-location edge function
       let geo: SessionEvidence['geo'] = rawGeo;
@@ -3362,15 +3423,7 @@ export default function AutographSignatureFlow({
         }
       }
 
-      setSessionEvidence({
-        user_agent: navigator.userAgent,
-        language: navigator.language,
-        platform: navigator.platform,
-        screen: `${screen.width}x${screen.height}x${screen.colorDepth}`,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        touch_points: navigator.maxTouchPoints,
-        geo,
-      });
+      if (geo) setSessionEvidence(createSessionEvidence(geo));
 
       try {
         const FingerprintJS = (await import('@fingerprintjs/fingerprintjs')).default;
@@ -3398,7 +3451,7 @@ export default function AutographSignatureFlow({
       }
     };
     collect();
-  }, []);
+  }, [initialGeolocation]);
 
   // ── OTP countdown ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -3421,8 +3474,6 @@ export default function AutographSignatureFlow({
       const ratio = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
-      const priorWidth = canvas.width / ratio || rect.width;
-      const priorHeight = canvas.height / ratio || rect.height;
       // Preserve the drawing proportionally when compact and expanded views
       // change the physical canvas dimensions.
       const data = padRef.current?.toData?.() ?? [];
@@ -3434,16 +3485,7 @@ export default function AutographSignatureFlow({
       // of the expanded canvas remains interactive.
       if (padRef.current && data.length) {
         padRef.current.clear();
-        padRef.current.fromData(
-          data.map((stroke: any) => ({
-            ...stroke,
-            points: stroke.points.map((point: any) => ({
-              ...point,
-              x: (point.x * rect.width) / priorWidth,
-              y: (point.y * rect.height) / priorHeight,
-            })),
-          }))
-        );
+        padRef.current.fromData(fitSignatureStrokes(data, rect.width, rect.height));
       }
     };
 
@@ -3758,6 +3800,20 @@ export default function AutographSignatureFlow({
     } | null
   ) => {
     try {
+      let evidenceForSubmit = sessionEvidence;
+      if (!validBrowserGeolocation(evidenceForSubmit?.geo)) {
+        const refreshedGeo = await requestBrowserGeolocation();
+        if (!refreshedGeo) {
+          setGeoDenied(true);
+          throw new Error(
+            'No fue posible obtener una ubicación válida. Activa el permiso de ubicación e inténtalo nuevamente.'
+          );
+        }
+        evidenceForSubmit = createSessionEvidence(refreshedGeo);
+        setSessionEvidence(evidenceForSubmit);
+        setGeoDenied(false);
+      }
+
       // Use live pad if available, otherwise fall back to saved data
       let imageDataUrl: string;
       let rawStrokes: any[];
@@ -3828,6 +3884,7 @@ export default function AutographSignatureFlow({
         headers,
         body: JSON.stringify({
           document_id: documentId,
+          participant_id: participantRecordId,
           image_b64: imageDataUrl,
           strokes: enrichedStrokes,
           image_sha256: imageHash,
@@ -3839,7 +3896,7 @@ export default function AutographSignatureFlow({
           total_strokes: behavior.total_strokes,
           total_duration_ms: behavior.total_duration_ms,
           device_fingerprint: deviceFingerprint,
-          session_evidence: sessionEvidence,
+          session_evidence: evidenceForSubmit,
         }),
       });
 
@@ -3925,7 +3982,7 @@ export default function AutographSignatureFlow({
           chainHash,
           otpVerified: otpEvidenceVerified,
           biometric: biometricResult,
-          sessionEvidence,
+          sessionEvidence: evidenceForSubmit,
           deviceFingerprint,
           humanBehavior: {
             total_points: behavior.total_points,
@@ -3970,8 +4027,11 @@ export default function AutographSignatureFlow({
         chain_hash: chainHash,
         otp_verified: otpEvidenceVerified,
         biometric: biometricResult,
-        geo: sessionEvidence?.geo
-          ? { latitude: sessionEvidence.geo.latitude, longitude: sessionEvidence.geo.longitude }
+        geo: evidenceForSubmit.geo
+          ? {
+              latitude: evidenceForSubmit.geo.latitude,
+              longitude: evidenceForSubmit.geo.longitude,
+            }
           : null,
         signature_data_url: presentationImageDataUrl,
         device_type: parseUserAgent(navigator.userAgent).deviceType,
@@ -3980,7 +4040,7 @@ export default function AutographSignatureFlow({
       });
 
       setFlowStep('constancia');
-      onComplete(presentationImageDataUrl);
+      onComplete(presentationImageDataUrl, finalEvidenceId);
     } catch (err: any) {
       setSendError(err.message || 'Error al enviar la firma');
       setFlowStep(autographSignatureCapabilities.identityVerification ? 'otp' : 'pad');

@@ -8,10 +8,28 @@ function enabled(value: string | undefined) {
 
 /** Backend-only gate. v2 is never enabled by browser-controlled input. */
 export function isEvidenceV2Enabled() {
-  return enabled(process.env.DOCUBOX_EVIDENCE_V2_ENABLED);
+  const environment = String(
+    process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'
+  ).toLowerCase();
+  if (environment === 'production') return enabled(process.env.DOCUBOX_EVIDENCE_V2_ENABLED);
+  return !['0', 'false', 'disabled'].includes(
+    String(process.env.DOCUBOX_EVIDENCE_V2_ENABLED || '')
+      .trim()
+      .toLowerCase()
+  );
 }
 
 /** KMS signing remains independently opt-in after a provider health check. */
 export function isEvidenceV2KmsSigningEnabled() {
-  return isEvidenceV2Enabled() && enabled(process.env.DOCUBOX_EVIDENCE_V2_KMS_SIGNING_ENABLED);
+  if (!isEvidenceV2Enabled()) return false;
+  const environment = String(
+    process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'
+  ).toLowerCase();
+  if (environment === 'production')
+    return enabled(process.env.DOCUBOX_EVIDENCE_V2_KMS_SIGNING_ENABLED);
+  return !['0', 'false', 'disabled'].includes(
+    String(process.env.DOCUBOX_EVIDENCE_V2_KMS_SIGNING_ENABLED || '')
+      .trim()
+      .toLowerCase()
+  );
 }

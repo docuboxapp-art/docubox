@@ -12,6 +12,12 @@ export type EvidenceEventSource = {
   actorRef?: string | null;
   objectRef?: string | null;
   sourceEventHash?: string | null;
+  eventCategory?: string | null;
+  actorType?: string | null;
+  documentHash?: string | null;
+  payloadHash?: string | null;
+  chainMaterial?: string | null;
+  previousSourceHash?: string | null;
 };
 
 export type EvidenceChainEvent = EvidenceEventSource & {
@@ -22,10 +28,15 @@ export type EvidenceChainEvent = EvidenceEventSource & {
 
 export type EvidenceParticipant = {
   participantRef: string;
+  firmanteId?: string | null;
+  name?: string | null;
+  email?: string | null;
   role: string;
   participantType: 'signer' | 'approver' | 'reviewer' | 'witness' | 'recipient' | 'other';
   order?: number | null;
   required?: boolean | null;
+  expectedMethod?: string | null;
+  participationStatus?: string | null;
   invitationAt?: string | null;
   firstAccessAt?: string | null;
   signedAt?: string | null;
@@ -40,6 +51,8 @@ export type EvidenceParticipant = {
 export type EvidenceSignature = {
   signatureRef: string;
   participantRef: string;
+  participantId?: string | null;
+  documentVersionRef?: string | null;
   method:
     | 'efirma_sat'
     | 'autografa_digital'
@@ -48,10 +61,37 @@ export type EvidenceSignature = {
     | 'certificado_digital';
   signedObjectHash: string | null;
   capturedAt: string | null;
+  signedAt?: string | null;
+  evidenceRole?: 'FINAL_SIGNATURE';
+  context?: {
+    ipStatus: 'available' | 'unavailable' | 'denied' | 'not_applicable';
+    ipAddress?: string | null;
+    geolocationStatus: 'available' | 'unavailable' | 'denied' | 'not_applicable';
+    latitude?: number | null;
+    longitude?: number | null;
+    accuracyMeters?: number | null;
+    city?: string | null;
+    region?: string | null;
+    country?: string | null;
+    countryCode?: string | null;
+    userAgentStatus: 'available' | 'unavailable' | 'denied' | 'not_applicable';
+    userAgent?: string | null;
+    deviceInfo?: string | null;
+  };
+  consent?: {
+    textVersion: string;
+    textHash: string;
+    accepted: boolean;
+    acceptedAt: string;
+  };
   autograph?: {
+    captureId?: string | null;
     strokesHash?: string | null;
     imageHash?: string | null;
     evidenceObjectId?: string | null;
+    combinedHash?: string | null;
+    imageArtifactRef?: string | null;
+    strokesArtifactRef?: string | null;
     consent?: {
       textVersion?: string | null;
       textHash?: string | null;
@@ -71,6 +111,8 @@ export type EvidenceSignature = {
     validationStatus: VerificationStatus;
   };
   cryptographicEvidence?: {
+    signatureValue?: string | null;
+    signedPayloadBase64?: string | null;
     signedPayloadHash?: string | null;
     signatureHash?: string | null;
     signatureAlgorithm?: string | null;
@@ -125,7 +167,7 @@ export type DocuboxEvidenceSignature = {
   algorithm: string;
   keyId: string;
   keyVersion: string;
-  publicKeyPem: string;
+  publicKeyPem?: string;
   publicKeyFingerprintSha256: string;
   signatureBase64: string;
   signatureSha256: string;
@@ -135,8 +177,8 @@ export type DocuboxEvidenceSignature = {
 export type EvidenceV2Package = {
   evidenceId: string;
   packageId: string;
-  version: '2.0';
-  schemaVersion: '2.0';
+  version: '2.0' | '2.1';
+  schemaVersion: '2.0' | '2.1';
   generatedAt: string;
   closedAt: string;
   environment: string;
@@ -177,6 +219,16 @@ export type EvidenceV2Package = {
       recordedAt?: string | null;
       snapshotHash?: string | null;
     }>;
+    metadataSnapshotHash?: string | null;
+    extract?: {
+      source:
+        'user_metadata' | 'template' | 'form' | 'editor' | 'document_intelligence' | 'reviewed_ai';
+      sourceRef?: string | null;
+      content: string;
+      reviewedAt?: string | null;
+    } | null;
+    workflow?: { status: string; completedAt?: string | null };
+    relations?: Array<{ type: string; ref: string }>;
   };
   participants: EvidenceParticipant[];
   signatures: EvidenceSignature[];
@@ -186,6 +238,17 @@ export type EvidenceV2Package = {
     genesisHash: string;
     rootHash: string;
     totalEvents: number;
+    watermarkSequence?: number;
+  };
+  evidenceRoot?: {
+    algorithm: 'SHA-256';
+    canonicalization: 'RFC8785';
+    documentFinalHash: string;
+    metadataSnapshotHash: string;
+    evidenceEventRootHash: string;
+    signaturesDigest: string;
+    packageCoreDigest: string;
+    value: string;
   };
   packageDigest: string;
   timestamps: EvidenceTimestamp[];

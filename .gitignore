@@ -61,6 +61,7 @@ coverage/
 jest-test-results.json
 __pycache__/
 *.py[cod]
+.venv-pdf-security/
 
 # Optional: if using IDEs
 .vscode/

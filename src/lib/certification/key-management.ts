@@ -319,6 +319,8 @@ export type GoogleCloudKmsConfiguration = {
   keyRing: string;
   keyName: string;
   keyVersion: string;
+  evidenceKeyName?: string;
+  evidenceKeyVersion?: string;
   algorithm: typeof GOOGLE_KMS_ALGORITHM;
   serviceAccount: string;
   requiredProtectionLevel: 'software' | 'hsm';
@@ -381,6 +383,7 @@ function googleKmsSegment(value: string, variableName: string) {
 export class GoogleCloudKmsProvider implements KeyManagementProvider {
   readonly providerId = 'google-cloud-kms' as const;
   readonly resourceName: string;
+  readonly evidenceResourceName: string | null;
   private client: GoogleCloudKmsClient | null;
   private clientPromise: Promise<GoogleCloudKmsClient> | null = null;
   private readonly authProvider: GoogleCloudAuthProvider | null;
@@ -405,6 +408,15 @@ export class GoogleCloudKmsProvider implements KeyManagementProvider {
       'cryptoKeys', googleKmsSegment(config.keyName, 'GOOGLE_KMS_KEY_NAME'),
       'cryptoKeyVersions', googleKmsSegment(config.keyVersion, 'GOOGLE_KMS_KEY_VERSION'),
     ].join('/');
+    this.evidenceResourceName = config.evidenceKeyName && config.evidenceKeyVersion
+      ? [
+          'projects', googleKmsSegment(config.projectId, 'GOOGLE_CLOUD_PROJECT_ID'),
+          'locations', googleKmsSegment(config.location, 'GOOGLE_KMS_LOCATION'),
+          'keyRings', googleKmsSegment(config.keyRing, 'GOOGLE_KMS_KEY_RING'),
+          'cryptoKeys', googleKmsSegment(config.evidenceKeyName, 'GOOGLE_KMS_EVIDENCE_KEY_NAME'),
+          'cryptoKeyVersions', googleKmsSegment(config.evidenceKeyVersion, 'GOOGLE_KMS_EVIDENCE_KEY_VERSION'),
+        ].join('/')
+      : null;
     this.client = client || null;
     this.authProvider = client
       ? null
@@ -448,6 +460,8 @@ export class GoogleCloudKmsProvider implements KeyManagementProvider {
           'GOOGLE_KMS_PRODUCTION_KEY_RING',
           'GOOGLE_KMS_PRODUCTION_KEY_NAME',
           'GOOGLE_KMS_PRODUCTION_KEY_VERSION',
+          'GOOGLE_KMS_PRODUCTION_EVIDENCE_KEY_NAME',
+          'GOOGLE_KMS_PRODUCTION_EVIDENCE_KEY_VERSION',
           'GOOGLE_KMS_PRODUCTION_ALGORITHM',
           'GOOGLE_KMS_PRODUCTION_SERVICE_ACCOUNT',
           'GOOGLE_KMS_PRODUCTION_PROTECTION_LEVEL',
@@ -459,6 +473,8 @@ export class GoogleCloudKmsProvider implements KeyManagementProvider {
           'GOOGLE_KMS_KEY_RING',
           'GOOGLE_KMS_KEY_NAME',
           'GOOGLE_KMS_KEY_VERSION',
+          'GOOGLE_KMS_EVIDENCE_KEY_NAME',
+          'GOOGLE_KMS_EVIDENCE_KEY_VERSION',
           'GOOGLE_KMS_ALGORITHM',
           'GOOGLE_KMS_SERVICE_ACCOUNT',
         ] as const;
@@ -488,6 +504,8 @@ export class GoogleCloudKmsProvider implements KeyManagementProvider {
       keyRing: configuredValue(`${prefix}KEY_RING`)!,
       keyName: configuredValue(`${prefix}KEY_NAME`)!,
       keyVersion: configuredValue(`${prefix}KEY_VERSION`)!,
+      evidenceKeyName: configuredValue(`${prefix}EVIDENCE_KEY_NAME`)!,
+      evidenceKeyVersion: configuredValue(`${prefix}EVIDENCE_KEY_VERSION`)!,
       algorithm: configuredValue(`${prefix}ALGORITHM`) as typeof GOOGLE_KMS_ALGORITHM,
       serviceAccount: configuredValue(`${prefix}SERVICE_ACCOUNT`)!,
       requiredProtectionLevel: configuredProtectionLevel as 'software' | 'hsm',
@@ -495,16 +513,19 @@ export class GoogleCloudKmsProvider implements KeyManagementProvider {
   }
 
   private assertKeyId(keyId: string) {
-    if (keyId !== this.config.keyName && keyId !== this.resourceName) {
+    if (
+      keyId !== this.config.keyName && keyId !== this.resourceName &&
+      keyId !== this.config.evidenceKeyName && keyId !== this.evidenceResourceName
+    ) {
       throw new CertificationError('GOOGLE_KMS_KEY_ID_MISMATCH', 'La operacion solicito una llave distinta de la configurada.', 422);
     }
   }
 
-  private async loadPublicKey() {
+  private async loadPublicKey(resourceName = this.resourceName) {
     try {
       const client = await this.getClient();
-      const [response] = await client.getPublicKey({ name: this.resourceName });
-      if (response.name !== this.resourceName || !response.pem || !googleKmsAlgorithmMatches(response.algorithm)) {
+      const [response] = await client.getPublicKey({ name: resourceName });
+      if (response.name !== resourceName || !response.pem || !googleKmsAlgorithmMatches(response.algorithm)) {
         throw new CertificationError('GOOGLE_KMS_PUBLIC_KEY_INVALID', 'Google Cloud KMS no devolvio la llave publica RSA configurada.', 502);
       }
       const publicKey = createPublicKey(response.pem);
@@ -524,18 +545,20 @@ export class GoogleCloudKmsProvider implements KeyManagementProvider {
 
   async getPublicKey(keyId: string) {
     this.assertKeyId(keyId);
-    return (await this.loadPublicKey()).pem;
+    const evidence = keyId === this.config.evidenceKeyName || keyId === this.evidenceResourceName;
+    return (await this.loadPublicKey(evidence ? this.evidenceResourceName! : this.resourceName)).pem;
   }
 
   async getKeyMetadata(keyId: string): Promise<KeyMetadata> {
     this.assertKeyId(keyId);
     // The exact version is part of the getPublicKey resource name. Requiring
     // cryptoKeyVersions.get would unnecessarily broaden the signer IAM role.
-    const publicKey = await this.loadPublicKey();
+    const evidence = keyId === this.config.evidenceKeyName || keyId === this.evidenceResourceName;
+    const publicKey = await this.loadPublicKey(evidence ? this.evidenceResourceName! : this.resourceName);
     return {
       provider: 'google-cloud-kms',
-      keyId: this.config.keyName,
-      keyVersion: this.config.keyVersion,
+      keyId: evidence ? this.config.evidenceKeyName! : this.config.keyName,
+      keyVersion: evidence ? this.config.evidenceKeyVersion! : this.config.keyVersion,
       algorithm: 'RSA-PKCS1-SHA256',
       keySizeBits: publicKey.keySizeBits,
       protectionLevel: googleKmsProtectionLevel(publicKey.protectionLevel),
@@ -549,14 +572,22 @@ export class GoogleCloudKmsProvider implements KeyManagementProvider {
     if (!/^[a-f0-9]{64}$/i.test(input.digestSha256) || sha256Hex(input.canonicalBytes) !== input.digestSha256.toLowerCase()) {
       throw new CertificationError('DIGEST_MISMATCH', 'El digest declarado no corresponde al contenido canonico.', 422);
     }
-    const metadata = await this.getKeyMetadata(this.config.keyName);
+    if (input.purpose === 'EVIDENCE_SEAL' && (
+      !this.config.evidenceKeyName || !this.config.evidenceKeyVersion ||
+      this.config.evidenceKeyName === this.config.keyName
+    )) {
+      throw new CertificationError('GOOGLE_KMS_EVIDENCE_KEY_REQUIRED', 'EVIDENCE_SEAL requiere una llave KMS dedicada.', 503);
+    }
+    const keyId = input.purpose === 'EVIDENCE_SEAL' ? this.config.evidenceKeyName! : this.config.keyName;
+    const resourceName = input.purpose === 'EVIDENCE_SEAL' ? this.evidenceResourceName! : this.resourceName;
+    const metadata = await this.getKeyMetadata(keyId);
     try {
       const client = await this.getClient();
       const [response] = await client.asymmetricSign({
-        name: this.resourceName,
+        name: resourceName,
         digest: { sha256: Buffer.from(input.digestSha256, 'hex') },
       });
-      if (!response.signature || (response.name && response.name !== this.resourceName)) {
+      if (!response.signature || (response.name && response.name !== resourceName)) {
         throw new CertificationError('GOOGLE_KMS_SIGNATURE_INVALID', 'Google Cloud KMS no devolvio una firma valida.', 502);
       }
       const signatureBytes = typeof response.signature === 'string'

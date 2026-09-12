@@ -172,9 +172,11 @@ export async function POST(req: NextRequest) {
       : null;
     const geoAccuracyMeters = toNullableInteger(sessionEvidence?.geo?.accuracy_meters);
 
-    // Insert into signature_evidence using service role (bypasses RLS)
+    // Complete the row created by capture-signature. CaptureID is the single
+    // logical identity; this endpoint must never create a second evidence row.
     const evidencePayload: Record<string, any> = {
       document_id: documentId,
+      capture_id: evidenceId,
       evidence_type: 'autograph_signature',
       image_sha256: imageSha256,
       strokes_sha256: strokesSha256,
@@ -233,6 +235,12 @@ export async function POST(req: NextRequest) {
       participant_name: userName ?? null,
       participant_email: userEmail ?? user.email ?? null,
       participant_role: participantRole,
+      participant_record_id: participantEntry?.id ?? participantEntry?.user_id ?? user.id,
+      image_storage_bucket: 'signatures',
+      strokes_storage_bucket: 'evidence',
+      context_ip_status: ipAddress && ipAddress !== 'unknown' ? 'available' : 'unavailable',
+      context_geo_status: 'available',
+      context_user_agent_status: sessionEvidence?.user_agent ? 'available' : 'unavailable',
     };
 
     if (biometric) {
@@ -241,25 +249,31 @@ export async function POST(req: NextRequest) {
       evidencePayload.biometric_method = biometric.method;
     }
 
-    // Use upsert to avoid duplicate if already persisted
+    if (!evidenceId) {
+      return NextResponse.json({ error: 'CaptureID requerido', code: 'CAPTURE_ID_REQUIRED' }, { status: 422 });
+    }
     const { data: insertedEvidence, error: evidenceError } = await supabaseAdmin
       .from('signature_evidence')
-      .insert(evidencePayload)
+      .update(evidencePayload)
+      .eq('id', evidenceId)
+      .eq('document_id', documentId)
+      .eq('captured_by', user.id)
+      .eq('evidence_role', 'CAPTURE')
       .select('id, captured_at')
-      .single();
+      .maybeSingle();
 
     if (evidenceError) {
       console.error('Error inserting signature_evidence:', evidenceError);
-      // If already exists, that's ok — continue
-      if (
-        !evidenceError.message?.includes('duplicate') &&
-        !evidenceError.message?.includes('unique')
-      ) {
-        return NextResponse.json(
-          { error: 'Error al guardar evidencia: ' + evidenceError.message },
-          { status: 500 }
-        );
-      }
+      return NextResponse.json(
+        { error: 'Error al guardar evidencia: ' + evidenceError.message },
+        { status: 500 }
+      );
+    }
+    if (!insertedEvidence) {
+      return NextResponse.json(
+        { error: 'La captura no existe o no pertenece al firmante.', code: 'CAPTURE_NOT_FOUND' },
+        { status: 409 }
+      );
     }
 
     // Capturing a trace is not a legal signature. Only handleSubmit may change

@@ -467,6 +467,7 @@ function EfirmaFirmarFlow({
   isDark,
   geoDenied,
   onValidated,
+  onRegenerate,
   documentId,
   supabaseAccessToken,
 }: {
@@ -480,6 +481,7 @@ function EfirmaFirmarFlow({
     password?: string,
     nubariumResult?: NubariumValidationResult
   ) => void;
+  onRegenerate: () => void;
   documentId?: string;
   supabaseAccessToken?: string;
 }) {
@@ -943,17 +945,27 @@ function EfirmaFirmarFlow({
         className={`border rounded-xl overflow-hidden ${isDark ? 'border-green-700' : 'border-green-200'}`}
       >
         <div
-          className={`px-4 py-3 flex items-center gap-2 ${isDark ? 'bg-green-900/20' : 'bg-green-50'}`}
+          className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isDark ? 'bg-green-900/20' : 'bg-green-50'}`}
         >
-          <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-          <div>
-            <p className={`text-sm font-semibold ${isDark ? 'text-green-400' : 'text-green-700'}`}>
-              e.firma SAT validada y vigente
-            </p>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-green-500' : 'text-green-600'}`}>
-              La validación ante el SAT fue exitosa. Puedes enviar tu firma.
-            </p>
+          <div className="flex min-w-0 flex-1 items-start gap-2">
+            <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-green-600" />
+            <div>
+              <p className={`text-sm font-semibold ${isDark ? 'text-green-400' : 'text-green-700'}`}>
+                e.firma SAT validada y vigente
+              </p>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-green-500' : 'text-green-600'}`}>
+                La validación ante el SAT fue exitosa. Puedes enviar tu firma.
+              </p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={onRegenerate}
+            className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-normal transition-colors ${isDark ? 'border-green-700 bg-gray-800 text-green-400 hover:bg-gray-700' : 'border-green-300 bg-white text-green-700 hover:bg-green-100'}`}
+          >
+            <RotateCcw size={13} />
+            Volver a generar firma
+          </button>
         </div>
       </div>
     );
@@ -2308,6 +2320,7 @@ function CasillaLabelModalFirmar({
 
 function PlacedFieldOverlay({
   field,
+  signatureDataUrl,
   onRemove,
   onMove,
   onResize,
@@ -2319,6 +2332,7 @@ function PlacedFieldOverlay({
   readOnly,
 }: {
   field: PlacedFieldFirmar;
+  signatureDataUrl?: string | null;
   onRemove: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onResize: (id: string, width: number, height: number, x: number, y: number) => void;
@@ -2794,13 +2808,24 @@ function PlacedFieldOverlay({
             style={{
               border: `1.5px dashed ${colorHex}`,
               borderRadius: '4px',
-              background: `${colorHex}15`,
+              background: signatureDataUrl ? 'rgba(255,255,255,0.96)' : `${colorHex}15`,
             }}
           >
-            <PenLine size={12} style={{ color: colorHex }} className="mb-0.5 opacity-70" />
-            <span className="text-[9px] font-medium" style={{ color: colorHex }}>
-              Firma
-            </span>
+            {signatureDataUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={signatureDataUrl}
+                alt="Firma capturada"
+                className="h-full w-full object-contain p-1 pointer-events-none"
+              />
+            ) : (
+              <>
+                <PenLine size={12} style={{ color: colorHex }} className="mb-0.5 opacity-70" />
+                <span className="text-[9px] font-medium" style={{ color: colorHex }}>
+                  Firma
+                </span>
+              </>
+            )}
           </div>
         ) : isImagen ? (
           <div
@@ -4767,6 +4792,12 @@ export default function FirmarDocumentoPage() {
 
   // ── Pre-fetch geolocation on mount so it's ready at submit time ───────────
   const geoRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [browserGeolocation, setBrowserGeolocation] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy_meters: number;
+    source: string;
+  } | null>(null);
   const ipRef = useRef<string | null>(null);
   const [geoDenied, setGeoDenied] = useState(false);
   const [geoUnavailable, setGeoUnavailable] = useState(false);
@@ -4809,11 +4840,19 @@ export default function FirmarDocumentoPage() {
           return;
         }
         geoRef.current = { lat: latitude, lng: longitude };
+        setBrowserGeolocation({
+          latitude,
+          longitude,
+          accuracy_meters: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : 0,
+          source: 'browser_api',
+        });
         setGeoDenied(false);
         setGeoUnavailable(false);
         setGeoLoading(false);
       },
       (err) => {
+        geoRef.current = null;
+        setBrowserGeolocation(null);
         setGeoDenied(err.code === 1 /* PERMISSION_DENIED */);
         setGeoUnavailable(err.code !== 1);
         setGeoLoading(false);
@@ -4996,6 +5035,8 @@ export default function FirmarDocumentoPage() {
   const [autografaLastUsed, setAutografaLastUsed] = useState<string | null>(null);
   // Autograph flow completed
   const [autographFlowDone, setAutographFlowDone] = useState(false);
+  const [autographEvidenceId, setAutographEvidenceId] = useState<string | null>(null);
+  const [signatureAttemptKey, setSignatureAttemptKey] = useState(0);
   // Hide no-signature warning after "Entendido — Continuar"
   const [hideNoSignatureWarning, setHideNoSignatureWarning] = useState(false);
   // Want to save new autograph signature
@@ -6770,6 +6811,30 @@ export default function FirmarDocumentoPage() {
           ? 'Firma Autógrafa Digital'
           : 'Firma Electrónica';
 
+  const handleRegenerateSignature = () => {
+    if (submitting) return;
+    setFirmaData(null);
+    setFirmaConfirmada(false);
+    setSubmitError(null);
+    setAutographFlowDone(false);
+    setAutographEvidenceId(null);
+    setEfirmaValidated(false);
+    setEfirmaCertInfo(null);
+    setEfirmaCerB64(null);
+    setEfirmaKeyB64(null);
+    setEfirmaPassword(null);
+    setNubariumValidationResult(null);
+    setWantToSaveSignature(null);
+    setNewSignatureSaved(false);
+    setWantToSaveEfirma(null);
+    setEfirmaSavedToProfile(false);
+    setTypedSignature('');
+    setSignatureMode('dibujar');
+    setUsePreloadedSignature(savedSignature ? null : false);
+    setSignatureAttemptKey((attempt) => attempt + 1);
+    writePersistedFlow({ firmaData: null });
+  };
+
   // ── Generate typed signature as data URL ──────────────────────────────────
   const generateTypedSignatureDataUrl = useCallback(
     (text: string, style: 'cursive' | 'print' | 'formal'): string => {
@@ -6984,7 +7049,7 @@ export default function FirmarDocumentoPage() {
       const selectedSignatureMethod =
         isEfirmaSAT || savedSignatureType === 'efirma'
           ? 'efirma'
-          : savedSignatureType === 'autografa' || autographFlowDone
+          : autographFlowDone
             ? 'autografa'
             : 'clicksign';
       const selectedStampStyle =
@@ -6998,6 +7063,8 @@ export default function FirmarDocumentoPage() {
       // participant or document state. A provider failure must leave the
       // workflow pending instead of producing a false "signed" state.
       let serverEfirmaSignedAt: string | null = null;
+      let finalSignatureEvidenceId: string | null =
+        selectedSignatureMethod === 'autografa' ? autographEvidenceId : null;
       if (isEfirmaSAT && myRole === 'firmante') {
         const {
           data: { session },
@@ -7015,6 +7082,7 @@ export default function FirmarDocumentoPage() {
           },
           body: JSON.stringify({
             document_id: document.id,
+            participant_id: String(myParticipantData?.id || myParticipantData?.user_id || user.id),
             cer_b64: efirmaCerB64,
             key_b64: efirmaKeyB64,
             password: efirmaPassword,
@@ -7038,6 +7106,7 @@ export default function FirmarDocumentoPage() {
           throw new Error(signData?.error || 'La e.firma no supero la validacion criptografica.');
         }
         serverEfirmaSignedAt = signData.signed_at || null;
+        finalSignatureEvidenceId = String(signData.evidence_id);
         setEfirmaCerB64(null);
         setEfirmaKeyB64(null);
         setEfirmaPassword(null);
@@ -7048,9 +7117,15 @@ export default function FirmarDocumentoPage() {
         participante_email: user.email || '',
         participante_nombre: user.user_metadata?.full_name || user.email || '',
         participante_id: user.id,
+        participant_record_id: String(myParticipantData?.id || myParticipantData?.user_id || user.id),
         tipo_participacion: myRole,
         terminos_aceptados: true,
         terminos_aceptados_at: now,
+        consent_text_version: 'docubox-signature-consent-v1',
+        consent_text_sha256: null as string | null,
+        consent_accepted: true,
+        consent_accepted_at: now,
+        signature_evidence_id: finalSignatureEvidenceId,
         campos_completados: camposCompletados,
         firma_data: myRole === 'firmante' ? finalFirmaData : null,
         firma_completada: myRole === 'firmante' ? finalFirmaData !== null : false,
@@ -7078,6 +7153,38 @@ export default function FirmarDocumentoPage() {
         aprobacion_completada_at: myRole === 'aprobador' ? now : null,
         observaciones: observaciones || null,
       };
+
+      if (myRole === 'firmante') {
+        const {
+          data: { session: evidenceSession },
+        } = await supabase.auth.getSession();
+        if (!evidenceSession?.access_token) throw new Error('No fue posible verificar la sesión de firma.');
+        const evidenceResponse = await fetch('/api/firma/finalize-evidence', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${evidenceSession.access_token}`,
+          },
+          body: JSON.stringify({
+            documentId: document.id,
+            participantRecordId: String(myParticipantData?.id || myParticipantData?.user_id || user.id),
+            method: selectedSignatureMethod,
+            evidenceId: finalSignatureEvidenceId,
+            signedAt: serverEfirmaSignedAt || now,
+            signatureHash: signatureHash || null,
+            ipAddress: ipAddress || null,
+            latitude: coordinates?.lat ?? null,
+            longitude: coordinates?.lng ?? null,
+          }),
+        });
+        const evidencePayload = await evidenceResponse.json().catch(() => ({}));
+        if (!evidenceResponse.ok || !evidencePayload?.evidenceId) {
+          throw new Error(evidencePayload?.error || 'No se pudo consolidar la evidencia de firma.');
+        }
+        finalSignatureEvidenceId = String(evidencePayload.evidenceId);
+        responsePayload.signature_evidence_id = finalSignatureEvidenceId;
+        responsePayload.consent_text_sha256 = evidencePayload.consent?.textHash || null;
+      }
 
       const { error: upsertError } = await supabase
         .from('participation_responses')
@@ -9339,6 +9446,7 @@ export default function FirmarDocumentoPage() {
                         <PlacedFieldOverlay
                           key={field.id}
                           field={field}
+                          signatureDataUrl={field.tipo === 'firma' ? firmaData : null}
                           onRemove={handleRemovePlacedField}
                           onMove={handleMovePlacedField}
                           onResize={handleResizePlacedField}
@@ -11342,9 +11450,11 @@ export default function FirmarDocumentoPage() {
                         )}
                       </div>
                       <EfirmaFirmarFlow
+                        key={signatureAttemptKey}
                         profileEfirma={profileEfirma}
                         isDark={isDark}
                         geoDenied={geoBlocked}
+                        onRegenerate={handleRegenerateSignature}
                         onValidated={(certInfo, cerB64, keyB64, password, nubariumResult) => {
                           if (!cerB64 || !keyB64 || !password) return;
                           setEfirmaValidated(true);
@@ -11628,7 +11738,9 @@ export default function FirmarDocumentoPage() {
                         usePreloadedSignature === false) &&
                         !autographFlowDone && (
                           <AutographSignatureFlow
+                            key={signatureAttemptKey}
                             documentId={document.id}
+                            participantRecordId={String(myParticipantData?.id || myParticipantData?.user_id || user.id)}
                             userId={user.id}
                             userToken=""
                             userEmail={userProfile.email || user.email || ''}
@@ -11636,8 +11748,10 @@ export default function FirmarDocumentoPage() {
                             userName={userProfile.nombre_completo || user.email || ''}
                             documentName={document.nombre}
                             isDark={isDark}
-                            onComplete={(dataUrl) => {
+                            initialGeolocation={browserGeolocation}
+                            onComplete={(dataUrl, evidenceId) => {
                               setFirmaData(dataUrl);
+                              setAutographEvidenceId(evidenceId);
                               setFirmaConfirmada(true);
                               setAutographFlowDone(true);
                             }}
@@ -11646,12 +11760,22 @@ export default function FirmarDocumentoPage() {
 
                       {autographFlowDone && firmaConfirmada && (
                         <div className="space-y-3">
-                          <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-2">
-                            <CheckCircle2 size={16} className="text-green-500 flex-shrink-0" />
-                            <p className="text-sm text-green-700">
-                              Firma autógrafa digital capturada y evidencia registrada
-                              correctamente.
-                            </p>
+                          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-3">
+                            <div className="flex min-w-0 flex-1 items-start gap-2">
+                              <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0 text-green-500" />
+                              <p className="text-sm text-green-700">
+                                Firma autógrafa digital capturada y evidencia registrada
+                                correctamente.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleRegenerateSignature}
+                              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-green-300 bg-white px-3 text-xs font-normal text-green-700 transition-colors hover:bg-green-100"
+                            >
+                              <RotateCcw size={13} />
+                              Volver a generar firma
+                            </button>
                           </div>
 
                           {/* Save signature selector */}
@@ -12112,11 +12236,21 @@ export default function FirmarDocumentoPage() {
                       )}
 
                       {firmaConfirmada && firmaData && (
-                        <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-2">
-                          <CheckCircle2 size={16} className="text-green-500 flex-shrink-0" />
-                          <p className="text-sm text-green-700">
-                            Tu firma ha sido capturada. Puedes enviar tu participación.
-                          </p>
+                        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-3">
+                          <div className="flex min-w-0 flex-1 items-start gap-2">
+                            <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0 text-green-500" />
+                            <p className="text-sm text-green-700">
+                              Tu firma ha sido capturada. Puedes enviar tu participación.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleRegenerateSignature}
+                            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-green-300 bg-white px-3 text-xs font-normal text-green-700 transition-colors hover:bg-green-100"
+                          >
+                            <RotateCcw size={13} />
+                            Volver a generar firma
+                          </button>
                         </div>
                       )}
                     </>

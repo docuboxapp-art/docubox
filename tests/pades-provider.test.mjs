@@ -39,6 +39,32 @@ function sha256Hex(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function pyHankoOrderedSignatureFixture({ malformed = false } = {}) {
+  const width = 10;
+  const placeholder = '0'.repeat(width);
+  const unrelatedRange = '1 0 obj\n<< /ByteRange [0 10 20 30] /MACLocation /Standalone >>\nendobj\n';
+  let signature = [
+    '2 0 obj',
+    '<<',
+    '/Contents <00>',
+    `/ByteRange [${malformed ? '/0' : '0'} ${placeholder} ${placeholder} ${placeholder}]`,
+    '/Type /Sig',
+    '/Filter /Adobe.PPKLite',
+    '/SubFilter /ETSI.CAdES.detached',
+    '>>',
+    'endobj',
+    '',
+  ].join('\n');
+  let pdf = `%PDF-1.7\n${unrelatedRange}${signature}`;
+  const contentsStart = pdf.indexOf('/Contents <') + '/Contents <'.length;
+  const contentsEnd = pdf.indexOf('>', contentsStart);
+  const byteRange = [0, contentsStart - 1, contentsEnd + 1, pdf.length - contentsEnd - 1];
+  for (const value of byteRange.slice(1)) {
+    pdf = pdf.replace(placeholder, String(value).padStart(width, '0'));
+  }
+  return Buffer.from(pdf, 'latin1');
+}
+
 function managedKeyProvider() {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
@@ -149,6 +175,25 @@ async function startTsa(pki) {
     stop: async () => { child.kill('SIGTERM'); await new Promise((resolve) => child.once('exit', resolve)); },
   };
 }
+
+test('PAdES verification selects the latest signature dictionary when pyHanko places Contents before ByteRange', async () => {
+  const provider = new PadesBbPdfSignatureProvider({}, {});
+  const verification = await provider.verifyPdf({
+    pdfBytes: pyHankoOrderedSignatureFixture(),
+  });
+
+  assert.notEqual(verification.detail, 'PADES_BYTERANGE_INVALID');
+  assert.notEqual(verification.detail, 'PADES_BYTERANGE_NOT_FOUND');
+});
+
+test('PAdES verification still rejects malformed direct numbers in the latest signature dictionary', async () => {
+  const provider = new PadesBbPdfSignatureProvider({}, {});
+  const verification = await provider.verifyPdf({
+    pdfBytes: pyHankoOrderedSignatureFixture({ malformed: true }),
+  });
+
+  assert.equal(verification.detail, 'PADES_BYTERANGE_INVALID');
+});
 
 test('PAdES-B-B signs a detached CMS with the managed key and verifies ByteRange, CMS and certificate', async (context) => {
   try { await runOpenSsl(['version']); } catch { context.skip('OpenSSL is not available in this environment'); return; }

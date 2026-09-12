@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createServiceClient } from '@/lib/supabase/server';
 import { resolveLegacyDocumentStoragePath } from '@/lib/documents/internal-source';
@@ -18,18 +18,15 @@ import {
   upgradePadesBbCertificationToBt,
 } from '@/lib/certification/product-integration';
 import { CertificationError } from '@/lib/certification/types';
-import { issueNom151ForVerifiedPadesBt, Nom151ServiceError } from '@/lib/nom151/service';
-import {
-  DocumentCompletionEmailError,
-  queueVerifiedDocumentCompletionEmails,
-} from '@/lib/notifications/document-completion';
-import { createBlockchainEvidenceForFinalDocument } from '@/lib/blockchain-evidence/service';
 import {
   documentEncryptionPolicy,
   readDocumentStorageObject,
 } from '@/lib/crypto/document-encryption';
+import {
+  enqueueEvidenceFinalization,
+  processEvidenceFinalization,
+} from '@/lib/evidence-v2/orchestrator';
 import { isEvidenceV2Enabled } from '@/lib/evidence-v2/feature-flags';
-import { generateEvidenceV2ForDocument } from '@/lib/evidence-v2/service';
 
 function normalize(value: unknown) {
   return String(value || '')
@@ -53,6 +50,17 @@ function firstText(...values: unknown[]) {
     if (text) return text;
   }
   return null;
+}
+
+function publicCertificationErrorMessage(error: CertificationError) {
+  if (
+    error.code === 'PADES_PROVIDER_NOT_READY' ||
+    error.code.startsWith('PDF_SECURITY_') ||
+    error.code.startsWith('PYHANKO_')
+  ) {
+    return 'No fue posible preparar la firma final en este momento. Intenta nuevamente.';
+  }
+  return error.message;
 }
 
 function metadataValue(record: unknown, ...keys: string[]) {
@@ -108,101 +116,49 @@ async function finalizeAfterVerifiedPadesBt(
       certified_pdf_persisted: true,
     },
   });
-  await recordCertificationStage(service, {
-    documentId: input.documentId,
-    actorId: input.actorId,
-    action: 'nom151_requested',
-    details: { certification_uuid: input.certificationUuid },
-  });
-  const nom151 = await issueNom151ForVerifiedPadesBt(service, {
-    documentId: input.documentId,
-    requestedBy: input.actorId,
-  });
-  await recordCertificationStage(service, {
-    documentId: input.documentId,
-    actorId: input.actorId,
-    action: 'nom151_verified',
-    details: {
-      certification_uuid: input.certificationUuid,
-      nom151_record_id: nom151.recordId,
-      provider: nom151.provider,
-      environment: nom151.environment,
-      production_trusted: nom151.productionTrusted,
-      artifact_sha256: nom151.artifactSha256,
-    },
-  });
-  const blockchainEvidencePromise = createBlockchainEvidenceForFinalDocument(service, {
-    documentId: input.documentId,
-    actorId: input.actorId,
-    submitImmediately: false,
-  })
-    .then((evidence) =>
-      evidence
-        ? { id: evidence.id, public_token: evidence.public_token, status: evidence.status }
-        : null
-    )
-    .catch((error) => {
-      // This evidence is additive and must not roll back a valid signed document.
-      console.error('[blockchain-evidence] Final PDF anchoring request failed', {
-        documentId: input.documentId,
-        code: error instanceof Error ? error.name : 'BLOCKCHAIN_EVIDENCE_FAILED',
-      });
-      return { status: 'SUBMISSION_FAILED' };
+  if (!isEvidenceV2Enabled()) {
+    await recordCertificationStage(service, {
+      documentId: input.documentId,
+      actorId: input.actorId,
+      action: 'evidence_v2_deferred',
+      details: {
+        certification_uuid: input.certificationUuid,
+        reason: 'production_feature_flag_disabled',
+      },
     });
-  const blockchainEvidence = await blockchainEvidencePromise;
-  const evidenceV2 = isEvidenceV2Enabled()
-    ? await generateEvidenceV2ForDocument(service, {
-        documentId: input.documentId,
-        actorId: input.actorId,
-      })
-    : null;
-  const email = await queueVerifiedDocumentCompletionEmails(service, {
+    return { evidence_finalization: null };
+  }
+  const finalization = await enqueueEvidenceFinalization(service, {
     documentId: input.documentId,
-    certificationUuid: input.certificationUuid,
-    requestedBy: input.actorId,
+    actorId: input.actorId,
+    certificationId: input.certificationUuid,
+  });
+  after(async () => {
+    try {
+      await processEvidenceFinalization(service, { documentId: input.documentId });
+    } catch (error) {
+      console.error('[evidence-finalization] Background run failed', {
+        documentId: input.documentId,
+        code: error instanceof Error ? error.name : 'EVIDENCE_FINALIZATION_FAILED',
+      });
+    }
   });
   await recordCertificationStage(service, {
     documentId: input.documentId,
     actorId: input.actorId,
-    action: 'certification_completed',
+    action: 'evidence_finalization_enqueued',
     details: {
       certification_uuid: input.certificationUuid,
-      nom151_record_id: nom151.recordId,
-      evidence_v2_package_id: evidenceV2?.package_id || null,
-      email_delivery_statuses: email.deliveries.map((delivery) => delivery.status),
+      finalization_id: finalization.id,
+      finalization_state: finalization.state,
     },
   });
   return {
-    nom151: {
-      record_id: nom151.recordId,
-      status: nom151.status,
-      verification_status: nom151.verificationStatus,
-      environment: nom151.environment,
-      production_trusted: nom151.productionTrusted,
-      provider: nom151.provider,
-      psc_name: nom151.pscName,
-      folio: nom151.folio,
-      issued_at: nom151.verification.issuedAt,
-      already_issued: nom151.alreadyIssued,
+    evidence_finalization: {
+      id: finalization.id,
+      state: finalization.state,
+      idempotency_key: finalization.idempotency_key,
     },
-    email: {
-      complete: email.complete,
-      deliveries: email.deliveries.map((delivery) => ({
-        id: delivery.id,
-        recipient_sha256: delivery.recipientEmailSha256,
-        status: delivery.status,
-        provider_message_id: delivery.providerMessageId,
-      })),
-    },
-    blockchain_evidence: blockchainEvidence,
-    evidence_v2: evidenceV2
-      ? {
-          package_id: evidenceV2.package_id,
-          status: evidenceV2.status,
-          xml_sha256: evidenceV2.xml_sha256,
-          already_generated: evidenceV2.alreadyGenerated,
-        }
-      : null,
   };
 }
 
@@ -750,20 +706,8 @@ export async function POST(
     console.error('[DOCUBOX][seal-signatures] No se pudo generar el PDF firmado:', error);
     if (error instanceof CertificationError) {
       return NextResponse.json(
-        { error: error.message, code: error.code },
+        { error: publicCertificationErrorMessage(error), code: error.code },
         { status: error.httpStatus }
-      );
-    }
-    if (error instanceof Nom151ServiceError) {
-      return NextResponse.json(
-        { error: error.message, code: error.code },
-        { status: error.status }
-      );
-    }
-    if (error instanceof DocumentCompletionEmailError) {
-      return NextResponse.json(
-        { error: error.message, code: error.code },
-        { status: error.status }
       );
     }
     return NextResponse.json(

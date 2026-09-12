@@ -213,15 +213,11 @@ type PadesUiStatus = 'SIN PADES' | 'PAdES EN PROCESO' | 'PAdES VERIFICADO' | 'PA
 
 function derivePadesUiStatus(certification: CryptographicCertification | null): PadesUiStatus {
   if (!certification) return 'SIN PADES';
-  const supportedProfile =
-    certification.padesProfile === 'PAdES-B-B' || certification.padesProfile === 'PAdES-B-T';
-  const timestampValid =
-    certification.padesProfile !== 'PAdES-B-T' || certification.timestampStatus === 'valid';
   const verified =
     certification.status === 'COMPLETED' &&
     certification.executionStatus === 'completed' &&
-    supportedProfile &&
-    timestampValid &&
+    certification.padesProfile === 'PAdES-B-T' &&
+    certification.timestampStatus === 'valid' &&
     certification.pdfSignatureStatus === 'valid' &&
     certification.certificateStatus === 'valid' &&
     certification.verificationStatus === 'valid' &&
@@ -238,6 +234,15 @@ function derivePadesUiStatus(certification: CryptographicCertification | null): 
     certification.verificationStatus === 'invalid'
   )
     return 'PAdES ERROR';
+  if (
+    certification.padesProfile === 'PAdES-B-B' &&
+    certification.status === 'COMPLETED' &&
+    certification.executionStatus === 'completed' &&
+    certification.pdfSignatureStatus === 'valid' &&
+    certification.certificateStatus === 'valid' &&
+    certification.verificationStatus === 'valid'
+  )
+    return 'PAdES EN PROCESO';
   if (['created', 'queued', 'processing', 'retrying'].includes(certification.executionStatus))
     return 'PAdES EN PROCESO';
   return 'SIN PADES';
@@ -454,25 +459,17 @@ interface PdfCanvasProps {
 }
 
 interface EvidenceV2Data {
-  evidence_id: string;
-  package_id: string;
-  evidence_version: string;
-  status: string;
-  document_final_sha256: string;
-  evidence_root_sha256: string;
-  package_digest_sha256: string;
-  xml_sha256: string;
-  generated_at: string;
-  closed_at: string;
-  public_verification_url: string | null;
-  verification_summary: Record<string, string>;
-  artifacts: Array<{
-    id: string;
-    artifact_type: string;
-    artifact_status: string;
-    object_sha256: string;
-    provider: string | null;
-  }>;
+  evidenceVersion: number;
+  schemaVersion: string;
+  state: 'preparing' | 'waiting_certifications' | 'generating' | 'generated' | 'verified' | 'error';
+  generatedAt: string | null;
+  xmlSha256?: string;
+  evidenceRoot?: string;
+  verification?: Record<string, string>;
+  xmlAvailable: boolean;
+  packageAvailable: boolean;
+  errorCode?: string | null;
+  technical?: { packageId?: string; evidenceId?: string };
 }
 
 interface DocumentAccessPermission {
@@ -965,6 +962,7 @@ export default function VisorDocumentoPage() {
     padesVerified &&
     cryptographicCertification?.padesProfile === 'PAdES-B-T' &&
     cryptographicCertification.timestampStatus === 'valid';
+  const integralEvidenceVerified = padesBtVerified && nom151EvidenceStatus === 'valid';
   const blockchainEvidenceReady = blockchainEvidence?.status === 'VERIFIED';
   const blockchainEvidenceFailed = Boolean(
     blockchainEvidenceError ||
@@ -1026,28 +1024,28 @@ export default function VisorDocumentoPage() {
     const load = async () => {
       setEvidenceV2Loading(true);
       try {
-        const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/evidence-v2`, {
+        const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/evidence`, {
           headers: await apiAuthHeaders(),
           cache: 'no-store',
         });
-        if (response.status === 404) {
-          if (active) setEvidenceV2(null);
-          return;
-        }
         const payload = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(payload?.error || 'No se pudo consultar Evidence Package v2.');
+        if (!response.ok) throw new Error(payload?.error || 'No se pudo consultar la evidencia.');
         if (active) {
-          setEvidenceV2(payload?.package || null);
+          setEvidenceV2(payload || null);
           setEvidenceV2Error('');
         }
       } catch (error) {
-        if (active) setEvidenceV2Error(error instanceof Error ? error.message : 'No se pudo consultar Evidence Package v2.');
+        if (active) setEvidenceV2Error(error instanceof Error ? error.message : 'No se pudo consultar la evidencia.');
       } finally {
         if (active) setEvidenceV2Loading(false);
       }
     };
     void load();
-    return () => { active = false; };
+    const timer = window.setInterval(() => void load(), 8_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [docId, document?.estado]);
 
   const downloadEvidenceV2 = useCallback(async (kind: 'xml' | 'package') => {
@@ -1055,7 +1053,7 @@ export default function VisorDocumentoPage() {
     setEvidenceV2Download(kind);
     try {
       const response = await fetch(
-        `/api/documentos/${encodeURIComponent(docId)}/evidence-v2?download=${kind}`,
+        `/api/documentos/${encodeURIComponent(docId)}/evidence/${kind}`,
         { headers: await apiAuthHeaders() }
       );
       if (!response.ok) {
@@ -1066,8 +1064,8 @@ export default function VisorDocumentoPage() {
       const anchor = window.document.createElement('a');
       anchor.href = url;
       anchor.download = kind === 'xml'
-        ? `evidence-v2-${evidenceV2?.package_id || docId}.xml`
-        : `evidence-v2-${evidenceV2?.package_id || docId}.zip`;
+        ? `evidencia-${evidenceV2?.technical?.packageId || docId}.xml`
+        : `paquete-evidencia-${evidenceV2?.technical?.packageId || docId}.zip`;
       window.document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -1077,26 +1075,7 @@ export default function VisorDocumentoPage() {
     } finally {
       setEvidenceV2Download(null);
     }
-  }, [docId, evidenceV2?.package_id]);
-
-  const generateEvidenceV2 = useCallback(async () => {
-    if (!docId) return;
-    setEvidenceV2Loading(true);
-    setEvidenceV2Error('');
-    try {
-      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/evidence-v2`, {
-        method: 'POST',
-        headers: await apiAuthHeaders(true),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || 'No fue posible generar Evidence Package v2.');
-      setEvidenceV2(payload?.package || null);
-    } catch (error) {
-      setEvidenceV2Error(error instanceof Error ? error.message : 'No fue posible generar Evidence Package v2.');
-    } finally {
-      setEvidenceV2Loading(false);
-    }
-  }, [docId]);
+  }, [docId, evidenceV2?.technical?.packageId]);
 
   useEffect(() => {
     if (!document?.id) return;
@@ -1123,17 +1102,6 @@ export default function VisorDocumentoPage() {
   const [publicVerificationPath, setPublicVerificationPath] = useState('');
   const [publicUrlCopied, setPublicUrlCopied] = useState(false);
 
-  // ── XML Evidence state ─────────────────────────────────────────────────────
-  const [xmlEvidenceData, setXmlEvidenceData] = useState<{
-    xml_evidencia_path: string;
-    xml_hash_sha256: string;
-    xml_generated_at: string;
-  } | null>(null);
-  const [downloadingXml, setDownloadingXml] = useState(false);
-  const [xmlDownloadError, setXmlDownloadError] = useState('');
-  const [xmlPolling, setXmlPolling] = useState(false);
-  const [xmlGenerating, setXmlGenerating] = useState(false);
-  const [xmlGenerationError, setXmlGenerationError] = useState('');
   const artifactGenerationAttemptsRef = useRef<Set<string>>(new Set());
   const signatureStampGenerationRef = useRef<Set<string>>(new Set());
 
@@ -1514,105 +1482,6 @@ export default function VisorDocumentoPage() {
     }
   }, [apiAuthHeaders, docId, nom151Data?.constancia_path]);
 
-  // ── XML Evidence polling (only when completado) ────────────────────────────
-  useEffect(() => {
-    if (!docId || document?.estado !== 'completado') return;
-    let cancelled = false;
-
-    const fetchXmlEvidence = async () => {
-      try {
-        // Use API route that queries documentos table (xml columns added via migration)
-        const res = await fetch(`/api/nom151/xml-evidence?documento_id=${docId}`, {
-          headers: await apiAuthHeaders(),
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (!cancelled && json.data?.xml_evidencia_path) {
-            setXmlEvidenceData(
-              json.data as {
-                xml_evidencia_path: string;
-                xml_hash_sha256: string;
-                xml_generated_at: string;
-              }
-            );
-            setXmlPolling(false);
-          } else if (!cancelled) {
-            // No XML data found — show Pendiente state, not spinner
-            setXmlPolling(false);
-          }
-        } else if (!cancelled) {
-          setXmlPolling(false);
-        }
-      } catch {
-        if (!cancelled) setXmlPolling(false);
-      }
-    };
-
-    // Also check if document already has xml_evidencia_path loaded
-    if (document?.xml_evidencia_path) {
-      const restoreFrame = window.requestAnimationFrame(() => {
-        if (cancelled) return;
-        setXmlEvidenceData({
-          xml_evidencia_path: document.xml_evidencia_path || '',
-          xml_hash_sha256: document.xml_hash_sha256 || '',
-          xml_generated_at: document.xml_generated_at || '',
-        });
-        setXmlPolling(false);
-      });
-      return () => {
-        cancelled = true;
-        window.cancelAnimationFrame(restoreFrame);
-      };
-    }
-
-    fetchXmlEvidence();
-    // Only poll if we're actively waiting (not just showing Pendiente)
-    const interval = setInterval(() => {
-      if (!xmlEvidenceData && xmlPolling) fetchXmlEvidence();
-      else clearInterval(interval);
-    }, 8000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [docId, document?.estado, document?.xml_evidencia_path]);
-
-  // ── Download XML evidence file ─────────────────────────────────────────────
-  const downloadXmlEvidence = useCallback(async () => {
-    if (!xmlEvidenceData?.xml_evidencia_path || !docId) return;
-    setDownloadingXml(true);
-    setXmlDownloadError('');
-    try {
-      const response = await fetch(
-        `/api/nom151/xml-evidence/download?documento_id=${encodeURIComponent(docId)}`,
-        { headers: await apiAuthHeaders() }
-      );
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || 'No fue posible descargar el XML de evidencia.');
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = window.document.createElement('a');
-      a.href = url;
-      a.download = `evidencia_${document?.documento_id || docId.slice(0, 8)}.xml`;
-      a.style.display = 'none';
-      window.document.body.appendChild(a);
-      a.click();
-      window.document.body.removeChild(a);
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-    } catch (err) {
-      console.error('Error descargando XML:', err);
-      setXmlDownloadError(
-        err instanceof Error ? err.message : 'No fue posible descargar el XML de evidencia.'
-      );
-    } finally {
-      setDownloadingXml(false);
-    }
-  }, [xmlEvidenceData, docId, document]);
-
   // ── Download signed PDF (with certification elements, readable in Acrobat) ─
   const downloadSignedPdf = useCallback(async () => {
     if (!docId) return;
@@ -1668,59 +1537,6 @@ export default function VisorDocumentoPage() {
       setDownloadingSignedPdf(false);
     }
   }, [apiAuthHeaders, docId, document?.nombre, document?.sealed_pdf_path, padesBtVerified]);
-
-  // ── Generate XML Evidence ─────────────────────────────────────────────────
-  const generateXmlEvidence = useCallback(
-    async (options?: { silent?: boolean }) => {
-      if (!docId || xmlGenerating) return;
-      setXmlGenerating(true);
-      setXmlGenerationError('');
-      try {
-        const res = await fetch('/api/nom151/generate-xml', {
-          method: 'POST',
-          headers: await apiAuthHeaders(true),
-          body: JSON.stringify({ documento_id: docId, requested_by: user?.id }),
-        });
-        const json = await res.json();
-        if (res.ok) {
-          // Refresh XML evidence data immediately after generation
-          const xmlPath =
-            json.xml_evidencia_path || (json.already_generated ? json.xml_evidencia_path : null);
-          if (json.xml_evidencia_path || json.already_generated) {
-            setXmlEvidenceData({
-              xml_evidencia_path: json.xml_evidencia_path,
-              xml_hash_sha256: json.xml_hash_sha256 || '',
-              xml_generated_at: json.xml_generated_at || new Date().toISOString(),
-            });
-          } else {
-            // Fallback: re-fetch from API
-            const refreshRes = await fetch(`/api/nom151/xml-evidence?documento_id=${docId}`, {
-              headers: await apiAuthHeaders(),
-            });
-            if (refreshRes.ok) {
-              const refreshJson = await refreshRes.json();
-              if (refreshJson.data?.xml_evidencia_path) {
-                setXmlEvidenceData(refreshJson.data);
-              }
-            }
-          }
-        } else {
-          const message = json.error || 'No fue posible generar el XML de evidencia.';
-          console.error('[generateXmlEvidence] Error:', message);
-          setXmlGenerationError(message);
-          if (!options?.silent) alert(`Error generando XML: ${message}`);
-        }
-      } catch (err) {
-        console.error('[generateXmlEvidence] Error:', err);
-        const message = 'No fue posible generar el XML de evidencia. Intenta de nuevo.';
-        setXmlGenerationError(message);
-        if (!options?.silent) alert(message);
-      } finally {
-        setXmlGenerating(false);
-      }
-    },
-    [docId, user, xmlGenerating]
-  );
 
   // ── Generate NOM-151 constancia via Nubarium ───────────────────────────────
   const generateNom151 = useCallback(
@@ -1793,6 +1609,7 @@ export default function VisorDocumentoPage() {
             }
           : current
       );
+      await loadCryptographicCertification();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'No se pudo generar el PDF final firmado.';
@@ -1800,7 +1617,7 @@ export default function VisorDocumentoPage() {
       setSignedPdfError(message);
       signatureStampGenerationRef.current.delete(docId);
     }
-  }, [apiAuthHeaders, docId]);
+  }, [apiAuthHeaders, docId, loadCryptographicCertification]);
 
   // Regulariza documentos completados antes de que existiera la generacion
   // automatica. No depende de abrir Descargas: al cargar el documento el
@@ -1808,16 +1625,6 @@ export default function VisorDocumentoPage() {
   useEffect(() => {
     if (document?.estado !== 'completado' || !docId || !user?.id || user.id !== document.owner_id)
       return;
-
-    const xmlAttemptKey = `${docId}:xml`;
-    if (
-      !xmlEvidenceData &&
-      !xmlGenerating &&
-      !artifactGenerationAttemptsRef.current.has(xmlAttemptKey)
-    ) {
-      artifactGenerationAttemptsRef.current.add(xmlAttemptKey);
-      void generateXmlEvidence({ silent: true });
-    }
 
     if (
       hasConfiguredSignatureFields &&
@@ -1850,7 +1657,6 @@ export default function VisorDocumentoPage() {
     ensureFinalSignedPdf,
     generateNom151,
     hasConfiguredSignatureFields,
-    generateXmlEvidence,
     nom151Data,
     nom151Error,
     nom151Generating,
@@ -1859,8 +1665,6 @@ export default function VisorDocumentoPage() {
     nom151Ready,
     padesBtVerified,
     user?.id,
-    xmlEvidenceData,
-    xmlGenerating,
   ]);
 
   // ── Download NOM-151 info PDF (request/response data) ─────────────────────
@@ -3527,32 +3331,9 @@ export default function VisorDocumentoPage() {
           }
         })();
 
-        const xmlGenPromise = (async () => {
-          try {
-            setXmlGenerating(true);
-            const xmlRes = await fetch('/api/nom151/generate-xml', {
-              method: 'POST',
-              headers: await apiAuthHeaders(true),
-              body: JSON.stringify({ documento_id: document.id, requested_by: user?.id }),
-            });
-            const xmlJson = await xmlRes.json();
-            if (xmlRes.ok && (xmlJson.xml_evidencia_path || xmlJson.already_generated)) {
-              setXmlEvidenceData({
-                xml_evidencia_path: xmlJson.xml_evidencia_path,
-                xml_hash_sha256: xmlJson.xml_hash_sha256 || '',
-                xml_generated_at: xmlJson.xml_generated_at || completedAt,
-              });
-            }
-          } catch (xmlErr) {
-            console.error('[auto-generate] XML evidence error:', xmlErr);
-          } finally {
-            setXmlGenerating(false);
-          }
-        })();
-
-        // seal-signatures owns PAdES-B-T -> NOM-151 -> completion emails. The
-        // client only refreshes the persisted NOM-151 presentation afterward.
-        Promise.allSettled([stampGenPromise, xmlGenPromise]).then(async ([stampResult]) => {
+        // seal-signatures enqueues the server-side V2 finalization. The browser
+        // only refreshes persisted presentation state afterward.
+        Promise.allSettled([stampGenPromise]).then(async ([stampResult]) => {
           if (stampResult.status !== 'fulfilled') return;
           try {
             setNom151Generating(true);
@@ -7217,26 +6998,33 @@ export default function VisorDocumentoPage() {
                             </span>
                             <span
                               className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                cryptographicCertification?.verificationStatus === 'valid'
+                                integralEvidenceVerified
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : cryptographicCertification?.executionStatus === 'failed'
-                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                    : cryptographicCertification?.integrityStatus === 'valid'
-                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                      : 'bg-muted text-muted-foreground border-border'
+                                  : padesBtVerified
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : cryptographicCertification?.executionStatus === 'failed'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                      : cryptographicCertification?.integrityStatus === 'valid'
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                        : 'bg-muted text-muted-foreground border-border'
                               }`}
                             >
-                              {cryptographicCertification?.verificationStatus === 'valid'
+                              {integralEvidenceVerified
                                 ? 'Verificación integral'
-                                : cryptographicCertification?.executionStatus === 'failed'
-                                  ? 'Requiere atención'
-                                  : cryptographicCertification?.integrityStatus === 'valid'
-                                    ? 'Integridad registrada'
-                                    : cryptographicCertification
-                                      ? 'Procesando'
-                                      : !certificationProviderChecked
-                                        ? 'Comprobando'
-                                        : 'Disponible'}
+                                : padesBtVerified
+                                  ? 'PAdES-B-T verificado'
+                                  : cryptographicCertification?.padesProfile === 'PAdES-B-B' &&
+                                      cryptographicCertification.verificationStatus === 'valid'
+                                    ? 'Estampa pendiente'
+                                    : cryptographicCertification?.executionStatus === 'failed'
+                                      ? 'Requiere atención'
+                                      : cryptographicCertification?.integrityStatus === 'valid'
+                                        ? 'Integridad registrada'
+                                        : cryptographicCertification
+                                          ? 'Procesando'
+                                          : !certificationProviderChecked
+                                            ? 'Comprobando'
+                                            : 'Disponible'}
                             </span>
                           </div>
                           <div className="p-4 space-y-3">
@@ -8325,31 +8113,31 @@ export default function VisorDocumentoPage() {
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
                               <span className="text-xs font-bold uppercase tracking-wide text-foreground">
-                                Evidence Package v2
+                                XML de Evidencia
                               </span>
-                              <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${evidenceV2 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : evidenceV2Error ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                {evidenceV2 ? (evidenceV2.status === 'certified' ? 'Certificado' : 'Cerrado') : evidenceV2Loading ? 'Consultando' : evidenceV2Error ? 'Requiere atención' : 'Pendiente'}
+                              <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-normal ${evidenceV2?.xmlAvailable ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : evidenceV2Error || evidenceV2?.state === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                {evidenceV2?.xmlAvailable ? (evidenceV2.state === 'verified' ? 'Verificado' : 'Generado') : evidenceV2Loading ? 'Consultando' : evidenceV2Error || evidenceV2?.state === 'error' ? 'Requiere atención' : 'Preparando'}
                               </span>
                             </div>
                             <div className="space-y-3 p-4">
-                              {evidenceV2 ? (
+                              {evidenceV2?.xmlAvailable ? (
                                 <>
                                   <div className="flex items-start gap-2">
                                     <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />
                                     <div>
-                                      <p className="text-sm font-semibold text-foreground">Paquete probatorio v2 cerrado</p>
-                                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Vincula el PDF final, la cadena de eventos y la firma asimétrica de Docubox. Las certificaciones posteriores se anexan sin reescribir el XML cerrado.</p>
+                                      <p className="text-sm font-semibold text-foreground">Evidencia criptográfica del documento</p>
+                                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">El XML vincula el PDF final, las firmas y la cadena probatoria. La versión técnica se conserva sin reescrituras.</p>
                                     </div>
                                   </div>
                                   <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
                                     {[
-                                      ['Versión', evidenceV2.evidence_version],
-                                      ['Integridad del documento', evidenceV2.verification_summary?.documentIntegrity || 'unavailable'],
-                                      ['Cadena de evidencia', evidenceV2.verification_summary?.evidenceChain || 'unavailable'],
-                                      ['Firma Docubox', evidenceV2.verification_summary?.docuboxSignature || 'unavailable'],
-                                      ['RFC 3161', evidenceV2.verification_summary?.timestamp || 'unavailable'],
-                                      ['OpenTimestamps', evidenceV2.verification_summary?.openTimestamps || 'unavailable'],
-                                      ['NOM-151', evidenceV2.verification_summary?.nom151 || 'unavailable'],
+                                      ['Versión técnica', `V${evidenceV2.schemaVersion}`],
+                                      ['Integridad del documento', evidenceV2.verification?.documentIntegrity || 'unavailable'],
+                                      ['Cadena de evidencia', evidenceV2.verification?.evidenceChain || 'unavailable'],
+                                      ['Firma Docubox', evidenceV2.verification?.docuboxSignature || 'unavailable'],
+                                      ['RFC 3161', evidenceV2.verification?.timestamp || 'unavailable'],
+                                      ['OpenTimestamps', evidenceV2.verification?.openTimestamps || 'unavailable'],
+                                      ['NOM-151', evidenceV2.verification?.nom151 || 'unavailable'],
                                     ].map(([label, value], index) => (
                                       <div key={label} className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}>
                                         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
@@ -8357,56 +8145,37 @@ export default function VisorDocumentoPage() {
                                       </div>
                                     ))}
                                   </div>
-                                  <p className="truncate font-mono text-[10px] text-muted-foreground" title={evidenceV2.evidence_root_sha256}>Raíz SHA-256: {evidenceV2.evidence_root_sha256}</p>
-                                  {evidenceV2.public_verification_url && (
-                                    <div className="flex items-center gap-3 rounded-lg border border-border p-3">
-                                      <QRCodeSVG value={evidenceV2.public_verification_url} size={72} level="M" />
-                                      <div className="min-w-0"><p className="text-xs font-semibold text-foreground">Verificación pública</p><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">El QR expone únicamente estado, huellas y resultados técnicos; no contiene datos personales.</p></div>
-                                    </div>
-                                  )}
-                                  {evidenceV2.public_verification_url && (
-                                    <a href={evidenceV2.public_verification_url} target="_blank" rel="noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90">
-                                      <Shield size={15} /> Verificar paquete v2
-                                    </a>
-                                  )}
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <button type="button" onClick={() => void downloadEvidenceV2('xml')} disabled={evidenceV2Download !== null} className="flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted/50 disabled:opacity-60">
-                                      {evidenceV2Download === 'xml' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />} XML v2
-                                    </button>
-                                    <button type="button" onClick={() => void downloadEvidenceV2('package')} disabled={evidenceV2Download !== null} className="flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted/50 disabled:opacity-60">
-                                      {evidenceV2Download === 'package' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />} Paquete ZIP
-                                    </button>
-                                  </div>
+                                  {evidenceV2.evidenceRoot && <p className="truncate font-mono text-[10px] text-muted-foreground" title={evidenceV2.evidenceRoot}>Raíz SHA-256: {evidenceV2.evidenceRoot}</p>}
+                                  <button type="button" onClick={() => void downloadEvidenceV2('xml')} disabled={evidenceV2Download !== null} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-xs font-normal text-white hover:opacity-90 disabled:opacity-60">
+                                    {evidenceV2Download === 'xml' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />} Descargar XML
+                                  </button>
                                 </>
                               ) : (
                                 <div className="flex flex-col items-center gap-3 py-4 text-center">
                                   {evidenceV2Loading ? <RefreshCw size={24} className="animate-spin text-muted-foreground" /> : <Clock size={24} className="text-muted-foreground" />}
-                                  <div><p className="text-sm font-semibold text-foreground">{evidenceV2Loading ? 'Consultando el paquete v2' : 'Paquete v2 pendiente'}</p><p className="mt-1 text-xs text-muted-foreground">{evidenceV2Error || 'Los documentos nuevos lo generan automáticamente al concluir PAdES-B-T.'}</p></div>
-                                  {user?.id === document?.owner_id && !evidenceV2Loading && (
-                                    <button type="button" onClick={() => void generateEvidenceV2()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-white px-4 text-xs font-semibold text-foreground hover:bg-muted/50"><RefreshCw size={14} /> Generar ahora</button>
-                                  )}
+                                  <div><p className="text-sm font-semibold text-foreground">{evidenceV2Loading ? 'Consultando la evidencia' : evidenceV2?.state === 'waiting_certifications' ? 'Esperando certificaciones' : evidenceV2?.state === 'generating' ? 'Generando evidencia' : 'Evidencia en preparación'}</p><p className="mt-1 text-xs text-muted-foreground">{evidenceV2Error || evidenceV2?.errorCode || 'Se genera automáticamente al completar el documento.'}</p></div>
                                 </div>
                               )}
                               {evidenceV2Error && evidenceV2 && <p className="text-xs text-red-600" role="alert">{evidenceV2Error}</p>}
                             </div>
                           </div>
 
-                          {/* ── 6. XML de Evidencia ── */}
+                          {/* Evidence XML and its downloadable container are separate. */}
                         </>
                       )}
                       {activeTab === 'auditoria' && (
                         <div className="rounded-xl border border-border bg-white shadow-sm">
                           <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
                             <span className="text-xs font-bold uppercase tracking-wide text-foreground">
-                              XML de Evidencia
+                              Paquete de Evidencia
                             </span>
-                            {xmlEvidenceData ? (
+                            {evidenceV2?.packageAvailable ? (
                               <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
-                                Generado
+                                Disponible
                               </span>
-                            ) : xmlGenerating ? (
+                            ) : evidenceV2Loading || evidenceV2?.state === 'generating' ? (
                               <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                                Generando…
+                                Preparando…
                               </span>
                             ) : (
                               <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
@@ -8415,86 +8184,76 @@ export default function VisorDocumentoPage() {
                             )}
                           </div>
                           <div className="p-4">
-                            {xmlEvidenceData ? (
+                            {evidenceV2?.packageAvailable ? (
                               <div className="space-y-3">
                                 <div>
                                   <p className="text-sm font-semibold text-foreground">
-                                    Paquete de Evidencia XMLDSig
+                                    Contenedor descargable de evidencia
                                   </p>
                                   <p className="text-xs mt-1 text-muted-foreground">
-                                    Evidencia criptográfica completa del documento
+                                    Reúne el PDF firmado, XML, constancias y artefactos aplicables.
                                   </p>
                                 </div>
                                 <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                      Hash XML
+                                      Formato
                                     </span>
                                     <span className="text-xs font-mono text-foreground truncate max-w-[140px]">
-                                      {xmlEvidenceData.xml_hash_sha256?.slice(0, 16)}…
+                                      ZIP
                                     </span>
                                   </div>
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                      Generado
+                                      Paquete base
                                     </span>
                                     <span className="text-xs text-muted-foreground">
-                                      {formatEvidenceTimestamp(xmlEvidenceData.xml_generated_at)}
+                                      {evidenceV2.technical?.packageId?.slice(0, 16) || 'Disponible'}
                                     </span>
                                   </div>
                                 </div>
                                 <button
-                                  onClick={downloadXmlEvidence}
-                                  disabled={downloadingXml}
-                                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                                  onClick={() => void downloadEvidenceV2('package')}
+                                  disabled={evidenceV2Download !== null}
+                                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-normal rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
                                 >
-                                  {downloadingXml ? (
+                                  {evidenceV2Download === 'package' ? (
                                     <RefreshCw size={15} className="animate-spin" />
                                   ) : (
                                     <Download size={15} />
                                   )}
-                                  {downloadingXml ? 'Descargando…' : 'Descargar XML'}
+                                  {evidenceV2Download === 'package' ? 'Descargando…' : 'Descargar paquete'}
                                 </button>
-                                {xmlDownloadError && (
+                                {evidenceV2Error && (
                                   <p className="text-xs text-red-600" role="alert">
-                                    {xmlDownloadError}
+                                    {evidenceV2Error}
                                   </p>
                                 )}
                               </div>
                             ) : (
                               <div className="flex flex-col items-center gap-3 py-4">
-                                {xmlGenerating ? (
+                                {evidenceV2Loading || evidenceV2?.state === 'generating' ? (
                                   <RefreshCw
                                     size={24}
                                     className="animate-spin text-muted-foreground"
                                   />
-                                ) : xmlGenerationError ? (
+                                ) : evidenceV2Error || evidenceV2?.state === 'error' ? (
                                   <AlertTriangle size={24} className="text-amber-500" />
                                 ) : (
                                   <Clock size={24} className="text-muted-foreground" />
                                 )}
                                 <p className="text-sm text-center text-muted-foreground">
-                                  {xmlGenerating
-                                    ? 'Generando XML de evidencia…'
-                                    : xmlGenerationError
-                                      ? 'No fue posible generar el XML de evidencia.'
-                                      : 'XML de evidencia pendiente de generación.'}
+                                  {evidenceV2Loading || evidenceV2?.state === 'generating'
+                                    ? 'Preparando paquete de evidencia…'
+                                    : evidenceV2Error || evidenceV2?.state === 'error'
+                                      ? 'No fue posible preparar el paquete de evidencia.'
+                                      : 'Paquete de evidencia pendiente.'}
                                   <br />
                                   <span className="text-xs">
-                                    {xmlGenerationError ||
-                                      'Docubox lo generará a partir del documento y su bitácora.'}
+                                    {evidenceV2Error || evidenceV2?.errorCode ||
+                                      'Estará disponible automáticamente junto con el XML.'}
                                   </span>
                                 </p>
-                                {user?.id === document?.owner_id && !xmlGenerating && (
-                                  <button
-                                    type="button"
-                                    onClick={() => void generateXmlEvidence()}
-                                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-white px-4 text-xs font-semibold text-foreground transition-colors hover:bg-muted/50"
-                                  >
-                                    <RefreshCw size={14} />
-                                    {xmlGenerationError ? 'Reintentar generación' : 'Generar ahora'}
-                                  </button>
-                                )}
                               </div>
                             )}
                           </div>

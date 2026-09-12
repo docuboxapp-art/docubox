@@ -43,7 +43,9 @@ function createTestSigner() {
         keyVersion: '1',
         keySizeBits: 2048,
         publicKeyPem,
-        publicKeyFingerprintSha256: createHash('sha256').update(publicKeyPem).digest('hex'),
+        publicKeyFingerprintSha256: createHash('sha256')
+          .update(publicKey.export({ type: 'spki', format: 'der' }))
+          .digest('hex'),
         signatureBase64: signature.toString('base64'),
         signatureSha256: createHash('sha256').update(signature).digest('hex'),
         certificatePem: null,
@@ -172,14 +174,14 @@ test('Evidence Package v2 reports pending external evidence without declaring it
   assert.equal(result.xmlIntegrity, 'valid');
   assert.equal(result.chainIntegrity, 'valid', JSON.stringify(result));
   assert.equal(result.docuboxSignature, 'not_applied');
-  assert.equal(result.overall, 'incomplete');
+  assert.equal(result.overall, 'incomplete', JSON.stringify(result));
 });
 
 test('an asymmetric Evidence Seal binds the final PDF, evidence root and package digest', async () => {
   const signer = createTestSigner();
   const built = await generator.createEvidenceV2Package(fixture, signer);
   const result = verifier.verifyEvidenceV2Xml(built.xml);
-  assert.equal(result.docuboxSignature, 'valid');
+  assert.equal(result.docuboxSignature, 'valid', JSON.stringify(result));
   assert.equal(result.overall, 'valid_with_pending_certifications');
   assert.equal(result.valid, true);
 });
@@ -604,16 +606,13 @@ test('the permanent golden fixture verifies to its documented incomplete state',
 });
 
 test('completion email is queued only after the immutable v2 package closes', () => {
-  const route = readFileSync(
-    'src/app/api/documentos/[documentId]/seal-signatures/route.ts',
-    'utf8'
-  );
-  const packageClose = route.indexOf('await generateEvidenceV2ForDocument(service');
-  const completionEmail = route.indexOf('await queueVerifiedDocumentCompletionEmails(service');
-  const completionAudit = route.indexOf("action: 'certification_completed'");
+  const orchestrator = readFileSync('src/lib/evidence-v2/orchestrator.ts', 'utf8');
+  const packageClose = orchestrator.indexOf('generateEvidenceV2ForDocument(service, {');
+  const finalState = orchestrator.indexOf("const finalState = pending");
+  const completionEmail = orchestrator.indexOf('await queueVerifiedDocumentCompletionEmails(service');
   assert.ok(packageClose >= 0);
-  assert.ok(completionEmail > packageClose);
-  assert.ok(completionAudit > completionEmail);
+  assert.ok(finalState > packageClose);
+  assert.ok(completionEmail > finalState);
 });
 
 test('a production package is not certified with non-production NOM-151 evidence', () => {
@@ -624,6 +623,6 @@ test('a production package is not certified with non-production NOM-151 evidence
   );
   assert.match(
     service,
-    /nom\.status === 'verified' &&\s+nom151EnvironmentTrusted &&\s+\(!openTimestamp/s
+    /nom\.status !== 'verified' \|\| nom151EnvironmentTrusted/
   );
 });

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { KeyManagementProvider } from '@/lib/certification/key-management';
 import {
+  buildEvidenceRoot,
   evidenceV2PackageDigest,
   evidenceV2SigningPayload,
   buildEvidenceV2Chain,
@@ -124,8 +125,8 @@ export async function createEvidenceV2Package(
     ...identifiers,
     generatedAt,
     closedAt,
-    version: '2.0',
-    schemaVersion: '2.0',
+    version: input.version,
+    schemaVersion: input.schemaVersion,
     events,
     chain,
     packageDigest: '',
@@ -136,6 +137,12 @@ export async function createEvidenceV2Package(
       'valid'
     ),
   };
+  if (unsigned.schemaVersion === '2.1') {
+    unsigned.evidenceRoot = buildEvidenceRoot(unsigned);
+    if (!signer) {
+      throw new TypeError('Evidence v2.1 requires a KMS-backed EVIDENCE_SEAL signature');
+    }
+  }
   unsigned.packageDigest = evidenceV2PackageDigest(unsigned);
 
   if (signer) {

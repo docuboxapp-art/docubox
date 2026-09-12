@@ -20,7 +20,8 @@ test('document signing and viewing defer PDF rendering until after React commits
 test('viewer callbacks observe the current document and certification state', () => {
   const source = read('src/app/visor-documento/[id]/page.tsx');
   assert.match(source, /\[cryptographicCertification, docId, document, logActivity\]/);
-  assert.match(source, /\[xmlEvidenceData, docId, document\]/);
+  assert.match(source, /\[docId, evidenceV2\?\.technical\?\.packageId\]/);
+  assert.match(source, /\/evidence\/\$\{kind\}/);
   assert.match(source, /const renderPaginationBar = \(modal = false\)/);
   assert.doesNotMatch(source, /const PaginationBar =/);
 });
@@ -50,6 +51,7 @@ test('required browser location evidence blocks signing when unavailable', () =>
   assert.match(source, /controller\.abort\(\), 1500/);
   assert.match(source, /ipAddress = ipRef\.current \|\| '—';/);
   assert.match(source, /coordinates = geoRef\.current;/);
+  assert.match(source, /initialGeolocation=\{browserGeolocation\}/);
   assert.doesNotMatch(source, /const ipRes = await fetch\('https:\/\/api\.ipify\.org/);
   assert.doesNotMatch(source, /timeout: 10000, maximumAge: 60000/);
   assert.match(source, /if \(geoLoading \|\| geoBlocked\) return;/);
@@ -57,6 +59,12 @@ test('required browser location evidence blocks signing when unavailable', () =>
   assert.match(source, /disabled=\{!allCamposCompleted \|\| geoBlocked \|\| geoLoading\}/);
   assert.match(source, /Debes permitir el acceso a ubicación/);
   assert.match(autographSource, /disabled=\{geoDenied\}/);
+  assert.match(
+    autographSource,
+    /validBrowserGeolocation\(initialGeolocation\)[\s\S]*?initialGeolocation[\s\S]*?requestBrowserGeolocation\(\)/
+  );
+  assert.match(autographSource, /session_evidence: evidenceForSubmit/);
+  assert.match(autographSource, /const refreshedGeo = await requestBrowserGeolocation\(\)/);
   assert.match(autographSource, /if \(!persistRes\?\.ok\)/);
   assert.match(evidenceRoute, /code: 'GEOLOCATION_REQUIRED'/);
   assert.match(captureSignature, /validBrowserGeolocation\(session_evidence\?\.geo\)/);
@@ -81,6 +89,38 @@ test('capturing an autograph never finalizes participation before explicit submi
   assert.doesNotMatch(evidenceRoute, /update_participante_sub_estado/);
   assert.doesNotMatch(evidenceRoute, /document\.participation\.completed/);
   assert.doesNotMatch(evidenceRoute, /estado: 'completado'/);
+});
+
+test('every signing method can restart before the final submission', () => {
+  const source = read('src/app/firmar-documento/[id]/page.tsx');
+  assert.match(source, /const handleRegenerateSignature = \(\) =>/);
+  assert.match(source, /setFirmaData\(null\);[\s\S]*setEfirmaPassword\(null\);/);
+  assert.match(source, /writePersistedFlow\(\{ firmaData: null \}\);/);
+  assert.match(source, /key=\{signatureAttemptKey\}/);
+  assert.equal((source.match(/Volver a generar firma/g) || []).length, 3);
+});
+
+test('regenerating clears only the signature image and preserves its document field', () => {
+  const source = read('src/app/firmar-documento/[id]/page.tsx');
+  const handlerStart = source.indexOf('const handleRegenerateSignature = () =>');
+  const handlerEnd = source.indexOf('// ── Generate typed signature', handlerStart);
+  const handler = source.slice(handlerStart, handlerEnd);
+
+  assert.match(source, /signatureDataUrl=\{field\.tipo === 'firma' \? firmaData : null\}/);
+  assert.match(source, /signatureDataUrl \? \(/);
+  assert.match(source, /alt="Firma capturada"/);
+  assert.match(source, /<span className="text-\[9px\] font-medium" style=\{\{ color: colorHex \}\}>\s*Firma/);
+  assert.doesNotMatch(handler, /setPlacedFields/);
+  assert.doesNotMatch(handler, /handleRemovePlacedField/);
+});
+
+test('autograph canvas resizing preserves the stroke aspect ratio', () => {
+  const source = read('src/app/firmar-documento/[id]/AutographSignatureFlow.tsx');
+  assert.match(source, /function fitSignatureStrokes/);
+  assert.match(source, /const scale = Math\.min\(availableWidth \/ inkWidth, availableHeight \/ inkHeight\);/);
+  assert.match(source, /x: point\.x \* scale \+ offsetX/);
+  assert.match(source, /y: point\.y \* scale \+ offsetY/);
+  assert.doesNotMatch(source, /x: \(point\.x \* rect\.width\) \/ priorWidth/);
 });
 
 test('finalized signing is not blocked by a cross-account browser notification', () => {
