@@ -1,0 +1,70 @@
+{
+  "meta": {
+    "date": "2026-09-11",
+    "sourceCommit": "c44554c",
+    "status": "AUDITED",
+    "confidence": "HIGH"
+  },
+  "canonical": {
+    "logo": "public/assets/images/docubox-logo-2026.png",
+    "logoDark": "public/assets/images/docubox-logo-2026-dark-mode.png",
+    "isotype": "public/assets/images/docubox-isotipo-2026.png",
+    "appIconSource": "public/assets/images/docubox-isotipo-2026.png",
+    "splashScreenSource": null,
+    "brandSourceUncertain": false
+  },
+  "assets": [
+    {
+      "file": "docubox-logo-2026.png",
+      "path": "public/assets/images/docubox-logo-2026.png",
+      "format": "PNG",
+      "dimensions": { "width": 1906, "height": 366 },
+      "usage": ["AppLogo default", "login/auth", "enrollment", "mobile capture web", "templates", "emails", "PDF certificates"],
+      "theme": "LIGHT",
+      "likelyCanonical": true,
+      "status": "IMPLEMENTED",
+      "sourceFiles": ["src/components/ui/AppLogo.tsx", "src/app/api/registro/send-verification-email/route.ts", "src/lib/certification/pdf.ts"]
+    },
+    {
+      "file": "docubox-logo-2026-dark-mode.png",
+      "path": "public/assets/images/docubox-logo-2026-dark-mode.png",
+      "format": "PNG",
+      "dimensions": { "width": 1906, "height": 367 },
+      "usage": ["AppLogo dark mode"],
+      "theme": "DARK",
+      "likelyCanonical": true,
+      "status": "IMPLEMENTED",
+      "sourceFiles": ["src/components/ui/AppLogo.tsx"]
+    },
+    {
+      "file": "docubox-isotipo-2026.png",
+      "path": "public/assets/images/docubox-isotipo-2026.png",
+      "format": "PNG",
+      "dimensions": { "width": 690, "height": 745 },
+      "usage": ["app metadata icon", "shortcut icon", "apple icon", "superadmin shell"],
+      "theme": "BOTH",
+      "likelyCanonical": true,
+      "status": "IMPLEMENTED",
+      "sourceFiles": ["src/app/layout.tsx", "src/components/platform-admin/SuperadminShell.tsx"]
+    },
+    {
+      "file": "app_logo.png",
+      "path": "public/assets/images/app_logo.png",
+      "format": "PNG",
+      "dimensions": { "width": 494, "height": 503 },
+      "usage": [],
+      "theme": "UNKNOWN",
+      "likelyCanonical": false,
+      "status": "DEAD CODE_OR_LEGACY",
+      "sourceFiles": ["public/assets/images/app_logo.png"]
+    }
+  ],
+  "mobileAdaptationsRequired": [
+    "approved vector master",
+    "adaptive icon foreground/background and safe area",
+    "iOS app icon sizes",
+    "Android adaptive/monochrome icon",
+    "splash composition approval"
+  ]
+}
+

@@ -1,0 +1,104 @@
+{
+  "meta": {
+    "date": "2026-09-11",
+    "sourceCommit": "c44554c",
+    "classification": ["SHARE_DIRECTLY", "ADAPT", "DO_NOT_SHARE"],
+    "note": "ADAPT means backend logic is reusable but the HTTP contract is not yet a stable mobile contract."
+  },
+  "groups": [
+    {
+      "name": "documents",
+      "sourceFiles": ["src/app/api/documentos/**/route.ts", "src/lib/documents"],
+      "confidence": "HIGH",
+      "endpoints": [
+        { "path": "/api/documentos/listar", "methods": ["GET"], "classification": "ADAPT", "needs": ["bearer_consistency", "cursor_pagination", "compact_dto"] },
+        { "path": "/api/documentos/obtener", "methods": ["GET"], "classification": "ADAPT", "needs": ["document_detail_dto", "allowed_actions"] },
+        { "path": "/api/documentos/guardar-borrador", "methods": ["POST"], "classification": "ADAPT", "needs": ["idempotency", "mobile_upload_contract"] },
+        { "path": "/api/documentos/enviar", "methods": ["POST"], "classification": "ADAPT", "needs": ["idempotency", "step_up", "typed_errors"] },
+        { "path": "/api/documentos/mis-participaciones", "methods": ["GET"], "classification": "ADAPT", "needs": ["cursor_pagination"] },
+        { "path": "/api/documentos/participation-requests", "methods": ["GET"], "classification": "ADAPT", "needs": ["bearer_consistency"] },
+        { "path": "/api/documentos/participation-responses", "methods": ["GET"], "classification": "ADAPT", "needs": ["cursor_pagination"] },
+        { "path": "/api/documentos/advance-participation", "methods": ["POST"], "classification": "ADAPT", "needs": ["idempotency", "expected_state"] },
+        { "path": "/api/documentos/send-reminder", "methods": ["POST"], "classification": "ADAPT", "needs": ["bearer_consistency", "rate_limit", "allowed_actions"] },
+        { "path": "/api/documentos/update-estado", "methods": ["POST"], "classification": "ADAPT", "needs": ["bearer_consistency", "optimistic_concurrency"] },
+        { "path": "/api/documentos/metadata", "methods": ["GET", "POST"], "classification": "ADAPT", "needs": ["versioned_schema"] },
+        { "path": "/api/documentos/[documentId]/additional-metadata", "methods": ["GET", "PATCH"], "classification": "ADAPT", "needs": ["versioned_schema"] },
+        { "path": "/api/documentos/[documentId]/viewer-file", "methods": ["GET"], "classification": "ADAPT", "needs": ["range_requests", "no_store", "mobile_streaming"] },
+        { "path": "/api/documentos/[documentId]/permissions", "methods": ["GET", "POST", "DELETE"], "classification": "ADAPT", "needs": ["capability_dto", "confirmation"] },
+        { "path": "/api/documentos/[documentId]/priority", "methods": ["PATCH"], "classification": "ADAPT", "needs": ["allowed_actions", "optimistic_concurrency"] },
+        { "path": "/api/documentos/[documentId]/edit", "methods": ["PATCH"], "classification": "ADAPT", "needs": ["scope_decision"] },
+        { "path": "/api/documentos/[documentId]/replace-file", "methods": ["POST"], "classification": "ADAPT", "needs": ["resumable_upload", "idempotency"] },
+        { "path": "/api/documentos/papelera", "methods": ["POST", "PATCH", "DELETE"], "classification": "ADAPT", "needs": ["server_disposition_dto", "idempotency"] },
+        { "path": "/api/documentos/carpetas", "methods": ["GET", "POST", "DELETE"], "classification": "ADAPT", "needs": ["pagination", "empty_folder_rule"] },
+        { "path": "/api/documentos/[documentId]/legal-hold", "methods": ["POST", "DELETE"], "classification": "DO_NOT_SHARE", "needs": ["out_of_mvp_admin_capability"] }
+      ]
+    },
+    {
+      "name": "conversion",
+      "sourceFiles": ["src/app/api/document-conversion", "src/lib/document-conversion"],
+      "confidence": "HIGH",
+      "endpoints": [
+        { "path": "/api/document-conversion/jobs", "methods": ["POST"], "classification": "ADAPT", "needs": ["idempotency", "signed_upload", "quota_errors"] },
+        { "path": "/api/document-conversion/jobs/[id]", "methods": ["GET"], "classification": "ADAPT", "needs": ["honor_retry_after", "terminal_failure_no_retry"] }
+      ]
+    },
+    {
+      "name": "signing",
+      "sourceFiles": ["src/app/api/firma", "src/app/firmar-documento/[id]/page.tsx", "supabase/functions/capture-signature", "supabase/functions/sign-efirma"],
+      "confidence": "HIGH",
+      "endpoints": [
+        { "path": "/api/firma/send-otp", "methods": ["POST"], "classification": "ADAPT", "needs": ["anti_replay", "typed_challenge"] },
+        { "path": "/api/firma/persist-evidence", "methods": ["POST"], "classification": "ADAPT", "needs": ["normalized_coordinates", "canvas_contract_version"] },
+        { "path": "/api/firma/persist-efirma-evidence", "methods": ["POST"], "classification": "ADAPT", "needs": ["ephemeral_key_material", "body_limits"] },
+        { "path": "/api/firma/finalize-evidence", "methods": ["POST"], "classification": "ADAPT", "needs": ["idempotency", "expected_document_version"] },
+        { "path": "/api/firma/mobile-signature/create", "methods": ["POST"], "classification": "ADAPT", "needs": ["clarify_web_handoff_vs_native_auth"] },
+        { "path": "/api/firma/mobile-signature/session", "methods": ["GET"], "classification": "ADAPT", "needs": ["one_time_token"] },
+        { "path": "/api/firma/mobile-signature/submit", "methods": ["POST"], "classification": "ADAPT", "needs": ["idempotency"] },
+        { "path": "/api/firma/mobile-signature/result", "methods": ["GET"], "classification": "ADAPT", "needs": ["terminal_state_contract"] },
+        { "path": "/api/documentos/[documentId]/seal-signatures", "methods": ["POST"], "classification": "DO_NOT_SHARE", "needs": ["internal_orchestration_only"] }
+      ]
+    },
+    {
+      "name": "evidence",
+      "sourceFiles": ["src/app/api/documentos/[documentId]", "src/app/api/documents/[documentId]", "src/lib/evidence-v2", "src/lib/certification", "src/lib/blockchain-evidence"],
+      "confidence": "HIGH",
+      "endpoints": [
+        { "path": "/api/documentos/[documentId]/evidence", "methods": ["GET"], "classification": "ADAPT", "needs": ["compact_summary"] },
+        { "path": "/api/documentos/[documentId]/evidence-v2", "methods": ["GET"], "classification": "ADAPT", "needs": ["status_dto"] },
+        { "path": "/api/documentos/[documentId]/evidence-v2", "methods": ["POST"], "classification": "DO_NOT_SHARE", "needs": ["direct_generation_disabled"] },
+        { "path": "/api/documentos/[documentId]/evidence/package", "methods": ["GET"], "classification": "ADAPT", "needs": ["secure_download"] },
+        { "path": "/api/documentos/[documentId]/evidence/xml", "methods": ["GET"], "classification": "ADAPT", "needs": ["secure_download"] },
+        { "path": "/api/documentos/[documentId]/mi-constancia", "methods": ["GET"], "classification": "ADAPT", "needs": ["secure_download"] },
+        { "path": "/api/documentos/[documentId]/constancia-general", "methods": ["GET"], "classification": "ADAPT", "needs": ["role_and_state_contract"] },
+        { "path": "/api/documents/[documentId]/certifications", "methods": ["GET", "POST"], "classification": "ADAPT", "needs": ["job_and_artifact_dto"] },
+        { "path": "/api/documents/[documentId]/blockchain-evidence", "methods": ["GET", "POST"], "classification": "ADAPT", "needs": ["job_state_dto"] }
+      ]
+    },
+    {
+      "name": "lucia",
+      "sourceFiles": ["src/app/api/ai", "src/lib/ai"],
+      "confidence": "HIGH",
+      "endpoints": [
+        { "path": "/api/ai/ask", "methods": ["POST"], "classification": "ADAPT", "needs": ["answer_evidence_action_contract", "request_id"] },
+        { "path": "/api/ai/chat-completion", "methods": ["POST"], "classification": "ADAPT", "needs": ["streaming", "cancellation", "portable_session_id"] },
+        { "path": "/api/ai/speech-to-text", "methods": ["POST"], "classification": "ADAPT", "needs": ["mobile_codec", "permission_ux"] },
+        { "path": "/api/ai/embed-document", "methods": ["POST"], "classification": "DO_NOT_SHARE", "needs": ["backend_orchestrated_indexing"] },
+        { "path": "/api/ai/document-intelligence/[documentId]", "methods": ["GET"], "classification": "ADAPT", "needs": ["feature_flag", "processing_status"] },
+        { "path": "/api/ai/document-intelligence/analyze", "methods": ["POST"], "classification": "ADAPT", "needs": ["feature_flag", "async_job", "quota"] },
+        { "path": "/api/ai/document-intelligence/compare-versions", "methods": ["POST"], "classification": "ADAPT", "needs": ["feature_flag", "citation_contract"] }
+      ]
+    },
+    {
+      "name": "never_direct_from_mobile",
+      "sourceFiles": ["src/app/api/internal", "src/app/api/admin", "src/lib/supabase/server.ts"],
+      "confidence": "HIGH",
+      "patterns": [
+        { "path": "/api/internal/**", "classification": "DO_NOT_SHARE", "reason": "internal jobs and probes" },
+        { "path": "/api/admin/**", "classification": "DO_NOT_SHARE", "reason": "administrative backoffice" },
+        { "path": "Supabase Service Role", "classification": "DO_NOT_SHARE", "reason": "server-only privileged credential" },
+        { "path": "KMS/HSM/TSA/NOM-151/OTS provider APIs", "classification": "DO_NOT_SHARE", "reason": "privileged cryptographic operations" }
+      ]
+    }
+  ]
+}
+

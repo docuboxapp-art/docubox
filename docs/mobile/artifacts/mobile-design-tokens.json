@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "meta": {
+    "name": "Docubox Mobile Design Tokens Proposal",
+    "version": "0.1.0-discovery",
+    "date": "2026-09-11",
+    "sourceCommit": "c44554c",
+    "status": "PROPOSAL",
+    "sourceFiles": ["tailwind.config.js", "src/styles/tailwind.css", "src/components/ui"]
+  },
+  "colors": {
+    "primary": {
+      "50": { "value": "#EFF5FF", "source": "EXISTING" },
+      "100": { "value": "#D9E8FF", "source": "EXISTING" },
+      "200": { "value": "#B8D3FF", "source": "EXISTING" },
+      "300": { "value": "#86B5FF", "source": "EXISTING" },
+      "400": { "value": "#5494FF", "source": "EXISTING" },
+      "500": { "value": "#347CFF", "source": "EXISTING" },
+      "600": { "value": "#1E6BFF", "source": "EXISTING" },
+      "700": { "value": "#1557D6", "source": "EXISTING" },
+      "800": { "value": "#1749AD", "source": "EXISTING" },
+      "900": { "value": "#193F88", "source": "EXISTING" },
+      "950": { "value": "#102754", "source": "EXISTING" }
+    },
+    "semantic": {
+      "background": { "value": "#FFFFFF", "source": "EXISTING" },
+      "surface": { "value": "#FFFFFF", "source": "EXISTING" },
+      "textPrimary": { "value": "hsl(222.2 84% 4.9%)", "source": "EXISTING" },
+      "textSecondary": { "value": "hsl(215.4 16.3% 46.9%)", "source": "EXISTING" },
+      "muted": { "value": "hsl(210 40% 96.1%)", "source": "EXISTING" },
+      "border": { "value": "hsl(214.3 31.8% 91.4%)", "source": "EXISTING" },
+      "info": { "value": "#1E6BFF", "source": "EXISTING" },
+      "success": { "value": "hsl(142 71% 42%)", "source": "EXISTING" },
+      "warning": { "value": "hsl(43 96% 52%)", "source": "EXISTING" },
+      "danger": { "value": "hsl(0 84.2% 60.2%)", "source": "EXISTING" },
+      "overlay": { "value": "rgba(0,0,0,0.45)", "source": "MOBILE_ADAPTATION" }
+    }
+  },
+  "typography": {
+    "families": {
+      "sans": { "value": ["Google Sans", "Google Sans Text", "System"], "source": "EXISTING" },
+      "mono": { "value": ["IBM Plex Mono", "monospace"], "source": "EXISTING" }
+    },
+    "weights": {
+      "regular": { "value": 400, "source": "EXISTING" },
+      "medium": { "value": 500, "source": "EXISTING" },
+      "semibold": { "value": 600, "source": "EXISTING" },
+      "bold": { "value": 700, "source": "EXISTING" }
+    },
+    "styles": {
+      "display": { "fontSize": 28, "lineHeight": 34, "fontWeight": 500, "source": "MOBILE_ADAPTATION" },
+      "title": { "fontSize": 22, "lineHeight": 28, "fontWeight": 500, "source": "MOBILE_ADAPTATION" },
+      "heading": { "fontSize": 18, "lineHeight": 24, "fontWeight": 500, "source": "MOBILE_ADAPTATION" },
+      "body": { "fontSize": 16, "lineHeight": 24, "fontWeight": 400, "source": "MOBILE_ADAPTATION" },
+      "bodySmall": { "fontSize": 14, "lineHeight": 20, "fontWeight": 400, "source": "MOBILE_ADAPTATION" },
+      "label": { "fontSize": 14, "lineHeight": 18, "fontWeight": 500, "source": "MOBILE_ADAPTATION" },
+      "caption": { "fontSize": 12, "lineHeight": 16, "fontWeight": 400, "source": "MOBILE_ADAPTATION" }
+    },
+    "letterSpacing": { "default": { "value": 0, "source": "EXISTING" } }
+  },
+  "spacing": {
+    "0": { "value": 0, "source": "EXISTING" },
+    "1": { "value": 4, "source": "EXISTING" },
+    "2": { "value": 8, "source": "EXISTING" },
+    "3": { "value": 12, "source": "EXISTING" },
+    "4": { "value": 16, "source": "EXISTING" },
+    "5": { "value": 20, "source": "EXISTING" },
+    "6": { "value": 24, "source": "EXISTING" },
+    "8": { "value": 32, "source": "EXISTING" },
+    "10": { "value": 40, "source": "EXISTING" },
+    "12": { "value": 48, "source": "EXISTING" }
+  },
+  "radius": {
+    "sm": { "value": 4, "source": "EXISTING" },
+    "md": { "value": 6, "source": "EXISTING" },
+    "lg": { "value": 8, "source": "EXISTING" },
+    "full": { "value": 9999, "source": "EXISTING", "usage": "avatar, badge, circular controls only" }
+  },
+  "elevation": {
+    "card": { "ios": { "shadowColor": "#000000", "shadowOpacity": 0.1, "shadowRadius": 3, "shadowOffsetY": 1 }, "android": 1, "source": "MOBILE_ADAPTATION" },
+    "sheet": { "ios": { "shadowColor": "#000000", "shadowOpacity": 0.25, "shadowRadius": 20, "shadowOffsetY": 8 }, "android": 8, "source": "MOBILE_ADAPTATION" }
+  },
+  "motion": {
+    "fast": { "durationMs": 200, "source": "EXISTING" },
+    "normal": { "durationMs": 250, "source": "EXISTING" },
+    "pulse": { "durationMs": 600, "source": "EXISTING" }
+  },
+  "icons": {
+    "library": { "value": "lucide-react-native", "source": "MOBILE_ADAPTATION", "basis": "lucide-react is dominant on web" },
+    "sizes": {
+      "sm": { "value": 16, "source": "MOBILE_ADAPTATION" },
+      "md": { "value": 20, "source": "MOBILE_ADAPTATION" },
+      "lg": { "value": 24, "source": "MOBILE_ADAPTATION" },
+      "emptyState": { "value": 56, "source": "EXISTING" }
+    }
+  },
+  "componentSizes": {
+    "touchTargetIos": { "value": 44, "unit": "pt", "source": "MOBILE_ADAPTATION" },
+    "touchTargetAndroid": { "value": 48, "unit": "dp", "source": "MOBILE_ADAPTATION" },
+    "buttonHeight": { "value": 48, "source": "MOBILE_ADAPTATION" },
+    "inputMinHeight": { "value": 48, "source": "MOBILE_ADAPTATION" },
+    "documentListItemMinHeight": { "value": 72, "source": "MOBILE_ADAPTATION" },
+    "bottomNavigationHeight": { "value": 64, "source": "MOBILE_ADAPTATION", "note": "plus safe-area inset" },
+    "avatar": { "sm": 32, "md": 40, "lg": 48, "source": "MOBILE_ADAPTATION" }
+  }
+}
+

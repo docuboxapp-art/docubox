@@ -1,0 +1,28 @@
+{
+  "meta": { "date": "2026-09-11", "sourceCommit": "c44554c", "confidence": "HIGH" },
+  "bottomNavigation": [
+    { "mobile": "/(tabs)/home", "label": "Inicio", "source": ["/inicio", "LucIA"] },
+    { "mobile": "/(tabs)/documents", "label": "Documentos", "source": ["/mis-documentos", "/mis-participaciones"] },
+    { "mobile": "/(tabs)/activity", "label": "Actividad", "source": ["/mis-solicitudes", "/mis-tareas", "notifications"] },
+    { "mobile": "/(tabs)/profile", "label": "Perfil", "source": ["workspace/session contexts"] }
+  ],
+  "routes": [
+    { "web": "/login", "function": "authentication", "mobile": "/(auth)/login", "phase": "REQUIRED_PHASE_1", "status": "PROPOSED" },
+    { "web": "/inicio", "function": "dashboard and LucIA entry", "mobile": "/(tabs)/home", "phase": "REQUIRED_PHASE_1", "status": "PROPOSED" },
+    { "web": "/mis-documentos", "function": "document library", "mobile": "/(tabs)/documents", "phase": "REQUIRED_PHASE_1", "status": "PROPOSED" },
+    { "web": "/crear-documento", "function": "upload and prepare", "mobile": "/documents/upload", "phase": "REQUIRED_PHASE_1", "status": "PROPOSED" },
+    { "web": "/visor-documento/[id]", "function": "document detail and viewer", "mobile": "/documents/[id]", "phase": "REQUIRED_PHASE_1", "status": "PROPOSED" },
+    { "web": "/firmar-documento/[id]", "function": "document signing", "mobile": "/documents/[id]/sign", "phase": "REQUIRED_PHASE_1", "status": "PROPOSED" },
+    { "web": "/mis-participaciones", "function": "participant documents", "mobile": "/(tabs)/documents?scope=participations", "phase": "REQUIRED_PHASE_1", "status": "PROPOSED" },
+    { "web": "/mis-solicitudes", "function": "sent requests", "mobile": "/(tabs)/activity?scope=requests", "phase": "OPTIONAL_PHASE_1", "status": "PROPOSED" },
+    { "web": "/mis-tareas", "function": "tasks", "mobile": "/(tabs)/activity?scope=tasks", "phase": "OPTIONAL_PHASE_1", "status": "PROPOSED" },
+    { "web": "/documentos/[documentId]/versiones", "function": "version history", "mobile": "/documents/[id]/versions", "phase": "OPTIONAL_PHASE_1", "status": "PROPOSED" },
+    { "web": "/documentos/[documentId]/revision", "function": "review", "mobile": "/documents/[id]/review", "phase": "OPTIONAL_PHASE_1", "status": "PROPOSED" },
+    { "web": "/verificar-documento/[identifier]", "function": "public verification", "mobile": "/verify/[identifier]", "phase": "OPTIONAL_PHASE_1", "status": "PROPOSED" },
+    { "web": "/verificar-evidencia/[token]", "function": "public evidence", "mobile": "/evidence/[token]", "phase": "OPTIONAL_PHASE_1", "status": "PROPOSED" },
+    { "web": "/plantillas", "function": "templates", "mobile": null, "phase": "OUT_OF_SCOPE", "status": "NOT_PLANNED" },
+    { "web": "/reportes", "function": "reports", "mobile": null, "phase": "FUTURE", "status": "NOT_PLANNED" }
+  ],
+  "sourceFiles": ["src/components/TopNav.tsx", "src/app/**/page.tsx"]
+}
+

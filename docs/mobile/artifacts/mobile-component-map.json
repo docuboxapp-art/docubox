@@ -1,0 +1,168 @@
+{
+  "meta": {
+    "date": "2026-09-11",
+    "sourceCommit": "c44554c",
+    "status": "PROPOSAL_FROM_EXISTING_WEB",
+    "rule": "React DOM components are not directly reusable in React Native."
+  },
+  "components": [
+    {
+      "web": "AppLogo",
+      "sourceFiles": ["src/components/ui/AppLogo.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "ADAPT",
+      "mobile": "BrandLogo",
+      "shared": ["asset paths", "light/dark semantics"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "AppImage",
+      "sourceFiles": ["src/components/ui/AppImage.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "DO_NOT_SHARE",
+      "mobile": "Expo Image/native Image wrapper",
+      "shared": ["fallback semantics only"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "AppIcon",
+      "sourceFiles": ["src/components/ui/AppIcon.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "DO_NOT_SHARE",
+      "mobile": "LucideIcon",
+      "shared": ["semantic icon names"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "StatusBadge",
+      "sourceFiles": ["src/components/ui/StatusBadge.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "ADAPT",
+      "mobile": "StatusBadge",
+      "shared": ["status enum", "labels", "semantic colors"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "EmptyState",
+      "sourceFiles": ["src/components/ui/EmptyState.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "ADAPT",
+      "mobile": "EmptyState",
+      "shared": ["content model", "icon size intent"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "MetricCard",
+      "sourceFiles": ["src/components/ui/MetricCard.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "ADAPT",
+      "mobile": "MetricCard",
+      "shared": ["content model", "color roles"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "TopNav + Sidebar",
+      "sourceFiles": ["src/components/TopNav.tsx", "src/components/Sidebar.tsx"],
+      "status": "IMPLEMENTED_WITH_LEGACY_INCONSISTENCIES",
+      "reuse": "DO_NOT_SHARE",
+      "mobile": "BottomTabs + NativeStack",
+      "shared": ["canonical functions from TopNav only"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "LucIAChat",
+      "sourceFiles": ["src/components/LucIAChat.tsx", "src/contexts/LuciaAssistantContext.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "ADAPT",
+      "mobile": "LuciaConversation + LuciaBottomSheet",
+      "shared": ["domain behavior", "API contracts after extraction"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "Document list/table",
+      "sourceFiles": ["src/app/mis-documentos/page.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "DO_NOT_SHARE",
+      "mobile": "DocumentListItem + FlashList",
+      "shared": ["fields", "filters", "status semantics"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "Document viewer rail/tabs",
+      "sourceFiles": ["src/app/visor-documento/[id]/page.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "DO_NOT_SHARE",
+      "mobile": "PdfViewer + document bottom sheets",
+      "shared": ["information hierarchy", "actions"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "Signature canvas and flow",
+      "sourceFiles": ["src/app/firmar-documento/[id]/page.tsx", "src/app/firma-movil/[token]/page.tsx"],
+      "status": "IMPLEMENTED",
+      "reuse": "ADAPT",
+      "mobile": "SignatureCapture + SigningFlow",
+      "shared": ["normalized signature contract after versioning", "workflow states"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "Button patterns",
+      "sourceFiles": ["src/styles/tailwind.css", "src/app/**/*.tsx"],
+      "status": "PARTIAL",
+      "reuse": "ADAPT",
+      "mobile": "Button + IconButton",
+      "shared": ["primary color", "14px/500 label intent", "semantic variants"],
+      "confidence": "HIGH"
+    },
+    {
+      "web": "Input patterns",
+      "sourceFiles": ["src/app/**/*.tsx", "tailwind.config.js"],
+      "status": "PARTIAL",
+      "reuse": "ADAPT",
+      "mobile": "TextField + SelectField + SearchField",
+      "shared": ["border and focus colors", "validation semantics"],
+      "confidence": "MEDIUM"
+    },
+    {
+      "web": "Modal/dropdown patterns",
+      "sourceFiles": ["src/app/**/*.tsx", "src/styles/tailwind.css"],
+      "status": "PARTIAL",
+      "reuse": "DO_NOT_SHARE",
+      "mobile": "BottomSheet + Dialog + ActionSheet",
+      "shared": ["content and command semantics"],
+      "confidence": "MEDIUM"
+    },
+    {
+      "web": "Toasts",
+      "sourceFiles": ["package.json", "src/app/**/*.tsx"],
+      "status": "PARTIAL_MULTIPLE_LIBRARIES",
+      "reuse": "DO_NOT_SHARE",
+      "mobile": "ToastHost + inline Alert",
+      "shared": ["message taxonomy"],
+      "confidence": "HIGH"
+    }
+  ],
+  "newMobilePrimitives": [
+    "Screen",
+    "SafeAreaHeader",
+    "Button",
+    "IconButton",
+    "TextField",
+    "SearchField",
+    "StatusBadge",
+    "Avatar",
+    "Card",
+    "DocumentListItem",
+    "BottomSheet",
+    "Dialog",
+    "Alert",
+    "ToastHost",
+    "Skeleton",
+    "EmptyState",
+    "PdfViewer",
+    "SignatureCapture",
+    "LuciaComposer",
+    "EvidenceCitation"
+  ]
+}
+
