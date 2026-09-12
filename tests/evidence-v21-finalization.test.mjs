@@ -255,3 +255,11 @@ test('finalization contracts cover idempotency, concurrency, retry, storage and 
   assert.match(ui, /XML de Evidencia/);
   assert.match(ui, /Paquete de Evidencia/);
 });
+
+test('the protected Vercel WIF check signs EvidenceRoot with a dedicated HSM key', () => {
+  const runtime = readFileSync('src/app/api/internal/crypto/vercel-wif-e2e/route.ts', 'utf8');
+  assert.match(runtime, /purpose: 'EVIDENCE_SEAL'/);
+  assert.match(runtime, /evidenceMetadata\.protectionLevel !== 'hsm'/);
+  assert.match(runtime, /evidenceMetadata\.keyId === metadata\.keyId/);
+  assert.match(runtime, /evidenceSeal:/);
+});

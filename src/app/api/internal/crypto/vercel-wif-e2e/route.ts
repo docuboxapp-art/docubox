@@ -517,16 +517,40 @@ export async function POST(request: NextRequest) {
       digestSha256: createHash('sha256').update(payload).digest('hex'),
       idempotencyKey: `vercel-wif-${process.env.VERCEL_DEPLOYMENT_ID || 'deployment'}`,
     });
+    const evidenceKeyId = process.env.GOOGLE_KMS_PRODUCTION_EVIDENCE_KEY_NAME || '';
+    const evidenceMetadata = await provider.getKeyMetadata(evidenceKeyId);
+    const evidencePayload = Buffer.from(
+      `DOCUBOX_VERCEL_EVIDENCE_SEAL_E2E_V1:${process.env.VERCEL_ENV || 'unknown'}`,
+      'utf8'
+    );
+    const evidenceSignature = await provider.signDigest({
+      purpose: 'EVIDENCE_SEAL',
+      canonicalBytes: evidencePayload,
+      digestSha256: createHash('sha256').update(evidencePayload).digest('hex'),
+      idempotencyKey: `vercel-evidence-seal-${process.env.VERCEL_DEPLOYMENT_ID || 'deployment'}`,
+    });
     const verified = verify(
       'sha256',
       payload,
       { key: signature.publicKeyPem, padding: constants.RSA_PKCS1_PADDING },
       Buffer.from(signature.signatureBase64, 'base64')
     );
-    if (!verified || metadata.protectionLevel !== 'hsm') {
+    const evidenceVerified = verify(
+      'sha256',
+      evidencePayload,
+      { key: evidenceSignature.publicKeyPem, padding: constants.RSA_PKCS1_PADDING },
+      Buffer.from(evidenceSignature.signatureBase64, 'base64')
+    );
+    if (
+      !verified ||
+      !evidenceVerified ||
+      metadata.protectionLevel !== 'hsm' ||
+      evidenceMetadata.protectionLevel !== 'hsm' ||
+      evidenceMetadata.keyId === metadata.keyId
+    ) {
       throw new CertificationError(
         'VERCEL_WIF_HSM_VERIFICATION_FAILED',
-        'La firma HSM no supero la verificacion independiente.',
+        'La firma HSM o el sello de evidencia no superaron la verificacion independiente.',
         503
       );
     }
@@ -544,6 +568,13 @@ export async function POST(request: NextRequest) {
         publicKeyFingerprintSha256: signature.publicKeyFingerprintSha256,
         signatureSha256: signature.signatureSha256,
         cryptoVerify: true,
+        evidenceSeal: {
+          protectionLevel: evidenceMetadata.protectionLevel,
+          algorithm: evidenceMetadata.algorithm,
+          keyVersion: evidenceMetadata.keyVersion,
+          dedicatedKey: evidenceMetadata.keyId !== metadata.keyId,
+          cryptoVerify: true,
+        },
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );
