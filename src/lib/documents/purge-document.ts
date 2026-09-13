@@ -293,6 +293,13 @@ export async function purgeDocumentBundle(input: {
 
   const tombstoneId = String(staged.data.id);
   try {
+    const reservation = await service.rpc('begin_document_purge', {
+      p_document_id: document.id,
+      p_tombstone_id: tombstoneId,
+      p_direct_delete: method === 'DIRECT_DELETE',
+    });
+    if (reservation.error) throw reservation.error;
+
     await removeStorageBundle(service, storageObjects);
     await setTombstoneStatus(service, tombstoneId, {
       status: 'STORAGE_REMOVED',
@@ -305,10 +312,14 @@ export async function purgeDocumentBundle(input: {
     if (finalized.error) throw finalized.error;
     return { tombstoneId, storageObjectCount: storageObjects.length };
   } catch (error) {
-    await setTombstoneStatus(service, tombstoneId, {
-      status: 'FAILED',
-      failure_code: 'PURGE_FAILED',
-    }).catch(() => undefined);
+    try {
+      await service.rpc('abort_document_purge', {
+        p_document_id: document.id,
+        p_tombstone_id: tombstoneId,
+      });
+    } catch {
+      // Preserve the original purge failure for the caller.
+    }
     throw error;
   }
 }

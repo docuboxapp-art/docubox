@@ -67,9 +67,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const documentIds = (data || []).map((document) => document.id);
+    const holdHistory = documentIds.length
+      ? await anonClient
+          .from('document_legal_holds')
+          .select('document_id,status')
+          .in('document_id', documentIds)
+      : { data: [], error: null };
+    if (holdHistory.error) throw holdHistory.error;
+    const holdSummary = new Map<string, { history: boolean; active: number }>();
+    for (const hold of holdHistory.data || []) {
+      const current = holdSummary.get(hold.document_id) || { history: false, active: 0 };
+      current.history = true;
+      if (hold.status === 'ACTIVE') current.active += 1;
+      holdSummary.set(hold.document_id, current);
+    }
+
     let responseData = (data || []).map((document) => {
       const disposition = evaluateDocumentDisposition(document);
       const countdown = getTrashCountdown(document.restore_until);
+      const legalHold = holdSummary.get(document.id);
       return {
         ...document,
         can_trash: disposition.canTrash,
@@ -77,7 +94,9 @@ export async function GET(request: NextRequest) {
         can_restore: disposition.canRestore,
         can_direct_purge_draft: disposition.canDirectPurgeDraft,
         can_direct_purge: disposition.canDirectPurge,
-        legal_hold_active: disposition.legalHoldActive,
+        legal_hold_active: (legalHold?.active || 0) > 0 || disposition.legalHoldActive,
+        legal_hold_history: legalHold?.history === true,
+        legal_hold_active_count: legalHold?.active || (disposition.legalHoldActive ? 1 : 0),
         lifecycle_blocking_code: disposition.blockingCode,
         restore_countdown: countdown,
         purge_state:

@@ -1,12 +1,10 @@
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { createServiceClient } from '@/lib/supabase/server';
 import { resolveLegacyDocumentStoragePath } from '@/lib/documents/internal-source';
 import { readDocumentStorageObject } from '@/lib/crypto/document-encryption';
 import { DocumentEncryptionError } from '@/lib/crypto/document-encryption/errors';
 import { createCertificationProviderSet } from '@/lib/certification/providers';
-import { documentViewCookieName, hasDocumentViewAccess } from '@/lib/security/document-view-access';
+import { requireDocumentContentAccess } from '@/lib/security/document-content-access';
+import { DocumentAccessError } from '@/lib/security/document-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,160 +55,14 @@ function documentEncryptionResponse(error: DocumentEncryptionError) {
   );
 }
 
-function normalizeEmail(value: unknown) {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
-
-function isParticipant(participants: unknown, userId: string, userEmail: string) {
-  if (!Array.isArray(participants)) return false;
-  return participants.some((participant) => {
-    if (!participant || typeof participant !== 'object') return false;
-    const row = participant as Record<string, unknown>;
-    return (
-      row.id === userId ||
-      row.user_id === userId ||
-      (userEmail && normalizeEmail(row.email) === userEmail)
-    );
-  });
-}
-
-async function authenticatedUser(request: NextRequest) {
-  const authorization = request.headers.get('authorization');
-  const service = createServiceClient();
-  if (authorization?.startsWith('Bearer ')) {
-    const token = authorization.slice(7).trim();
-    const auth = await service.auth.getUser(token);
-    if (!auth.error && auth.data.user) return auth.data.user;
-  }
-
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: () => undefined,
-      },
-    }
-  );
-  const auth = await supabase.auth.getUser();
-  return auth.error ? null : auth.data.user;
-}
-
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ documentId: string }> }
 ) {
   try {
-    const user = await authenticatedUser(request);
-    if (!user) {
-      return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
-    }
-
     const { documentId } = await context.params;
-    const service = createServiceClient();
-    const documentResult = await service
-      .from('documentos')
-      .select(
-        'id,owner_id,workspace_id,participantes,storage_path,file_url,sealed_pdf_path,sealed_pdf_hash,file_hash_sha256,file_name,nombre,estado'
-      )
-      .eq('id', documentId)
-      .is('deleted_at', null)
-      .maybeSingle();
-
-    if (documentResult.error) throw documentResult.error;
-    const document = documentResult.data;
-    if (!document) {
-      return NextResponse.json({ error: 'Documento no encontrado.' }, { status: 404 });
-    }
-
-    const email = normalizeEmail(user.email);
-    const owner = document.owner_id === user.id;
-    let participant = isParticipant(document.participantes, user.id, email);
-    let workspaceManager = false;
-    let explicitPermission = false;
-
-    if (!owner && !participant) {
-      const participationById = await service
-        .from('participation_responses')
-        .select('id')
-        .eq('documento_id', document.id)
-        .eq('participante_id', user.id)
-        .limit(1)
-        .maybeSingle();
-      if (participationById.error) throw participationById.error;
-      participant = Boolean(participationById.data);
-
-      if (!participant && email) {
-        const participationByEmail = await service
-          .from('participation_responses')
-          .select('id')
-          .eq('documento_id', document.id)
-          .ilike('participante_email', email)
-          .limit(1)
-          .maybeSingle();
-        if (participationByEmail.error) throw participationByEmail.error;
-        participant = Boolean(participationByEmail.data);
-      }
-    }
-
-    if (!owner && !participant && document.workspace_id) {
-      const membership = await service
-        .from('workspace_members')
-        .select('role,status,access_expires_at')
-        .eq('workspace_id', document.workspace_id)
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .maybeSingle();
-      if (membership.error) throw membership.error;
-      const expiresAt = membership.data?.access_expires_at
-        ? new Date(membership.data.access_expires_at).getTime()
-        : null;
-      workspaceManager =
-        Boolean(membership.data) &&
-        ['owner', 'admin'].includes(String(membership.data?.role)) &&
-        (expiresAt === null || expiresAt > Date.now());
-    }
-
-    if (!owner && !participant && !workspaceManager) {
-      const permission = await service
-        .from('document_access_permissions')
-        .select('id')
-        .eq('document_id', document.id)
-        .or(`grantee_user_id.eq.${user.id},grantee_email.eq.${email}`)
-        .limit(1)
-        .maybeSingle();
-      if (permission.error) throw permission.error;
-      explicitPermission = Boolean(permission.data);
-    }
-
-    if (!owner && !participant && !workspaceManager && !explicitPermission) {
-      return NextResponse.json({ error: 'No tienes acceso a este documento.' }, { status: 403 });
-    }
-
-    const securityResult = await service
-      .from('document_security_settings')
-      .select('codigo_acceso_enabled')
-      .eq('documento_id', document.id)
-      .maybeSingle();
-    if (securityResult.error) throw securityResult.error;
-    const requiresAccessCode = securityResult.data?.codigo_acceso_enabled === true;
-    if (requiresAccessCode && !owner && !workspaceManager) {
-      const cookieStore = await cookies();
-      const accessToken = cookieStore.get(documentViewCookieName(document.id))?.value;
-      if (!hasDocumentViewAccess(accessToken, document.id, user.id)) {
-        return NextResponse.json(
-          {
-            error: 'Introduce el código de acceso para visualizar este documento.',
-            code: 'DOCUMENT_ACCESS_CODE_REQUIRED',
-          },
-          { status: 423, headers: privateErrorHeaders }
-        );
-      }
-    }
+    const access = await requireDocumentContentAccess(request, documentId);
+    const { service, document, user } = access;
 
     const requestedVariant = request.nextUrl.searchParams.get('variant') || 'original';
     const supportedVariants = new Set(['original', 'visual', 'certified', 'pades-bt', 'final']);
@@ -435,6 +287,12 @@ export async function GET(
     response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
     return response;
   } catch (error) {
+    if (error instanceof DocumentAccessError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status, headers: privateErrorHeaders },
+      );
+    }
     console.error('[DOCUBOX][viewer-file] No se pudo abrir el documento:', error);
     if (error instanceof DocumentEncryptionError) {
       return documentEncryptionResponse(error);

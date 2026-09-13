@@ -282,7 +282,7 @@ export const StepEnviar = forwardRef<
       try {
         const { data } = await supabase
           .from('document_security_settings')
-          .select('*')
+          .select('vencimiento_enabled,fecha_vencimiento,recordatorio_frecuencia,codigo_acceso_enabled,proteccion_adicional_enabled,legal_hold_enabled,impedir_impresion,evitar_copia_texto,impedir_modificacion,impedir_extraccion,evitar_montaje')
           .eq('documento_id', documentoId)
           .maybeSingle();
         if (data) {
@@ -620,6 +620,8 @@ export const StepEnviar = forwardRef<
           estampaAutenticacion: effectiveSecurity?.estampaAutenticacion ?? false,
           blockchainEvidence: true,
           vencimientoEnabled: effectiveSecurity?.vencimientoEnabled ?? false,
+          codigoAccesoEnabled: effectiveSecurity?.codigoAccesoEnabled ?? false,
+          codigoAcceso: effectiveSecurity?.codigoAcceso || null,
           fechaVencimiento: effectiveSecurity?.fechaVencimiento || null,
           fechaVencimientoTimezone: effectiveSecurity?.fechaVencimientoTimezone || null,
           recordatorioFrecuencia: effectiveSecurity?.recordatorioFrecuencia || null,
@@ -631,6 +633,9 @@ export const StepEnviar = forwardRef<
           evitarMontaje: effectiveSecurity?.evitarMontaje ?? false,
           legalHoldEnabled: effectiveSecurity?.legalHoldEnabled ?? false,
           legalHoldReason: effectiveSecurity?.legalHoldReason || null,
+          legalHoldCaseReference: effectiveSecurity?.legalHoldCaseReference || null,
+          legalHoldReviewAt: effectiveSecurity?.legalHoldReviewAt || null,
+          legalHoldNotes: effectiveSecurity?.legalHoldNotes || null,
           urgente: effectiveSecurity?.urgente ?? false,
           metadatosAdicionales: effectiveSecurity?.metadatosAdicionales ?? false,
           additionalMetadata: docConfig.additionalMetadata || [],

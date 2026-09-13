@@ -44,10 +44,17 @@ export interface SecuritySettings {
   legalHoldReason?:
     | 'litigio'
     | 'requerimiento_autoridad'
-    | 'auditoria_investigacion'
-    | 'prevencion_eliminacion'
+    | 'auditoria'
+    | 'investigacion_interna'
+    | 'controversia_contractual'
+    | 'cumplimiento_regulatorio_fiscal'
+    | 'solicitud_cliente'
+    | 'preservacion_preventiva'
     | 'otro'
     | '';
+  legalHoldCaseReference?: string;
+  legalHoldReviewAt?: string;
+  legalHoldNotes?: string;
   urgente?: boolean;
   publico?: boolean;
   selloDigital?: boolean;
@@ -58,6 +65,12 @@ export interface SecuritySettings {
   leyendasDocumento?: boolean;
   vencimientoSolicitud?: boolean;
   vencimientoCompletar?: boolean;
+  vencimientoPreset?: '24h' | '3d' | '7d' | '15d' | '30d' | 'personalizado';
+  fechaVencimientoPersonalizado?: string;
+  incluirHoraVencimiento?: boolean;
+  horaVencimiento?: string;
+  diasHabiles?: boolean;
+  recordatorioEnabled?: boolean;
 }
 
 export type CryptographicElementType =

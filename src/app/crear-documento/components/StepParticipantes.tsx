@@ -5,6 +5,7 @@ import { Users, User, UserCheck, UserPlus, Search, X, Mail, Smartphone, ChevronD
 import { InfoTooltip, FavoriteSearchableSelect } from './SharedComponents';
 import { createClient } from '@/lib/supabase/client';
 import type { Participant, ParticipantMode } from './types';
+import { reconcileParticipantsForMode, type CurrentUserIdentity } from './participant-mode';
 
 const PARTICIPANT_OPTIONS: { id: ParticipantMode; icon: React.ReactNode; title: string; description: string }[] = [
   { id: 'solo_yo', icon: <User size={36} strokeWidth={1.5} />, title: 'Solo yo', description: 'Tú eres el único participante.' },
@@ -564,7 +565,7 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
     if (alreadyAdded) return;
     // Block current user in solo_otros mode
     if (mode === 'solo_otros' && (p.id === currentUserId || (currentUserEmail && p.email && p.email.toLowerCase() === currentUserEmail.toLowerCase()))) return;
-    onAdd({ ...p, id: p.id.startsWith('search-') ? `participant-${Date.now()}` : p.id });
+    onAdd({ ...p, id: p.id.startsWith('search-') ? p.id.replace('search-', 'participant-') : p.id });
     onClose();
   };
 
@@ -811,17 +812,22 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
 
 // ─── Step 2: Participantes ────────────────────────────────────────────────────
 
-export function StepParticipantes({ participants, onChange, mode, onModeChange, onOrderChange, participationOrder: participationOrderProp = '', vencimientoSolicitudEnabled = false }: { participants: Participant[]; onChange: (p: Participant[]) => void; mode: ParticipantMode; onModeChange: (m: ParticipantMode) => void; onOrderChange?: (order: string) => void; participationOrder?: string; vencimientoSolicitudEnabled?: boolean }) {
+export function StepParticipantes({ participants, onChange, mode, onModeChange, onOrderChange, participationOrder: participationOrderProp = '', vencimientoSolicitudEnabled = false, currentUser }: { participants: Participant[]; onChange: React.Dispatch<React.SetStateAction<Participant[]>>; mode: ParticipantMode; onModeChange: (m: ParticipantMode) => void; onOrderChange?: (order: string) => void; participationOrder?: string; vencimientoSolicitudEnabled?: boolean; currentUser?: CurrentUserIdentity }) {
   const [participationOrder, setParticipationOrder] = useState(participationOrderProp);
   const [orderDropdownOpen, setOrderDropdownOpen] = useState(false);
   const [configuringParticipant, setConfiguringParticipant] = useState<Participant | null>(null);
   const [añadirParticipantesOpen, setAñadirParticipantesOpen] = useState(false);
   const [openInviteDirectly, setOpenInviteDirectly] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const [userId, setUserId] = useState<string | undefined>(undefined);
-  const [currentUserEmail, setCurrentUserEmail] = useState<string | undefined>(undefined);
-  const [currentUserName, setCurrentUserName] = useState<string>('');
+  const [userId, setUserId] = useState<string | undefined>(currentUser?.id);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | undefined>(currentUser?.email);
+  const [currentUserName, setCurrentUserName] = useState<string>(currentUser?.name || '');
   const dragIndexRef = useRef<number | null>(null);
+  const modeRef = useRef(mode);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   // Load userId once on mount
   useEffect(() => {
@@ -859,18 +865,13 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
           }
         }
         setCurrentUserName(resolvedName);
-        // Update existing current-user participant in the list if already added
-        if (resolvedName) {
-          onChange(
-            participants.map((p) => {
-              if (p.id === 'current-user') {
-                const displayName = `${resolvedName} (Tú)`;
-                return { ...p, name: displayName };
-              }
-              return p;
-            })
-          );
-        }
+        onChange((currentParticipants) =>
+          reconcileParticipantsForMode(currentParticipants, modeRef.current, {
+            id: session.user.id,
+            name: resolvedName,
+            email: session.user.email,
+          })
+        );
       }
     };
     loadUser();
@@ -881,22 +882,35 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
 
   const handleModeChange = (newMode: ParticipantMode) => {
     onModeChange(newMode);
-    const creatorName = currentUserName
-      ? `${currentUserName} (Tú)`
-      : currentUserEmail
-      ? `${currentUserEmail} (Tú)`
-      : '(Tú)';
-    const creatorEmail = currentUserEmail || '';
+    modeRef.current = newMode;
     if (newMode === 'solo_yo') {
-      onChange([{ id: 'current-user', name: creatorName, email: creatorEmail, role: 'firmante' }]);
+      onChange((currentParticipants) =>
+        reconcileParticipantsForMode(currentParticipants, newMode, {
+          id: userId,
+          name: currentUserName,
+          email: currentUserEmail,
+        })
+      );
       setParticipationOrder('paralelo');
       onOrderChange?.('paralelo');
     } else if (newMode === 'yo_y_otros') {
-      onChange([{ id: 'current-user', name: creatorName, email: creatorEmail, role: 'firmante' }]);
+      onChange((currentParticipants) =>
+        reconcileParticipantsForMode(currentParticipants, newMode, {
+          id: userId,
+          name: currentUserName,
+          email: currentUserEmail,
+        })
+      );
       setParticipationOrder('');
       onOrderChange?.('');
     } else {
-      onChange([]);
+      onChange((currentParticipants) =>
+        reconcileParticipantsForMode(currentParticipants, newMode, {
+          id: userId,
+          name: currentUserName,
+          email: currentUserEmail,
+        })
+      );
       setParticipationOrder('');
       onOrderChange?.('');
     }

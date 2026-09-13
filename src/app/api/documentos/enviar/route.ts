@@ -19,6 +19,12 @@ import {
   encryptAndUploadDocumentObject,
   readDocumentStorageObject,
 } from '@/lib/crypto/document-encryption';
+import {
+  activateLegalHold,
+  LEGAL_HOLD_REASON_LABELS,
+  type LegalHoldReasonCode,
+} from '@/lib/documents/legal-hold';
+import { requestFingerprint } from '@/lib/security/document-view-access';
 
 type OrganizationGovernance = {
   workflow: Record<string, any> | null;
@@ -41,16 +47,10 @@ const ADDITIONAL_METADATA_TYPES = new Set([
   'reference',
 ]);
 
-const LEGAL_HOLD_REASONS = new Set([
-  'litigio',
-  'requerimiento_autoridad',
-  'auditoria_investigacion',
-  'prevencion_eliminacion',
-  'otro',
-]);
-
 function getLegalHoldReason(value: unknown) {
-  return typeof value === 'string' && LEGAL_HOLD_REASONS.has(value) ? value : null;
+  return typeof value === 'string' && value in LEGAL_HOLD_REASON_LABELS
+    ? (value as LegalHoldReasonCode)
+    : null;
 }
 
 type NormalizedAdditionalMetadata = {
@@ -350,6 +350,8 @@ export async function POST(req: NextRequest) {
       selloUbicacion,
       estampaAutenticacion,
       vencimientoEnabled,
+      codigoAccesoEnabled,
+      codigoAcceso,
       fechaVencimiento,
       fechaVencimientoTimezone,
       recordatorioFrecuencia,
@@ -361,6 +363,9 @@ export async function POST(req: NextRequest) {
       evitarMontaje,
       legalHoldEnabled,
       legalHoldReason,
+      legalHoldCaseReference,
+      legalHoldReviewAt,
+      legalHoldNotes,
       urgente,
       metadatosAdicionales,
       additionalMetadata,
@@ -423,14 +428,23 @@ export async function POST(req: NextRequest) {
 
     let legalHoldAlreadyActive = false;
     if (requestedLegalHold) {
-      const existing = await supabaseAdmin
+      const existingDocument = await supabaseAdmin
         .from('documentos')
-        .select('legal_hold,legal_hold_status')
+        .select('id')
         .eq('documento_id', documentoId)
         .maybeSingle();
+      if (existingDocument.error) throw existingDocument.error;
+      const existing = existingDocument.data
+        ? await supabaseAdmin
+            .from('document_legal_holds')
+            .select('id')
+            .eq('document_id', existingDocument.data.id)
+            .eq('status', 'ACTIVE')
+            .limit(1)
+            .maybeSingle()
+        : { data: null, error: null };
       if (existing.error) throw existing.error;
-      legalHoldAlreadyActive =
-        existing.data?.legal_hold === true || existing.data?.legal_hold_status === 'ACTIVE';
+      legalHoldAlreadyActive = Boolean(existing.data);
     }
 
     let normalizedAdditionalMetadata: NormalizedAdditionalMetadata[];
@@ -641,6 +655,7 @@ export async function POST(req: NextRequest) {
       etiquetas_ids: etiquetasIds || [],
       estado: 'en_proceso',
       tiene_vencimiento: vencimientoEnabled === true,
+      tiene_codigo_acceso: codigoAccesoEnabled === true,
       fecha_vencimiento: expirationAt,
       fecha_vencimiento_timezone:
         expirationAt && typeof fechaVencimientoTimezone === 'string'
@@ -668,17 +683,6 @@ export async function POST(req: NextRequest) {
     };
     if (hasAdditionalMetadata) {
       documentRecord.additional_metadata = normalizedAdditionalMetadata;
-    }
-    if (requestedLegalHold && !legalHoldAlreadyActive) {
-      const now = new Date().toISOString();
-      documentRecord.legal_hold = true;
-      documentRecord.legal_hold_status = 'ACTIVE';
-      documentRecord.legal_hold_reason = validLegalHoldReason;
-      documentRecord.legal_hold_created_at = now;
-      documentRecord.legal_hold_created_by = user.id;
-      documentRecord.legal_hold_released_at = null;
-      documentRecord.legal_hold_released_by = null;
-      documentRecord.legal_hold_release_reason = null;
     }
     if (governance) {
       documentRecord.organization_workflow_id = governance.workflow?.id || null;
@@ -713,37 +717,37 @@ export async function POST(req: NextRequest) {
 
     const dbDocumentId = docRow.id;
 
-    if (requestedLegalHold && !legalHoldAlreadyActive) {
-      const { error: auditError } = await supabaseAdmin
-        .from('document_lifecycle_audit_events')
-        .insert({
-          workspace_id: resolvedWorkspaceId,
-          document_id: dbDocumentId,
-          actor_id: user.id,
-          actor_email: user.email || null,
-          action: 'LEGAL_HOLD_ACTIVATED',
-          previous_state: { legal_hold: false, legal_hold_status: 'NONE' },
-          new_state: {
-            legal_hold: true,
-            legal_hold_status: 'ACTIVE',
-            reason: validLegalHoldReason,
-          },
-          reason: validLegalHoldReason,
-          result: 'success',
-          request_id: req.headers.get('x-request-id') || randomUUID(),
-          ip_address: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
-          user_agent: req.headers.get('user-agent') || null,
-        });
-      if (auditError) {
-        console.error('[DOCUBOX][enviar] Legal Hold audit failed:', auditError.message);
-        return NextResponse.json(
-          {
-            error: 'No fue posible registrar la auditoría de Legal Hold.',
-            code: 'LEGAL_HOLD_AUDIT_FAILED',
-          },
-          { status: 500 }
-        );
+    if (codigoAccesoEnabled === true && typeof codigoAcceso === 'string' && codigoAcceso) {
+      const fingerprint = requestFingerprint(req);
+      const protection = await supabaseAdmin.rpc('configure_document_view_access', {
+        p_document_id: dbDocumentId,
+        p_tenant_id: resolvedWorkspaceId || user.id,
+        p_document_owner_id: user.id,
+        p_actor_id: user.id,
+        p_actor_email: user.email || null,
+        p_code: codigoAcceso,
+        p_request_id: fingerprint.requestId,
+        p_ip_address: fingerprint.ip === 'unknown' ? null : fingerprint.ip,
+        p_user_agent: fingerprint.userAgent,
+      });
+      if (protection.error) {
+        return NextResponse.json({ error: 'No se pudo configurar el código de acceso.' }, { status: 500 });
       }
+    }
+
+    if (requestedLegalHold && !legalHoldAlreadyActive) {
+      await activateLegalHold({
+        service: supabaseAdmin,
+        documentId: dbDocumentId,
+        actor: user,
+        request: req,
+        hold: {
+          reasonCode: validLegalHoldReason!,
+          caseReference: legalHoldCaseReference,
+          notes: legalHoldNotes,
+          reviewAt: legalHoldReviewAt || null,
+        },
+      });
     }
 
     const documentMetadataSnapshot = normalizedAdditionalMetadata

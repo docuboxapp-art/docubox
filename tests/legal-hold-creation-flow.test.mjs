@@ -17,14 +17,13 @@ test('Legal Hold is configurable during document creation with a mandatory class
 
 test('draft persistence rejects an unclassified Legal Hold request and records its activation', () => {
   assert.match(draftRoute, /LEGAL_HOLD_REASON_REQUIRED/);
-  assert.match(draftRoute, /legal_hold_status = 'ACTIVE'/);
-  assert.match(draftRoute, /action: 'LEGAL_HOLD_ACTIVATED'/);
-  assert.match(draftRoute, /document_lifecycle_audit_events/);
+  assert.match(draftRoute, /activateLegalHold/);
+  assert.match(draftRoute, /document_legal_holds/);
 });
 
 test('sending a document keeps Legal Hold server-side and audit-backed', () => {
   assert.match(sendRoute, /LEGAL_HOLD_REASON_REQUIRED/);
-  assert.match(sendRoute, /documentRecord\.legal_hold = true/);
-  assert.match(sendRoute, /action: 'LEGAL_HOLD_ACTIVATED'/);
+  assert.match(sendRoute, /activateLegalHold/);
+  assert.match(sendRoute, /document_legal_holds/);
   assert.match(sendRoute, /legalHoldAlreadyActive/);
 });

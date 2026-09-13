@@ -1540,7 +1540,7 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
     const load = async () => {
       const { data } = await supabase
         .from('document_security_settings')
-        .select('*')
+        .select('vencimiento_enabled,fecha_vencimiento,recordatorio_frecuencia,codigo_acceso_enabled,proteccion_adicional_enabled,proteccion_participacion_enabled,impedir_impresion,evitar_copia_texto,impedir_modificacion,impedir_extraccion,evitar_montaje,legal_hold_enabled')
         .eq('documento_id', documentoId)
         .maybeSingle();
       if (data) {
@@ -1549,7 +1549,7 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
           fechaVencimiento: data.fecha_vencimiento ?? '',
           recordatorioFrecuencia: data.recordatorio_frecuencia ?? '',
           codigoAccesoEnabled: data.codigo_acceso_enabled ?? false,
-          codigoAcceso: data.codigo_acceso ?? '',
+          codigoAcceso: '',
           proteccionAdicionalEnabled: data.proteccion_adicional_enabled ?? false,
           impedirImpresion: data.impedir_impresion ?? false,
           evitarCopiaTexto: data.evitar_copia_texto ?? false,
@@ -1606,8 +1606,6 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
           vencimiento_enabled: s.vencimientoEnabled,
           fecha_vencimiento: s.fechaVencimiento || null,
           recordatorio_frecuencia: s.recordatorioFrecuencia || null,
-          codigo_acceso_enabled: s.codigoAccesoEnabled,
-          codigo_acceso: s.codigoAcceso || null,
           proteccion_adicional_enabled: s.proteccionAdicionalEnabled,
           proteccion_participacion_enabled: s.proteccionParticipacionEnabled ?? false,
           impedir_impresion: s.impedirImpresion,

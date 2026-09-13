@@ -172,7 +172,14 @@ export async function GET(
       );
     }
 
-    const documentUrl = document.es_publico
+    const protection = await supabase
+      .from('document_security_settings')
+      .select('codigo_acceso_enabled')
+      .eq('documento_id', document.id)
+      .maybeSingle();
+    if (protection.error) throw protection.error;
+    const isViewProtected = protection.data?.codigo_acceso_enabled === true;
+    const documentUrl = document.es_publico && !isViewProtected
       ? await createTemporaryDocumentUrl(supabase, document)
       : null;
     const verificationHash =

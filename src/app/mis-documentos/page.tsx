@@ -22,6 +22,7 @@ import {
   FolderOpen,
   Share2,
   Lock,
+  ShieldCheck,
   Move,
   Eye,
   ChevronRight,
@@ -283,6 +284,7 @@ interface Document {
   canCancel?: boolean;
   canDirectPurge?: boolean;
   legalHoldActive?: boolean;
+  legalHoldHistory?: boolean;
   lifecycleBlockingCode?: string | null;
 }
 
@@ -400,6 +402,7 @@ interface ContextMenuState {
   canCancel: boolean;
   canDirectPurge: boolean;
   legalHoldActive: boolean;
+  legalHoldHistory: boolean;
   lifecycleBlockingCode: string | null;
   x: number;
   y: number;
@@ -641,6 +644,7 @@ function mapDocRow(d: any): Document {
     canCancel: d.can_cancel === true,
     canDirectPurge: d.can_direct_purge === true,
     legalHoldActive: d.legal_hold_active === true,
+    legalHoldHistory: d.legal_hold_history === true,
     lifecycleBlockingCode: d.lifecycle_blocking_code || null,
   };
 }
@@ -2043,6 +2047,7 @@ function MisDocumentosContent() {
     canCancel: false,
     canDirectPurge: false,
     legalHoldActive: false,
+    legalHoldHistory: false,
     lifecycleBlockingCode: null,
     x: 0,
     y: 0,
@@ -2286,6 +2291,7 @@ function MisDocumentosContent() {
       canCancel: doc.canCancel === true,
       canDirectPurge: doc.canDirectPurge === true,
       legalHoldActive: doc.legalHoldActive === true,
+      legalHoldHistory: doc.legalHoldHistory === true,
       lifecycleBlockingCode: doc.lifecycleBlockingCode || null,
       x: rect.right,
       y: rect.bottom,
@@ -2763,18 +2769,28 @@ function MisDocumentosContent() {
       setConfidentialModal((prev) => ({ ...prev, error: 'La contraseña es obligatoria.' }));
       return;
     }
+    if (confidentialModal.password.length < 8) {
+      setConfidentialModal((prev) => ({ ...prev, error: 'El código debe tener al menos 8 caracteres.' }));
+      return;
+    }
     if (confidentialModal.password !== confidentialModal.confirmPassword) {
       setConfidentialModal((prev) => ({ ...prev, error: 'Las contraseñas no coinciden.' }));
       return;
     }
     setConfidentialModal((prev) => ({ ...prev, saving: true, error: '' }));
     const supabase = createClient();
-    const { error } = await supabase
-      .from('documentos')
-      .update({ tiene_codigo_acceso: true, codigo_acceso_hash: confidentialModal.password })
-      .eq('id', confidentialModal.docId)
-      .eq('owner_id', user.id);
-    if (error) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = session
+      ? await fetch(`/api/documentos/${confidentialModal.docId}/view-access`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({
+            code: confidentialModal.password,
+            confirmation: confidentialModal.confirmPassword,
+          }),
+        })
+      : null;
+    if (!response?.ok) {
       setConfidentialModal((prev) => ({
         ...prev,
         saving: false,
@@ -2782,6 +2798,11 @@ function MisDocumentosContent() {
       }));
       return;
     }
+    await supabase
+      .from('documentos')
+      .update({ tiene_codigo_acceso: true })
+      .eq('id', confidentialModal.docId)
+      .eq('owner_id', user.id);
     setConfidentialModal({
       open: false,
       docId: null,
@@ -5412,6 +5433,20 @@ function MisDocumentosContent() {
         >
           <Lock size={15} className="text-muted-foreground" />
           Modo Confidencial
+        </button>
+        <button
+          onClick={() => {
+            if (contextMenu.docId) {
+              router.push(
+                `/visor-documento/${contextMenu.docId}?tab=legal-hold${contextMenu.legalHoldHistory ? '' : '&action=activate'}`
+              );
+            }
+            closeContextMenu();
+          }}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+        >
+          <ShieldCheck size={15} className="text-muted-foreground" />
+          {contextMenu.legalHoldHistory ? 'Gestionar Legal Hold' : 'Activar Legal Hold'}
         </button>
         <div className="border-t border-border my-1" />
         {contextMenu.legalHoldActive ? (

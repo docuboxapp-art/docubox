@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireDocumentAccess, documentAccessResponse } from '@/lib/security/document-access';
+import { documentAccessResponse } from '@/lib/security/document-access';
+import { requireDocumentContentAccess } from '@/lib/security/document-content-access';
 import { createEvidencePackageZipStream } from '@/lib/evidence-v2/evidence-package';
 
 export const runtime = 'nodejs';
@@ -16,7 +17,7 @@ export async function GET(
 ) {
   try {
     const { documentId } = await context.params;
-    const { document, service } = await requireDocumentAccess(request, documentId);
+    const { document, service } = await requireDocumentContentAccess(request, documentId);
     const result = await createEvidencePackageZipStream(service, documentId);
     const folio = safeName(String(document.documento_id || result.package.package_id));
     return new NextResponse(result.stream, {

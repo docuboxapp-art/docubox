@@ -2,6 +2,7 @@ import type { User } from '@supabase/supabase-js';
 import type { NextRequest } from 'next/server';
 import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
 import { canAccessParticipantDocument } from '@/lib/documents/participant-visibility';
+import { authSessionId } from '@/lib/security/document-view-access';
 
 export class DocumentAccessError extends Error {
   constructor(
@@ -18,7 +19,7 @@ type DocumentAccessOptions = {
   requireEdit?: boolean;
 };
 
-function bearerToken(request: NextRequest) {
+export function bearerToken(request: NextRequest) {
   const authorization = request.headers.get('authorization');
   return authorization?.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
 }
@@ -51,12 +52,17 @@ export async function requireDocumentAccess(
   if (document.workspace_id) {
     const { data: membership } = await service
       .from('workspace_members')
-      .select('role')
+      .select('role,status,access_expires_at')
       .eq('workspace_id', document.workspace_id)
       .eq('user_id', user.id)
+      .eq('status', 'active')
       .in('role', ['owner', 'admin'])
       .maybeSingle();
-    isWorkspaceManager = Boolean(membership);
+    const membershipExpiresAt = membership?.access_expires_at
+      ? new Date(membership.access_expires_at).getTime()
+      : null;
+    isWorkspaceManager = Boolean(membership)
+      && (membershipExpiresAt === null || membershipExpiresAt > Date.now());
   }
 
   if (options.ownerOrAdminOnly) {
@@ -64,7 +70,7 @@ export async function requireDocumentAccess(
       throw new DocumentAccessError('DOCUMENT_ACCESS_DENIED', 'No tienes permisos para generar este artefacto.', 403);
     }
     const role: 'OWNER' | 'WORKSPACE_ADMIN' = isOwner ? 'OWNER' : 'WORKSPACE_ADMIN';
-    return { user, document, service, role };
+    return { user, document, service, role, accessToken: token, authSessionId: authSessionId(token) };
   }
 
   const normalizedEmail = user.email.trim().toLowerCase();
@@ -125,7 +131,16 @@ export async function requireDocumentAccess(
     : isWorkspaceManager
       ? 'WORKSPACE_ADMIN'
       : 'AUTHORIZED';
-  return { user: user as User, document, service, role, explicitPermission, canEdit };
+  return {
+    user: user as User,
+    document,
+    service,
+    role,
+    explicitPermission,
+    canEdit,
+    accessToken: token,
+    authSessionId: authSessionId(token),
+  };
 }
 
 export function documentAccessResponse(error: unknown) {

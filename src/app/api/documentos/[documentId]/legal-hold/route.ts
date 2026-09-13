@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createNotificationsForUsersServer } from '@/lib/notificationsInApp.server';
+import {
+  activateLegalHold,
+  listLegalHolds,
+  parseLegalHoldInput,
+  releaseLegalHold,
+  updateLegalHold,
+} from '@/lib/documents/legal-hold';
 import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
 const privateHeaders = { 'Cache-Control': 'private, no-store, max-age=0' };
-const LEGAL_HOLD_REASONS = new Set([
-  'litigio',
-  'requerimiento_autoridad',
-  'auditoria_investigacion',
-  'prevencion_eliminacion',
-  'otro',
-]);
-
-function validReason(value: unknown) {
-  return typeof value === 'string' && LEGAL_HOLD_REASONS.has(value);
-}
 
 function documentAudience(document: Record<string, unknown>, actorId: string) {
   const participants = Array.isArray(document.participantes) ? document.participantes : [];
@@ -25,18 +20,16 @@ function documentAudience(document: Record<string, unknown>, actorId: string) {
       [
         document.owner_id,
         ...participants.map((participant: Record<string, unknown>) => participant.user_id),
-      ].filter((userId): userId is string => typeof userId === 'string' && userId !== actorId)
+      ].filter((id): id is string => typeof id === 'string' && id !== actorId)
     ),
   ];
 }
 
-function notifyAudience(
+function notify(
   document: Record<string, unknown>,
   actorId: string,
   eventType: 'document.legal_hold.applied' | 'document.legal_hold.released',
-  title: string,
-  description: string,
-  reason: string
+  title: string
 ) {
   const recipients = documentAudience(document, actorId);
   if (!recipients.length) return;
@@ -44,49 +37,105 @@ function notifyAudience(
     type: eventType === 'document.legal_hold.applied' ? 'alert' : 'document',
     eventType,
     title,
-    description,
+    description: `Se actualizó la conservación legal de "${String(document.nombre || 'Sin nombre')}".`,
     workspaceId: typeof document.workspace_id === 'string' ? document.workspace_id : null,
     actorUserId: actorId,
     entityType: 'document',
-    entityId: typeof document.id === 'string' ? document.id : null,
-    actionUrl: `/visor-documento/${String(document.id)}`,
-    actionLabel: 'Ver documento',
-    metadata: { documentoId: document.id, reason },
-    deduplicationKey: `${eventType}:${String(document.id)}:${new Date().toISOString()}`,
-  }).catch((error) => {
-    console.error('[legal-hold] Notification could not be created', {
-      documentId: document.id,
-      code: error instanceof Error ? error.message : 'NOTIFICATION_FAILED',
-    });
-  });
+    entityId: String(document.id),
+    actionUrl: `/visor-documento/${String(document.id)}?tab=legal-hold`,
+    actionLabel: 'Ver Legal Hold',
+    metadata: { documentoId: document.id },
+    deduplicationKey: `${eventType}:${String(document.id)}:${Date.now()}`,
+  }).catch((error) => console.error('[legal-hold] Notification failed', error));
 }
 
-async function audit(
-  service: Awaited<ReturnType<typeof requireDocumentAccess>>['service'],
-  request: NextRequest,
-  document: Record<string, unknown>,
-  actor: { id: string; email?: string | null },
-  action: string,
-  reason: string
-) {
-  const { error } = await service.from('document_lifecycle_audit_events').insert({
-    workspace_id: document.workspace_id || null,
-    document_id: document.id,
-    actor_id: actor.id,
-    actor_email: actor.email || null,
-    action,
-    previous_state: {
-      legal_hold: Boolean(document.legal_hold),
-      legal_hold_status: document.legal_hold_status || 'NONE',
+function apiError(error: unknown, fallback: string) {
+  const access = documentAccessResponse(error);
+  if (access.status !== 500) {
+    return NextResponse.json(access.body, { status: access.status, headers: privateHeaders });
+  }
+  const message = error instanceof Error ? error.message : '';
+  const conflict = message.includes('DESTRUCTION_STARTED') || message.includes('PURGING');
+  console.error('[legal-hold]', { code: message || fallback });
+  return NextResponse.json(
+    {
+      error: conflict ? 'La destrucción del documento ya inició.' : fallback,
+      code: conflict ? 'DOCUMENT_DESTRUCTION_STARTED' : 'LEGAL_HOLD_OPERATION_FAILED',
     },
-    new_state: { legal_hold: action === 'LEGAL_HOLD_ACTIVATED', reason },
-    reason,
-    result: 'success',
-    request_id: request.headers.get('x-request-id') || null,
-    ip_address: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
-    user_agent: request.headers.get('user-agent') || null,
-  });
-  if (error) throw error;
+    { status: conflict ? 409 : 500, headers: privateHeaders }
+  );
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ documentId: string }> }
+) {
+  try {
+    const { documentId } = await params;
+    const access = await requireDocumentAccess(request, documentId);
+    const holds = await listLegalHolds(access.service, documentId);
+    const canManage = access.role === 'OWNER' || access.role === 'WORKSPACE_ADMIN';
+    const actorIds = [
+      ...new Set(
+        holds
+          .flatMap((hold) => [hold.activated_by, hold.released_by])
+          .filter((id): id is string => Boolean(id))
+      ),
+    ];
+    const profiles = actorIds.length
+      ? await access.service.from('user_profiles').select('id,full_name,email').in('id', actorIds)
+      : { data: [], error: null };
+    if (profiles.error) throw profiles.error;
+    const profileById = new Map((profiles.data || []).map((profile) => [profile.id, profile]));
+    const activity = await access.service
+      .from('document_lifecycle_audit_events')
+      .select('id,action,actor_id,actor_email,reason,metadata,created_at')
+      .eq('document_id', documentId)
+      .in('action', ['LEGAL_HOLD_ACTIVATED', 'LEGAL_HOLD_UPDATED', 'LEGAL_HOLD_RELEASED'])
+      .order('created_at', { ascending: false });
+    if (activity.error) throw activity.error;
+    return NextResponse.json(
+      {
+        hasHistory: holds.length > 0,
+        activeCount: holds.filter((hold) => hold.status === 'ACTIVE').length,
+        canViewDetails: canManage,
+        canCreate: canManage,
+        canUpdate: canManage,
+        canRelease: canManage,
+        holds: canManage
+          ? holds.map((hold) => ({
+              ...hold,
+              activated_by_name:
+                profileById.get(hold.activated_by)?.full_name ||
+                profileById.get(hold.activated_by)?.email ||
+                'Usuario autorizado',
+              released_by_name: hold.released_by
+                ? profileById.get(hold.released_by)?.full_name ||
+                  profileById.get(hold.released_by)?.email ||
+                  'Usuario autorizado'
+                : null,
+            }))
+          : holds.map((hold) => ({
+              id: hold.id,
+              status: hold.status,
+              activated_at: hold.activated_at,
+              released_at: hold.released_at,
+            })),
+        events: (activity.data || []).map((event) =>
+          canManage
+            ? event
+            : {
+                id: event.id,
+                action: event.action,
+                created_at: event.created_at,
+              }
+        ),
+      },
+      { headers: privateHeaders }
+    );
+  } catch (error) {
+    return apiError(error, 'No fue posible consultar Legal Hold.');
+  }
 }
 
 export async function POST(
@@ -96,64 +145,67 @@ export async function POST(
   try {
     const { documentId } = await params;
     const body = await request.json().catch(() => null);
-    if (!validReason(body?.reason)) {
+    const holdInput = parseLegalHoldInput(body);
+    if (!holdInput) {
       return NextResponse.json(
-        {
-          error: 'Selecciona un motivo válido para Legal Hold.',
-          code: 'LEGAL_HOLD_REASON_REQUIRED',
-        },
+        { error: 'Completa un motivo válido y revisa las fechas.', code: 'LEGAL_HOLD_INVALID' },
         { status: 400, headers: privateHeaders }
       );
     }
     const access = await requireDocumentAccess(request, documentId, { ownerOrAdminOnly: true });
-    const document = access.document as Record<string, unknown>;
-    if (document.legal_hold === true || document.legal_hold_status === 'ACTIVE') {
-      return NextResponse.json({ ok: true, status: 'ACTIVE' }, { headers: privateHeaders });
-    }
-    const now = new Date().toISOString();
-    const { error } = await access.service
-      .from('documentos')
-      .update({
-        legal_hold: true,
-        legal_hold_status: 'ACTIVE',
-        legal_hold_reason: body.reason,
-        legal_hold_created_at: now,
-        legal_hold_created_by: access.user.id,
-        legal_hold_released_at: null,
-        legal_hold_released_by: null,
-        legal_hold_release_reason: null,
-      })
-      .eq('id', documentId);
-    if (error) throw error;
-    await audit(
-      access.service,
+    const hold = await activateLegalHold({
+      service: access.service,
+      documentId,
+      actor: access.user,
+      hold: holdInput,
       request,
-      document,
-      access.user,
-      'LEGAL_HOLD_ACTIVATED',
-      body.reason
-    );
-    notifyAudience(
-      document,
+    });
+    notify(
+      access.document as Record<string, unknown>,
       access.user.id,
       'document.legal_hold.applied',
-      'Legal Hold activado',
-      `El documento "${String(document.nombre || 'Sin nombre')}" quedó protegido contra eliminación.`,
-      body.reason
+      'Legal Hold activado'
     );
-    return NextResponse.json({ ok: true, status: 'ACTIVE' }, { headers: privateHeaders });
+    return NextResponse.json({ ok: true, hold }, { status: 201, headers: privateHeaders });
   } catch (error) {
-    const access = documentAccessResponse(error);
-    if (access.status !== 500) {
-      return NextResponse.json(access.body, { status: access.status, headers: privateHeaders });
+    return apiError(error, 'No fue posible activar Legal Hold.');
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ documentId: string }> }
+) {
+  try {
+    const { documentId } = await params;
+    const body = await request.json().catch(() => null);
+    const holdInput = parseLegalHoldInput(body);
+    if (!holdInput || typeof body?.holdId !== 'string') {
+      return NextResponse.json(
+        { error: 'La información de Legal Hold no es válida.', code: 'LEGAL_HOLD_INVALID' },
+        { status: 400, headers: privateHeaders }
+      );
     }
-    console.error('[legal-hold] Activation failed', {
-      code: error instanceof Error ? error.message : 'LEGAL_HOLD_FAILED',
-    });
-    return NextResponse.json(
-      { error: 'No fue posible activar Legal Hold.', code: 'LEGAL_HOLD_ACTIVATION_FAILED' },
-      { status: 500, headers: privateHeaders }
+    const access = await requireDocumentAccess(request, documentId, { ownerOrAdminOnly: true });
+    const existing = (await listLegalHolds(access.service, documentId)).find(
+      (hold) => hold.id === body.holdId
     );
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Legal Hold no encontrado.', code: 'LEGAL_HOLD_NOT_FOUND' },
+        { status: 404, headers: privateHeaders }
+      );
+    }
+    const hold = await updateLegalHold({
+      service: access.service,
+      holdId: body.holdId,
+      actor: access.user,
+      hold: holdInput,
+      request,
+    });
+    return NextResponse.json({ ok: true, hold }, { headers: privateHeaders });
+  } catch (error) {
+    return apiError(error, 'No fue posible actualizar Legal Hold.');
   }
 }
 
@@ -164,53 +216,42 @@ export async function DELETE(
   try {
     const { documentId } = await params;
     const body = await request.json().catch(() => null);
-    if (!validReason(body?.reason) || body?.confirmation !== 'LIBERAR') {
+    const reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
+    if (typeof body?.holdId !== 'string' || !reason || body?.confirmation !== 'LIBERAR') {
       return NextResponse.json(
         {
-          error: 'Confirma la liberación y selecciona un motivo válido.',
+          error: 'Confirma la liberación e indica el motivo.',
           code: 'LEGAL_HOLD_RELEASE_CONFIRMATION_REQUIRED',
         },
         { status: 400, headers: privateHeaders }
       );
     }
     const access = await requireDocumentAccess(request, documentId, { ownerOrAdminOnly: true });
-    const document = access.document as Record<string, unknown>;
-    if (document.legal_hold !== true && document.legal_hold_status !== 'ACTIVE') {
-      return NextResponse.json({ ok: true, status: 'NONE' }, { headers: privateHeaders });
+    const existing = (await listLegalHolds(access.service, documentId)).find(
+      (hold) => hold.id === body.holdId
+    );
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Legal Hold no encontrado.', code: 'LEGAL_HOLD_NOT_FOUND' },
+        { status: 404, headers: privateHeaders }
+      );
     }
-    const now = new Date().toISOString();
-    const { error } = await access.service
-      .from('documentos')
-      .update({
-        legal_hold: false,
-        legal_hold_status: 'RELEASED',
-        legal_hold_released_at: now,
-        legal_hold_released_by: access.user.id,
-        legal_hold_release_reason: body.reason,
-      })
-      .eq('id', documentId);
-    if (error) throw error;
-    await audit(access.service, request, document, access.user, 'LEGAL_HOLD_RELEASED', body.reason);
-    notifyAudience(
-      document,
+    const hold = await releaseLegalHold({
+      service: access.service,
+      holdId: body.holdId,
+      actor: access.user,
+      reason,
+      notes: typeof body.notes === 'string' ? body.notes : null,
+      request,
+    });
+    notify(
+      access.document as Record<string, unknown>,
       access.user.id,
       'document.legal_hold.released',
-      'Legal Hold liberado',
-      `La protección Legal Hold del documento "${String(document.nombre || 'Sin nombre')}" fue liberada.`,
-      body.reason
+      'Legal Hold liberado'
     );
-    return NextResponse.json({ ok: true, status: 'RELEASED' }, { headers: privateHeaders });
+    return NextResponse.json({ ok: true, hold }, { headers: privateHeaders });
   } catch (error) {
-    const access = documentAccessResponse(error);
-    if (access.status !== 500) {
-      return NextResponse.json(access.body, { status: access.status, headers: privateHeaders });
-    }
-    console.error('[legal-hold] Release failed', {
-      code: error instanceof Error ? error.message : 'LEGAL_HOLD_RELEASE_FAILED',
-    });
-    return NextResponse.json(
-      { error: 'No fue posible liberar Legal Hold.', code: 'LEGAL_HOLD_RELEASE_FAILED' },
-      { status: 500, headers: privateHeaders }
-    );
+    return apiError(error, 'No fue posible liberar Legal Hold.');
   }
 }

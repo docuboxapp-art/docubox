@@ -19,6 +19,7 @@ import {
   Search,
   Star,
   X,
+  ChevronDown,
   ChevronRight,
   Layers,
   Plus,
@@ -1825,12 +1826,11 @@ const ADDITIONAL_METADATA_SCOPE_COPY: Record<
 > = {
   document: {
     title: 'Metadato del documento',
-    description: 'Se vincula a la versión del documento y queda bloqueado al iniciar la firma.',
+    description: 'Se integra a la evidencia del documento y queda fijo al iniciar la firma.',
   },
   management: {
     title: 'Metadato de gestión',
-    description:
-      'Sirve para organización interna; puede actualizarse después sin alterar el PDF firmado.',
+    description: 'Sirve para clasificar y administrar el documento sin modificar el PDF.',
   },
 };
 
@@ -1971,7 +1971,7 @@ function AdditionalMetadataModal({
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-          <p className="mb-2 text-xs font-medium text-slate-700">Selecciona el tipo de metadato</p>
+          <p className="mb-2 text-xs font-medium text-slate-700">Selecciona dónde se utilizará el metadato</p>
           <div
             className="grid gap-2.5 sm:grid-cols-2"
             role="radiogroup"
@@ -1996,11 +1996,11 @@ function AdditionalMetadataModal({
                       >
                         {scope === 'document' ? <Lock size={14} /> : <Folder size={14} />}
                       </span>
-                      <span className="text-sm font-semibold text-slate-900">
+                      <span className="text-[13px] font-medium text-slate-900">
                         {copy.title}
                       </span>
                     </span>
-                    <span className="mt-1 block text-[12px] leading-4 text-slate-500">
+                    <span className="mt-1 block !text-[11px] !font-normal leading-[14px] text-slate-500">
                       {copy.description}
                     </span>
                   </button>
@@ -2323,12 +2323,14 @@ function SecurityConfigurationModal({
   description,
   onSave,
   onClose,
+  saveDisabled = false,
   children,
 }: {
   title: string;
   description: string;
   onSave: () => void;
   onClose: () => void;
+  saveDisabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -2339,29 +2341,40 @@ function SecurityConfigurationModal({
           <button type="button" onClick={onClose} aria-label="Cerrar" className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X size={18} /></button>
         </header>
         <div className="flex-1 overflow-y-auto p-5">{children}</div>
-        <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3"><button type="button" onClick={onClose} className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button><button type="button" onClick={() => { onSave(); onClose(); }} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90">Guardar configuración</button></footer>
+        <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3"><button type="button" onClick={onClose} className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button><button type="button" disabled={saveDisabled} onClick={() => { onSave(); onClose(); }} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-slate-300">Guardar configuración</button></footer>
       </section>
     </div>
   );
 }
 
+function ConfiguredOptionSummary({ children, onEdit, onRemove, removeLabel = 'Quitar' }: { children: React.ReactNode; onEdit: () => void; onRemove: () => void; removeLabel?: string }) {
+  return (
+    <div className="mx-3 mb-2 ml-10 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+      <CheckCircle2 size={13} className="shrink-0 text-emerald-500" />
+      <span className="min-w-0 flex-1 text-xs text-emerald-700">{children}</span>
+      <button type="button" onClick={onEdit} className="shrink-0 text-xs font-medium text-primary hover:text-primary/80">Editar</button>
+      <button type="button" onClick={onRemove} className="shrink-0 text-xs font-medium text-red-500 hover:text-red-600">{removeLabel}</button>
+    </div>
+  );
+}
+
 // --- Access Code Modal --------------------------------------------------------
-function CodigoAccesoModal({
-  documentoId,
-  existingCode,
+export function CodigoAccesoModal({
+  databaseDocumentId,
+  configured,
   initialDelete,
   onClose,
   onSaved,
   onDeleted,
 }: {
-  documentoId?: string;
-  existingCode?: string;
+  databaseDocumentId?: string | null;
+  configured?: boolean;
   initialDelete?: boolean;
   onClose: () => void;
   onSaved: (code: string) => void;
   onDeleted: () => void;
 }) {
-  const isEditing = !!existingCode;
+  const isEditing = configured === true;
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -2415,26 +2428,21 @@ function CodigoAccesoModal({
     setSaving(true);
     setError(null);
     try {
-      if (documentoId) {
+      if (databaseDocumentId) {
         const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
-        const { error: saveError } = await supabase.from('document_security_settings').upsert(
-          {
-            documento_id: documentoId,
-            owner_id: user.id,
-            codigo_acceso_enabled: true,
-            codigo_acceso: password,
-          },
-          { onConflict: 'documento_id' }
-        );
-        if (saveError) throw saveError;
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+        const response = await fetch(`/api/documentos/${databaseDocumentId}/view-access`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ code: password, confirmation: confirmPassword }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(payload?.error || 'No fue posible guardar el código.');
       }
       setSaved(true);
-      onSaved(password);
-      setTimeout(() => onClose(), 1000);
+      onSaved(databaseDocumentId ? '' : password);
+      onClose();
     } catch (err: any) {
       setError(err.message || 'Error al guardar');
     } finally {
@@ -2445,22 +2453,16 @@ function CodigoAccesoModal({
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      if (documentoId) {
+      if (databaseDocumentId) {
         const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
-        const { error: deleteError } = await supabase.from('document_security_settings').upsert(
-          {
-            documento_id: documentoId,
-            owner_id: user.id,
-            codigo_acceso_enabled: false,
-            codigo_acceso: null,
-          },
-          { onConflict: 'documento_id' }
-        );
-        if (deleteError) throw deleteError;
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+        const response = await fetch(`/api/documentos/${databaseDocumentId}/view-access`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(payload?.error || 'No fue posible eliminar el código.');
       }
       onDeleted();
       onClose();
@@ -2600,33 +2602,6 @@ function CodigoAccesoModal({
             </p>
           )}
 
-          {isEditing && !confirmDelete && (
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-              className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-red-200 px-4 text-sm text-red-500 transition-colors hover:bg-red-50"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                <path d="M10 11v6" />
-                <path d="M14 11v6" />
-                <path d="M9 6V4h6v2" />
-              </svg>
-              Eliminar código de acceso
-            </button>
-          )}
-
           {confirmDelete && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2">
               <p className="text-xs text-red-700 font-medium">
@@ -2709,7 +2684,8 @@ function FileUploadedLayout({
   onGuardarAvance,
   savingDraft,
   onSecurityChange,
-  documentoId,
+  securitySettings,
+  databaseDocumentId,
   onPdfMetadata,
 }: {
   file: File;
@@ -2730,7 +2706,8 @@ function FileUploadedLayout({
       metadatosAdicionales: boolean;
     }
   ) => void;
-  documentoId?: string;
+  securitySettings?: import('./types').SecuritySettings;
+  databaseDocumentId?: string | null;
   onPdfMetadata?: (meta: {
     pageCount: number;
     title?: string;
@@ -2754,41 +2731,45 @@ function FileUploadedLayout({
 
   // Default to 'general' tab (Configuración general first)
   const [activeTab, setActiveTab] = useState<'seguridad' | 'general'>('general');
-  const [vencimiento, setVencimiento] = useState(false);
+  const [vencimiento, setVencimiento] = useState(securitySettings?.vencimientoEnabled ?? false);
   const [showVencimientoModal, setShowVencimientoModal] = useState(false);
   // Vencimiento sub-options
-  const [vencimientoSolicitud, setVencimientoSolicitud] = useState(false);
-  const [vencimientoCompletar, setVencimientoCompletar] = useState(false);
-  const [incluirHoraVencimiento, setIncluirHoraVencimiento] = useState(false);
+  const [vencimientoSolicitud, setVencimientoSolicitud] = useState(securitySettings?.vencimientoSolicitud ?? false);
+  const [vencimientoCompletar, setVencimientoCompletar] = useState(securitySettings?.vencimientoCompletar ?? false);
+  const [incluirHoraVencimiento, setIncluirHoraVencimiento] = useState(securitySettings?.incluirHoraVencimiento ?? false);
   const [presetVencimiento, setPresetVencimiento] = useState<
     '24h' | '3d' | '7d' | '15d' | '30d' | 'personalizado'
-  >('7d');
-  const [fechaVencimientoPersonalizado, setFechaVencimientoPersonalizado] = useState('');
-  const [horaVencimiento, setHoraVencimiento] = useState('23:59');
-  const [zonaHoraria, setZonaHoraria] = useState('UTC');
-  const [diasHabiles, setDiasHabiles] = useState(false);
-  const [recordatorioEnabled, setRecordatorioEnabled] = useState(false);
+  >(securitySettings?.vencimientoPreset ?? '7d');
+  const [fechaVencimientoPersonalizado, setFechaVencimientoPersonalizado] = useState(securitySettings?.fechaVencimientoPersonalizado ?? '');
+  const [horaVencimiento, setHoraVencimiento] = useState(securitySettings?.horaVencimiento ?? '23:59');
+  const [zonaHoraria, setZonaHoraria] = useState(securitySettings?.fechaVencimientoTimezone ?? 'UTC');
+  const [diasHabiles, setDiasHabiles] = useState(securitySettings?.diasHabiles ?? false);
+  const [recordatorioEnabled, setRecordatorioEnabled] = useState(securitySettings?.recordatorioEnabled ?? Boolean(securitySettings?.recordatorioFrecuencia));
   const [recordatorioCuando, setRecordatorioCuando] = useState<'diario' | '48h' | '24h' | '6h'>(
-    '24h'
+    (securitySettings?.recordatorioFrecuencia as 'diario' | '48h' | '24h' | '6h') || '24h'
   );
 
-  const [codigoAcceso, setCodigoAcceso] = useState(false);
-  const [codigoAccesoValue, setCodigoAccesoValue] = useState('');
+  const [codigoAcceso, setCodigoAcceso] = useState(securitySettings?.codigoAccesoEnabled ?? false);
+  const [codigoAccesoValue, setCodigoAccesoValue] = useState(securitySettings?.codigoAcceso ?? '');
   const [showCodigoAccesoModal, setShowCodigoAccesoModal] = useState(false);
   const [showCodigoAccesoDeleteConfirm, setShowCodigoAccesoDeleteConfirm] = useState(false);
-  const [proteccionFirmado, setProteccionFirmado] = useState(false);
+
+  useEffect(() => {
+    if (databaseDocumentId && codigoAcceso) setCodigoAccesoValue('');
+  }, [databaseDocumentId, codigoAcceso]);
+  const [proteccionFirmado, setProteccionFirmado] = useState(securitySettings?.proteccionAdicionalEnabled ?? false);
   const [showProteccionFirmadoModal, setShowProteccionFirmadoModal] = useState(false);
-  const [proteccionParticipacion, setProteccionParticipacion] = useState(false);
-  const [urgente, setUrgente] = useState(false);
-  const [publico, setPublico] = useState(false);
-  const [selloDigital, setSelloDigital] = useState(false);
-  const [selloUbicacion, setSelloUbicacion] = useState<'calce' | 'libre'>('calce');
+  const [proteccionParticipacion, setProteccionParticipacion] = useState(securitySettings?.proteccionParticipacionEnabled ?? false);
+  const [urgente, setUrgente] = useState(securitySettings?.urgente ?? false);
+  const [publico, setPublico] = useState(securitySettings?.publico ?? false);
+  const [selloDigital, setSelloDigital] = useState(securitySettings?.selloDigital ?? false);
+  const [selloUbicacion, setSelloUbicacion] = useState<'calce' | 'libre'>(securitySettings?.selloUbicacion ?? 'calce');
   const [showSelloUbicacionModal, setShowSelloUbicacionModal] = useState(false);
-  const [estampaAutenticacion, setEstampaAutenticacion] = useState(false);
+  const [estampaAutenticacion, setEstampaAutenticacion] = useState(securitySettings?.estampaAutenticacion ?? false);
   // The blockchain evidence is generated automatically with the final document,
   // just like the NOM-151 evidence. It is not a user-configurable setting.
   const blockchainEvidence = true;
-  const [metadatosAdicionales, setMetadatosAdicionales] = useState(false);
+  const [metadatosAdicionales, setMetadatosAdicionales] = useState(securitySettings?.metadatosAdicionales ?? false);
   const [showMetadatosModal, setShowMetadatosModal] = useState(false);
   const savedMetadatosCount = config.additionalMetadata?.length ?? 0;
 
@@ -2796,15 +2777,23 @@ function FileUploadedLayout({
     if (savedMetadatosCount > 0) setMetadatosAdicionales(true);
   }, [savedMetadatosCount]);
 
-  const [impedirImpresion, setImpedirImpresion] = useState(false);
-  const [evitarCopiaTexto, setEvitarCopiaTexto] = useState(false);
-  const [impedirModificacion, setImpedirModificacion] = useState(false);
-  const [impedirExtraccion, setImpedirExtraccion] = useState(false);
-  const [evitarMontaje, setEvitarMontaje] = useState(false);
-  const [legalHoldEnabled, setLegalHoldEnabled] = useState(false);
+  const [impedirImpresion, setImpedirImpresion] = useState(securitySettings?.impedirImpresion ?? false);
+  const [evitarCopiaTexto, setEvitarCopiaTexto] = useState(securitySettings?.evitarCopiaTexto ?? false);
+  const [impedirModificacion, setImpedirModificacion] = useState(securitySettings?.impedirModificacion ?? false);
+  const [impedirExtraccion, setImpedirExtraccion] = useState(securitySettings?.impedirExtraccion ?? false);
+  const [evitarMontaje, setEvitarMontaje] = useState(securitySettings?.evitarMontaje ?? false);
+  const [legalHoldEnabled, setLegalHoldEnabled] = useState(securitySettings?.legalHoldEnabled ?? false);
   const [showLegalHoldModal, setShowLegalHoldModal] = useState(false);
   const [legalHoldReason, setLegalHoldReason] =
-    useState<import('./types').SecuritySettings['legalHoldReason']>('');
+    useState<import('./types').SecuritySettings['legalHoldReason']>(securitySettings?.legalHoldReason ?? '');
+  const [legalHoldCaseReference, setLegalHoldCaseReference] = useState(
+    securitySettings?.legalHoldCaseReference ?? ''
+  );
+  const [legalHoldReviewAt, setLegalHoldReviewAt] = useState(
+    securitySettings?.legalHoldReviewAt ?? ''
+  );
+  const [legalHoldNotes, setLegalHoldNotes] = useState(securitySettings?.legalHoldNotes ?? '');
+  const [legalHoldAdditionalFieldsOpen, setLegalHoldAdditionalFieldsOpen] = useState(false);
 
   const [grupos, setGrupos] = useState<GrupoTipoDocumento[]>([]);
   // tiposDocumento is now a map: grupoId -> TipoDocumento[]
@@ -2847,6 +2836,9 @@ function FileUploadedLayout({
       evitarMontaje,
       legalHoldEnabled,
       legalHoldReason,
+      legalHoldCaseReference,
+      legalHoldReviewAt,
+      legalHoldNotes,
       urgente,
       publico,
       selloDigital,
@@ -2856,6 +2848,12 @@ function FileUploadedLayout({
       metadatosAdicionales,
       vencimientoSolicitud,
       vencimientoCompletar,
+      vencimientoPreset: presetVencimiento,
+      fechaVencimientoPersonalizado,
+      incluirHoraVencimiento,
+      horaVencimiento,
+      diasHabiles,
+      recordatorioEnabled,
       proteccionParticipacionEnabled: proteccionParticipacion,
     } as any);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2882,6 +2880,9 @@ function FileUploadedLayout({
     evitarMontaje,
     legalHoldEnabled,
     legalHoldReason,
+    legalHoldCaseReference,
+    legalHoldReviewAt,
+    legalHoldNotes,
     urgente,
     publico,
     selloDigital,
@@ -3087,6 +3088,54 @@ function FileUploadedLayout({
     { id: 'personalizado', label: 'Personalizado' },
   ];
 
+  const vencimientoSummary = (() => {
+    const plazo = presetVencimiento === 'personalizado'
+      ? fechaVencimientoPersonalizado || 'Fecha personalizada'
+      : PRESET_OPTIONS.find((option) => option.id === presetVencimiento)?.label || 'Plazo configurado';
+    const hora = incluirHoraVencimiento ? `, ${horaVencimiento}` : '';
+    return `Vencimiento: ${plazo}${hora} (${getTimeZoneOffsetLabel(zonaHoraria)})`;
+  })();
+  const protectionRestrictionCount = [impedirImpresion, evitarCopiaTexto, impedirModificacion, impedirExtraccion, evitarMontaje].filter(Boolean).length;
+  const legalHoldReasonLabels: Record<string, string> = {
+    litigio: 'Litigio / procedimiento judicial',
+    requerimiento_autoridad: 'Requerimiento de autoridad',
+    auditoria: 'Auditoría',
+    investigacion_interna: 'Investigación interna',
+    controversia_contractual: 'Controversia contractual',
+    cumplimiento_regulatorio_fiscal: 'Cumplimiento regulatorio/fiscal',
+    solicitud_cliente: 'Solicitud del cliente',
+    preservacion_preventiva: 'Preservación preventiva',
+    otro: 'Otro',
+  };
+
+  const removeVencimiento = () => {
+    setVencimiento(false);
+    setVencimientoSolicitud(false);
+    setVencimientoCompletar(false);
+    setIncluirHoraVencimiento(false);
+    setPresetVencimiento('7d');
+    setFechaVencimientoPersonalizado('');
+    setHoraVencimiento('23:59');
+    setDiasHabiles(false);
+    setRecordatorioEnabled(false);
+    setRecordatorioCuando('24h');
+  };
+  const removeProteccionFirmado = () => {
+    setProteccionFirmado(false);
+    setImpedirImpresion(false);
+    setEvitarCopiaTexto(false);
+    setImpedirModificacion(false);
+    setImpedirExtraccion(false);
+    setEvitarMontaje(false);
+  };
+  const removeLegalHold = () => {
+    setLegalHoldEnabled(false);
+    setLegalHoldReason('');
+    setLegalHoldCaseReference('');
+    setLegalHoldReviewAt('');
+    setLegalHoldNotes('');
+  };
+
   return (
     <div className="w-full">
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
@@ -3212,11 +3261,9 @@ function FileUploadedLayout({
                     <InfoTooltip showOnParentHover text="Genera la cadena original, el sello digital y la evidencia criptográfica con valores reales cuando el documento quede completado." />
                   </label>
                   {selloDigital && (
-                    <div className="mx-3 mb-2 ml-10 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-                      <CheckCircle2 size={13} className="shrink-0 text-emerald-500" />
-                      <span className="flex-1 text-xs text-emerald-700">Certificación: {selloUbicacion === 'calce' ? 'al calce' : 'en cualquier parte'}</span>
-                      <button type="button" onClick={() => setShowSelloUbicacionModal(true)} className="text-xs font-medium text-primary hover:text-primary/80">Editar</button>
-                    </div>
+                    <ConfiguredOptionSummary onEdit={() => setShowSelloUbicacionModal(true)} onRemove={() => { setSelloDigital(false); setSelloUbicacion('calce'); }}>
+                      Certificación: {selloUbicacion === 'calce' ? 'al calce' : 'en cualquier parte'}
+                    </ConfiguredOptionSummary>
                   )}
                 </div>
                 <div className="rounded-lg px-3 py-2 hover:bg-gray-50">
@@ -3261,21 +3308,9 @@ function FileUploadedLayout({
                     <InfoTooltip showOnParentHover text="Agrega metadatos de negocio tipados. Los metadatos del documento se bloquean al iniciar la firma; los de gestión permanecen editables y auditados." />
                   </label>
                   {metadatosAdicionales && savedMetadatosCount > 0 && (
-                    <div className="ml-10 mr-3 mb-1">
-                      <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
-                        <span className="text-xs text-emerald-700 flex-1">
-                          ({savedMetadatosCount}) Metadatos registrados
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowMetadatosModal(true)}
-                          className="text-xs text-primary hover:text-primary/80 font-medium"
-                        >
-                          Editar
-                        </button>
-                      </div>
-                    </div>
+                    <ConfiguredOptionSummary onEdit={() => setShowMetadatosModal(true)} onRemove={() => { onConfigChange({ ...config, additionalMetadata: [] }); setMetadatosAdicionales(false); }}>
+                      ({savedMetadatosCount}) Metadatos registrados
+                    </ConfiguredOptionSummary>
                   )}
                 </div>
               </div>
@@ -3299,8 +3334,14 @@ function FileUploadedLayout({
                     <InfoTooltip showOnParentHover text="Define una fecha límite después de la cual el documento ya no podrá ser firmado o accedido." />
                   </label>
 
+                  {vencimiento && (
+                    <ConfiguredOptionSummary onEdit={() => setShowVencimientoModal(true)} onRemove={removeVencimiento}>
+                      {vencimientoSummary}
+                    </ConfiguredOptionSummary>
+                  )}
+
                   {showVencimientoModal && (
-                    <SecurityConfigurationModal title="Vencimiento del documento" description="Define el plazo y los recordatorios para completar la participación." onSave={() => setVencimiento(true)} onClose={() => setShowVencimientoModal(false)}>
+                    <SecurityConfigurationModal title="Vencimiento del documento" description="Define el plazo y los recordatorios para completar la participación." saveDisabled={presetVencimiento === 'personalizado' && !fechaVencimientoPersonalizado} onSave={() => setVencimiento(true)} onClose={() => setShowVencimientoModal(false)}>
                     <div className="space-y-4">
                       {/* Sub-opciones de vencimiento */}
                       <div className="space-y-2">
@@ -3545,32 +3586,10 @@ function FileUploadedLayout({
                     </span>
                     <InfoTooltip showOnParentHover text="El código protege el contenido al abrirlo en el visor; no oculta la existencia ni la ficha del documento." />
                   </label>
-                  {codigoAcceso && codigoAccesoValue && (
-                    <div className="ml-10 mr-3 mb-1">
-                      <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
-                        <span className="text-xs text-emerald-700 flex-1">
-                          Código de acceso configurado
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowCodigoAccesoModal(true)}
-                          className="text-xs text-primary hover:text-primary/80 font-medium"
-                        >
-                          Cambiar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowCodigoAccesoDeleteConfirm(true);
-                            setShowCodigoAccesoModal(true);
-                          }}
-                          className="text-xs text-red-500 hover:text-red-600 font-medium"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </div>
+                  {codigoAcceso && (
+                    <ConfiguredOptionSummary removeLabel="Eliminar" onEdit={() => setShowCodigoAccesoModal(true)} onRemove={() => { setShowCodigoAccesoDeleteConfirm(true); setShowCodigoAccesoModal(true); }}>
+                      Código de acceso configurado
+                    </ConfiguredOptionSummary>
                   )}
                 </div>
 
@@ -3613,8 +3632,13 @@ function FileUploadedLayout({
                     </span>
                     <InfoTooltip showOnParentHover text="Aplica una capa extra de seguridad al documento una vez que ha sido firmado, evitando modificaciones." />
                   </label>
+                  {proteccionFirmado && (
+                    <ConfiguredOptionSummary onEdit={() => setShowProteccionFirmadoModal(true)} onRemove={removeProteccionFirmado}>
+                      Protección configurada: {protectionRestrictionCount} {protectionRestrictionCount === 1 ? 'restricción' : 'restricciones'}
+                    </ConfiguredOptionSummary>
+                  )}
                   {showProteccionFirmadoModal && (
-                    <SecurityConfigurationModal title="Protección del documento firmado" description="Selecciona las restricciones que se aplicarán al PDF final." onSave={() => setProteccionFirmado(true)} onClose={() => setShowProteccionFirmadoModal(false)}>
+                    <SecurityConfigurationModal title="Protección del documento firmado" description="Selecciona las restricciones que se aplicarán al PDF final." saveDisabled={protectionRestrictionCount === 0} onSave={() => setProteccionFirmado(true)} onClose={() => setShowProteccionFirmadoModal(false)}>
                     <div className="space-y-2">
                       <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                         <p className="text-xs text-amber-700">
@@ -3693,8 +3717,13 @@ function FileUploadedLayout({
                     </div>
                     <InfoTooltip showOnParentHover text="Legal Hold preserva el documento y su evidencia ante litigio, requerimiento de autoridad o auditoría. Requiere motivo, queda auditado y solo el propietario o un administrador podrá solicitar su liberación." />
                   </label>
+                  {legalHoldEnabled && legalHoldReason && (
+                    <ConfiguredOptionSummary onEdit={() => setShowLegalHoldModal(true)} onRemove={removeLegalHold}>
+                      Legal Hold: {legalHoldReasonLabels[legalHoldReason] || 'Motivo registrado'}
+                    </ConfiguredOptionSummary>
+                  )}
                   {showLegalHoldModal && (
-                    <SecurityConfigurationModal title="Legal Hold" description="Define el motivo de conservación legal del documento." onSave={() => setLegalHoldEnabled(true)} onClose={() => setShowLegalHoldModal(false)}>
+                    <SecurityConfigurationModal title="Legal Hold" description="Define el motivo de conservación legal del documento." saveDisabled={!legalHoldReason} onSave={() => setLegalHoldEnabled(true)} onClose={() => setShowLegalHoldModal(false)}>
                     <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
                       <label className="mb-1.5 block text-xs font-600 text-amber-900">
                         Motivo de Legal Hold <span className="text-red-600">*</span>
@@ -3707,15 +3736,70 @@ function FileUploadedLayout({
                         className="h-9 w-full rounded-md border border-amber-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                       >
                         <option value="">Selecciona un motivo</option>
-                        <option value="litigio">Litigio o controversia</option>
+                        <option value="litigio">Litigio / procedimiento judicial</option>
                         <option value="requerimiento_autoridad">Requerimiento de autoridad</option>
-                        <option value="auditoria_investigacion">Auditoría o investigación</option>
-                        <option value="prevencion_eliminacion">Prevención de eliminación</option>
-                        <option value="otro">Otro motivo justificado</option>
+                        <option value="auditoria">Auditoría</option>
+                        <option value="investigacion_interna">Investigación interna</option>
+                        <option value="controversia_contractual">Controversia contractual</option>
+                        <option value="cumplimiento_regulatorio_fiscal">Cumplimiento regulatorio/fiscal</option>
+                        <option value="solicitud_cliente">Solicitud del cliente</option>
+                        <option value="preservacion_preventiva">Preservación preventiva</option>
+                        <option value="otro">Otro</option>
                       </select>
-                      <p className="mt-2 text-xs leading-5 text-amber-800">
-                        La activación y el motivo quedarán registrados en la bitácora del documento.
-                      </p>
+                      <div className="mt-3 overflow-hidden rounded-md border border-amber-200 bg-white/70">
+                        <button
+                          type="button"
+                          aria-expanded={legalHoldAdditionalFieldsOpen}
+                          aria-controls="legal-hold-additional-fields"
+                          onClick={() => setLegalHoldAdditionalFieldsOpen((open) => !open)}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-xs font-600 text-amber-900 hover:bg-amber-50"
+                        >
+                          <span>Información adicional</span>
+                          <ChevronDown
+                            size={15}
+                            className={`shrink-0 transition-transform ${legalHoldAdditionalFieldsOpen ? 'rotate-180' : ''}`}
+                          />
+                        </button>
+                        {legalHoldAdditionalFieldsOpen && (
+                          <div id="legal-hold-additional-fields" className="border-t border-amber-200 p-3">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="text-xs font-medium text-slate-700">
+                                Referencia / expediente
+                                <input
+                                  value={legalHoldCaseReference}
+                                  onChange={(event) => setLegalHoldCaseReference(event.target.value)}
+                                  maxLength={500}
+                                  className="mt-1 h-9 w-full rounded-md border border-amber-200 bg-white px-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                  placeholder="Ej. EXP-2026-104"
+                                />
+                              </label>
+                              <label className="text-xs font-medium text-slate-700">
+                                Fecha de revisión
+                                <input
+                                  type="date"
+                                  value={legalHoldReviewAt}
+                                  onChange={(event) => setLegalHoldReviewAt(event.target.value)}
+                                  className="mt-1 h-9 w-full rounded-md border border-amber-200 bg-white px-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                />
+                              </label>
+                            </div>
+                            <label className="mt-3 block text-xs font-medium text-slate-700">
+                              Observaciones
+                              <textarea
+                                value={legalHoldNotes}
+                                onChange={(event) => setLegalHoldNotes(event.target.value)}
+                                maxLength={2000}
+                                rows={3}
+                                className="mt-1 w-full resize-none rounded-md border border-amber-200 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                placeholder="Contexto administrativo o jurídico opcional"
+                              />
+                            </label>
+                            <p className="mt-2 text-xs leading-5 text-amber-800">
+                              La fecha de revisión es informativa. Legal Hold permanece activo hasta su liberación expresa.
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     </SecurityConfigurationModal>
                   )}
@@ -3877,7 +3961,7 @@ function FileUploadedLayout({
           }}
           onSave={(entries) => {
             onConfigChange({ ...config, additionalMetadata: entries });
-            setMetadatosAdicionales(true);
+            setMetadatosAdicionales(entries.length > 0);
             setShowMetadatosModal(false);
           }}
         />
@@ -3898,15 +3982,12 @@ function FileUploadedLayout({
       {/* Código de Acceso Modal */}
       {showCodigoAccesoModal && (
         <CodigoAccesoModal
-          documentoId={documentoId}
-          existingCode={codigoAccesoValue || undefined}
+          databaseDocumentId={databaseDocumentId}
+          configured={codigoAcceso}
           initialDelete={showCodigoAccesoDeleteConfirm}
           onClose={() => {
             setShowCodigoAccesoModal(false);
             setShowCodigoAccesoDeleteConfirm(false);
-            if (!codigoAccesoValue) {
-              setCodigoAcceso(false);
-            }
           }}
           onSaved={(code) => {
             setCodigoAccesoValue(code);
@@ -3933,7 +4014,9 @@ export function StepSubir({
   onGuardarAvance,
   savingDraft,
   onSecurityChange,
+  securitySettings,
   documentoId,
+  databaseDocumentId,
   onPdfMetadata,
   sourceSelection,
   onSourceSelectionChange,
@@ -3958,7 +4041,9 @@ export function StepSubir({
       metadatosAdicionales: boolean;
     }
   ) => void;
+  securitySettings?: import('./types').SecuritySettings;
   documentoId?: string;
+  databaseDocumentId?: string | null;
   onPdfMetadata?: (meta: {
     pageCount: number;
     title?: string;
@@ -4065,7 +4150,8 @@ export function StepSubir({
           onGuardarAvance={onGuardarAvance}
           savingDraft={savingDraft}
           onSecurityChange={onSecurityChange}
-          documentoId={documentoId}
+          securitySettings={securitySettings}
+          databaseDocumentId={databaseDocumentId}
           onPdfMetadata={onPdfMetadata}
         />
       </div>

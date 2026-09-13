@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   ZoomIn,
@@ -26,6 +26,7 @@ import {
   UserPlus,
   Download,
   Shield,
+  ShieldCheck,
   AlertTriangle,
   PenLine,
   Bell,
@@ -50,6 +51,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
 import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
+import { LegalHoldPanel } from '@/components/documents/LegalHoldPanel';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createNotification } from '@/lib/notificationsInApp';
@@ -60,7 +62,7 @@ import {
   getEffectiveTimeZone,
   getTimeZoneOffsetLabel,
 } from '@/lib/datetime';
-import { StepSubir } from '@/app/crear-documento/components/StepSubir';
+import { CodigoAccesoModal, StepSubir } from '@/app/crear-documento/components/StepSubir';
 import { StepParticipantes } from '@/app/crear-documento/components/StepParticipantes';
 import { StepAjustes } from '@/app/crear-documento/components/StepAjustes';
 import type {
@@ -587,7 +589,7 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style, childr
     } catch (err: any) {
       if (err?.name !== 'RenderingCancelledException') {
         console.error('[PdfCanvas] render error:', err);
-        if (/DOCUMENT_ACCESS_CODE_REQUIRED|423/.test(String(err?.message || err?.name || ''))) {
+        if (/DOCUMENT_ACCESS_CODE_REQUIRED|ACCESS_CODE_REQUIRED|423/.test(String(err?.message || err?.name || ''))) {
           setRequiresAccessCode(true);
         }
         setError(true);
@@ -621,7 +623,7 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style, childr
     try {
       const response = await fetch(`/api/documentos/${match[1]}/verify-access-code`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await apiAuthHeaders(true),
         body: JSON.stringify({ code: accessCode }),
       });
       if (!response.ok) {
@@ -784,6 +786,7 @@ function EditModal({ title, onClose, onSave, saving, children }: EditModalProps)
 export default function VisorDocumentoPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const { sidebarOpen } = useSidebar();
   const { activeWorkspace } = useWorkspace();
@@ -817,7 +820,14 @@ export default function VisorDocumentoPage() {
     | 'descargas'
     | 'auditoria'
     | 'permisos'
+    | 'legal-hold'
   >('details');
+  const [legalHoldSummary, setLegalHoldSummary] = useState({
+    loaded: false,
+    hasHistory: false,
+    activeCount: 0,
+    canCreate: false,
+  });
   const [documentPermissions, setDocumentPermissions] = useState<DocumentAccessPermission[]>([]);
   const [permissionsLoading, setPermissionsLoading] = useState(false);
   const [permissionsError, setPermissionsError] = useState<string | null>(null);
@@ -982,6 +992,47 @@ export default function VisorDocumentoPage() {
       : blockchainEvidenceLoading
         ? 'Procesando'
         : 'Pendiente';
+
+  const refreshLegalHoldSummary = useCallback(async () => {
+    if (!docId || !user) return;
+    try {
+      const response = await fetch(`/api/documentos/${docId}/legal-hold`, {
+        headers: await apiAuthHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error('LEGAL_HOLD_SUMMARY_FAILED');
+      const payload = await response.json();
+      setLegalHoldSummary({
+        loaded: true,
+        hasHistory: payload.hasHistory === true,
+        activeCount: Number(payload.activeCount || 0),
+        canCreate: payload.canCreate === true,
+      });
+    } catch {
+      setLegalHoldSummary((current) => ({ ...current, loaded: true }));
+    }
+  }, [docId, user]);
+
+  const handleLegalHoldChanged = useCallback((summary: {
+    hasHistory: boolean;
+    activeCount: number;
+  }) => {
+    setLegalHoldSummary((current) => ({ ...current, loaded: true, ...summary }));
+    setDocument((current) => current ? {
+      ...current,
+      legal_hold: summary.activeCount > 0,
+      legal_hold_status: summary.activeCount > 0 ? 'ACTIVE' : 'RELEASED',
+    } : current);
+  }, []);
+
+  useEffect(() => { void refreshLegalHoldSummary(); }, [refreshLegalHoldSummary]);
+
+  useEffect(() => {
+    if (!legalHoldSummary.loaded) return;
+    const requested = searchParams.get('tab') === 'legal-hold';
+    const activation = searchParams.get('action') === 'activate' && legalHoldSummary.canCreate;
+    if (requested && (legalHoldSummary.hasHistory || activation)) setActiveTab('legal-hold');
+  }, [legalHoldSummary, searchParams]);
 
   useEffect(() => {
     if (!docId || document?.estado !== 'completado') return;
@@ -2631,6 +2682,32 @@ export default function VisorDocumentoPage() {
           });
         }
 
+        // Legal Hold reuses the lifecycle audit ledger. The API applies the
+        // same document permission check and redacts sensitive metadata when needed.
+        try {
+          const legalHoldResponse = await fetch(`/api/documentos/${docId}/legal-hold`, {
+            headers: await apiAuthHeaders(),
+            cache: 'no-store',
+          });
+          if (legalHoldResponse.ok) {
+            const legalHoldPayload = await legalHoldResponse.json();
+            for (const row of legalHoldPayload.events || []) {
+              allEvents.push({
+                id: `legal_hold_${row.id}`,
+                action: row.action,
+                details: { reason: row.reason, ...(row.metadata || {}) },
+                created_at: row.created_at,
+                actor_name: row.actor_email || 'Usuario autorizado',
+                actor_email: row.actor_email || '',
+                source: 'audit_trail',
+                category: 'cumplimiento',
+              });
+            }
+          }
+        } catch {
+          // Activity remains available even if this optional source is unavailable.
+        }
+
         // ── 3. Synthesize events from document data ──────────────────────────
         // Re-fetch document to get creation and state info
         // Use maybeSingle to avoid error when RLS blocks direct access for participants
@@ -2885,6 +2962,25 @@ export default function VisorDocumentoPage() {
               actor_email: row.actor_email || '',
               source: 'security_log',
               category: row.category,
+            });
+          });
+        }
+
+        const viewAccessResponse = await fetch(`/api/documentos/${docId}/view-access`, {
+          headers: await apiAuthHeaders(),
+        });
+        if (viewAccessResponse.ok) {
+          const viewAccessData = await viewAccessResponse.json();
+          (viewAccessData.events || []).forEach((row: any) => {
+            allEvents.push({
+              id: `view_access_${row.id}`,
+              action: row.action,
+              details: row.reason ? { reason: row.reason } : null,
+              created_at: row.created_at,
+              actor_name: row.actor_email || 'Usuario',
+              actor_email: row.actor_email || '',
+              source: 'security_log',
+              category: 'acceso',
             });
           });
         }
@@ -4048,6 +4144,7 @@ export default function VisorDocumentoPage() {
       return { bg: 'bg-slate-100', text: 'text-slate-500' };
     if (a === 'documento_vencido') return { bg: 'bg-rose-100', text: 'text-rose-600' };
     if (a === 'documento_editado') return { bg: 'bg-amber-100', text: 'text-amber-600' };
+    if (a.startsWith('legal_hold_')) return { bg: 'bg-amber-100', text: 'text-amber-700' };
     if (a === 'participante_asignado' || a === 'participante_sustituido')
       return { bg: 'bg-purple-100', text: 'text-purple-600' };
     if (a === 'participante_removido') return { bg: 'bg-red-100', text: 'text-red-500' };
@@ -4129,6 +4226,17 @@ export default function VisorDocumentoPage() {
       acceso_revocado: 'Acceso revocado',
       nota_agregada: 'Nota agregada',
       mensaje_enviado: 'Mensaje enviado',
+      LEGAL_HOLD_ACTIVATED: 'Legal Hold activado',
+      LEGAL_HOLD_UPDATED: 'Legal Hold actualizado',
+      LEGAL_HOLD_RELEASED: 'Legal Hold liberado',
+      VIEW_ACCESS_PROTECTION_ENABLED: 'Se habilitó la protección de visualización',
+      VIEW_ACCESS_CHALLENGE_SHOWN: 'Se solicitó el código de visualización',
+      VIEW_ACCESS_FAILED: 'Se detectó un intento incorrecto de acceso',
+      VIEW_ACCESS_GRANTED: 'Documento desbloqueado',
+      VIEW_ACCESS_TEMPORARILY_LOCKED: 'Acceso bloqueado temporalmente',
+      VIEW_ACCESS_CODE_CHANGED: 'Se modificó el código de acceso',
+      VIEW_ACCESS_PROTECTION_DISABLED: 'Se desactivó la protección de visualización',
+      VIEW_ACCESS_SESSION_EXPIRED: 'Expiró el desbloqueo temporal',
     };
     // Enrich label with participant name if available
     const base = map[action] || action?.replace(/_/g, ' ') || 'Evento';
@@ -4516,6 +4624,26 @@ export default function VisorDocumentoPage() {
   const [editSecuritySettings, setEditSecuritySettings] = useState<SecuritySettings | undefined>(
     undefined
   );
+  const [viewProtection, setViewProtection] = useState<{
+    enabled: boolean;
+    canManage: boolean;
+    configuredAt?: string | null;
+    updatedAt?: string | null;
+  } | null>(null);
+  const [viewProtectionModal, setViewProtectionModal] = useState<'change' | 'disable' | null>(null);
+
+  useEffect(() => {
+    if (!document?.id) return;
+    let active = true;
+    void (async () => {
+      const response = await fetch(`/api/documentos/${document.id}/view-access`, {
+        headers: await apiAuthHeaders(),
+      });
+      const data = response.ok ? await response.json() : null;
+      if (active && data) setViewProtection(data);
+    })().catch(() => undefined);
+    return () => { active = false; };
+  }, [document?.id]);
 
   const handleOpenEditModal = (modal: 'datos' | 'archivo' | 'participantes' | 'ajustes') => {
     if (modal === 'datos' && document) {
@@ -4867,6 +4995,15 @@ export default function VisorDocumentoPage() {
       title: 'Actividad y auditoría',
       label: 'Actividad',
     },
+    ...(legalHoldSummary.hasHistory ||
+    (searchParams.get('action') === 'activate' && legalHoldSummary.canCreate)
+      ? [{
+          key: 'legal-hold' as typeof activeTab,
+          icon: <ShieldCheck size={20} />,
+          title: 'Conservación legal del documento',
+          label: 'LEGAL HOLD',
+        }]
+      : []),
     {
       key: 'vencimientos',
       icon: <Calendar size={20} />,
@@ -5336,6 +5473,45 @@ export default function VisorDocumentoPage() {
                           </div>
                         </div>
                       </div>
+
+                      {viewProtection?.canManage && (
+                        <div className="overflow-hidden rounded-xl border border-border bg-white">
+                          <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
+                            <Lock size={15} className="text-slate-500" />
+                            <span className="text-sm font-semibold text-foreground">
+                              Protección de visualización
+                            </span>
+                            <span className={`ml-auto text-[11px] font-medium ${viewProtection.enabled ? 'text-emerald-700' : 'text-slate-500'}`}>
+                              {viewProtection.enabled ? 'Activa' : 'Inactiva'}
+                            </span>
+                          </div>
+                          <div className="space-y-3 p-4">
+                            {viewProtection.enabled && viewProtection.updatedAt && (
+                              <p className="text-xs text-slate-500">
+                                Último cambio: {formatDate(viewProtection.updatedAt)}
+                              </p>
+                            )}
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setViewProtectionModal('change')}
+                                className="h-8 rounded-md border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                {viewProtection.enabled ? 'Cambiar código' : 'Activar'}
+                              </button>
+                              {viewProtection.enabled && (
+                                <button
+                                  type="button"
+                                  onClick={() => setViewProtectionModal('disable')}
+                                  className="h-8 rounded-md border border-red-200 px-3 text-xs font-medium text-red-600 hover:bg-red-50"
+                                >
+                                  Desactivar
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {document.es_publico &&
                         document.estado === 'completado' &&
@@ -6750,6 +6926,17 @@ export default function VisorDocumentoPage() {
                       </div>
                     )}
                   </div>
+                </>
+              ) : activeTab === 'legal-hold' ? (
+                <>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">LEGAL HOLD</span>
+                  </div>
+                  <LegalHoldPanel
+                    documentId={document.id}
+                    openCreateInitially={searchParams.get('action') === 'activate'}
+                    onChanged={handleLegalHoldChanged}
+                  />
                 </>
               ) : activeTab === 'activity' ? (
                 /* Activity History Panel */
@@ -8815,6 +9002,31 @@ export default function VisorDocumentoPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {viewProtectionModal && document && (
+          <CodigoAccesoModal
+            databaseDocumentId={document.id}
+            configured={viewProtection?.enabled === true}
+            initialDelete={viewProtectionModal === 'disable'}
+            onClose={() => setViewProtectionModal(null)}
+            onSaved={() => {
+              setViewProtection((current) => ({
+                enabled: true,
+                canManage: true,
+                configuredAt: current?.configuredAt || new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }));
+            }}
+            onDeleted={() => {
+              setViewProtection((current) => ({
+                enabled: false,
+                canManage: true,
+                configuredAt: current?.configuredAt,
+                updatedAt: new Date().toISOString(),
+              }));
+            }}
+          />
         )}
 
         {/* Edit Modals */}

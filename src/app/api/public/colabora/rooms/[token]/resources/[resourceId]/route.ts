@@ -150,7 +150,7 @@ export async function GET(
     } else if (roomResource.data.resource_type === 'document_version') {
       const result = await service
         .from('document_versions')
-        .select('id,storage_path,file_url,mime_type,documentos(nombre)')
+        .select('id,document_id,storage_path,file_url,mime_type,documentos(nombre)')
         .eq('workspace_id', guest.workspace_id)
         .eq('id', roomResource.data.resource_id)
         .maybeSingle();
@@ -163,6 +163,24 @@ export async function GET(
       );
     }
     if (!source) return Response.json({ error: 'El archivo no existe.' }, { status: 404 });
+
+    const protectedDocumentId = roomResource.data.resource_type === 'document'
+      ? String(source.id)
+      : String(source.document_id || '');
+    if (protectedDocumentId) {
+      const protection = await service
+        .from('document_security_settings')
+        .select('codigo_acceso_enabled')
+        .eq('documento_id', protectedDocumentId)
+        .maybeSingle();
+      if (protection.error) throw protection.error;
+      if (protection.data?.codigo_acceso_enabled === true) {
+        return Response.json(
+          { error: 'El documento requiere desbloqueo en Docubox.', code: 'ACCESS_CODE_REQUIRED' },
+          { status: 423, headers: { 'Cache-Control': 'private, no-store' } },
+        );
+      }
+    }
 
     const candidates = [
       storageReference(String(source.sealed_pdf_path || '')),

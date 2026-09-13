@@ -9,6 +9,8 @@ import {
   documentEncryptionPolicy,
   readDocumentStorageObject,
 } from '@/lib/crypto/document-encryption';
+import { requireDocumentContentAccess } from '@/lib/security/document-content-access';
+import { DocumentAccessError } from '@/lib/security/document-access';
 
 function bearerToken(request: NextRequest) {
   const authorization = request.headers.get('authorization');
@@ -35,6 +37,7 @@ export async function GET(request: NextRequest) {
     const variant: InternalSourceVariant =
       rawVariant === 'certified' || rawVariant === 'version' ? rawVariant : 'original';
     const service = createServiceClient();
+    await requireDocumentContentAccess(request, documentId);
     const source = await resolveInternalDocumentSource(service, auth.data.user, {
       workspaceId,
       documentId,
@@ -113,6 +116,12 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof DocumentAccessError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status, headers: { 'Cache-Control': 'private, no-store' } },
+      );
+    }
     if (error instanceof InternalSourceError) {
       return NextResponse.json(
         { error: error.message, code: error.code },

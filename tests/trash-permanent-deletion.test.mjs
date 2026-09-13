@@ -102,8 +102,7 @@ test('storage objects are removed through the Storage API before relational fina
 });
 
 test('a failed technical purge is recorded without reporting completion', () => {
-  assert.match(purgeService, /status: 'FAILED'/);
-  assert.match(purgeService, /failure_code: 'PURGE_FAILED'/);
+  assert.match(purgeService, /abort_document_purge/);
   assert.match(trashRoute, /failed: Array/);
   assert.doesNotMatch(trashRoute, /storage_cleanup_pending/);
 });

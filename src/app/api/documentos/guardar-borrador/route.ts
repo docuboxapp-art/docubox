@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isSupportedTimeZone, toUtcIsoTimestamp } from '@/lib/datetime';
 import { createClient } from '@supabase/supabase-js';
+import {
+  activateLegalHold,
+  LEGAL_HOLD_REASON_LABELS,
+  type LegalHoldReasonCode,
+} from '@/lib/documents/legal-hold';
+import { requestFingerprint } from '@/lib/security/document-view-access';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const LEGAL_HOLD_REASONS = new Set([
-  'litigio',
-  'requerimiento_autoridad',
-  'auditoria_investigacion',
-  'prevencion_eliminacion',
-  'otro',
-]);
-
 function getLegalHoldReason(value: unknown) {
-  return typeof value === 'string' && LEGAL_HOLD_REASONS.has(value) ? value : null;
+  return typeof value === 'string' && value in LEGAL_HOLD_REASON_LABELS
+    ? (value as LegalHoldReasonCode)
+    : null;
 }
 
 function isAdditionalMetadataColumnMissing(
@@ -113,6 +113,7 @@ export async function POST(req: NextRequest) {
       fechaVencimiento,
       fechaVencimientoTimezone,
       codigoAccesoEnabled,
+      codigoAcceso,
       proteccionAdicionalEnabled,
       impedirImpresion,
       evitarCopiaTexto,
@@ -121,6 +122,9 @@ export async function POST(req: NextRequest) {
       evitarMontaje,
       legalHoldEnabled,
       legalHoldReason,
+      legalHoldCaseReference,
+      legalHoldReviewAt,
+      legalHoldNotes,
       recordatorioFrecuencia,
       urgente,
       publico,
@@ -193,14 +197,14 @@ export async function POST(req: NextRequest) {
     let legalHoldAlreadyActive = false;
     if (requestedLegalHold && draftDbId) {
       const existing = await supabaseAdmin
-        .from('documentos')
-        .select('legal_hold,legal_hold_status')
-        .eq('id', draftDbId)
-        .eq('owner_id', user.id)
+        .from('document_legal_holds')
+        .select('id')
+        .eq('document_id', draftDbId)
+        .eq('status', 'ACTIVE')
+        .limit(1)
         .maybeSingle();
       if (existing.error) throw existing.error;
-      legalHoldAlreadyActive =
-        existing.data?.legal_hold === true || existing.data?.legal_hold_status === 'ACTIVE';
+      legalHoldAlreadyActive = Boolean(existing.data);
     }
 
     if (normalizedAdditionalMetadata.length > 0 && !(await isAdditionalMetadataColumnReady())) {
@@ -257,18 +261,6 @@ export async function POST(req: NextRequest) {
     if (normalizedAdditionalMetadata.length > 0) {
       payload.additional_metadata = normalizedAdditionalMetadata;
     }
-    if (requestedLegalHold && !legalHoldAlreadyActive) {
-      const now = new Date().toISOString();
-      payload.legal_hold = true;
-      payload.legal_hold_status = 'ACTIVE';
-      payload.legal_hold_reason = validLegalHoldReason;
-      payload.legal_hold_created_at = now;
-      payload.legal_hold_created_by = user.id;
-      payload.legal_hold_released_at = null;
-      payload.legal_hold_released_by = null;
-      payload.legal_hold_release_reason = null;
-    }
-
     let result: { data: unknown; error: any } = { data: null, error: null };
 
     if (draftDbId) {
@@ -302,36 +294,35 @@ export async function POST(req: NextRequest) {
 
     if (requestedLegalHold && !legalHoldAlreadyActive && data) {
       const document = data as { id: string; workspace_id?: string | null };
-      const { error: auditError } = await supabaseAdmin
-        .from('document_lifecycle_audit_events')
-        .insert({
-          workspace_id: document.workspace_id || resolvedWorkspaceId,
-          document_id: document.id,
-          actor_id: user.id,
-          actor_email: user.email || null,
-          action: 'LEGAL_HOLD_ACTIVATED',
-          previous_state: { legal_hold: false, legal_hold_status: 'NONE' },
-          new_state: {
-            legal_hold: true,
-            legal_hold_status: 'ACTIVE',
-            reason: validLegalHoldReason,
-          },
-          reason: validLegalHoldReason,
-          result: 'success',
-          request_id: req.headers.get('x-request-id') || null,
-          ip_address: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
-          user_agent: req.headers.get('user-agent') || null,
-        });
-      if (auditError) {
-        console.error('[DOCUBOX][borrador] Legal Hold audit failed:', auditError.message);
-        return NextResponse.json(
-          {
-            error: 'No fue posible registrar la auditoría de Legal Hold.',
-            code: 'LEGAL_HOLD_AUDIT_FAILED',
-          },
-          { status: 500 }
-        );
-      }
+      await activateLegalHold({
+        service: supabaseAdmin,
+        documentId: document.id,
+        actor: user,
+        request: req,
+        hold: {
+          reasonCode: validLegalHoldReason!,
+          caseReference: legalHoldCaseReference,
+          notes: legalHoldNotes,
+          reviewAt: legalHoldReviewAt || null,
+        },
+      });
+    }
+
+    if (codigoAccesoEnabled === true && typeof codigoAcceso === 'string' && codigoAcceso) {
+      const document = data as { id: string; owner_id: string; workspace_id?: string | null };
+      const fingerprint = requestFingerprint(req);
+      const protection = await supabaseAdmin.rpc('configure_document_view_access', {
+        p_document_id: document.id,
+        p_tenant_id: document.workspace_id || document.owner_id,
+        p_document_owner_id: document.owner_id,
+        p_actor_id: user.id,
+        p_actor_email: user.email || null,
+        p_code: codigoAcceso,
+        p_request_id: fingerprint.requestId,
+        p_ip_address: fingerprint.ip === 'unknown' ? null : fingerprint.ip,
+        p_user_agent: fingerprint.userAgent,
+      });
+      if (protection.error) throw protection.error;
     }
 
     return NextResponse.json({ data, success: true });

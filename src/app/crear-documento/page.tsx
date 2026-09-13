@@ -20,10 +20,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
-import {
-  ClientDocumentConversionError,
-  prepareDocument,
-} from '@/lib/document-conversion/client';
+import { ClientDocumentConversionError, prepareDocument } from '@/lib/document-conversion/client';
 import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { StepSubir } from './components/StepSubir';
 import { StepParticipantes } from './components/StepParticipantes';
@@ -303,7 +300,11 @@ function CrearDocumentoPageInner() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) throw new ClientDocumentConversionError('UNAUTHORIZED');
-      const preparedFile = await prepareDocument(selectedFile, session.access_token, controller.signal);
+      const preparedFile = await prepareDocument(
+        selectedFile,
+        session.access_token,
+        controller.signal
+      );
       if (!controller.signal.aborted) {
         setFile(preparedFile);
         setPreProcessedFile(null);
@@ -314,7 +315,7 @@ function CrearDocumentoPageInner() {
       setPreProcessedFile(null);
       setDocumentPreparationError(
         error instanceof ClientDocumentConversionError &&
-        (error.code === 'CONVERSION_QUOTA_EXHAUSTED' || error.code === 'CONVERSION_USAGE_LIMITED')
+          (error.code === 'CONVERSION_QUOTA_EXHAUSTED' || error.code === 'CONVERSION_USAGE_LIMITED')
           ? 'No fue posible preparar el documento en este momento. Intenta nuevamente más tarde.'
           : 'No fue posible preparar el documento. Intenta nuevamente o selecciona otro archivo.'
       );
@@ -378,6 +379,9 @@ function CrearDocumentoPageInner() {
           evitarMontaje: data.evitar_montaje === true,
           legalHoldEnabled: data.legal_hold === true,
           legalHoldReason: data.legal_hold_reason || '',
+          legalHoldCaseReference: data.legal_hold_case_reference || '',
+          legalHoldReviewAt: data.legal_hold_review_at?.slice(0, 10) || '',
+          legalHoldNotes: data.legal_hold_notes || '',
           urgente: data.es_urgente === true,
           publico: data.es_publico === true,
           selloDigital: data.sello_digital === true,
@@ -430,7 +434,8 @@ function CrearDocumentoPageInner() {
         const hasVisibleCertificationField = placedFields.some(
           (field) =>
             field.placementKind === 'cryptographic' &&
-            (field.cryptographicType === 'document_chain' || field.cryptographicType === 'document_seal')
+            (field.cryptographicType === 'document_chain' ||
+              field.cryptographicType === 'document_seal')
         );
         if (!hasVisibleCertificationField) return false;
       }
@@ -561,6 +566,7 @@ function CrearDocumentoPageInner() {
           fechaVencimiento: securitySummary?.fechaVencimiento || null,
           fechaVencimientoTimezone: securitySummary?.fechaVencimientoTimezone || null,
           codigoAccesoEnabled: securitySummary?.codigoAccesoEnabled ?? false,
+          codigoAcceso: securitySummary?.codigoAcceso || null,
           proteccionAdicionalEnabled: securitySummary?.proteccionAdicionalEnabled ?? false,
           impedirImpresion: securitySummary?.impedirImpresion ?? false,
           evitarCopiaTexto: securitySummary?.evitarCopiaTexto ?? false,
@@ -569,6 +575,9 @@ function CrearDocumentoPageInner() {
           evitarMontaje: securitySummary?.evitarMontaje ?? false,
           legalHoldEnabled: securitySummary?.legalHoldEnabled ?? false,
           legalHoldReason: securitySummary?.legalHoldReason || null,
+          legalHoldCaseReference: securitySummary?.legalHoldCaseReference || null,
+          legalHoldReviewAt: securitySummary?.legalHoldReviewAt || null,
+          legalHoldNotes: securitySummary?.legalHoldNotes || null,
           recordatorioFrecuencia: securitySummary?.recordatorioFrecuencia || null,
           urgente: securitySummary?.urgente ?? false,
           publico: securitySummary?.publico ?? false,
@@ -834,7 +843,9 @@ function CrearDocumentoPageInner() {
               onGuardarAvance={handleGuardarAvance}
               savingDraft={savingDraft}
               onSecurityChange={(s) => setSecuritySummary(s)}
+              securitySettings={securitySummary}
               documentoId={documentoId}
+              databaseDocumentId={draftDbId}
               onPdfMetadata={(meta) => setPdfMetadata(meta)}
               sourceSelection={docuboxSource}
               onSourceSelectionChange={setDocuboxSource}
@@ -849,6 +860,15 @@ function CrearDocumentoPageInner() {
               onOrderChange={handleOrderChange}
               participationOrder={participationOrder}
               vencimientoSolicitudEnabled={(securitySummary as any)?.vencimientoSolicitud ?? false}
+              currentUser={{
+                id: user?.id,
+                email: user?.email,
+                name:
+                  user?.user_metadata?.full_name ||
+                  user?.user_metadata?.fullName ||
+                  user?.user_metadata?.nombre ||
+                  '',
+              }}
             />
           )}
           {currentStepLabel === 'Agrupamiento' && (

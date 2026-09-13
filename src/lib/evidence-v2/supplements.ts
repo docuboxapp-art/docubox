@@ -14,7 +14,7 @@ function esc(value: unknown) {
 }
 
 type SupplementSource = {
-  type: 'NOM151' | 'OPENTIMESTAMPS' | 'CERTIFICATION' | 'VERIFICATION';
+  type: 'NOM151' | 'OPENTIMESTAMPS' | 'CERTIFICATION' | 'VERIFICATION' | 'LEGAL_HOLD';
   table: string;
   id: string;
   status: string;
@@ -232,6 +232,45 @@ export async function synchronizeEvidenceSupplementsForDocument(
     }
   }
   return created;
+}
+
+export async function appendLegalHoldEvidenceSupplement(
+  service: SupabaseClient,
+  documentId: string,
+  legalHoldId: string,
+  eventType: 'LEGAL_HOLD_ACTIVATED' | 'LEGAL_HOLD_RELEASED'
+) {
+  const [packageResult, eventResult] = await Promise.all([
+    service
+      .from('evidence_packages')
+      .select('id,package_id,evidence_root_sha256,tenant_id,document_id,document_version_id')
+      .eq('document_id', documentId)
+      .eq('schema_version', '2.1')
+      .not('closed_at', 'is', null)
+      .order('generated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    service
+      .from('legal_evidence_events')
+      .select('id,event_hash,occurred_at,event_result')
+      .eq('document_id', documentId)
+      .eq('source_record_id', legalHoldId)
+      .eq('event_type', eventType)
+      .maybeSingle(),
+  ]);
+  if (packageResult.error || eventResult.error) throw packageResult.error || eventResult.error;
+  if (!packageResult.data || !eventResult.data) return null;
+  return appendEvidenceSupplement(service, packageResult.data, {
+    type: 'LEGAL_HOLD',
+    table: 'legal_evidence_events',
+    id: eventResult.data.id,
+    status: eventResult.data.event_result,
+    artifactBucket: '',
+    artifactPath: '',
+    artifactHash: eventResult.data.event_hash,
+    mediaType: 'application/json',
+    issuedAt: eventResult.data.occurred_at,
+  });
 }
 
 export async function processPendingEvidenceSupplements(service: SupabaseClient, limit = 20) {

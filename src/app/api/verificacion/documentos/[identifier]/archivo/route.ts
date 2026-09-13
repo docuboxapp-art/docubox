@@ -54,6 +54,21 @@ export async function GET(
     return NextResponse.json({ error: 'Documento publico no encontrado.' }, { status: 404 });
   }
 
+  const protection = await service
+    .from('document_security_settings')
+    .select('codigo_acceso_enabled')
+    .eq('documento_id', document.id)
+    .maybeSingle();
+  if (protection.error) {
+    return NextResponse.json({ error: 'No fue posible validar el acceso.' }, { status: 503 });
+  }
+  if (protection.data?.codigo_acceso_enabled === true) {
+    return NextResponse.json(
+      { error: 'El documento requiere desbloqueo autenticado.', code: 'ACCESS_CODE_REQUIRED' },
+      { status: 423, headers: { 'Cache-Control': 'private, no-store' } },
+    );
+  }
+
   const finalPath = String(document.sealed_pdf_path || '').trim();
   if (!finalPath || !document.sealed_pdf_hash) {
     return NextResponse.json(
