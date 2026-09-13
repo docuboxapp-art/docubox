@@ -2383,7 +2383,7 @@ export function CodigoAccesoModal({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(initialDelete ?? false);
+  const confirmDelete = initialDelete ?? false;
 
   const getStrength = (code: string) => {
     if (!code) return null;
@@ -2430,11 +2430,16 @@ export function CodigoAccesoModal({
     try {
       if (databaseDocumentId) {
         const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (!session) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
         const response = await fetch(`/api/documentos/${databaseDocumentId}/view-access`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
           body: JSON.stringify({ code: password, confirmation: confirmPassword }),
         });
         const payload = await response.json().catch(() => null);
@@ -2443,8 +2448,8 @@ export function CodigoAccesoModal({
       setSaved(true);
       onSaved(databaseDocumentId ? '' : password);
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No fue posible guardar el código.');
     } finally {
       setSaving(false);
     }
@@ -2452,10 +2457,13 @@ export function CodigoAccesoModal({
 
   const handleDelete = async () => {
     setDeleting(true);
+    setError(null);
     try {
       if (databaseDocumentId) {
         const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (!session) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
         const response = await fetch(`/api/documentos/${databaseDocumentId}/view-access`, {
           method: 'DELETE',
@@ -2486,165 +2494,174 @@ export function CodigoAccesoModal({
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div>
-              <h3 className="text-base font-semibold text-gray-900">
-                {confirmDelete
-                  ? 'Confirmar eliminación'
-                  : isEditing
-                    ? 'Cambiar código de acceso'
-                    : 'Proteger visualización'}
-              </h3>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {confirmDelete
-                  ? 'Esta acción quitará la protección de visualización del documento.'
-                  : 'Define un código que será necesario para visualizar el contenido de este documento.'}
-              </p>
+            <h3 className="text-base font-semibold text-gray-900">
+              {confirmDelete
+                ? 'Confirmar eliminación'
+                : isEditing
+                  ? 'Cambiar código de acceso'
+                  : 'Proteger visualización'}
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {confirmDelete
+                ? 'Esta acción quitará la protección de visualización del documento.'
+                : 'Define un código que será necesario para visualizar el contenido de este documento.'}
+            </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={18} />
           </button>
         </div>
 
-        <div className="px-5 py-4 space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
-              Código de acceso <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <input
-                type={showPass ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setError(null);
-                }}
-                placeholder="Mínimo 8 caracteres"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 pr-10"
-                autoFocus
-              />
-              <button
-                type="button"
-                onClick={() => setShowPass((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
-            </div>
-            {strength && (
-              <div className="mt-1.5 space-y-1">
-                <div className="flex gap-1">
-                  {(['weak', 'medium', 'strong'] as const).map((level, i) => (
-                    <div
-                      key={level}
-                      className={`h-1.5 flex-1 rounded-full transition-colors ${
-                        (strength.level === 'weak' && i === 0) ||
-                        (strength.level === 'medium' && i <= 1) ||
-                        (strength.level === 'strong' && i <= 2)
-                          ? strength.color
-                          : 'bg-gray-200'
-                      }`}
-                    />
-                  ))}
-                </div>
-                <p className={`text-xs font-medium ${strength.textColor}`}>
-                  Seguridad: {strength.label}
+        <div className="px-5 py-4">
+          {confirmDelete ? (
+            <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-600" />
+              <div>
+                <p className="text-sm font-medium text-slate-800">
+                  ¿Quitar la protección de visualización?
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  El documento podrá abrirse sin solicitar un código de acceso. Esta acción no
+                  elimina ni modifica su contenido.
                 </p>
               </div>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
-              Confirmar código <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <input
-                type={showConfirm ? 'text' : 'password'}
-                value={confirmPassword}
-                onChange={(e) => {
-                  setConfirmPassword(e.target.value);
-                  setError(null);
-                }}
-                placeholder="Repite el código"
-                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 pr-10 transition-colors ${
-                  confirmPassword && confirmPassword !== password
-                    ? 'border-red-300 focus:ring-red-200'
-                    : confirmPassword && confirmPassword === password
-                      ? 'border-emerald-300 focus:ring-emerald-200'
-                      : 'border-gray-200 focus:ring-primary/30'
-                }`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirm((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
             </div>
-            {confirmPassword && confirmPassword === password && (
-              <p className="mt-1 text-xs text-emerald-600 flex items-center gap-1">
-                <CheckCircle2 size={11} />
-                Los códigos coinciden
-              </p>
-            )}
-          </div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-600">
+                  Código de acceso <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setError(null);
+                    }}
+                    placeholder="Mínimo 8 caracteres"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPass((v) => !v)}
+                    aria-label={showPass ? 'Ocultar código' : 'Mostrar código'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                {strength && (
+                  <div className="mt-1.5 space-y-1">
+                    <div className="flex gap-1">
+                      {(['weak', 'medium', 'strong'] as const).map((level, i) => (
+                        <div
+                          key={level}
+                          className={`h-1.5 flex-1 rounded-full transition-colors ${
+                            (strength.level === 'weak' && i === 0) ||
+                            (strength.level === 'medium' && i <= 1) ||
+                            (strength.level === 'strong' && i <= 2)
+                              ? strength.color
+                              : 'bg-gray-200'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <p className={`text-xs font-medium ${strength.textColor}`}>
+                      Seguridad: {strength.label}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-600">
+                  Confirmar código <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirm ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setError(null);
+                    }}
+                    placeholder="Repite el código"
+                    className={`w-full rounded-lg border px-3 py-2.5 pr-10 text-sm transition-colors focus:outline-none focus:ring-2 ${
+                      confirmPassword && confirmPassword !== password
+                        ? 'border-red-300 focus:ring-red-200'
+                        : confirmPassword && confirmPassword === password
+                          ? 'border-emerald-300 focus:ring-emerald-200'
+                          : 'border-gray-200 focus:ring-primary/30'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm((v) => !v)}
+                    aria-label={showConfirm ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                {confirmPassword && confirmPassword === password && (
+                  <p className="mt-1 flex items-center gap-1 text-xs text-emerald-600">
+                    <CheckCircle2 size={11} />
+                    Los códigos coinciden
+                  </p>
+                )}
+              </div>
+
+              {saved && (
+                <p className="flex items-center gap-1 text-xs font-medium text-emerald-600">
+                  <CheckCircle2 size={11} />
+                  Código guardado correctamente
+                </p>
+              )}
+            </div>
+          )}
 
           {error && (
-            <p className="text-xs text-red-500 flex items-center gap-1">
-              <AlertTriangle size={11} />
-              {error}
-            </p>
-          )}
-          {saved && (
-            <p className="text-xs text-emerald-600 font-medium flex items-center gap-1">
-              <CheckCircle2 size={11} />
-              Código guardado correctamente
-            </p>
-          )}
-
-          {confirmDelete && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2">
-              <p className="text-xs text-red-700 font-medium">
-                ¿Confirmas que deseas eliminar el código de acceso? El documento quedará sin
-                protección de visualización.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConfirmDelete(false)}
-                  className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="flex-1 px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 transition-colors disabled:opacity-60"
-                >
-                  {deleting ? 'Eliminando...' : 'Sí, eliminar'}
-                </button>
-              </div>
+            <div
+              role="alert"
+              className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700"
+            >
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-3">
+        <div className="flex justify-end gap-3 border-t border-gray-100 px-5 py-3">
           <button
+            type="button"
             onClick={onClose}
-            className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            disabled={deleting}
+            className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Cancelar
           </button>
-          {!confirmDelete && (
+          {confirmDelete ? (
             <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="h-9 rounded-lg bg-red-500 px-4 text-sm font-semibold text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deleting ? 'Eliminando...' : 'Sí, quitar protección'}
+            </button>
+          ) : (
+            <button
+              type="button"
               onClick={handleSave}
               disabled={saving || saved}
               className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
               {saving && (
                 <svg
-                  className="animate-spin h-3.5 w-3.5"
+                  className="h-3.5 w-3.5 animate-spin"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"

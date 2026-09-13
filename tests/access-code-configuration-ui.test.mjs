@@ -24,6 +24,13 @@ test('the access-code editor does not render an internal delete action', () => {
   assert.doesNotMatch(source, />\s*Eliminar código de acceso\s*</);
 });
 
+test('access-code removal has a dedicated confirmation view and separate error alert', () => {
+  assert.match(source, /confirmDelete \? \([\s\S]*¿Quitar la protección de visualización\?/);
+  assert.match(source, /role="alert"/);
+  assert.match(source, /Sí, quitar protección/);
+  assert.doesNotMatch(source, /setConfirmDelete\(false\)/);
+});
+
 test('closing the editor cannot disable a code that was just saved', () => {
   assert.doesNotMatch(source, /if \(!codigoAccesoValue\)\s*\{\s*setCodigoAcceso\(false\)/);
 });
