@@ -2116,17 +2116,16 @@ function StepInfoGeneral({
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-5 lg:px-6">
       <div className="mx-auto grid w-full max-w-[1480px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <FileText size={19} />
-            </div>
-            <div>
-              <h2 className="text-base font-700 text-slate-950">Propiedades de la plantilla</h2>
-              <p className="mt-0.5 text-sm text-slate-500">Define la información y clasificación de la plantilla.</p>
-            </div>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="mb-5">
+            <h2 className="text-base font-700 leading-5 text-slate-950">
+              Propiedades de la plantilla
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Define la información y clasificación de la plantilla.
+            </p>
           </div>
-          <div className="space-y-4 p-5">
+          <div className="space-y-4">
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-700">Nombre de la plantilla <span className="text-red-500">*</span></label>
               <input type="text" value={data.nombre} onChange={(e) => onChange({ nombre: e.target.value })} placeholder="Nombre de la plantilla" className={`h-10 w-full rounded-lg border px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 ${showValidationErrors && !data.nombre.trim() ? 'border-red-300 bg-red-50/30' : 'border-slate-200'}`} />
