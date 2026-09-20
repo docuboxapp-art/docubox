@@ -36,6 +36,7 @@ import {
   Download,
   Home,
   RotateCcw,
+  LayoutTemplate,
 } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -60,10 +61,54 @@ import {
   type DocumentPriority,
 } from '@/lib/documents/priority';
 
-const PersonalizarVistaModal = dynamic(
-  () => import('./components/PersonalizarVistaModal'),
-  { ssr: false }
-);
+const PersonalizarVistaModal = dynamic(() => import('./components/PersonalizarVistaModal'), {
+  ssr: false,
+});
+
+const DOCUMENT_LOAD_RETRY_DELAYS_MS = [1_000, 2_500];
+
+function waitForDocumentLoadRetry(delayMs: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+}
+
+async function isRetryableDocumentLoadResponse(response: Response) {
+  if (response.ok) return false;
+
+  const payload = (await response
+    .clone()
+    .json()
+    .catch(() => null)) as { error?: unknown; code?: unknown; message?: unknown } | null;
+  const errorCode = String(payload?.code || payload?.error || '');
+  const errorMessage = String(payload?.message || payload?.error || '').toLowerCase();
+
+  return (
+    errorCode === 'SESSION_POLICY_UNAVAILABLE' ||
+    errorCode === 'PGRST002' ||
+    errorMessage.includes('schema cache') ||
+    (response.status === 503 && errorMessage.includes('validar la sesi'))
+  );
+}
+
+async function fetchDocumentData(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1]
+) {
+  let response = await fetch(input, init);
+
+  for (const fallbackDelay of DOCUMENT_LOAD_RETRY_DELAYS_MS) {
+    if (!(await isRetryableDocumentLoadResponse(response))) return response;
+
+    const retryAfterSeconds = Number(response.headers.get('retry-after'));
+    const retryDelay =
+      Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? Math.min(retryAfterSeconds * 1_000, 5_000)
+        : fallbackDelay;
+    await waitForDocumentLoadRetry(retryDelay);
+    response = await fetch(input, init);
+  }
+
+  return response;
+}
 
 // ─── ResizableTh Component ├───────────────────────────────────────────────────
 interface ResizableThProps {
@@ -263,7 +308,6 @@ interface Document {
   isDraft?: boolean;
   isFavorite?: boolean;
   fechaVencimiento?: string | null;
-  fileUrl?: string | null;
   scanStatus?: string | null;
   scanThreat?: string | null;
   carpetaId?: string | null;
@@ -285,7 +329,9 @@ interface Document {
   canDirectPurge?: boolean;
   legalHoldActive?: boolean;
   legalHoldHistory?: boolean;
+  accessProtectionActive?: boolean;
   lifecycleBlockingCode?: string | null;
+  sourceTemplateId?: string | null;
 }
 
 interface DeletedDocument {
@@ -303,6 +349,7 @@ interface DeletedDocument {
   restoreUntil?: string | null;
   legalHoldActive?: boolean;
   purgeState?: 'FINAL_DELETE_CHECK' | null;
+  sourceTemplateId?: string | null;
 }
 
 interface TrashedFolder {
@@ -397,12 +444,12 @@ interface ContextMenuState {
   docName: string;
   isDraft: boolean;
   isFavorite: boolean;
-  fileUrl: string | null;
   canTrash: boolean;
   canCancel: boolean;
   canDirectPurge: boolean;
   legalHoldActive: boolean;
   legalHoldHistory: boolean;
+  accessProtectionActive: boolean;
   lifecycleBlockingCode: string | null;
   x: number;
   y: number;
@@ -414,16 +461,6 @@ interface FolderContextMenuState {
   carpetaName: string;
   x: number;
   y: number;
-}
-
-interface ConfidentialModalState {
-  open: boolean;
-  docId: string | null;
-  docName: string;
-  password: string;
-  confirmPassword: string;
-  saving: boolean;
-  error: string;
 }
 
 interface TipoDocumento {
@@ -476,6 +513,18 @@ const selectionCheckboxClass =
   'h-[13px] w-[13px] shrink-0 rounded border-slate-300 accent-primary cursor-pointer align-middle';
 const selectionCheckboxCellClass = 'w-12 px-0 py-3 text-center align-middle';
 
+function AccessProtectionIndicator() {
+  return (
+    <span
+      className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-blue-600"
+      title="Protección de acceso activa"
+      aria-label="Protección de acceso activa"
+    >
+      <Lock size={12} />
+    </span>
+  );
+}
+
 function getDocIconColor(estado: string): string {
   switch (estado) {
     case 'Borrador':
@@ -493,6 +542,30 @@ function getDocIconColor(estado: string): string {
     default:
       return 'text-blue-400';
   }
+}
+
+function DocumentSourceIcon({
+  document,
+  size,
+  className,
+}: {
+  document: Pick<Document, 'sourceTemplateId'>;
+  size: number;
+  className?: string;
+}) {
+  if (document.sourceTemplateId) {
+    return (
+      <span
+        className="inline-flex shrink-0"
+        role="img"
+        aria-label="Creado desde una plantilla"
+        title="Creado desde una plantilla"
+      >
+        <LayoutTemplate size={size} className={className} aria-hidden="true" />
+      </span>
+    );
+  }
+  return <FileText size={size} className={className} aria-hidden="true" />;
 }
 
 function getStatusDot(estado: string): string {
@@ -624,7 +697,6 @@ function mapDocRow(d: any): Document {
     isDraft: d.estado === 'borrador',
     isFavorite: !!d.is_favorite,
     fechaVencimiento: d.fecha_vencimiento || null,
-    fileUrl: d.file_url || null,
     scanStatus: d.scan_status || null,
     scanThreat: d.scan_threat || null,
     carpetaId: d.carpeta_id || null,
@@ -645,7 +717,9 @@ function mapDocRow(d: any): Document {
     canDirectPurge: d.can_direct_purge === true,
     legalHoldActive: d.legal_hold_active === true,
     legalHoldHistory: d.legal_hold_history === true,
+    accessProtectionActive: d.tiene_codigo_acceso === true,
     lifecycleBlockingCode: d.lifecycle_blocking_code || null,
+    sourceTemplateId: d.source_template_id || null,
   };
 }
 
@@ -723,7 +797,7 @@ function FolderTreeNode({
         data-depth={depth}
         className={`group flex h-8 w-full items-center gap-1 rounded-md px-1.5 text-sm transition-colors ${
           isActive
-            ? 'bg-primary/10 font-700 text-primary'
+            ? 'bg-primary/10 font-600 text-primary'
             : 'font-500 text-slate-600 hover:bg-slate-50 hover:text-slate-950'
         }`}
       >
@@ -1787,7 +1861,11 @@ function DocumentosSinRevisionSection({
                   onClick={(e) => e.stopPropagation()}
                   readOnly
                 />
-                <FileText size={16} className="text-amber-500 flex-shrink-0" />
+                <DocumentSourceIcon
+                  document={doc}
+                  size={16}
+                  className="flex-shrink-0 text-amber-500"
+                />
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className="text-sm text-foreground font-medium truncate group-hover:text-primary transition-colors">
                     {doc.name}
@@ -1954,6 +2032,7 @@ function MisDocumentosContent() {
   const [realDocuments, setRealDocuments] = useState<Document[]>([]);
   const [rawDocumentsData, setRawDocumentsData] = useState<any[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(true);
+  const loadDocumentsInFlightRef = useRef(false);
   const [favoriteDocuments, setFavoriteDocuments] = useState<Document[]>([]);
   const [participantDocuments, setParticipantDocuments] = useState<Document[]>([]);
   const [loadingFavorites, setLoadingFavorites] = useState(false);
@@ -2042,12 +2121,12 @@ function MisDocumentosContent() {
     docName: '',
     isDraft: false,
     isFavorite: false,
-    fileUrl: null,
     canTrash: false,
     canCancel: false,
     canDirectPurge: false,
     legalHoldActive: false,
     legalHoldHistory: false,
+    accessProtectionActive: false,
     lifecycleBlockingCode: null,
     x: 0,
     y: 0,
@@ -2141,15 +2220,6 @@ function MisDocumentosContent() {
     docId: null as string | null,
     docName: '',
     email: '',
-  });
-  const [confidentialModal, setConfidentialModal] = useState<ConfidentialModalState>({
-    open: false,
-    docId: null,
-    docName: '',
-    password: '',
-    confirmPassword: '',
-    saving: false,
-    error: '',
   });
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
@@ -2286,12 +2356,12 @@ function MisDocumentosContent() {
       docName: doc.name,
       isDraft: !!doc.isDraft,
       isFavorite: !!doc.isFavorite,
-      fileUrl: doc.fileUrl || null,
       canTrash: doc.canTrash === true,
       canCancel: doc.canCancel === true,
       canDirectPurge: doc.canDirectPurge === true,
       legalHoldActive: doc.legalHoldActive === true,
       legalHoldHistory: doc.legalHoldHistory === true,
+      accessProtectionActive: doc.accessProtectionActive === true,
       lifecycleBlockingCode: doc.lifecycleBlockingCode || null,
       x: rect.right,
       y: rect.bottom,
@@ -2636,20 +2706,6 @@ function MisDocumentosContent() {
     }
   };
 
-  const handleFolderMenuConfidencial = () => {
-    // Confidential mode for folder: set password on all docs inside
-    setConfidentialModal({
-      open: true,
-      docId: folderContextMenu.carpetaId, // reuse docId field to store carpetaId
-      docName: `carpeta "${folderContextMenu.carpetaName}"`,
-      password: '',
-      confirmPassword: '',
-      saving: false,
-      error: '',
-    });
-    closeFolderContextMenu();
-  };
-
   const handleSaveRenameFolder = async () => {
     const nombre = renameFolderModal.newName.trim();
     if (!nombre || !renameFolderModal.carpetaId || !user) return;
@@ -2750,88 +2806,57 @@ function MisDocumentosContent() {
     if (activeSection === 'favoritos') loadFavorites();
   };
 
-  const handleMenuConfidencial = () => {
-    setConfidentialModal({
-      open: true,
-      docId: contextMenu.docId,
-      docName: contextMenu.docName,
-      password: '',
-      confirmPassword: '',
-      saving: false,
-      error: '',
-    });
+  const handleMenuAccessProtection = () => {
+    const docId = contextMenu.docId;
     closeContextMenu();
-  };
-
-  const handleSaveConfidential = async () => {
-    if (!confidentialModal.docId || !user) return;
-    if (!confidentialModal.password) {
-      setConfidentialModal((prev) => ({ ...prev, error: 'La contraseña es obligatoria.' }));
-      return;
+    if (docId) {
+      router.push(`/visor-documento/${docId}?tab=access&section=configuration`);
     }
-    if (confidentialModal.password.length < 8) {
-      setConfidentialModal((prev) => ({ ...prev, error: 'El código debe tener al menos 8 caracteres.' }));
-      return;
-    }
-    if (confidentialModal.password !== confidentialModal.confirmPassword) {
-      setConfidentialModal((prev) => ({ ...prev, error: 'Las contraseñas no coinciden.' }));
-      return;
-    }
-    setConfidentialModal((prev) => ({ ...prev, saving: true, error: '' }));
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    const response = session
-      ? await fetch(`/api/documentos/${confidentialModal.docId}/view-access`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({
-            code: confidentialModal.password,
-            confirmation: confidentialModal.confirmPassword,
-          }),
-        })
-      : null;
-    if (!response?.ok) {
-      setConfidentialModal((prev) => ({
-        ...prev,
-        saving: false,
-        error: 'Error al guardar. Intenta de nuevo.',
-      }));
-      return;
-    }
-    await supabase
-      .from('documentos')
-      .update({ tiene_codigo_acceso: true })
-      .eq('id', confidentialModal.docId)
-      .eq('owner_id', user.id);
-    setConfidentialModal({
-      open: false,
-      docId: null,
-      docName: '',
-      password: '',
-      confirmPassword: '',
-      saving: false,
-      error: '',
-    });
-    showToast(`Modo Confidencial Activado para "${confidentialModal.docName}"`);
   };
 
   const handleMenuDescargar = async () => {
     const docId = contextMenu.docId;
     const docName = contextMenu.docName;
-    const fileUrl = contextMenu.fileUrl;
     closeContextMenu();
     if (!docId || !user) return;
-    if (fileUrl) {
+    try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        showToast('Tu sesión no está disponible.');
+        return;
+      }
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=original`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        if (response.status === 423 || payload?.code === 'ACCESS_CODE_REQUIRED') {
+          showToast('Introduce el código de acceso para descargar este documento.');
+          router.push(`/visor-documento/${docId}?archivo=original`);
+          return;
+        }
+        throw new Error(payload?.error || 'No fue posible descargar el documento.');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = fileUrl;
+      a.href = url;
       a.download = docName;
-      a.target = '_blank';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       showToast(`Descargando "${docName}"...`);
-    } else {
-      showToast(`No hay archivo disponible para descargar`);
+    } catch (downloadError) {
+      showToast(
+        downloadError instanceof Error
+          ? downloadError.message
+          : 'No fue posible descargar el documento.'
+      );
     }
   };
 
@@ -3007,7 +3032,7 @@ function MisDocumentosContent() {
   const loadEtiquetas = useCallback(async () => {
     setLoadingEtiquetas(true);
     try {
-      const res = await fetch('/api/documentos/etiquetas');
+      const res = await fetchDocumentData('/api/documentos/etiquetas');
       if (res.ok) {
         const json = await res.json();
         setEtiquetasList(json.data || []);
@@ -3104,12 +3129,17 @@ function MisDocumentosContent() {
   }, [loadEtiquetas]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  /* eslint-disable react-hooks/set-state-in-effect -- Catalog loaders update state after their awaited requests. */
   useEffect(() => {
     if (openFilterDropdown === 'tipoDocumento') {
       if (tiposDocumento.length === 0 && !loadingTipos) void loadTiposDocumento();
       if (gruposDocumento.length === 0 && !loadingGrupos) void loadGruposDocumento();
     }
-    if (openFilterDropdown === 'propietario' && workspaceUsers.length === 0 && !loadingPropietarios) {
+    if (
+      openFilterDropdown === 'propietario' &&
+      workspaceUsers.length === 0 &&
+      !loadingPropietarios
+    ) {
       void loadWorkspaceUsers();
     }
     if (
@@ -3148,9 +3178,11 @@ function MisDocumentosContent() {
     showCarpetaModal,
     tiposDocumento.length,
   ]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const loadDocuments = useCallback(async () => {
-    if (!user) return;
+    if (!user || loadDocumentsInFlightRef.current) return;
+    loadDocumentsInFlightRef.current = true;
     setLoadingDocs(true);
     const supabase = createClient();
     try {
@@ -3165,10 +3197,10 @@ function MisDocumentosContent() {
 
       // These lists are independent and can share the same validated session.
       const [res, partRes] = await Promise.all([
-        fetch('/api/documentos/listar?tipo=todos', {
+        fetchDocumentData('/api/documentos/listar?tipo=todos', {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch('/api/documentos/mis-participaciones?exclude_owned=true', {
+        fetchDocumentData('/api/documentos/mis-participaciones?exclude_owned=true', {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -3237,6 +3269,7 @@ function MisDocumentosContent() {
               _myActo: p.myActo,
               _myRol: p.myRol,
               _ownerName: p.senderName || null,
+              source_template_id: p.sourceTemplateId || null,
             }));
         }
       } catch (e) {
@@ -3481,6 +3514,7 @@ function MisDocumentosContent() {
     } catch (err) {
       console.error('Error loading documents:', err);
     } finally {
+      loadDocumentsInFlightRef.current = false;
       setLoadingDocs(false);
     }
   }, [user]);
@@ -3582,6 +3616,7 @@ function MisDocumentosContent() {
           restoreUntil: d.restore_until || null,
           legalHoldActive: d.legal_hold_active === true,
           purgeState: d.purge_state === 'FINAL_DELETE_CHECK' ? 'FINAL_DELETE_CHECK' : null,
+          sourceTemplateId: d.source_template_id || null,
         }))
       );
       setTrashedFolders(
@@ -3822,7 +3857,7 @@ function MisDocumentosContent() {
       const token = session?.access_token;
       if (!token) return;
       try {
-        const res = await fetch('/api/documentos/carpetas', {
+        const res = await fetchDocumentData('/api/documentos/carpetas', {
           headers: { Authorization: `Bearer ${token}` },
         });
         const json = await res.json();
@@ -3861,7 +3896,12 @@ function MisDocumentosContent() {
   const visibleCarpetas = carpetas.filter((c) => {
     const matchesFolder =
       currentFolderId === null ? c.parentId === null : c.parentId === currentFolderId;
-    return matchesFolder && c.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const hasDocumentOriginFilter = Boolean(activeFilters['origen']);
+    return (
+      !hasDocumentOriginFilter &&
+      matchesFolder &&
+      c.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
   });
 
   // Derived: documents visible in current folder view
@@ -3878,6 +3918,13 @@ function MisDocumentosContent() {
     if (activeFilters['estructura'] && activeFilters['estructura'] !== '') {
       if (activeFilters['estructura'] === 'carpeta') return false; // documents are not folders
       // 'archivo' matches all documents — keep
+    }
+
+    // origen: distinguishes direct documents from documents created from a template
+    if (activeFilters['origen'] && activeFilters['origen'] !== '') {
+      const isFromTemplate = Boolean(doc.sourceTemplateId);
+      if (activeFilters['origen'] === 'plantilla' && !isFromTemplate) return false;
+      if (activeFilters['origen'] === 'documento' && isFromTemplate) return false;
     }
 
     // tipoDocumento: array of selected IDs
@@ -4868,7 +4915,11 @@ function MisDocumentosContent() {
         {/* Icon area */}
         <div className="flex flex-col items-center gap-2 px-4 pb-3 pt-8">
           <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-50">
-            <FileText size={27} className={`${getDocIconColor(doc.estado)} transition-colors`} />
+            <DocumentSourceIcon
+              document={doc}
+              size={27}
+              className={`${getDocIconColor(doc.estado)} transition-colors`}
+            />
           </div>
           {/* Name with favorite icon before it — clicking name navigates */}
           <div className="flex items-center gap-1 w-full justify-center">
@@ -4891,6 +4942,7 @@ function MisDocumentosContent() {
             >
               {doc.name}
             </button>
+            {doc.accessProtectionActive && <AccessProtectionIndicator />}
             {doc.legalHoldActive && <LegalHoldBadge />}
           </div>
 
@@ -5121,7 +5173,11 @@ function MisDocumentosContent() {
                           : 'bg-gray-50 border border-gray-200'
               }`}
             >
-              <FileText size={16} className={getDocIconColor(doc.estado)} />
+              <DocumentSourceIcon
+                document={doc}
+                size={16}
+                className={getDocIconColor(doc.estado)}
+              />
             </div>
             <div className="flex flex-col min-w-0">
               <button
@@ -5144,6 +5200,7 @@ function MisDocumentosContent() {
                 )}
                 <span>{doc.name}</span>
               </button>
+              {doc.accessProtectionActive && <AccessProtectionIndicator />}
               {doc.legalHoldActive && <LegalHoldBadge />}
               {doc.descripcion ? (
                 <span className="text-xs text-muted-foreground">{doc.descripcion}</span>
@@ -5427,13 +5484,17 @@ function MisDocumentosContent() {
           Compartir
         </button>
         <div className="border-t border-border my-1" />
-        <button
-          onClick={handleMenuConfidencial}
-          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
-        >
-          <Lock size={15} className="text-muted-foreground" />
-          Modo Confidencial
-        </button>
+        {!contextMenu.isDraft && (
+          <button
+            onClick={handleMenuAccessProtection}
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors text-left"
+          >
+            <Lock size={15} className="text-muted-foreground" />
+            {contextMenu.accessProtectionActive
+              ? 'Administrar protección de acceso'
+              : 'Activar protección de acceso'}
+          </button>
+        )}
         <button
           onClick={() => {
             if (contextMenu.docId) {
@@ -5651,6 +5712,8 @@ function MisDocumentosContent() {
       switch (filterId) {
         case 'estructura':
           return value === 'carpeta' ? 'Carpetas' : value === 'archivo' ? 'Archivos' : '';
+        case 'origen':
+          return value === 'plantilla' ? 'Plantilla' : value === 'documento' ? 'Documento' : '';
         case 'estado':
           return value;
         case 'propietario':
@@ -5730,6 +5793,39 @@ function MisDocumentosContent() {
                   className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['estructura'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
                 >
                   {opt.label}
+                </button>
+              ))}
+            </div>
+          );
+        case 'origen':
+          return (
+            <div className="min-w-[170px] py-1">
+              {[
+                { value: '', label: 'Todos los orígenes' },
+                { value: 'documento', label: 'Documento' },
+                { value: 'plantilla', label: 'Plantilla' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setActiveFilters((previous) => ({ ...previous, origen: option.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                    activeFilters['origen'] === option.value
+                      ? 'font-medium text-primary'
+                      : 'text-foreground'
+                  }`}
+                >
+                  {option.value === 'plantilla' ? (
+                    <LayoutTemplate size={15} className="shrink-0" />
+                  ) : option.value === 'documento' ? (
+                    <FileText size={15} className="shrink-0" />
+                  ) : (
+                    <span className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
+                  )}
+                  {option.label}
                 </button>
               ))}
             </div>
@@ -6597,7 +6693,7 @@ function MisDocumentosContent() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-max">
-                  <thead>
+                  <thead className="[&_th]:font-500">
                     <tr className="border-b border-slate-200 bg-slate-50/80">
                       <th
                         className={selectionCheckboxCellClass}
@@ -7261,7 +7357,7 @@ function MisDocumentosContent() {
                         <col style={{ width: `${papeleraColWidths.tiempoRestante}px` }} />
                         <col style={{ width: '76px' }} />
                       </colgroup>
-                      <thead>
+                      <thead className="[&_th]:font-500">
                         <tr className="border-b border-slate-200 bg-slate-50/80">
                           <th
                             className={selectionCheckboxCellClass}
@@ -7447,7 +7543,11 @@ function MisDocumentosContent() {
                                   <div
                                     className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En progreso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}
                                   >
-                                    <FileText size={16} className={getDocIconColor(doc.estado)} />
+                                    <DocumentSourceIcon
+                                      document={doc}
+                                      size={16}
+                                      className={getDocIconColor(doc.estado)}
+                                    />
                                   </div>
                                   <div className="flex min-w-0 flex-col">
                                     <div className="flex items-center gap-1.5">
@@ -7870,7 +7970,7 @@ function MisDocumentosContent() {
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-max">
-                      <thead>
+                      <thead className="[&_th]:font-500">
                         <tr className="border-b border-slate-200 bg-slate-50/80">
                           <th
                             className={selectionCheckboxCellClass}
@@ -8062,7 +8162,11 @@ function MisDocumentosContent() {
                                   <div
                                     className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En progreso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}
                                   >
-                                    <FileText size={16} className={getDocIconColor(doc.estado)} />
+                                    <DocumentSourceIcon
+                                      document={doc}
+                                      size={16}
+                                      className={getDocIconColor(doc.estado)}
+                                    />
                                   </div>
                                   <div className="flex min-w-0 flex-col">
                                     <button
@@ -8390,7 +8494,8 @@ function MisDocumentosContent() {
                             )}
                             {entry.status === 'FAILED' && (
                               <p className="mt-0.5 text-slate-500">
-                                La eliminación no se completó; el elemento se conserva para revisión.
+                                La eliminación no se completó; el elemento se conserva para
+                                revisión.
                               </p>
                             )}
                           </div>
@@ -8463,469 +8568,480 @@ function MisDocumentosContent() {
                   Papelera
                 </summary>
                 <div className={isDeletionHistoryOpen ? 'mt-3' : ''}>
-              <div className="mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-                <div className="flex flex-wrap items-center gap-2 p-3">
-                  <div className="relative flex-1">
-                    <Search
-                      size={15}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Buscar en papelera..."
-                      value={papeleraSearch}
-                      onChange={(e) => setPapeleraSearch(e.target.value)}
-                      className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
-                    />
-                  </div>
-                  <div className="relative">
-                    <button
-                      onClick={() => setPapeleraFilterOpen((value) => !value)}
-                      className={`flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-600 transition-colors ${papeleraStatusFilter !== 'all' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
-                    >
-                      <Filter size={14} />
-                      Filtros
-                    </button>
-                    {papeleraFilterOpen && (
-                      <div className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
-                        {[
-                          ['all', 'Todos los documentos'],
-                          ['restorable', 'Restaurables'],
-                          ['retained', 'Bajo retención'],
-                          ['legal_hold', 'Legal Hold'],
-                          ['evaluation', 'En evaluación final'],
-                        ].map(([value, label]) => (
-                          <button
-                            key={value}
-                            onClick={() => {
-                              setPapeleraStatusFilter(value as typeof papeleraStatusFilter);
-                              setPapeleraFilterOpen(false);
-                            }}
-                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${papeleraStatusFilter === value ? 'font-600 text-primary' : 'text-slate-700'}`}
-                          >
-                            {label}
-                          </button>
-                        ))}
+                  <div className="mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                    <div className="flex flex-wrap items-center gap-2 p-3">
+                      <div className="relative flex-1">
+                        <Search
+                          size={15}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Buscar en papelera..."
+                          value={papeleraSearch}
+                          onChange={(e) => setPapeleraSearch(e.target.value)}
+                          className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
+                        />
                       </div>
-                    )}
-                  </div>
-                  <select
-                    value={papeleraSortOrder}
-                    onChange={(event) =>
-                      setPapeleraSortOrder(event.target.value as typeof papeleraSortOrder)
-                    }
-                    className="h-9 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-600 text-slate-600 outline-none transition-colors hover:border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                    aria-label="Ordenar documentos de Papelera"
-                  >
-                    <option value="deleted_desc">Más recientes</option>
-                    <option value="deleted_asc">Más antiguos</option>
-                    <option value="name_asc">Nombre A-Z</option>
-                    <option value="name_desc">Nombre Z-A</option>
-                  </select>
-                  <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
-                    <button
-                      onClick={() => setPapeleraViewMode('list')}
-                      className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${papeleraViewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                      title="Vista de lista"
-                      aria-label="Vista de lista"
-                    >
-                      <LayoutList size={16} />
-                    </button>
-                    <button
-                      onClick={() => setPapeleraViewMode('grid')}
-                      className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${papeleraViewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                      title="Vista de tarjetas"
-                      aria-label="Vista de tarjetas"
-                    >
-                      <LayoutGrid size={16} />
-                    </button>
-                  </div>
-                </div>
-                {papeleraStatusFilter !== 'all' && (
-                  <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2">
-                    <span className="text-xs text-slate-500">Filtro activo</span>
-                    <button
-                      onClick={() => setPapeleraStatusFilter('all')}
-                      className="flex items-center gap-1 text-xs font-600 text-primary hover:underline"
-                    >
-                      Limpiar
-                      <X size={12} />
-                    </button>
-                  </div>
-                )}
-              </div>
-              {selectedTrashDocuments.length > 0 && (
-                <section className="mb-3 flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/[0.04] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-sm font-700 text-slate-900">
-                      {selectedTrashDocuments.length} documento(s) seleccionado(s)
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                      {selectedTrashEligible.length > 0 && (
-                        <span className="font-600 text-red-700">
-                          {selectedTrashEligible.length} listo(s) para eliminación permanente
-                        </span>
-                      )}
-                      {selectedTrashRetained > 0 && (
-                        <span className="text-slate-600">
-                          {selectedTrashRetained} retenido(s) por recuperación, retención o Legal
-                          Hold
-                        </span>
-                      )}
-                      {selectedTrashLegalHold.length > 0 && (
-                        <span className="font-600 text-amber-700">
-                          {selectedTrashLegalHold.length} con Legal Hold
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={clearTrashSelection}
-                      className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      Limpiar selección
-                    </button>
-                    <button
-                      onClick={handleBulkRestore}
-                      className="flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-white px-2.5 text-xs font-600 text-primary transition-colors hover:bg-primary/5"
-                    >
-                      <RotateCcw size={14} />
-                      Restaurar seleccionados
-                    </button>
-                    <button
-                      onClick={() =>
-                        openConfirmSelectedPurge(
-                          selectedTrashEligible.map((document) => document.id)
-                        )
-                      }
-                      disabled={selectedTrashEligible.length === 0}
-                      className="flex h-8 items-center gap-1.5 rounded-md bg-red-600 px-2.5 text-xs font-700 text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      <Trash2 size={14} />
-                      Eliminar {selectedTrashEligible.length || ''} seleccionados
-                    </button>
-                  </div>
-                </section>
-              )}
-              <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-                {loadingPapelera ? (
-                  <div className="flex items-center justify-center py-12 gap-3">
-                    <svg
-                      className="animate-spin h-5 w-5 text-primary"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                      />
-                    </svg>
-                    <span className="text-sm text-muted-foreground">Cargando papelera...</span>
-                  </div>
-                ) : papeleraViewMode === 'grid' ? (
-                  <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {filteredDeleted.map((doc) => (
-                      <article
-                        key={doc.id}
-                        className="rounded-lg border border-slate-200 bg-white p-4"
+                      <div className="relative">
+                        <button
+                          onClick={() => setPapeleraFilterOpen((value) => !value)}
+                          className={`flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-600 transition-colors ${papeleraStatusFilter !== 'all' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+                        >
+                          <Filter size={14} />
+                          Filtros
+                        </button>
+                        {papeleraFilterOpen && (
+                          <div className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
+                            {[
+                              ['all', 'Todos los documentos'],
+                              ['restorable', 'Restaurables'],
+                              ['retained', 'Bajo retención'],
+                              ['legal_hold', 'Legal Hold'],
+                              ['evaluation', 'En evaluación final'],
+                            ].map(([value, label]) => (
+                              <button
+                                key={value}
+                                onClick={() => {
+                                  setPapeleraStatusFilter(value as typeof papeleraStatusFilter);
+                                  setPapeleraFilterOpen(false);
+                                }}
+                                className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${papeleraStatusFilter === value ? 'font-600 text-primary' : 'text-slate-700'}`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <select
+                        value={papeleraSortOrder}
+                        onChange={(event) =>
+                          setPapeleraSortOrder(event.target.value as typeof papeleraSortOrder)
+                        }
+                        className="h-9 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-600 text-slate-600 outline-none transition-colors hover:border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                        aria-label="Ordenar documentos de Papelera"
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <FileText size={16} className="shrink-0 text-slate-400" />
-                              <p className="truncate text-sm font-700 text-slate-900">{doc.name}</p>
-                            </div>
-                            {doc.descripcion && (
-                              <p className="mt-1 truncate text-xs text-slate-500">
-                                {doc.descripcion}
-                              </p>
-                            )}
-                          </div>
-                          {doc.legalHoldActive && <LegalHoldBadge />}
-                        </div>
-                        <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-                          <div>
-                            <dt className="text-slate-400">Eliminado</dt>
-                            <dd className="mt-0.5 text-slate-700">{doc.fechaEliminacion}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-slate-400">Tamaño</dt>
-                            <dd className="mt-0.5 text-slate-700">{doc.tamano}</dd>
-                          </div>
-                          <div className="col-span-2">
-                            <dt className="text-slate-400">Estado</dt>
-                            <dd className="mt-0.5 font-600 text-slate-700">
-                              {doc.legalHoldActive
-                                ? 'Eliminación suspendida'
-                                : getTrashCountdown(doc.restoreUntil, trashNow).label}
-                            </dd>
-                          </div>
-                        </dl>
-                        <div className="mt-4 flex justify-end gap-1.5 border-t border-slate-100 pt-3">
-                          <button
-                            onClick={() => handleRestore(doc.id)}
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-primary/30 text-primary transition-colors hover:bg-primary/5"
-                            title="Restaurar"
-                            aria-label={`Restaurar ${doc.name}`}
-                          >
-                            <RotateCcw size={15} />
-                          </button>
-                          <button
-                            onClick={() => openConfirmDelete(doc.id, doc.name)}
-                            disabled={!doc.purgeEligible}
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white"
-                            title={
-                              doc.purgeEligible
-                                ? 'Eliminar permanentemente'
-                                : doc.retencion || 'No disponible durante la retención'
-                            }
-                            aria-label={`Eliminar permanentemente ${doc.name}`}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                    {filteredDeleted.length === 0 && (
-                      <div className="col-span-full py-8 text-center text-sm text-slate-500">
-                        {papeleraSearch
-                          ? 'No hay coincidencias para la búsqueda.'
-                          : 'La papelera está vacía.'}
+                        <option value="deleted_desc">Más recientes</option>
+                        <option value="deleted_asc">Más antiguos</option>
+                        <option value="name_asc">Nombre A-Z</option>
+                        <option value="name_desc">Nombre Z-A</option>
+                      </select>
+                      <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
+                        <button
+                          onClick={() => setPapeleraViewMode('list')}
+                          className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${papeleraViewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                          title="Vista de lista"
+                          aria-label="Vista de lista"
+                        >
+                          <LayoutList size={16} />
+                        </button>
+                        <button
+                          onClick={() => setPapeleraViewMode('grid')}
+                          className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${papeleraViewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                          title="Vista de tarjetas"
+                          aria-label="Vista de tarjetas"
+                        >
+                          <LayoutGrid size={16} />
+                        </button>
+                      </div>
+                    </div>
+                    {papeleraStatusFilter !== 'all' && (
+                      <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2">
+                        <span className="text-xs text-slate-500">Filtro activo</span>
+                        <button
+                          onClick={() => setPapeleraStatusFilter('all')}
+                          className="flex items-center gap-1 text-xs font-600 text-primary hover:underline"
+                        >
+                          Limpiar
+                          <X size={12} />
+                        </button>
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-max">
-                      <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50/80">
-                          <th className={selectionCheckboxCellClass} style={{ width: '40px' }}>
-                            <input
-                              type="checkbox"
-                              checked={
-                                filteredDeleted.length > 0 &&
-                                filteredDeleted.every((doc) => selectedRows.includes(doc.id))
-                              }
-                              onChange={() =>
-                                toggleSelectDocumentSet(filteredDeleted.map((doc) => doc.id))
-                              }
-                              className={selectionCheckboxClass}
-                              aria-label="Seleccionar todos los documentos eliminados visibles"
-                            />
-                          </th>
-                          <ResizableTh
-                            colKey="nombre"
-                            width={papeleraColWidths.nombre}
-                            minWidth={150}
-                            onResize={resizePapeleraCol}
-                            className="text-left text-xs font-semibold text-muted-foreground px-4 py-3"
-                          >
-                            Nombre del documento
-                          </ResizableTh>
-                          <ResizableTh
-                            colKey="tipo"
-                            width={papeleraColWidths.tipo}
-                            minWidth={70}
-                            onResize={resizePapeleraCol}
-                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
-                          >
-                            Tipo
-                          </ResizableTh>
-                          <ResizableTh
-                            colKey="eliminadoPor"
-                            width={papeleraColWidths.eliminadoPor}
-                            minWidth={100}
-                            onResize={resizePapeleraCol}
-                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
-                          >
-                            Eliminado por
-                          </ResizableTh>
-                          <ResizableTh
-                            colKey="fechaEliminacion"
-                            width={papeleraColWidths.fechaEliminacion}
-                            minWidth={100}
-                            onResize={resizePapeleraCol}
-                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
-                          >
-                            Fecha eliminación
-                          </ResizableTh>
-                          <ResizableTh
-                            colKey="tamano"
-                            width={papeleraColWidths.tamano}
-                            minWidth={60}
-                            onResize={resizePapeleraCol}
-                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
-                          >
-                            Tamaño
-                          </ResizableTh>
-                          <ResizableTh
-                            colKey="retencion"
-                            width={papeleraColWidths.retencion}
-                            minWidth={70}
-                            onResize={resizePapeleraCol}
-                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
-                          >
-                            Retención
-                          </ResizableTh>
-                          <ResizableTh
-                            colKey="tiempoRestante"
-                            width={papeleraColWidths.tiempoRestante}
-                            minWidth={150}
-                            onResize={resizePapeleraCol}
-                            className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
-                          >
-                            Tiempo restante
-                          </ResizableTh>
-                          <th
-                            className="sticky right-0 w-[76px] border-l border-slate-200 bg-slate-50/80 px-1 py-3 text-center text-xs font-semibold text-muted-foreground shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"
-                            style={{ width: '76px', minWidth: '76px' }}
-                          >
-                            Acciones
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                  {selectedTrashDocuments.length > 0 && (
+                    <section className="mb-3 flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/[0.04] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-sm font-700 text-slate-900">
+                          {selectedTrashDocuments.length} documento(s) seleccionado(s)
+                        </p>
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                          {selectedTrashEligible.length > 0 && (
+                            <span className="font-600 text-red-700">
+                              {selectedTrashEligible.length} listo(s) para eliminación permanente
+                            </span>
+                          )}
+                          {selectedTrashRetained > 0 && (
+                            <span className="text-slate-600">
+                              {selectedTrashRetained} retenido(s) por recuperación, retención o
+                              Legal Hold
+                            </span>
+                          )}
+                          {selectedTrashLegalHold.length > 0 && (
+                            <span className="font-600 text-amber-700">
+                              {selectedTrashLegalHold.length} con Legal Hold
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={clearTrashSelection}
+                          className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-700 transition-colors hover:bg-slate-50"
+                        >
+                          Limpiar selección
+                        </button>
+                        <button
+                          onClick={handleBulkRestore}
+                          className="flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-white px-2.5 text-xs font-600 text-primary transition-colors hover:bg-primary/5"
+                        >
+                          <RotateCcw size={14} />
+                          Restaurar seleccionados
+                        </button>
+                        <button
+                          onClick={() =>
+                            openConfirmSelectedPurge(
+                              selectedTrashEligible.map((document) => document.id)
+                            )
+                          }
+                          disabled={selectedTrashEligible.length === 0}
+                          className="flex h-8 items-center gap-1.5 rounded-md bg-red-600 px-2.5 text-xs font-700 text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                          <Trash2 size={14} />
+                          Eliminar {selectedTrashEligible.length || ''} seleccionados
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                  <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                    {loadingPapelera ? (
+                      <div className="flex items-center justify-center py-12 gap-3">
+                        <svg
+                          className="animate-spin h-5 w-5 text-primary"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        <span className="text-sm text-muted-foreground">Cargando papelera...</span>
+                      </div>
+                    ) : papeleraViewMode === 'grid' ? (
+                      <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
                         {filteredDeleted.map((doc) => (
-                          <tr
+                          <article
                             key={doc.id}
-                            className={`border-b border-border last:border-0 hover:bg-muted/30 transition-colors ${selectedRows.includes(doc.id) ? 'bg-blue-50/60' : ''}`}
+                            className="rounded-lg border border-slate-200 bg-white p-4"
                           >
-                            <td className={selectionCheckboxCellClass}>
-                              <input
-                                type="checkbox"
-                                checked={selectedRows.includes(doc.id)}
-                                onChange={() => toggleSelectRow(doc.id)}
-                                className={selectionCheckboxClass}
-                                aria-label={`Seleccionar ${doc.name}`}
-                              />
-                            </td>
-                            <td className="px-4 py-3 min-w-[260px]">
-                              <div className="flex items-start gap-2">
-                                <FileText
-                                  size={16}
-                                  className="text-muted-foreground flex-shrink-0 mt-0.5"
-                                />
-                                <div className="flex flex-col min-w-0">
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-xs font-medium text-foreground">
-                                      {doc.name}
-                                    </span>
-                                    {doc.legalHoldActive && <LegalHoldBadge />}
-                                  </div>
-                                  {doc.descripcion && (
-                                    <span className="text-xs text-muted-foreground">
-                                      {doc.descripcion}
-                                    </span>
-                                  )}
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <DocumentSourceIcon
+                                    document={doc}
+                                    size={16}
+                                    className="shrink-0 text-slate-400"
+                                  />
+                                  <p className="truncate text-sm font-600 text-slate-900">
+                                    {doc.name}
+                                  </p>
                                 </div>
+                                {doc.descripcion && (
+                                  <p className="mt-1 truncate text-xs text-slate-500">
+                                    {doc.descripcion}
+                                  </p>
+                                )}
                               </div>
-                            </td>
-                            <td className="px-3 py-3">
-                              <span className="text-xs text-muted-foreground">{doc.tipo}</span>
-                            </td>
-                            <td className="px-3 py-3">
-                              <span className="text-xs text-muted-foreground">
-                                {doc.eliminadoPor}
-                              </span>
-                            </td>
-                            <td className="px-3 py-3">
-                              <span className="text-xs text-muted-foreground">
-                                {doc.fechaEliminacion}
-                              </span>
-                            </td>
-                            <td className="px-3 py-3">
-                              <span className="text-xs text-muted-foreground">{doc.tamano}</span>
-                            </td>
-                            <td className="px-3 py-3">
-                              <span className="text-xs text-muted-foreground">
-                                {doc.retencion || '—'}
-                              </span>
-                            </td>
-                            <td className="px-3 py-3">
-                              <div className="flex flex-col gap-0.5">
-                                <span
-                                  className={`text-xs font-medium ${
-                                    doc.legalHoldActive
-                                      ? 'text-amber-700'
-                                      : getTrashCountdown(doc.restoreUntil, trashNow).state ===
-                                          'DUE_FOR_EVALUATION'
-                                        ? 'text-slate-600'
-                                        : 'text-slate-700'
-                                  }`}
-                                >
+                              {doc.legalHoldActive && <LegalHoldBadge />}
+                            </div>
+                            <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                              <div>
+                                <dt className="text-slate-400">Eliminado</dt>
+                                <dd className="mt-0.5 text-slate-700">{doc.fechaEliminacion}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-slate-400">Tamaño</dt>
+                                <dd className="mt-0.5 text-slate-700">{doc.tamano}</dd>
+                              </div>
+                              <div className="col-span-2">
+                                <dt className="text-slate-400">Estado</dt>
+                                <dd className="mt-0.5 font-600 text-slate-700">
                                   {doc.legalHoldActive
                                     ? 'Eliminación suspendida'
                                     : getTrashCountdown(doc.restoreUntil, trashNow).label}
-                                </span>
-                                {doc.restoreUntil && (
-                                  <span className="text-[10px] text-muted-foreground">
-                                    Eliminación automática: {formatDateTime(doc.restoreUntil)}
-                                  </span>
-                                )}
+                                </dd>
                               </div>
-                            </td>
-                            <td
-                              className="sticky right-0 w-[76px] bg-white px-1 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"
-                              style={{ width: '76px', minWidth: '76px' }}
-                            >
-                              <div className="flex items-center justify-center gap-1">
-                                <button
-                                  onClick={() => handleRestore(doc.id)}
-                                  className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/30 text-primary transition-colors hover:bg-primary/5"
-                                  title="Restaurar"
-                                  aria-label={`Restaurar ${doc.name}`}
-                                >
-                                  <RotateCcw size={15} />
-                                </button>
-                                <button
-                                  onClick={() => openConfirmDelete(doc.id, doc.name)}
-                                  disabled={!doc.purgeEligible}
-                                  title={
-                                    doc.purgeEligible
-                                      ? 'Eliminar permanentemente'
-                                      : doc.retencion ||
-                                        'Este documento todavía no puede eliminarse definitivamente.'
-                                  }
-                                  aria-label={`Eliminar permanentemente ${doc.name}`}
-                                  className="flex h-7 w-7 items-center justify-center rounded-md border border-red-200 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white"
-                                >
-                                  <Trash2 size={15} />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
+                            </dl>
+                            <div className="mt-4 flex justify-end gap-1.5 border-t border-slate-100 pt-3">
+                              <button
+                                onClick={() => handleRestore(doc.id)}
+                                className="flex h-8 w-8 items-center justify-center rounded-md border border-primary/30 text-primary transition-colors hover:bg-primary/5"
+                                title="Restaurar"
+                                aria-label={`Restaurar ${doc.name}`}
+                              >
+                                <RotateCcw size={15} />
+                              </button>
+                              <button
+                                onClick={() => openConfirmDelete(doc.id, doc.name)}
+                                disabled={!doc.purgeEligible}
+                                className="flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white"
+                                title={
+                                  doc.purgeEligible
+                                    ? 'Eliminar permanentemente'
+                                    : doc.retencion || 'No disponible durante la retención'
+                                }
+                                aria-label={`Eliminar permanentemente ${doc.name}`}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </article>
                         ))}
                         {filteredDeleted.length === 0 && (
-                          <tr>
-                            <td colSpan={9} className="p-0">
-                              <LibraryEmptyState
-                                icon={Trash2}
-                                title={papeleraSearch ? 'Sin resultados' : 'La papelera está vacía'}
-                                description={
-                                  papeleraSearch
-                                    ? 'Prueba con otro nombre o término de búsqueda.'
-                                    : 'Los documentos eliminados aparecerán aquí durante su periodo de retención.'
-                                }
-                              />
-                            </td>
-                          </tr>
+                          <div className="col-span-full py-8 text-center text-sm text-slate-500">
+                            {papeleraSearch
+                              ? 'No hay coincidencias para la búsqueda.'
+                              : 'La papelera está vacía.'}
+                          </div>
                         )}
-                      </tbody>
-                    </table>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-max">
+                          <thead className="[&_th]:font-500">
+                            <tr className="border-b border-slate-200 bg-slate-50/80">
+                              <th className={selectionCheckboxCellClass} style={{ width: '40px' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    filteredDeleted.length > 0 &&
+                                    filteredDeleted.every((doc) => selectedRows.includes(doc.id))
+                                  }
+                                  onChange={() =>
+                                    toggleSelectDocumentSet(filteredDeleted.map((doc) => doc.id))
+                                  }
+                                  className={selectionCheckboxClass}
+                                  aria-label="Seleccionar todos los documentos eliminados visibles"
+                                />
+                              </th>
+                              <ResizableTh
+                                colKey="nombre"
+                                width={papeleraColWidths.nombre}
+                                minWidth={150}
+                                onResize={resizePapeleraCol}
+                                className="text-left text-xs font-semibold text-muted-foreground px-4 py-3"
+                              >
+                                Nombre del documento
+                              </ResizableTh>
+                              <ResizableTh
+                                colKey="tipo"
+                                width={papeleraColWidths.tipo}
+                                minWidth={70}
+                                onResize={resizePapeleraCol}
+                                className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                              >
+                                Tipo
+                              </ResizableTh>
+                              <ResizableTh
+                                colKey="eliminadoPor"
+                                width={papeleraColWidths.eliminadoPor}
+                                minWidth={100}
+                                onResize={resizePapeleraCol}
+                                className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                              >
+                                Eliminado por
+                              </ResizableTh>
+                              <ResizableTh
+                                colKey="fechaEliminacion"
+                                width={papeleraColWidths.fechaEliminacion}
+                                minWidth={100}
+                                onResize={resizePapeleraCol}
+                                className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                              >
+                                Fecha eliminación
+                              </ResizableTh>
+                              <ResizableTh
+                                colKey="tamano"
+                                width={papeleraColWidths.tamano}
+                                minWidth={60}
+                                onResize={resizePapeleraCol}
+                                className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                              >
+                                Tamaño
+                              </ResizableTh>
+                              <ResizableTh
+                                colKey="retencion"
+                                width={papeleraColWidths.retencion}
+                                minWidth={70}
+                                onResize={resizePapeleraCol}
+                                className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                              >
+                                Retención
+                              </ResizableTh>
+                              <ResizableTh
+                                colKey="tiempoRestante"
+                                width={papeleraColWidths.tiempoRestante}
+                                minWidth={150}
+                                onResize={resizePapeleraCol}
+                                className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                              >
+                                Tiempo restante
+                              </ResizableTh>
+                              <th
+                                className="sticky right-0 w-[76px] border-l border-slate-200 bg-slate-50/80 px-1 py-3 text-center text-xs font-semibold text-muted-foreground shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"
+                                style={{ width: '76px', minWidth: '76px' }}
+                              >
+                                Acciones
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredDeleted.map((doc) => (
+                              <tr
+                                key={doc.id}
+                                className={`border-b border-border last:border-0 hover:bg-muted/30 transition-colors ${selectedRows.includes(doc.id) ? 'bg-blue-50/60' : ''}`}
+                              >
+                                <td className={selectionCheckboxCellClass}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedRows.includes(doc.id)}
+                                    onChange={() => toggleSelectRow(doc.id)}
+                                    className={selectionCheckboxClass}
+                                    aria-label={`Seleccionar ${doc.name}`}
+                                  />
+                                </td>
+                                <td className="px-4 py-3 min-w-[260px]">
+                                  <div className="flex items-start gap-2">
+                                    <DocumentSourceIcon
+                                      document={doc}
+                                      size={16}
+                                      className="mt-0.5 flex-shrink-0 text-muted-foreground"
+                                    />
+                                    <div className="flex flex-col min-w-0">
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="text-xs font-medium text-foreground">
+                                          {doc.name}
+                                        </span>
+                                        {doc.legalHoldActive && <LegalHoldBadge />}
+                                      </div>
+                                      {doc.descripcion && (
+                                        <span className="text-xs text-muted-foreground">
+                                          {doc.descripcion}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">{doc.tipo}</span>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.eliminadoPor}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.fechaEliminacion}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.tamano}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {doc.retencion || '—'}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span
+                                      className={`text-xs font-medium ${
+                                        doc.legalHoldActive
+                                          ? 'text-amber-700'
+                                          : getTrashCountdown(doc.restoreUntil, trashNow).state ===
+                                              'DUE_FOR_EVALUATION'
+                                            ? 'text-slate-600'
+                                            : 'text-slate-700'
+                                      }`}
+                                    >
+                                      {doc.legalHoldActive
+                                        ? 'Eliminación suspendida'
+                                        : getTrashCountdown(doc.restoreUntil, trashNow).label}
+                                    </span>
+                                    {doc.restoreUntil && (
+                                      <span className="text-[10px] text-muted-foreground">
+                                        Eliminación automática: {formatDateTime(doc.restoreUntil)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td
+                                  className="sticky right-0 w-[76px] bg-white px-1 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"
+                                  style={{ width: '76px', minWidth: '76px' }}
+                                >
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={() => handleRestore(doc.id)}
+                                      className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/30 text-primary transition-colors hover:bg-primary/5"
+                                      title="Restaurar"
+                                      aria-label={`Restaurar ${doc.name}`}
+                                    >
+                                      <RotateCcw size={15} />
+                                    </button>
+                                    <button
+                                      onClick={() => openConfirmDelete(doc.id, doc.name)}
+                                      disabled={!doc.purgeEligible}
+                                      title={
+                                        doc.purgeEligible
+                                          ? 'Eliminar permanentemente'
+                                          : doc.retencion ||
+                                            'Este documento todavía no puede eliminarse definitivamente.'
+                                      }
+                                      aria-label={`Eliminar permanentemente ${doc.name}`}
+                                      className="flex h-7 w-7 items-center justify-center rounded-md border border-red-200 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                            {filteredDeleted.length === 0 && (
+                              <tr>
+                                <td colSpan={9} className="p-0">
+                                  <LibraryEmptyState
+                                    icon={Trash2}
+                                    title={
+                                      papeleraSearch ? 'Sin resultados' : 'La papelera está vacía'
+                                    }
+                                    description={
+                                      papeleraSearch
+                                        ? 'Prueba con otro nombre o término de búsqueda.'
+                                        : 'Los documentos eliminados aparecerán aquí durante su periodo de retención.'
+                                    }
+                                  />
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
                 </div>
               </details>
               {confirmDelete.open && (
@@ -9307,7 +9423,7 @@ function MisDocumentosContent() {
                       <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
                         <div className="overflow-x-auto">
                           <table className="w-full min-w-max">
-                            <thead>
+                            <thead className="[&_th]:font-500">
                               <tr className="border-b border-slate-200 bg-slate-50/80">
                                 <ResizableTh
                                   colKey="nombre"
@@ -9475,7 +9591,8 @@ function MisDocumentosContent() {
                                       <div
                                         className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En progreso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}
                                       >
-                                        <FileText
+                                        <DocumentSourceIcon
+                                          document={doc}
                                           size={16}
                                           className={getDocIconColor(doc.estado)}
                                         />

@@ -9,6 +9,7 @@ import {
   classifyDocument,
   detectDocumentObligations,
   extractStructuredFields,
+  analyzeContractualDocument,
 } from '@/lib/ai/documentIntelligence';
 import {
   AI_BODY_LIMITS,
@@ -29,7 +30,7 @@ const bodySchema = z
   .object({
     workspaceId: z.string().uuid(),
     documentId: z.string().uuid(),
-    analysisTypes: z.array(z.enum(DOCUMENT_INTELLIGENCE_ANALYSIS_TYPES)).min(1).max(6),
+    analysisTypes: z.array(z.enum(DOCUMENT_INTELLIGENCE_ANALYSIS_TYPES)).min(1).max(7),
   })
   .strict();
 
@@ -131,6 +132,14 @@ export async function POST(request: NextRequest) {
       results.profile =
         generatedProfile ||
         (await buildDocumentIntelligenceProfile(documentId, workspaceId, user.id, context));
+    }
+    if (analysisTypes.includes('contractual')) {
+      results.contractual = await analyzeContractualDocument(
+        documentId,
+        workspaceId,
+        user.id,
+        context
+      );
     }
 
     return NextResponse.json({

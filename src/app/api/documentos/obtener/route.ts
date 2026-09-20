@@ -1,10 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  assertKioskDocumentScope,
+  kioskParticipantMatchesUser,
+} from '@/lib/in-person/kiosk-session.server';
+import {
+  DOCUMENT_VIEWER_SELECT,
+  LEGACY_DOCUMENT_VIEWER_SELECT,
+  isMissingDocumentCustodyColumns,
+} from '@/lib/documents/viewer-select';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+interface ViewerParticipant {
+  email?: string;
+  id?: string;
+  user_id?: string;
+  current_access?: boolean;
+}
+
+interface ViewerDocumentRow {
+  id: string;
+  owner_id: string;
+  participantes?: ViewerParticipant[] | null;
+  workspace_id?: string | null;
+  current_custodian_workspace_id?: string | null;
+  [key: string]: unknown;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +39,8 @@ export async function GET(request: NextRequest) {
     if (!documentoId) {
       return NextResponse.json({ error: 'ID de documento requerido' }, { status: 400 });
     }
+
+    const kioskSession = await assertKioskDocumentScope(request, documentoId);
 
     // Authenticate via Authorization header (Bearer token sent by client)
     const authHeader = request.headers.get('authorization');
@@ -61,33 +88,62 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    // Fetch document using service role (bypasses RLS)
-    const { data: doc, error: docError } = await supabaseAdmin
-      .from('documentos')
-      .select(
-        'id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, legal_hold, legal_hold_status, created_at, updated_at, fecha_vencimiento, fecha_vencimiento_timezone, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at, blockchain_evidence_enabled'
-      )
-      .eq('id', documentoId)
-      .single();
+    if (kioskSession) {
+      const identity = await kioskParticipantMatchesUser(supabaseAdmin, kioskSession, user);
+      if (!identity.matches) {
+        return NextResponse.json({ error: 'KIOSK_PARTICIPANT_MISMATCH' }, { status: 403 });
+      }
+    }
 
-    if (docError || !doc) {
+    // Fetch document using service role (bypasses RLS)
+    const queryDocument = (columns: string) =>
+      supabaseAdmin.from('documentos').select(columns).eq('id', documentoId).maybeSingle();
+    let documentResult = await queryDocument(DOCUMENT_VIEWER_SELECT);
+
+    if (isMissingDocumentCustodyColumns(documentResult.error)) {
+      documentResult = await queryDocument(LEGACY_DOCUMENT_VIEWER_SELECT);
+    }
+
+    const doc = documentResult.data as unknown as ViewerDocumentRow | null;
+    const { error: docError } = documentResult;
+
+    if (docError) {
+      console.error('[api/documentos/obtener] Document query failed:', {
+        code: docError.code,
+        message: docError.message,
+      });
+      return NextResponse.json({ error: 'No fue posible cargar el documento' }, { status: 500 });
+    }
+
+    if (!doc) {
       return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
     }
 
     // Verify access: user must be owner or participant
     const isOwner = doc.owner_id === user.id;
-    const participantes: any[] = doc.participantes || [];
+    const participantes = doc.participantes || [];
     const userEmail = user.email?.toLowerCase() || '';
     const participantEntry = participantes.find(
-      (p: any) =>
-        (p.email && p.email.toLowerCase() === userEmail)
-        || p.id === user.id
-        || p.user_id === user.id
+      (p) =>
+        (p.email && p.email.toLowerCase() === userEmail) ||
+        p.id === user.id ||
+        p.user_id === user.id
     );
-    const isParticipant = Boolean(
-      participantEntry
-      && participantEntry.current_access !== false
-    );
+    const isParticipant = Boolean(participantEntry && participantEntry.current_access !== false);
+
+    const custodyWorkspaceId = doc.current_custodian_workspace_id || doc.workspace_id;
+    const { data: custodyMembership, error: custodyMembershipError } = custodyWorkspaceId
+      ? await supabaseAdmin
+          .from('workspace_members')
+          .select('id')
+          .eq('workspace_id', custodyWorkspaceId)
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .in('role', ['owner', 'admin'])
+          .or(`access_expires_at.is.null,access_expires_at.gt.${new Date().toISOString()}`)
+          .maybeSingle()
+      : { data: null, error: null };
+    if (custodyMembershipError) throw custodyMembershipError;
 
     const { data: explicitPermission, error: permissionError } = await supabaseAdmin
       .from('document_access_permissions')
@@ -98,7 +154,7 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
     if (permissionError) throw permissionError;
 
-    if (!isOwner && !isParticipant && !explicitPermission) {
+    if (!isOwner && !isParticipant && !explicitPermission && !custodyMembership) {
       return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
     }
 

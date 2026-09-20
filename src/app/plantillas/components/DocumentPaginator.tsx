@@ -11,13 +11,11 @@ import React, {
 
 // ─── Page size definitions (px at 96 DPI) ────────────────────────────────────
 
-export type PaperSize =
-  | 'Carta (Letter)'
-  | 'Oficio (Legal)' | 'A4' | 'A3' | 'A5' | 'Tabloide';
+export type PaperSize = 'Carta (Letter)' | 'Oficio (Legal)' | 'A4' | 'A3' | 'A5' | 'Tabloide';
 
 export type PageOrientation = 'vertical' | 'horizontal';
 
-interface PageDimensions {
+export interface PageDimensions {
   width: number;
   height: number;
 }
@@ -39,20 +37,17 @@ const DEFAULT_MARGIN_RIGHT = 60;
 const PAGE_HEADER_HEIGHT = 32;
 
 export interface PageMargins {
-  top: number;    // cm
+  top: number; // cm
   bottom: number; // cm
-  left: number;   // cm
-  right: number;  // cm
+  left: number; // cm
+  right: number; // cm
 }
 
-function cmToPx(cm: number): number {
+export function cmToPx(cm: number): number {
   return Math.round(cm * 37.795);
 }
 
-function getPageDimensions(
-  size: PaperSize,
-  orientation: PageOrientation
-): PageDimensions {
+export function getPageDimensions(size: PaperSize, orientation: PageOrientation): PageDimensions {
   const base = PAGE_SIZES[size] ?? PAGE_SIZES['Carta (Letter)'];
   if (orientation === 'horizontal') {
     return { width: base.height, height: base.width };
@@ -128,7 +123,15 @@ function pageContentStyle(margins?: PageMargins): React.CSSProperties {
 
 // ─── Horizontal Ruler ─────────────────────────────────────────────────────────
 
-function HorizontalRuler({ width, marginLeft, marginRight }: { width: number; marginLeft: number; marginRight: number }) {
+function HorizontalRuler({
+  width,
+  marginLeft,
+  marginRight,
+}: {
+  width: number;
+  marginLeft: number;
+  marginRight: number;
+}) {
   const totalWidth = width;
   const ticks = [];
   const tickSpacingPx = 37.795 / 2;
@@ -141,13 +144,22 @@ function HorizontalRuler({ width, marginLeft, marginRight }: { width: number; ma
     ticks.push(
       <g key={i}>
         <line
-          x1={x} y1={isCm ? 0 : 8}
-          x2={x} y2={20}
+          x1={x}
+          y1={isCm ? 0 : 8}
+          x2={x}
+          y2={20}
           stroke="#9ca3af"
           strokeWidth={isCm ? 1 : 0.5}
         />
         {isCm && cmVal > 0 && (
-          <text x={x} y={10} fontSize="7" fill="#9ca3af" textAnchor="middle" dominantBaseline="middle">
+          <text
+            x={x}
+            y={10}
+            fontSize="7"
+            fill="#9ca3af"
+            textAnchor="middle"
+            dominantBaseline="middle"
+          >
             {Math.round((x - marginLeft) / 37.795)}
           </text>
         )}
@@ -156,14 +168,35 @@ function HorizontalRuler({ width, marginLeft, marginRight }: { width: number; ma
   }
 
   return (
-    <div style={{ width: totalWidth, height: 20, position: 'relative', flexShrink: 0, userSelect: 'none' }}>
+    <div
+      style={{
+        width: totalWidth,
+        height: 20,
+        position: 'relative',
+        flexShrink: 0,
+        userSelect: 'none',
+      }}
+    >
       <svg width={totalWidth} height={20} style={{ display: 'block' }}>
         <rect width={totalWidth} height={20} fill="#f3f4f6" />
         <rect x={0} y={0} width={marginLeft} height={20} fill="#e5e7eb" opacity={0.7} />
-        <rect x={totalWidth - marginRight} y={0} width={marginRight} height={20} fill="#e5e7eb" opacity={0.7} />
+        <rect
+          x={totalWidth - marginRight}
+          y={0}
+          width={marginRight}
+          height={20}
+          fill="#e5e7eb"
+          opacity={0.7}
+        />
         {ticks}
-        <polygon points={`${marginLeft},20 ${marginLeft - 5},12 ${marginLeft + 5},12`} fill="#3b82f6" />
-        <polygon points={`${totalWidth - marginRight},20 ${totalWidth - marginRight - 5},12 ${totalWidth - marginRight + 5},12`} fill="#3b82f6" />
+        <polygon
+          points={`${marginLeft},20 ${marginLeft - 5},12 ${marginLeft + 5},12`}
+          fill="#3b82f6"
+        />
+        <polygon
+          points={`${totalWidth - marginRight},20 ${totalWidth - marginRight - 5},12 ${totalWidth - marginRight + 5},12`}
+          fill="#3b82f6"
+        />
       </svg>
     </div>
   );
@@ -171,7 +204,15 @@ function HorizontalRuler({ width, marginLeft, marginRight }: { width: number; ma
 
 // ─── Vertical Ruler ───────────────────────────────────────────────────────────
 
-function VerticalRuler({ height, marginTop, marginBottom }: { height: number; marginTop: number; marginBottom: number }) {
+function VerticalRuler({
+  height,
+  marginTop,
+  marginBottom,
+}: {
+  height: number;
+  marginTop: number;
+  marginBottom: number;
+}) {
   const ticks = [];
   const tickSpacingPx = 37.795 / 2;
   const numTicks = Math.floor(height / tickSpacingPx);
@@ -183,16 +224,21 @@ function VerticalRuler({ height, marginTop, marginBottom }: { height: number; ma
     ticks.push(
       <g key={i}>
         <line
-          x1={isCm ? 0 : 8} y1={y}
-          x2={20} y2={y}
+          x1={isCm ? 0 : 8}
+          y1={y}
+          x2={20}
+          y2={y}
           stroke="#9ca3af"
           strokeWidth={isCm ? 1 : 0.5}
         />
         {isCm && cmVal > 0 && (
           <text
-            x={10} y={y}
-            fontSize="7" fill="#9ca3af"
-            textAnchor="middle" dominantBaseline="middle"
+            x={10}
+            y={y}
+            fontSize="7"
+            fill="#9ca3af"
+            textAnchor="middle"
+            dominantBaseline="middle"
             transform={`rotate(-90, 10, ${y})`}
           >
             {Math.round((y - marginTop) / 37.795)}
@@ -207,10 +253,23 @@ function VerticalRuler({ height, marginTop, marginBottom }: { height: number; ma
       <svg width={20} height={height} style={{ display: 'block' }}>
         <rect width={20} height={height} fill="#f3f4f6" />
         <rect x={0} y={0} width={20} height={marginTop} fill="#e5e7eb" opacity={0.7} />
-        <rect x={0} y={height - marginBottom} width={20} height={marginBottom} fill="#e5e7eb" opacity={0.7} />
+        <rect
+          x={0}
+          y={height - marginBottom}
+          width={20}
+          height={marginBottom}
+          fill="#e5e7eb"
+          opacity={0.7}
+        />
         {ticks}
-        <polygon points={`20,${marginTop} 12,${marginTop - 5} 12,${marginTop + 5}`} fill="#3b82f6" />
-        <polygon points={`20,${height - marginBottom} 12,${height - marginBottom - 5} 12,${height - marginBottom + 5}`} fill="#3b82f6" />
+        <polygon
+          points={`20,${marginTop} 12,${marginTop - 5} 12,${marginTop + 5}`}
+          fill="#3b82f6"
+        />
+        <polygon
+          points={`20,${height - marginBottom} 12,${height - marginBottom - 5} 12,${height - marginBottom + 5}`}
+          fill="#3b82f6"
+        />
       </svg>
     </div>
   );
@@ -257,7 +316,9 @@ function TableContextualToolbar({
     const row = cell.closest('tr') as HTMLTableRowElement;
     if (!row) return;
     const newRow = row.cloneNode(true) as HTMLTableRowElement;
-    Array.from(newRow.cells).forEach((c) => { c.innerHTML = '&nbsp;'; });
+    Array.from(newRow.cells).forEach((c) => {
+      c.innerHTML = '&nbsp;';
+    });
     row.parentNode?.insertBefore(newRow, row);
     onClose();
   };
@@ -266,7 +327,9 @@ function TableContextualToolbar({
     const row = cell.closest('tr') as HTMLTableRowElement;
     if (!row) return;
     const newRow = row.cloneNode(true) as HTMLTableRowElement;
-    Array.from(newRow.cells).forEach((c) => { c.innerHTML = '&nbsp;'; });
+    Array.from(newRow.cells).forEach((c) => {
+      c.innerHTML = '&nbsp;';
+    });
     row.parentNode?.insertBefore(newRow, row.nextSibling);
     onClose();
   };
@@ -347,7 +410,15 @@ function TableContextualToolbar({
     onClose();
   };
 
-  const BtnSm = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => (
+  const BtnSm = ({
+    onClick,
+    title,
+    children,
+  }: {
+    onClick: () => void;
+    title: string;
+    children: React.ReactNode;
+  }) => (
     <button
       type="button"
       onClick={onClick}
@@ -366,39 +437,140 @@ function TableContextualToolbar({
     >
       {/* Row operations */}
       <BtnSm onClick={insertRowAbove} title="Insertar fila arriba">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="12" y1="3" x2="12" y2="9"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="1" />
+          <line x1="3" y1="9" x2="21" y2="9" />
+          <line x1="12" y1="3" x2="12" y2="9" />
+        </svg>
       </BtnSm>
       <BtnSm onClick={insertRowBelow} title="Insertar fila abajo">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="15" x2="12" y2="21"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="1" />
+          <line x1="3" y1="15" x2="21" y2="15" />
+          <line x1="12" y1="15" x2="12" y2="21" />
+        </svg>
       </BtnSm>
       <BtnSm onClick={deleteRow} title="Eliminar fila">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="9" y1="8" x2="15" y2="16"/><line x1="15" y1="8" x2="9" y2="16"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="1" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="9" y1="8" x2="15" y2="16" />
+          <line x1="15" y1="8" x2="9" y2="16" />
+        </svg>
       </BtnSm>
 
       <div className="w-px h-5 bg-gray-200 mx-0.5" />
 
       {/* Column operations */}
       <BtnSm onClick={insertColLeft} title="Insertar columna izquierda">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="3" y1="12" x2="9" y2="12"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="1" />
+          <line x1="9" y1="3" x2="9" y2="21" />
+          <line x1="3" y1="12" x2="9" y2="12" />
+        </svg>
       </BtnSm>
       <BtnSm onClick={insertColRight} title="Insertar columna derecha">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="15" y1="12" x2="21" y2="12"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="1" />
+          <line x1="15" y1="3" x2="15" y2="21" />
+          <line x1="15" y1="12" x2="21" y2="12" />
+        </svg>
       </BtnSm>
       <BtnSm onClick={deleteCol} title="Eliminar columna">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="8" y1="8" x2="16" y2="16"/><line x1="16" y1="8" x2="8" y2="16"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="1" />
+          <line x1="12" y1="3" x2="12" y2="21" />
+          <line x1="8" y1="8" x2="16" y2="16" />
+          <line x1="16" y1="8" x2="8" y2="16" />
+        </svg>
       </BtnSm>
 
       <div className="w-px h-5 bg-gray-200 mx-0.5" />
 
       {/* Cell alignment */}
       <BtnSm onClick={() => setCellAlign('left')} title="Alinear izquierda">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="15" y2="12" />
+          <line x1="3" y1="18" x2="18" y2="18" />
+        </svg>
       </BtnSm>
       <BtnSm onClick={() => setCellAlign('center')} title="Centrar">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="6" y1="12" x2="18" y2="12" />
+          <line x1="4" y1="18" x2="20" y2="18" />
+        </svg>
       </BtnSm>
       <BtnSm onClick={() => setCellAlign('right')} title="Alinear derecha">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="9" y1="12" x2="21" y2="12" />
+          <line x1="6" y1="18" x2="21" y2="18" />
+        </svg>
       </BtnSm>
 
       <div className="w-px h-5 bg-gray-200 mx-0.5" />
@@ -411,14 +583,51 @@ function TableContextualToolbar({
           onClick={() => setShowBgPicker((v) => !v)}
           className="p-1 rounded hover:bg-gray-100 text-gray-700 flex items-center gap-0.5"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+          <svg
+            width="8"
+            height="8"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </button>
         {showBgPicker && (
           <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-2 z-[10000]">
             <p className="text-xs text-gray-500 mb-1.5 font-medium">Color de celda</p>
             <div className="grid grid-cols-6 gap-1 mb-2">
-              {['#ffffff','#f3f4f6','#fef3c7','#fee2e2','#dbeafe','#d1fae5','#ede9fe','#fce7f3','#ffedd5','#e0f2fe','#374151','#1e40af','#065f46','#7c3aed','#9f1239','#92400e'].map((c) => (
+              {[
+                '#ffffff',
+                '#f3f4f6',
+                '#fef3c7',
+                '#fee2e2',
+                '#dbeafe',
+                '#d1fae5',
+                '#ede9fe',
+                '#fce7f3',
+                '#ffedd5',
+                '#e0f2fe',
+                '#374151',
+                '#1e40af',
+                '#065f46',
+                '#7c3aed',
+                '#9f1239',
+                '#92400e',
+              ].map((c) => (
                 <button
                   key={c}
                   type="button"
@@ -430,7 +639,11 @@ function TableContextualToolbar({
               ))}
             </div>
             <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-              <input type="color" className="w-5 h-5 cursor-pointer rounded" onChange={(e) => setCellBg(e.target.value)} />
+              <input
+                type="color"
+                className="w-5 h-5 cursor-pointer rounded"
+                onChange={(e) => setCellBg(e.target.value)}
+              />
               Personalizado
             </label>
           </div>
@@ -445,14 +658,54 @@ function TableContextualToolbar({
           onClick={() => setShowBorderMenu((v) => !v)}
           className="p-1 rounded hover:bg-gray-100 text-gray-700 flex items-center gap-0.5"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <rect x="3" y="3" width="18" height="18" />
+            <line x1="3" y1="9" x2="21" y2="9" />
+            <line x1="3" y1="15" x2="21" y2="15" />
+            <line x1="9" y1="3" x2="9" y2="21" />
+            <line x1="15" y1="3" x2="15" y2="21" />
+          </svg>
+          <svg
+            width="8"
+            height="8"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </button>
         {showBorderMenu && (
           <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-[10000] min-w-[160px]">
-            <button type="button" onClick={() => setBorder('all')} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Todos los bordes</button>
-            <button type="button" onClick={() => setBorder('outer')} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Solo borde exterior</button>
-            <button type="button" onClick={() => setBorder('none')} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Sin bordes</button>
+            <button
+              type="button"
+              onClick={() => setBorder('all')}
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            >
+              Todos los bordes
+            </button>
+            <button
+              type="button"
+              onClick={() => setBorder('outer')}
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            >
+              Solo borde exterior
+            </button>
+            <button
+              type="button"
+              onClick={() => setBorder('none')}
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            >
+              Sin bordes
+            </button>
           </div>
         )}
       </div>
@@ -466,7 +719,17 @@ function TableContextualToolbar({
         title="Cerrar"
         className="p-1 rounded hover:bg-gray-100 text-gray-700 text-xs flex items-center justify-center"
       >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
       </button>
     </div>
   );
@@ -531,7 +794,10 @@ function ImageContextualToolbar({
   const applySize = (pct: number) => {
     const container = figure.closest('[data-page-content]') as HTMLElement | null;
     const containerWidth = container ? container.offsetWidth : 600;
-    const newWidth = Math.max(80, Math.min(containerWidth - 20, Math.round(containerWidth * pct / 100)));
+    const newWidth = Math.max(
+      80,
+      Math.min(containerWidth - 20, Math.round((containerWidth * pct) / 100))
+    );
     img.style.width = `${newWidth}px`;
     img.style.height = 'auto';
     img.setAttribute('width', String(newWidth));
@@ -566,10 +832,24 @@ function ImageContextualToolbar({
     onClose();
   };
 
-  const BtnSm = ({ onClick, title, children, danger }: { onClick: () => void; title: string; children: React.ReactNode; danger?: boolean }) => (
+  const BtnSm = ({
+    onClick,
+    title,
+    children,
+    danger,
+  }: {
+    onClick: () => void;
+    title: string;
+    children: React.ReactNode;
+    danger?: boolean;
+  }) => (
     <button
       type="button"
-      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      }}
       title={title}
       className={`p-1 rounded text-xs flex items-center justify-center ${danger ? 'hover:bg-red-50 text-red-600' : 'hover:bg-gray-100 text-gray-700'}`}
     >
@@ -589,38 +869,139 @@ function ImageContextualToolbar({
 
       {/* Alignment */}
       <BtnSm onClick={() => applyAlignment('left')} title="Alinear izquierda">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="15" y2="12" />
+          <line x1="3" y1="18" x2="18" y2="18" />
+        </svg>
       </BtnSm>
       <BtnSm onClick={() => applyAlignment('center')} title="Centrar">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="6" y1="12" x2="18" y2="12" />
+          <line x1="4" y1="18" x2="20" y2="18" />
+        </svg>
       </BtnSm>
       <BtnSm onClick={() => applyAlignment('right')} title="Alinear derecha">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="9" y1="12" x2="21" y2="12" />
+          <line x1="6" y1="18" x2="21" y2="18" />
+        </svg>
       </BtnSm>
 
       <div className="w-px h-5 bg-gray-200 mx-0.5" />
 
       {/* Size presets */}
-      <button type="button" onMouseDown={(e) => { e.preventDefault(); applySize(25); }} title="Pequeño (25%)" className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-700 text-xs font-medium">S</button>
-      <button type="button" onMouseDown={(e) => { e.preventDefault(); applySize(50); }} title="Mediano (50%)" className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-700 text-xs font-medium">M</button>
-      <button type="button" onMouseDown={(e) => { e.preventDefault(); applySize(75); }} title="Grande (75%)" className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-700 text-xs font-medium">L</button>
-      <button type="button" onMouseDown={(e) => { e.preventDefault(); applySize(100); }} title="Completo (100%)" className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-700 text-xs font-medium">XL</button>
+      <button
+        type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          applySize(25);
+        }}
+        title="Pequeño (25%)"
+        className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-700 text-xs font-medium"
+      >
+        S
+      </button>
+      <button
+        type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          applySize(50);
+        }}
+        title="Mediano (50%)"
+        className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-700 text-xs font-medium"
+      >
+        M
+      </button>
+      <button
+        type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          applySize(75);
+        }}
+        title="Grande (75%)"
+        className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-700 text-xs font-medium"
+      >
+        L
+      </button>
+      <button
+        type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          applySize(100);
+        }}
+        title="Completo (100%)"
+        className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-700 text-xs font-medium"
+      >
+        XL
+      </button>
 
       <div className="w-px h-5 bg-gray-200 mx-0.5" />
 
       {/* Alt text */}
       <BtnSm onClick={setAltText} title="Texto alternativo">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
       </BtnSm>
 
       {/* Replace */}
       <BtnSm onClick={replaceImage} title="Reemplazar imagen">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+        </svg>
       </BtnSm>
 
       {/* Delete */}
       <BtnSm onClick={deleteImage} title="Eliminar imagen" danger>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+        </svg>
       </BtnSm>
 
       <div className="w-px h-5 bg-gray-200 mx-0.5" />
@@ -628,11 +1009,24 @@ function ImageContextualToolbar({
       {/* Close */}
       <button
         type="button"
-        onMouseDown={(e) => { e.preventDefault(); onClose(); }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          onClose();
+        }}
         title="Cerrar"
         className="p-1 rounded hover:bg-gray-100 text-gray-700 text-xs flex items-center justify-center"
       >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
       </button>
     </div>
   );
@@ -733,7 +1127,9 @@ function HeaderFooterZone({
           }, 150);
         }}
         data-placeholder={`Haz clic para editar ${label.toLowerCase()}...`}
-        {...(type === 'header' ? { 'data-header-editable': 'true' } : { 'data-footer-editable': 'true' })}
+        {...(type === 'header'
+          ? { 'data-header-editable': 'true' }
+          : { 'data-footer-editable': 'true' })}
       />
 
       {/* Config bar — only visible when active */}
@@ -757,7 +1153,11 @@ function HeaderFooterZone({
             <div style={{ position: 'relative' }}>
               <button
                 type="button"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowOptions((v) => !v); }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowOptions((v) => !v);
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -773,7 +1173,16 @@ function HeaderFooterZone({
                 }}
               >
                 Opciones
-                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+                <svg
+                  width="8"
+                  height="8"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
               </button>
               {showOptions && (
                 <div
@@ -793,8 +1202,23 @@ function HeaderFooterZone({
                 >
                   <button
                     type="button"
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onPageNumbers(); setShowOptions(false); }}
-                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', fontSize: '12px', color: '#374151', background: 'none', border: 'none', cursor: 'pointer' }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onPageNumbers();
+                      setShowOptions(false);
+                    }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '8px 16px',
+                      fontSize: '12px',
+                      color: '#374151',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
                     onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f9fafb')}
                     onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '')}
                   >
@@ -802,8 +1226,23 @@ function HeaderFooterZone({
                   </button>
                   <button
                     type="button"
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); setShowOptions(false); }}
-                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', fontSize: '12px', color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onRemove();
+                      setShowOptions(false);
+                    }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '8px 16px',
+                      fontSize: '12px',
+                      color: '#dc2626',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
                     onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
                     onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '')}
                   >
@@ -1007,7 +1446,235 @@ function newPageId(): string {
 export interface MultiPageEditorHandle {
   getHTML: () => string;
   setHTML: (html: string) => void;
-  insertPageNumber: (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => boolean;
+  goToPage: (pageNumber: number) => boolean;
+  insertPageNumber: (opts: {
+    position: 'header' | 'footer';
+    showOnFirst: boolean;
+    startFrom: number;
+  }) => boolean;
+}
+
+function removeEditorOnlyFieldControls(container: HTMLElement): void {
+  container.querySelectorAll('[data-signature-resize-handle]').forEach((handle) => handle.remove());
+}
+
+const SAFE_CLIPBOARD_STYLE_PROPERTIES = new Set([
+  'background-color',
+  'border',
+  'border-bottom',
+  'border-left',
+  'border-right',
+  'border-top',
+  'break-after',
+  'break-before',
+  'color',
+  'font-family',
+  'font-size',
+  'font-style',
+  'font-variant',
+  'font-weight',
+  'height',
+  'letter-spacing',
+  'line-height',
+  'margin',
+  'margin-bottom',
+  'margin-left',
+  'margin-right',
+  'margin-top',
+  'max-width',
+  'min-width',
+  'padding',
+  'padding-bottom',
+  'padding-left',
+  'padding-right',
+  'padding-top',
+  'page-break-after',
+  'page-break-before',
+  'text-align',
+  'text-decoration',
+  'text-indent',
+  'text-transform',
+  'vertical-align',
+  'white-space',
+  'width',
+  'word-spacing',
+]);
+
+function applyClipboardStyleDeclarations(element: HTMLElement, declarations: string): void {
+  declarations.split(';').forEach((declaration) => {
+    const separator = declaration.indexOf(':');
+    if (separator < 1) return;
+    const property = declaration.slice(0, separator).trim().toLowerCase();
+    const rawValue = declaration.slice(separator + 1).trim();
+    if (!SAFE_CLIPBOARD_STYLE_PROPERTIES.has(property) || !rawValue) return;
+    if (/url\s*\(|expression\s*\(|javascript:/i.test(rawValue)) return;
+    const important = /\s*!important\s*$/i.test(rawValue);
+    const value = rawValue.replace(/\s*!important\s*$/i, '').trim();
+    element.style.setProperty(property, value, important ? 'important' : '');
+  });
+}
+
+function inlineClipboardStyles(doc: Document): void {
+  const cssText = Array.from(doc.querySelectorAll('style'))
+    .map((style) => style.textContent || '')
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+  let rule: RegExpExecArray | null;
+  let processedRules = 0;
+
+  while ((rule = rulePattern.exec(cssText)) && processedRules < 500) {
+    processedRules += 1;
+    const declarations = rule[2];
+    rule[1]
+      .split(',')
+      .map((selector) => selector.trim())
+      .filter((selector) => selector && !selector.startsWith('@'))
+      .slice(0, 20)
+      .forEach((selector) => {
+        try {
+          doc.body.querySelectorAll<HTMLElement>(selector).forEach((element) => {
+            applyClipboardStyleDeclarations(element, declarations);
+          });
+        } catch {
+          // Word can emit proprietary selectors that querySelector cannot parse.
+        }
+      });
+  }
+}
+
+function createPageBreakMarker(doc: Document): HTMLElement {
+  const marker = doc.createElement('div');
+  marker.setAttribute('data-docubox-page-break', 'true');
+  marker.setAttribute('aria-hidden', 'true');
+  marker.style.cssText = 'height:0;break-after:page;page-break-after:always;';
+  return marker;
+}
+
+function normalizeClipboardPageBreaks(doc: Document): void {
+  Array.from(doc.body.querySelectorAll<HTMLElement>('*')).forEach((element) => {
+    const style = element.getAttribute('style') || '';
+    const breakBefore =
+      /(?:page-break-before\s*:\s*always|break-before\s*:\s*page)/i.test(style) ||
+      (/mso-special-character\s*:\s*line-break/i.test(style) &&
+        /page-break-before\s*:\s*always/i.test(style));
+    const breakAfter = /(?:page-break-after\s*:\s*always|break-after\s*:\s*page)/i.test(style);
+
+    if (breakBefore) {
+      element.parentNode?.insertBefore(createPageBreakMarker(doc), element);
+      element.style.removeProperty('page-break-before');
+      element.style.removeProperty('break-before');
+      if (element.tagName === 'BR') element.remove();
+    }
+    if (breakAfter && element.isConnected) {
+      element.parentNode?.insertBefore(createPageBreakMarker(doc), element.nextSibling);
+      element.style.removeProperty('page-break-after');
+      element.style.removeProperty('break-after');
+    }
+  });
+}
+
+type TextBoundary = { node: Text; offset: number };
+
+function collectTextBoundaries(root: HTMLElement): TextBoundary[] {
+  const boundaries: TextBoundary[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let current = walker.nextNode();
+
+  while (current) {
+    const textNode = current as Text;
+    const parent = textNode.parentElement;
+    const isAtomic = parent?.closest(
+      'table, figure, [contenteditable="false"], [data-field-id], [data-docubox-page-break]'
+    );
+    if (!isAtomic) {
+      for (let offset = 1; offset <= textNode.data.length; offset += 1) {
+        if (offset === textNode.data.length || /\s/.test(textNode.data[offset - 1])) {
+          boundaries.push({ node: textNode, offset });
+        }
+      }
+    }
+    current = walker.nextNode();
+  }
+
+  return boundaries;
+}
+
+function cloneElementRange(
+  source: HTMLElement,
+  boundary: TextBoundary,
+  part: 'before' | 'after'
+): HTMLElement {
+  const range = document.createRange();
+  range.selectNodeContents(source);
+  if (part === 'before') {
+    range.setEnd(boundary.node, boundary.offset);
+  } else {
+    range.setStart(boundary.node, boundary.offset);
+  }
+  const clone = source.cloneNode(false) as HTMLElement;
+  clone.removeAttribute('id');
+  clone.appendChild(range.cloneContents());
+  return clone;
+}
+
+function splitNodeToFit(
+  source: Node,
+  fits: (candidate: Node) => boolean
+): { before: Node; after: Node } | null {
+  if (source.nodeType === Node.TEXT_NODE) {
+    const value = source.textContent || '';
+    const boundaries = Array.from(
+      { length: Math.max(0, value.length - 1) },
+      (_, index) => index + 1
+    ).filter((offset) => /\s/.test(value[offset - 1]));
+    if (boundaries.length === 0 && value.length > 1) {
+      boundaries.push(...Array.from({ length: value.length - 1 }, (_, index) => index + 1));
+    }
+    let low = 0;
+    let high = boundaries.length - 1;
+    let best = -1;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const candidate = document.createTextNode(value.slice(0, boundaries[middle]));
+      if (fits(candidate)) {
+        best = middle;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    if (best < 0) return null;
+    const offset = boundaries[best];
+    return {
+      before: document.createTextNode(value.slice(0, offset)),
+      after: document.createTextNode(value.slice(offset)),
+    };
+  }
+
+  if (!(source instanceof HTMLElement) || source.matches('table, figure')) return null;
+  const boundaries = collectTextBoundaries(source);
+  if (boundaries.length < 2) return null;
+  let low = 0;
+  let high = boundaries.length - 2;
+  let best = -1;
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = cloneElementRange(source, boundaries[middle], 'before');
+    if (fits(candidate)) {
+      best = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+
+  if (best < 0) return null;
+  return {
+    before: cloneElementRange(source, boundaries[best], 'before'),
+    after: cloneElementRange(source, boundaries[best], 'after'),
+  };
 }
 
 interface MultiPageEditorProps {
@@ -1027,228 +1694,350 @@ interface MultiPageEditorProps {
   onRemoveHeader?: () => void;
   onRemoveFooter?: () => void;
   onPageNumbers?: () => void;
-  onImageSelected?: (data: { figure: HTMLElement; originalWidth: number; originalHeight: number; currentWidth: number }) => void;
+  onImageSelected?: (data: {
+    figure: HTMLElement;
+    originalWidth: number;
+    originalHeight: number;
+    currentWidth: number;
+  }) => void;
 }
 
-export const MultiPageEditor = forwardRef<
-  MultiPageEditorHandle,
-  MultiPageEditorProps
->(function MultiPageEditor(
-  {
-    paperSize,
-    orientation,
-    initialHtml = '<p><br></p>',
-    onChange,
-    editorStyle,
-    onPageCountChange,
-    onActivePageChange,
-    margins,
-    showRulers = false,
-    showHeader = false,
-    showFooter = false,
-    firstPageDifferent = false,
-    onFirstPageDifferentChange,
-    onRemoveHeader,
-    onRemoveFooter,
-    onPageNumbers,
-    onImageSelected,
-  },
-  ref
-) {
-  const dims = getPageDimensions(paperSize, orientation);
-  const contentHeight = getContentHeight(dims, margins);
+export const MultiPageEditor = forwardRef<MultiPageEditorHandle, MultiPageEditorProps>(
+  function MultiPageEditor(
+    {
+      paperSize,
+      orientation,
+      initialHtml = '<p><br></p>',
+      onChange,
+      editorStyle,
+      onPageCountChange,
+      onActivePageChange,
+      margins,
+      showRulers = false,
+      showHeader = false,
+      showFooter = false,
+      firstPageDifferent = false,
+      onFirstPageDifferentChange,
+      onRemoveHeader,
+      onRemoveFooter,
+      onPageNumbers,
+      onImageSelected,
+    },
+    ref
+  ) {
+    const dims = getPageDimensions(paperSize, orientation);
+    const contentHeight = getContentHeight(dims, margins);
 
-  // ── State: array of pages ─────────────────────────────────────────────────
-  const [pages, setPages] = useState<PageData[]>(() => [
-    { id: newPageId(), content: initialHtml },
-  ]);
+    // ── State: array of pages ─────────────────────────────────────────────────
+    const [pages, setPages] = useState<PageData[]>(() => [
+      { id: newPageId(), content: initialHtml },
+    ]);
 
-  // ── Contextual toolbars ───────────────────────────────────────────────────
-  const [tableToolbar, setTableToolbar] = useState<TableToolbarState>({
-    visible: false, top: 0, left: 0, targetCell: null, targetTable: null,
-  });
-  const [imageToolbar, setImageToolbar] = useState<ImageToolbarState>({
-    visible: false, top: 0, left: 0, targetFigure: null, notifyChange: null,
-  });
+    // ── Contextual toolbars ───────────────────────────────────────────────────
+    const [tableToolbar, setTableToolbar] = useState<TableToolbarState>({
+      visible: false,
+      top: 0,
+      left: 0,
+      targetCell: null,
+      targetTable: null,
+    });
+    const [imageToolbar, setImageToolbar] = useState<ImageToolbarState>({
+      visible: false,
+      top: 0,
+      left: 0,
+      targetFigure: null,
+      notifyChange: null,
+    });
 
-  // ── Header/Footer refs ────────────────────────────────────────────────────
-  const headerContentRef = useRef<HTMLDivElement>(null);
-  const footerContentRef = useRef<HTMLDivElement>(null);
+    // ── Header/Footer refs ────────────────────────────────────────────────────
+    const headerContentRef = useRef<HTMLDivElement>(null);
+    const footerContentRef = useRef<HTMLDivElement>(null);
 
-  // ── Refs ──────────────────────────────────────────────────────────────────
-  const pageContentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const pageIdsRef = useRef<string[]>([pages[0].id]);
-  const isPaginatingRef = useRef(false);
-  const focusedPageIdRef = useRef<string | null>(null);
-  const pendingFocusRef = useRef<{
-    pageId?: string;
-    pageIndex?: number;
-    atEnd: boolean;
-  } | null>(null);
-  // Track currently selected image figure
-  const selectedFigureRef = useRef<HTMLElement | null>(null);
+    // ── Refs ──────────────────────────────────────────────────────────────────
+    const pageContentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const pageIdsRef = useRef<string[]>([pages[0].id]);
+    const isPaginatingRef = useRef(false);
+    const focusedPageIdRef = useRef<string | null>(null);
+    // Track currently selected image figure
+    const selectedFigureRef = useRef<HTMLElement | null>(null);
 
-  // ── Expose getHTML / setHTML ──────────────────────────────────────────────
-  useImperativeHandle(ref, () => ({
-    getHTML: () => {
+    // ── Expose getHTML / setHTML ──────────────────────────────────────────────
+    useImperativeHandle(ref, () => ({
+      getHTML: () => {
+        let html = '';
+        // Include header
+        if (showHeader && headerContentRef.current) {
+          html += `<div data-header-zone="true" style="border-bottom:1px solid #e5e7eb;padding:6px 0 8px;margin-bottom:12px;font-size:11px;">${headerContentRef.current.innerHTML}</div>`;
+        }
+        html += pageIdsRef.current
+          .map((id) => {
+            const el = pageContentRefs.current.get(id);
+            if (!el) return '';
+            // Serialize figures back to clean img tags for storage
+            const clone = el.cloneNode(true) as HTMLElement;
+            serializeFiguresToImgs(clone);
+            removeEditorOnlyFieldControls(clone);
+            clone.querySelectorAll('[data-docubox-page-break]').forEach((marker) => marker.remove());
+            return clone.innerHTML;
+          })
+          .join(createPageBreakMarker(document).outerHTML);
+        // Include footer
+        if (showFooter && footerContentRef.current) {
+          html += `<div data-footer-zone="true" style="border-top:1px solid #e5e7eb;padding:8px 0 6px;margin-top:12px;font-size:11px;">${footerContentRef.current.innerHTML}</div>`;
+        }
+        return html;
+      },
+      setHTML: (html: string) => {
+        const id = newPageId();
+        pageIdsRef.current = [id];
+        setPages([{ id, content: html }]);
+      },
+      goToPage: (pageNumber: number) => {
+        const pageIndex = Math.max(0, Math.min(pageIdsRef.current.length - 1, pageNumber - 1));
+        const pageId = pageIdsRef.current[pageIndex];
+        const pageContent = pageId ? pageContentRefs.current.get(pageId) : null;
+        const pageElement = pageContent?.closest('[data-page]') as HTMLElement | null;
+        if (!pageContent || !pageElement) return false;
+
+        pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        focusedPageIdRef.current = pageId;
+        onActivePageChange?.(pageIndex + 1);
+        return true;
+      },
+      insertPageNumber: (opts: {
+        position: 'header' | 'footer';
+        showOnFirst: boolean;
+        startFrom: number;
+      }) => {
+        const targetRef = opts.position === 'header' ? headerContentRef : footerContentRef;
+        if (!targetRef.current) return false;
+        // Remove any existing page number in the zone
+        targetRef.current.querySelectorAll('[data-page-number]').forEach((n) => n.remove());
+        // The mirrored zones resolve the displayed value from the page index.
+        const hideAttr = opts.showOnFirst ? '' : ' data-hide-first-page="true"';
+        const numHtml = `<span data-page-number="true" data-page-number-start="${opts.startFrom}"${hideAttr} style="display:inline-block;color:#6B7280;font-size:0.85em;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;">— ${opts.startFrom} —</span>`;
+        const wrapper = `<div style="text-align:center;">${numHtml}</div>`;
+        targetRef.current.insertAdjacentHTML('beforeend', wrapper);
+        return true;
+      },
+    }));
+
+    // ── Serialize figures back to plain <img> for storage ────────────────────
+    const serializeFiguresToImgs = useCallback((container: HTMLElement) => {
+      container.querySelectorAll('figure[data-docubox-image]').forEach((fig) => {
+        const figEl = fig as HTMLElement;
+        const img = figEl.querySelector('img');
+        if (!img) {
+          figEl.parentNode?.removeChild(figEl);
+          return;
+        }
+        const newImg = document.createElement('img');
+        newImg.src = img.src;
+        newImg.alt = img.alt || '';
+        const w =
+          img.style.width || img.getAttribute('width') || figEl.getAttribute('data-width') || '';
+        if (w) {
+          newImg.setAttribute('width', w.replace('px', ''));
+          newImg.style.width = w.includes('px') ? w : `${w}px`;
+        }
+        newImg.style.height = 'auto';
+        newImg.style.maxWidth = '100%';
+        let alignment = figEl.getAttribute('data-alignment') || 'center';
+        newImg.setAttribute('data-alignment', alignment);
+        if (alignment === 'center') {
+          newImg.style.display = 'block';
+          newImg.style.marginLeft = 'auto';
+          newImg.style.marginRight = 'auto';
+        } else if (alignment === 'right') {
+          newImg.style.display = 'block';
+          newImg.style.marginLeft = 'auto';
+          newImg.style.marginRight = '0';
+        } else {
+          newImg.style.display = 'block';
+          newImg.style.marginLeft = '0';
+          newImg.style.marginRight = 'auto';
+        }
+        figEl.parentNode?.replaceChild(newImg, figEl);
+      });
+    }, []);
+
+    // ── Notify parent ─────────────────────────────────────────────────────────
+    const notifyChange = useCallback(() => {
+      if (!onChange) return;
       let html = '';
-      // Include header
       if (showHeader && headerContentRef.current) {
-        html += `<div data-header-zone="true" style="border-bottom:1px solid #e5e7eb;padding:6px 0 8px;margin-bottom:12px;font-size:11px;">${headerContentRef.current.innerHTML}</div>`;
+        html += `<div data-header-zone="true">${headerContentRef.current.innerHTML}</div>`;
       }
       html += pageIdsRef.current
         .map((id) => {
           const el = pageContentRefs.current.get(id);
           if (!el) return '';
-          // Serialize figures back to clean img tags for storage
           const clone = el.cloneNode(true) as HTMLElement;
           serializeFiguresToImgs(clone);
+          removeEditorOnlyFieldControls(clone);
+          clone.querySelectorAll('[data-docubox-page-break]').forEach((marker) => marker.remove());
           return clone.innerHTML;
         })
-        .join('');
-      // Include footer
+        .join(createPageBreakMarker(document).outerHTML);
       if (showFooter && footerContentRef.current) {
-        html += `<div data-footer-zone="true" style="border-top:1px solid #e5e7eb;padding:8px 0 6px;margin-top:12px;font-size:11px;">${footerContentRef.current.innerHTML}</div>`;
+        html += `<div data-footer-zone="true">${footerContentRef.current.innerHTML}</div>`;
       }
-      return html;
-    },
-    setHTML: (html: string) => {
-      const id = newPageId();
-      pageIdsRef.current = [id];
-      setPages([{ id, content: html }]);
-    },
-    insertPageNumber: (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => {
-      const targetRef = opts.position === 'header' ? headerContentRef : footerContentRef;
-      if (!targetRef.current) return false;
-      // Remove any existing page number in the zone
-      targetRef.current.querySelectorAll('[data-page-number]').forEach((n) => n.remove());
-      // The mirrored zones resolve the displayed value from the page index.
-      const hideAttr = opts.showOnFirst ? '' : ' data-hide-first-page="true"';
-      const numHtml = `<span data-page-number="true" data-page-number-start="${opts.startFrom}"${hideAttr} style="display:inline-block;color:#6B7280;font-size:0.85em;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;">— ${opts.startFrom} —</span>`;
-      const wrapper = `<div style="text-align:center;">${numHtml}</div>`;
-      targetRef.current.insertAdjacentHTML('beforeend', wrapper);
-      return true;
-    },
-  }));
+      onChange(html);
+    }, [onChange, showHeader, showFooter, serializeFiguresToImgs]);
 
-  // ── Serialize figures back to plain <img> for storage ────────────────────
-  const serializeFiguresToImgs = useCallback((container: HTMLElement) => {
-    container.querySelectorAll('figure[data-docubox-image]').forEach((fig) => {
-      const figEl = fig as HTMLElement;
-      const img = figEl.querySelector('img');
-      if (!img) {
-        figEl.parentNode?.removeChild(figEl);
-        return;
-      }
-      const newImg = document.createElement('img');
-      newImg.src = img.src;
-      newImg.alt = img.alt || '';
-      const w = img.style.width || img.getAttribute('width') || figEl.getAttribute('data-width') || '';
-      if (w) {
-        newImg.setAttribute('width', w.replace('px', ''));
-        newImg.style.width = w.includes('px') ? w : `${w}px`;
-      }
-      newImg.style.height = 'auto';
-      newImg.style.maxWidth = '100%';
-      let alignment = figEl.getAttribute('data-alignment') || 'center';
-      newImg.setAttribute('data-alignment', alignment);
-      if (alignment === 'center') {
-        newImg.style.display = 'block';
-        newImg.style.marginLeft = 'auto';
-        newImg.style.marginRight = 'auto';
-      } else if (alignment === 'right') {
-        newImg.style.display = 'block';
-        newImg.style.marginLeft = 'auto';
-        newImg.style.marginRight = '0';
-      } else {
-        newImg.style.display = 'block';
-        newImg.style.marginLeft = '0';
-        newImg.style.marginRight = 'auto';
-      }
-      figEl.parentNode?.replaceChild(newImg, figEl);
-    });
-  }, []);
+    // ── Notify page count ─────────────────────────────────────────────────────
+    useEffect(() => {
+      onPageCountChange?.(pages.length);
+    }, [pages.length, onPageCountChange]);
 
-  // ── Notify parent ─────────────────────────────────────────────────────────
-  const notifyChange = useCallback(() => {
-    if (!onChange) return;
-    let html = '';
-    if (showHeader && headerContentRef.current) {
-      html += `<div data-header-zone="true">${headerContentRef.current.innerHTML}</div>`;
-    }
-    html += pageIdsRef.current
-      .map((id) => {
-        const el = pageContentRefs.current.get(id);
-        if (!el) return '';
-        const clone = el.cloneNode(true) as HTMLElement;
-        serializeFiguresToImgs(clone);
-        return clone.innerHTML;
-      })
-      .join('');
-    if (showFooter && footerContentRef.current) {
-      html += `<div data-footer-zone="true">${footerContentRef.current.innerHTML}</div>`;
-    }
-    onChange(html);
-  }, [onChange, showHeader, showFooter, serializeFiguresToImgs]);
+    // ── Deselect all image figures ────────────────────────────────────────────
+    const deselectAllImages = useCallback(() => {
+      document
+        .querySelectorAll('figure[data-docubox-image][data-selected="true"]')
+        .forEach((fig) => {
+          const figEl = fig as HTMLElement;
+          figEl.setAttribute('data-selected', 'false');
+          figEl.style.outline = '';
+          figEl.querySelectorAll('.docubox-resize-handle').forEach((h) => {
+            (h as HTMLElement).style.display = 'none';
+          });
+        });
+      selectedFigureRef.current = null;
+    }, []);
 
-  // ── Notify page count ─────────────────────────────────────────────────────
-  useEffect(() => {
-    onPageCountChange?.(pages.length);
-  }, [pages.length, onPageCountChange]);
+    // ── Select an image figure ────────────────────────────────────────────────
+    const selectFigure = useCallback(
+      (figEl: HTMLElement) => {
+        deselectAllImages();
+        figEl.setAttribute('data-selected', 'true');
+        figEl.style.outline = '2px solid #1E6BFF';
+        figEl.style.outlineOffset = '2px';
+        figEl.querySelectorAll('.docubox-resize-handle').forEach((h) => {
+          (h as HTMLElement).style.display = 'block';
+        });
+        selectedFigureRef.current = figEl;
+      },
+      [deselectAllImages]
+    );
 
-  // ── Deselect all image figures ────────────────────────────────────────────
-  const deselectAllImages = useCallback(() => {
-    document.querySelectorAll('figure[data-docubox-image][data-selected="true"]').forEach((fig) => {
-      const figEl = fig as HTMLElement;
-      figEl.setAttribute('data-selected', 'false');
-      figEl.style.outline = '';
-      figEl.querySelectorAll('.docubox-resize-handle').forEach((h) => {
-        (h as HTMLElement).style.display = 'none';
+    const handleSignatureResizeStart = useCallback(
+      (event: React.MouseEvent<HTMLDivElement>) => {
+        const target = event.target as HTMLElement;
+        const handle = target.closest('[data-signature-resize-handle]') as HTMLElement | null;
+        const signature = handle?.closest('[data-field-type="signature"]') as HTMLElement | null;
+        if (!handle || !signature) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const pageContent = signature.closest('[data-page-content]') as HTMLElement | null;
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const startWidth = signature.offsetWidth;
+        const startHeight = signature.offsetHeight;
+        const pageRect = pageContent?.getBoundingClientRect();
+        const signatureRect = signature.getBoundingClientRect();
+        const scale =
+          pageContent && pageRect ? pageRect.width / Math.max(1, pageContent.offsetWidth) : 1;
+        const maxWidth = Math.max(
+          120,
+          pageRect ? (pageRect.right - signatureRect.left) / scale - 8 : 616
+        );
+        const maxHeight = Math.max(
+          48,
+          pageRect ? (pageRect.bottom - signatureRect.top) / scale - 8 : 776
+        );
+
+        const onMove = (moveEvent: MouseEvent) => {
+          moveEvent.preventDefault();
+          const width = Math.max(
+            120,
+            Math.min(maxWidth, startWidth + (moveEvent.clientX - startX) / scale)
+          );
+          const height = Math.max(
+            48,
+            Math.min(maxHeight, startHeight + (moveEvent.clientY - startY) / scale)
+          );
+          signature.style.width = `${Math.round(width)}px`;
+          signature.style.height = `${Math.round(height)}px`;
+        };
+
+        const onUp = () => {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          notifyChange();
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      },
+      [notifyChange]
+    );
+
+    const makeSignatureFieldsResizable = useCallback((container: HTMLElement) => {
+      container.querySelectorAll('[data-field-type="signature"]').forEach((node) => {
+        const signature = node as HTMLElement;
+        signature.contentEditable = 'false';
+        signature.style.display = 'inline-flex';
+        signature.style.position = 'relative';
+        signature.style.alignItems = 'center';
+        signature.style.justifyContent = 'center';
+        signature.style.boxSizing = 'border-box';
+        signature.style.resize = 'both';
+        signature.style.overflow = 'hidden';
+        signature.style.verticalAlign = 'middle';
+        signature.style.width ||= '180px';
+        signature.style.height ||= '72px';
+        signature.style.minWidth ||= '120px';
+        signature.style.minHeight ||= '48px';
+        signature.style.maxWidth ||= '100%';
+
+        if (!signature.querySelector('[data-field-label-text]')) {
+          const label = document.createElement('span');
+          label.setAttribute('data-field-label-text', 'true');
+          while (signature.firstChild) label.appendChild(signature.firstChild);
+          signature.appendChild(label);
+        }
+
+        if (!signature.querySelector('[data-signature-resize-handle]')) {
+          const handle = document.createElement('span');
+          handle.setAttribute('data-signature-resize-handle', 'true');
+          handle.setAttribute('aria-hidden', 'true');
+          signature.appendChild(handle);
+        }
       });
-    });
-    selectedFigureRef.current = null;
-  }, []);
+    }, []);
 
-  // ── Select an image figure ────────────────────────────────────────────────
-  const selectFigure = useCallback((figEl: HTMLElement) => {
-    deselectAllImages();
-    figEl.setAttribute('data-selected', 'true');
-    figEl.style.outline = '2px solid #1E6BFF';
-    figEl.style.outlineOffset = '2px';
-    figEl.querySelectorAll('.docubox-resize-handle').forEach((h) => {
-      (h as HTMLElement).style.display = 'block';
-    });
-    selectedFigureRef.current = figEl;
-  }, [deselectAllImages]);
+    // ── Make images resizable (wraps <img> in <figure data-docubox-image>) ───
+    const makeImagesResizable = useCallback(
+      (container: HTMLElement) => {
+        // 1. Convert any plain <img> (not already in a figure) into figure wrappers
+        const imgs = Array.from(container.querySelectorAll('img:not([data-in-figure])'));
+        imgs.forEach((img) => {
+          const imgEl = img as HTMLImageElement;
+          // Skip if already inside a figure
+          if (imgEl.closest('figure[data-docubox-image]')) return;
 
-  // ── Make images resizable (wraps <img> in <figure data-docubox-image>) ───
-  const makeImagesResizable = useCallback((container: HTMLElement) => {
-    // 1. Convert any plain <img> (not already in a figure) into figure wrappers
-    const imgs = Array.from(container.querySelectorAll('img:not([data-in-figure])'));
-    imgs.forEach((img) => {
-      const imgEl = img as HTMLImageElement;
-      // Skip if already inside a figure
-      if (imgEl.closest('figure[data-docubox-image]')) return;
+          // Read existing alignment from data-alignment attribute or inline style
+          let alignment: 'left' | 'center' | 'right' = 'center';
+          const dataAlign = imgEl.getAttribute('data-alignment') as
+            'left' | 'center' | 'right' | null;
+          if (dataAlign && ['left', 'center', 'right'].includes(dataAlign)) {
+            alignment = dataAlign;
+          }
 
-      // Read existing alignment from data-alignment attribute or inline style
-      let alignment: 'left' | 'center' | 'right' = 'center';
-      const dataAlign = imgEl.getAttribute('data-alignment') as 'left' | 'center' | 'right' | null;
-      if (dataAlign && ['left', 'center', 'right'].includes(dataAlign)) {
-        alignment = dataAlign;
-      }
+          // Read existing width
+          const existingWidth = imgEl.getAttribute('width') || imgEl.style.width || '';
+          const widthPx = existingWidth ? parseInt(existingWidth, 10) : 300;
 
-      // Read existing width
-      const existingWidth = imgEl.getAttribute('width') || imgEl.style.width || '';
-      const widthPx = existingWidth ? parseInt(existingWidth, 10) : 300;
-
-      // Create figure wrapper
-      const figure = document.createElement('figure');
-      figure.setAttribute('data-docubox-image', 'true');
-      figure.setAttribute('data-selected', 'false');
-      figure.setAttribute('data-alignment', alignment);
-      figure.setAttribute('data-width', String(widthPx));
-      figure.setAttribute('contenteditable', 'false');
-      figure.style.cssText = `
+          // Create figure wrapper
+          const figure = document.createElement('figure');
+          figure.setAttribute('data-docubox-image', 'true');
+          figure.setAttribute('data-selected', 'false');
+          figure.setAttribute('data-alignment', alignment);
+          figure.setAttribute('data-width', String(widthPx));
+          figure.setAttribute('contenteditable', 'false');
+          figure.style.cssText = `
         display: block;
         position: relative;
         margin: 8px 0;
@@ -1260,32 +2049,32 @@ export const MultiPageEditor = forwardRef<
         ${alignment === 'left' ? 'margin-left:0;margin-right:auto;' : ''}
       `;
 
-      // Style the image
-      imgEl.style.width = `${widthPx}px`;
-      imgEl.style.height = 'auto';
-      imgEl.style.maxWidth = '100%';
-      imgEl.style.display = 'block';
-      imgEl.style.userSelect = 'none';
-      imgEl.draggable = false;
-      imgEl.setAttribute('data-in-figure', 'true');
+          // Style the image
+          imgEl.style.width = `${widthPx}px`;
+          imgEl.style.height = 'auto';
+          imgEl.style.maxWidth = '100%';
+          imgEl.style.display = 'block';
+          imgEl.style.userSelect = 'none';
+          imgEl.draggable = false;
+          imgEl.setAttribute('data-in-figure', 'true');
 
-      // Insert figure before img, move img into figure
-      imgEl.parentNode?.insertBefore(figure, imgEl);
-      figure.appendChild(imgEl);
+          // Insert figure before img, move img into figure
+          imgEl.parentNode?.insertBefore(figure, imgEl);
+          figure.appendChild(imgEl);
 
-      // Create 4 corner resize handles
-      const corners: Array<{ pos: string; style: string; cursor: string }> = [
-        { pos: 'nw', style: 'top:-5px;left:-5px;', cursor: 'nwse-resize' },
-        { pos: 'ne', style: 'top:-5px;right:-5px;', cursor: 'nesw-resize' },
-        { pos: 'sw', style: 'bottom:-5px;left:-5px;', cursor: 'nesw-resize' },
-        { pos: 'se', style: 'bottom:-5px;right:-5px;', cursor: 'nwse-resize' },
-      ];
+          // Create 4 corner resize handles
+          const corners: Array<{ pos: string; style: string; cursor: string }> = [
+            { pos: 'nw', style: 'top:-5px;left:-5px;', cursor: 'nwse-resize' },
+            { pos: 'ne', style: 'top:-5px;right:-5px;', cursor: 'nesw-resize' },
+            { pos: 'sw', style: 'bottom:-5px;left:-5px;', cursor: 'nesw-resize' },
+            { pos: 'se', style: 'bottom:-5px;right:-5px;', cursor: 'nwse-resize' },
+          ];
 
-      corners.forEach(({ pos, style, cursor }) => {
-        const handle = document.createElement('span');
-        handle.className = 'docubox-resize-handle';
-        handle.setAttribute('data-handle-pos', pos);
-        handle.style.cssText = `
+          corners.forEach(({ pos, style, cursor }) => {
+            const handle = document.createElement('span');
+            handle.className = 'docubox-resize-handle';
+            handle.setAttribute('data-handle-pos', pos);
+            handle.style.cssText = `
           display: none;
           position: absolute;
           ${style}
@@ -1298,121 +2087,147 @@ export const MultiPageEditor = forwardRef<
           cursor: ${cursor};
           box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         `;
-        figure.appendChild(handle);
+            figure.appendChild(handle);
 
-        handle.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
+            handle.addEventListener('mousedown', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
 
-          const startX = e.clientX;
-          const startY = e.clientY;
-          const startW = imgEl.offsetWidth || widthPx;
-          const startH = imgEl.offsetHeight || Math.round(widthPx * 0.75);
-          const aspectRatio = startH > 0 && startW > 0 ? startH / startW : 0.75;
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const startW = imgEl.offsetWidth || widthPx;
+              const startH = imgEl.offsetHeight || Math.round(widthPx * 0.75);
+              const aspectRatio = startH > 0 && startW > 0 ? startH / startW : 0.75;
 
-          // Get max width from container
-          const pageContent = container.closest('[data-page-content]') as HTMLElement | null;
-          const maxWidth = pageContent ? pageContent.offsetWidth - 20 : 620;
+              // Get max width from container
+              const pageContent = container.closest('[data-page-content]') as HTMLElement | null;
+              const maxWidth = pageContent ? pageContent.offsetWidth - 20 : 620;
 
-          // Disable contentEditable during drag to prevent selection interference
-          const allEditors = document.querySelectorAll('[data-page-content]');
-          allEditors.forEach((ed) => { (ed as HTMLElement).contentEditable = 'false'; });
+              // Disable contentEditable during drag to prevent selection interference
+              const allEditors = document.querySelectorAll('[data-page-content]');
+              allEditors.forEach((ed) => {
+                (ed as HTMLElement).contentEditable = 'false';
+              });
 
-          const onMove = (me: MouseEvent) => {
-            me.preventDefault();
-            let dx = me.clientX - startX;
-            // Invert for left-side handles
-            if (pos === 'nw' || pos === 'sw') dx = -dx;
-            const newW = Math.max(80, Math.min(maxWidth, startW + dx));
-            const newH = Math.round(newW * aspectRatio);
-            imgEl.style.width = `${newW}px`;
-            imgEl.style.height = `${newH}px`;
-            figure.setAttribute('data-width', String(newW));
-          };
+              const onMove = (me: MouseEvent) => {
+                me.preventDefault();
+                let dx = me.clientX - startX;
+                // Invert for left-side handles
+                if (pos === 'nw' || pos === 'sw') dx = -dx;
+                const newW = Math.max(80, Math.min(maxWidth, startW + dx));
+                const newH = Math.round(newW * aspectRatio);
+                imgEl.style.width = `${newW}px`;
+                imgEl.style.height = `${newH}px`;
+                figure.setAttribute('data-width', String(newW));
+              };
 
-          const onUp = () => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            // Re-enable contentEditable
-            allEditors.forEach((ed) => { (ed as HTMLElement).contentEditable = 'true'; });
-            // Persist width attribute
-            imgEl.setAttribute('width', String(imgEl.offsetWidth));
-            // Notify change
-            notifyChange();
-          };
+              const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                // Re-enable contentEditable
+                allEditors.forEach((ed) => {
+                  (ed as HTMLElement).contentEditable = 'true';
+                });
+                // Persist width attribute
+                imgEl.setAttribute('width', String(imgEl.offsetWidth));
+                // Notify change
+                notifyChange();
+              };
 
-          document.addEventListener('mousemove', onMove);
-          document.addEventListener('mouseup', onUp);
+              document.addEventListener('mousemove', onMove);
+              document.addEventListener('mouseup', onUp);
+            });
+          });
+
+          // Click on figure to select
+          figure.addEventListener('mousedown', (e) => {
+            // Don't intercept handle clicks
+            if ((e.target as HTMLElement).classList.contains('docubox-resize-handle')) return;
+            e.stopPropagation();
+            selectFigure(figure);
+
+            // Show image toolbar
+            const rect = figure.getBoundingClientRect();
+            setImageToolbar({
+              visible: true,
+              top: Math.max(8, rect.top - 44),
+              left: rect.left,
+              targetFigure: figure,
+              notifyChange,
+            });
+            setTableToolbar((t) => ({ ...t, visible: false }));
+
+            // Notify parent for image size modal
+            if (onImageSelected) {
+              const img = figure.querySelector('img') as HTMLImageElement | null;
+              if (img) {
+                const naturalW =
+                  img.naturalWidth || parseInt(img.getAttribute('width') || '300', 10);
+                const naturalH = img.naturalHeight || Math.round(naturalW * 0.75);
+                const currentW =
+                  img.offsetWidth ||
+                  parseInt(img.style.width || img.getAttribute('width') || '300', 10);
+                onImageSelected({
+                  figure,
+                  originalWidth: naturalW,
+                  originalHeight: naturalH,
+                  currentWidth: currentW,
+                });
+              }
+            }
+          });
         });
-      });
+      },
+      [notifyChange, selectFigure]
+    );
 
-      // Click on figure to select
-      figure.addEventListener('mousedown', (e) => {
-        // Don't intercept handle clicks
-        if ((e.target as HTMLElement).classList.contains('docubox-resize-handle')) return;
-        e.stopPropagation();
-        selectFigure(figure);
+    // ── Core pagination ───────────────────────────────────────────────────────
+    const runPagination = useCallback(() => {
+      if (isPaginatingRef.current) return;
+      isPaginatingRef.current = true;
 
-        // Show image toolbar
-        const rect = figure.getBoundingClientRect();
-        setImageToolbar({
-          visible: true,
-          top: Math.max(8, rect.top - 44),
-          left: rect.left,
-          targetFigure: figure,
-          notifyChange,
-        });
-        setTableToolbar((t) => ({ ...t, visible: false }));
+      const sel = window.getSelection();
+      const caretMarkerId = `docubox-caret-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      let caretMarkerInserted = false;
 
-        // Notify parent for image size modal
-        if (onImageSelected) {
-          const img = figure.querySelector('img') as HTMLImageElement | null;
-          if (img) {
-            const naturalW = img.naturalWidth || parseInt(img.getAttribute('width') || '300', 10);
-            const naturalH = img.naturalHeight || Math.round(naturalW * 0.75);
-            const currentW = img.offsetWidth || parseInt(img.style.width || img.getAttribute('width') || '300', 10);
-            onImageSelected({ figure, originalWidth: naturalW, originalHeight: naturalH, currentWidth: currentW });
-          }
+      if (sel?.rangeCount) {
+        const selectionRange = sel.getRangeAt(0);
+        const selectionPage = [...pageContentRefs.current.values()].find((page) =>
+          page.contains(selectionRange.startContainer)
+        );
+        if (selectionPage) {
+          const marker = document.createElement('span');
+          marker.setAttribute('data-docubox-caret-marker', caretMarkerId);
+          marker.setAttribute('aria-hidden', 'true');
+          marker.style.cssText =
+            'display:inline-block;width:0;height:0;overflow:hidden;line-height:0;pointer-events:none;';
+          const markerRange = selectionRange.cloneRange();
+          markerRange.collapse(true);
+          markerRange.insertNode(marker);
+          caretMarkerInserted = true;
         }
-      });
-    });
-  }, [notifyChange, selectFigure]);
+      }
 
-  // ── Core pagination ───────────────────────────────────────────────────────
-  const runPagination = useCallback(() => {
-    if (isPaginatingRef.current) return;
-    isPaginatingRef.current = true;
+      const allNodes: Node[] = [];
+      for (const id of pageIdsRef.current) {
+        const el = pageContentRefs.current.get(id);
+        if (!el) continue;
+        Array.from(el.childNodes).forEach((node) => {
+          allNodes.push(node.cloneNode(true));
+        });
+      }
 
-    const sel = window.getSelection();
-    let savedAnchorNode: Node | null = null;
-    let savedAnchorOffset = 0;
-    let savedFocusPageId = focusedPageIdRef.current;
+      if (allNodes.length === 0) {
+        isPaginatingRef.current = false;
+        return;
+      }
 
-    if (sel && sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0);
-      savedAnchorNode = range.startContainer;
-      savedAnchorOffset = range.startOffset;
-    }
+      const ml = margins ? cmToPx(margins.left) : DEFAULT_MARGIN_LEFT;
+      const mr = margins ? cmToPx(margins.right) : DEFAULT_MARGIN_RIGHT;
 
-    const allNodes: Node[] = [];
-    for (const id of pageIdsRef.current) {
-      const el = pageContentRefs.current.get(id);
-      if (!el) continue;
-      Array.from(el.childNodes).forEach((node) => {
-        allNodes.push(node.cloneNode(true));
-      });
-    }
-
-    if (allNodes.length === 0) {
-      isPaginatingRef.current = false;
-      return;
-    }
-
-    const ml = margins ? cmToPx(margins.left) : DEFAULT_MARGIN_LEFT;
-    const mr = margins ? cmToPx(margins.right) : DEFAULT_MARGIN_RIGHT;
-
-    const measureDiv = document.createElement('div');
-    measureDiv.style.cssText = `
+      const measureDiv = document.createElement('div');
+      measureDiv.setAttribute('data-page-content', 'true');
+      measureDiv.style.cssText = `
       position: fixed;
       top: -9999px;
       left: -9999px;
@@ -1420,678 +2235,770 @@ export const MultiPageEditor = forwardRef<
       visibility: hidden;
       pointer-events: none;
       font-family: 'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif;
-      font-size: 12pt;
+      font-size: 11pt;
       line-height: 1.6;
       word-break: break-word;
       overflow-wrap: break-word;
       box-sizing: border-box;
     `;
-    document.body.appendChild(measureDiv);
+      document.body.appendChild(measureDiv);
 
-    const pageGroups: Node[][] = [];
-    let currentGroup: Node[] = [];
+      const pageGroups: Node[][] = [];
+      let currentGroup: Node[] = [];
+      const pendingNodes = [...allNodes];
 
-    for (const node of allNodes) {
-      measureDiv.innerHTML = '';
-      currentGroup.forEach((n) => measureDiv.appendChild(n.cloneNode(true)));
-      measureDiv.appendChild(node.cloneNode(true));
-      const totalHeight = measureDiv.scrollHeight;
-
-      if (totalHeight > contentHeight && currentGroup.length > 0) {
-        pageGroups.push(currentGroup);
-        currentGroup = [node.cloneNode(true)];
+      const measureNodes = (nodes: Node[]): number => {
         measureDiv.innerHTML = '';
-        measureDiv.appendChild(node.cloneNode(true));
-      } else {
+        nodes.forEach((node) => measureDiv.appendChild(node.cloneNode(true)));
+        return measureDiv.scrollHeight;
+      };
+
+      while (pendingNodes.length > 0) {
+        const node = pendingNodes.shift();
+        if (!node) continue;
+        const isExplicitPageBreak =
+          typeof (node as Element).hasAttribute === 'function' &&
+          (node as Element).hasAttribute('data-docubox-page-break');
+        if (isExplicitPageBreak) {
+          if (currentGroup.length > 0) {
+            pageGroups.push(currentGroup);
+          }
+          currentGroup = [node.cloneNode(true)];
+          continue;
+        }
+
+        if (measureNodes([...currentGroup, node]) <= contentHeight) {
+          currentGroup.push(node.cloneNode(true));
+          continue;
+        }
+
+        const split = splitNodeToFit(node, (candidate) => {
+          return measureNodes([...currentGroup, candidate]) <= contentHeight;
+        });
+        if (split) {
+          currentGroup.push(split.before);
+          pageGroups.push(currentGroup);
+          currentGroup = [];
+          pendingNodes.unshift(split.after);
+          continue;
+        }
+
+        if (currentGroup.length > 0) {
+          pageGroups.push(currentGroup);
+          currentGroup = [];
+          pendingNodes.unshift(node);
+          continue;
+        }
+
+        // Keep atomic resources intact when their intrinsic height exceeds a page.
         currentGroup.push(node.cloneNode(true));
+        pageGroups.push(currentGroup);
+        currentGroup = [];
       }
-    }
-    if (currentGroup.length > 0) {
-      pageGroups.push(currentGroup);
-    }
-
-    document.body.removeChild(measureDiv);
-
-    if (pageGroups.length === 0) {
-      pageGroups.push([]);
-    }
-
-    const existingIds = [...pageIdsRef.current];
-    const newIds: string[] = [];
-    for (let i = 0; i < pageGroups.length; i++) {
-      newIds.push(existingIds[i] ?? newPageId());
-    }
-
-    const newPagesState: PageData[] = newIds.map((id, i) => {
-      const tempDiv = document.createElement('div');
-      pageGroups[i].forEach((n) => tempDiv.appendChild(n.cloneNode(true)));
-      let html = tempDiv.innerHTML || '<p><br></p>';
-
-      const el = pageContentRefs.current.get(id);
-      if (el) {
-        el.innerHTML = html;
-        makeImagesResizable(el);
+      if (currentGroup.length > 0) {
+        pageGroups.push(currentGroup);
       }
 
-      return { id, content: html };
-    });
+      document.body.removeChild(measureDiv);
 
-    pageIdsRef.current = newIds;
-
-    const newIdSet = new Set(newIds);
-    for (const [id] of pageContentRefs.current) {
-      if (!newIdSet.has(id)) {
-        pageContentRefs.current.delete(id);
+      if (pageGroups.length === 0) {
+        pageGroups.push([]);
       }
-    }
 
-    setPages(newPagesState);
+      const existingIds = [...pageIdsRef.current];
+      const newIds: string[] = [];
+      for (let i = 0; i < pageGroups.length; i++) {
+        newIds.push(existingIds[i] ?? newPageId());
+      }
 
-    requestAnimationFrame(() => {
-      isPaginatingRef.current = false;
+      const newPagesState: PageData[] = newIds.map((id, i) => {
+        const tempDiv = document.createElement('div');
+        pageGroups[i].forEach((n) => tempDiv.appendChild(n.cloneNode(true)));
+        let html = tempDiv.innerHTML || '<p><br></p>';
 
-      if (pendingFocusRef.current) {
-        const { pageId, pageIndex, atEnd } = pendingFocusRef.current;
-        pendingFocusRef.current = null;
-        const targetPageId = pageId ?? (pageIndex !== undefined ? pageIdsRef.current[pageIndex] : undefined);
-        const targetEl = targetPageId ? pageContentRefs.current.get(targetPageId) : undefined;
-        if (targetEl) {
-          targetEl.focus();
-          const range = document.createRange();
-          if (atEnd) {
-            range.selectNodeContents(targetEl);
-            range.collapse(false);
-          } else {
-            range.setStart(targetEl, 0);
-            range.collapse(true);
-          }
-          const newSel = window.getSelection();
-          if (newSel) {
-            newSel.removeAllRanges();
-            newSel.addRange(range);
-          }
+        const el = pageContentRefs.current.get(id);
+        if (el && el.innerHTML !== html) {
+          el.innerHTML = html;
+          makeImagesResizable(el);
+          makeSignatureFieldsResizable(el);
         }
-        return;
+
+        return { id, content: html };
+      });
+
+      pageIdsRef.current = newIds;
+
+      const newIdSet = new Set(newIds);
+      for (const [id] of pageContentRefs.current) {
+        if (!newIdSet.has(id)) {
+          pageContentRefs.current.delete(id);
+        }
       }
 
-      if (savedAnchorNode && savedFocusPageId) {
-        const focusEl = pageContentRefs.current.get(savedFocusPageId);
-        if (focusEl && focusEl.contains(savedAnchorNode)) {
-          try {
+      setPages(newPagesState);
+
+      requestAnimationFrame(() => {
+        isPaginatingRef.current = false;
+
+        if (caretMarkerInserted) {
+          const marker = [...pageContentRefs.current.values()]
+            .map((page) =>
+              page.querySelector<HTMLElement>(`[data-docubox-caret-marker="${caretMarkerId}"]`)
+            )
+            .find((candidate): candidate is HTMLElement => Boolean(candidate));
+          const focusEl = marker?.closest<HTMLDivElement>('[data-page-content="true"]');
+          if (marker && focusEl) {
             const range = document.createRange();
-            range.setStart(savedAnchorNode, savedAnchorOffset);
+            range.setStartBefore(marker);
             range.collapse(true);
-            const newSel = window.getSelection();
-            if (newSel) {
-              newSel.removeAllRanges();
-              newSel.addRange(range);
+            marker.remove();
+            focusEl.focus({ preventScroll: true });
+            const newSelection = window.getSelection();
+            if (newSelection) {
+              newSelection.removeAllRanges();
+              newSelection.addRange(range);
             }
-          } catch {
-            if (focusEl) {
-              focusEl.focus();
-              const range = document.createRange();
-              range.selectNodeContents(focusEl);
-              range.collapse(false);
-              const newSel = window.getSelection();
-              if (newSel) {
-                newSel.removeAllRanges();
-                newSel.addRange(range);
-              }
+            focusedPageIdRef.current = focusEl.dataset.pageId || null;
+            const activePageIndex = pageIdsRef.current.indexOf(focusEl.dataset.pageId || '');
+            if (activePageIndex >= 0) {
+              onActivePageChange?.(activePageIndex + 1);
             }
           }
         }
-      }
 
-      notifyChange();
-    });
-  }, [dims, contentHeight, margins, notifyChange, makeImagesResizable]);
-
-  // ── Re-paginate when paper size / orientation / margins change ────────────
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      runPagination();
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paperSize, orientation, margins]);
-
-  // ── Input handler ─────────────────────────────────────────────────────────
-  const handleInput = useCallback(
-    (pageId: string, pageIndex: number) => {
-      const el = pageContentRefs.current.get(pageId);
-      if (!el) return;
-
-      const hasOverflow = el.scrollHeight > el.clientHeight;
-      const isLastPage = pageIndex === pageIdsRef.current.length - 1;
-
-      if (!hasOverflow && isLastPage) {
         notifyChange();
-        return;
-      }
+      });
+    }, [
+      dims,
+      contentHeight,
+      margins,
+      notifyChange,
+      makeImagesResizable,
+      makeSignatureFieldsResizable,
+      onActivePageChange,
+    ]);
 
-      if (hasOverflow) {
-        const nextPageId = pageIdsRef.current[pageIndex + 1];
-        if (nextPageId) {
-          pendingFocusRef.current = { pageId: nextPageId, atEnd: false };
-        } else {
-          pendingFocusRef.current = { pageIndex: pageIndex + 1, atEnd: false };
-        }
-      }
-
+    // ── Re-paginate when paper size / orientation / margins change ────────────
+    useEffect(() => {
       requestAnimationFrame(() => {
         runPagination();
       });
-    },
-    [runPagination, notifyChange]
-  );
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paperSize, orientation, margins]);
 
-  // ── KeyDown handler ───────────────────────────────────────────────────────
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>, pageId: string, pageIndex: number) => {
-      // NEVER block clipboard shortcuts or common editing shortcuts
-      const isModifier = e.ctrlKey || e.metaKey;
-      if (isModifier) {
-        const key = e.key.toLowerCase();
-        if (['c', 'x', 'v', 'a', 'z', 'y', 'b', 'i', 'u'].includes(key)) {
+    // ── Input handler ─────────────────────────────────────────────────────────
+    const handleInput = useCallback(
+      (pageId: string, pageIndex: number) => {
+        const el = pageContentRefs.current.get(pageId);
+        if (!el) return;
+
+        const hasOverflow = el.scrollHeight > el.clientHeight;
+        const isLastPage = pageIndex === pageIdsRef.current.length - 1;
+
+        if (!hasOverflow && isLastPage) {
+          notifyChange();
           return;
         }
-      }
 
-      // Delete or Backspace: if an image is selected, delete it
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedFigureRef.current) {
-          e.preventDefault();
-          const fig = selectedFigureRef.current;
-          fig.parentNode?.removeChild(fig);
-          selectedFigureRef.current = null;
-          setImageToolbar((t) => ({ ...t, visible: false }));
+        if (hasOverflow) {
           requestAnimationFrame(() => {
             runPagination();
-            notifyChange();
           });
           return;
         }
+
         requestAnimationFrame(() => {
           runPagination();
         });
-      }
+      },
+      [runPagination, notifyChange]
+    );
 
-      if (e.key === 'Enter') {
-        requestAnimationFrame(() => {
-          const el = pageContentRefs.current.get(pageId);
-          if (el && el.scrollHeight > el.clientHeight) {
-            runPagination();
-          } else {
-            notifyChange();
+    // ── KeyDown handler ───────────────────────────────────────────────────────
+    const handleKeyDown = useCallback(
+      (e: React.KeyboardEvent<HTMLDivElement>, pageId: string) => {
+        // NEVER block clipboard shortcuts or common editing shortcuts
+        const isModifier = e.ctrlKey || e.metaKey;
+        if (isModifier) {
+          const key = e.key.toLowerCase();
+          if (['c', 'x', 'v', 'a', 'z', 'y', 'b', 'i', 'u'].includes(key)) {
+            return;
+          }
+        }
+
+        // Delete or Backspace: if an image is selected, delete it
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          if (selectedFigureRef.current) {
+            e.preventDefault();
+            const fig = selectedFigureRef.current;
+            fig.parentNode?.removeChild(fig);
+            selectedFigureRef.current = null;
+            setImageToolbar((t) => ({ ...t, visible: false }));
+            requestAnimationFrame(() => {
+              runPagination();
+              notifyChange();
+            });
+            return;
+          }
+        }
+
+        if (e.key === 'Enter') {
+          requestAnimationFrame(() => {
+            const el = pageContentRefs.current.get(pageId);
+            if (el && el.scrollHeight > el.clientHeight) {
+              runPagination();
+            } else {
+              notifyChange();
+            }
+          });
+        }
+
+        // Escape: deselect image
+        if (e.key === 'Escape') {
+          deselectAllImages();
+          setImageToolbar((t) => ({ ...t, visible: false }));
+        }
+      },
+      [runPagination, notifyChange, deselectAllImages]
+    );
+
+    // ── Paste handler — preserve table formatting from Word ───────────────────
+    const sanitizePastedHtml = useCallback((html: string): string => {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      inlineClipboardStyles(doc);
+      normalizeClipboardPageBreaks(doc);
+
+      doc
+        .querySelectorAll('script, iframe, object, embed, meta, link, noscript, style')
+        .forEach((el) => el.remove());
+
+      doc.querySelectorAll('*').forEach((el) => {
+        [...el.attributes].forEach((attr) => {
+          const name = attr.name.toLowerCase();
+          if (name.startsWith('on')) {
+            el.removeAttribute(attr.name);
+          }
+          if (name === 'href' && attr.value.toLowerCase().includes('javascript:')) {
+            el.removeAttribute(attr.name);
           }
         });
-      }
+      });
 
-      // Escape: deselect image
-      if (e.key === 'Escape') {
+      Array.from(doc.getElementsByTagName('*'))
+        .filter((el) => /^(o|w|m):/i.test(el.tagName))
+        .forEach((el) => {
+          const parent = el.parentNode;
+          if (parent) {
+            while (el.firstChild) parent.insertBefore(el.firstChild, el);
+            parent.removeChild(el);
+          }
+        });
+
+      doc.querySelectorAll('[class]').forEach((el) => {
+        const cls = el.getAttribute('class') || '';
+        if (cls.includes('mso') || cls.includes('Mso')) {
+          el.removeAttribute('class');
+        }
+      });
+
+      doc.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+
+      doc.querySelectorAll('table').forEach((table) => {
+        const existingStyle = table.getAttribute('style') || '';
+        if (!existingStyle.includes('border-collapse')) {
+          table.style.borderCollapse = 'collapse';
+        }
+        if (!existingStyle.includes('width')) {
+          table.style.width = '100%';
+        }
+        table.style.margin = '8px 0';
+
+        table.querySelectorAll('td, th').forEach((cell) => {
+          const el = cell as HTMLElement;
+          const computedBg = el.style.backgroundColor || el.getAttribute('bgcolor') || '';
+          const computedColor = el.style.color || '';
+          const computedBorder = el.style.border || el.style.borderTop || '';
+          const computedFontWeight = el.style.fontWeight || '';
+          const computedTextAlign = el.style.textAlign || '';
+          const computedPadding = el.style.padding || '6px 8px';
+          const computedWidth = el.style.width || '';
+
+          let preservedStyle = `padding:${computedPadding};min-width:40px;`;
+          if (computedBg) preservedStyle += `background-color:${computedBg};`;
+          if (computedColor) preservedStyle += `color:${computedColor};`;
+          if (computedBorder) {
+            preservedStyle += `border:${computedBorder};`;
+          } else {
+            preservedStyle += 'border:1px solid #ccc;';
+          }
+          if (computedFontWeight) preservedStyle += `font-weight:${computedFontWeight};`;
+          if (computedTextAlign) preservedStyle += `text-align:${computedTextAlign};`;
+          if (computedWidth) preservedStyle += `width:${computedWidth};`;
+
+          el.setAttribute('style', preservedStyle);
+        });
+      });
+
+      doc.querySelectorAll('[style]').forEach((el) => {
+        if (
+          el.tagName === 'TD' ||
+          el.tagName === 'TH' ||
+          el.tagName === 'TABLE' ||
+          el.tagName === 'TR'
+        )
+          return;
+        const style = el.getAttribute('style') || '';
+        const cleaned = style
+          .split(';')
+          .filter((s) => !s.trim().startsWith('mso-') && s.trim())
+          .join(';');
+        if (cleaned) {
+          el.setAttribute('style', cleaned);
+        } else {
+          el.removeAttribute('style');
+        }
+      });
+
+      return doc.body.innerHTML;
+    }, []);
+
+    // ── Paste helpers ─────────────────────────────────────────────────────────
+
+    const escapeHtml = useCallback((value: string): string => {
+      return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }, []);
+
+    const insertPlainTextInlineAtRange = useCallback((range: Range, text: string) => {
+      const textNode = document.createTextNode(text);
+      range.insertNode(textNode);
+      range.setStartAfter(textNode);
+      range.setEndAfter(textNode);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }, []);
+
+    const insertMultilineTextAtRange = useCallback((range: Range, text: string) => {
+      const fragment = document.createDocumentFragment();
+      const lines = text.replace(/\r\n/g, '\n').split('\n');
+      lines.forEach((line, index) => {
+        if (index > 0) {
+          fragment.appendChild(document.createElement('br'));
+        }
+        fragment.appendChild(document.createTextNode(line));
+      });
+      const lastNode = fragment.lastChild;
+      range.insertNode(fragment);
+      if (lastNode) {
+        range.setStartAfter(lastNode);
+        range.setEndAfter(lastNode);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
+    }, []);
+
+    const insertHtmlAtRange = useCallback(
+      (range: Range, html: string, editorEl: HTMLDivElement) => {
+        const template = document.createElement('template');
+        template.innerHTML = html;
+        const hasBlockContent = Boolean(
+          template.content.querySelector(
+            'address, article, aside, blockquote, div, dl, fieldset, figure, footer, h1, h2, h3, h4, h5, h6, header, hr, main, nav, ol, p, pre, section, table, ul, [data-docubox-page-break]'
+          )
+        );
+        const startElement =
+          range.startContainer.nodeType === Node.ELEMENT_NODE
+            ? (range.startContainer as Element)
+            : range.startContainer.parentElement;
+        const block = startElement?.closest<HTMLElement>(
+          'p, div, h1, h2, h3, h4, h5, h6, blockquote, pre'
+        );
+
+        if (hasBlockContent && block?.parentElement === editorEl) {
+          const beforeRange = document.createRange();
+          beforeRange.selectNodeContents(block);
+          beforeRange.setEnd(range.startContainer, range.startOffset);
+          const afterRange = document.createRange();
+          afterRange.selectNodeContents(block);
+          afterRange.setStart(range.startContainer, range.startOffset);
+          const before = block.cloneNode(false) as HTMLElement;
+          const after = block.cloneNode(false) as HTMLElement;
+          before.appendChild(beforeRange.cloneContents());
+          after.appendChild(afterRange.cloneContents());
+          const parent = block.parentNode;
+          const pastedNodes = Array.from(template.content.childNodes);
+
+          if (before.textContent || before.querySelector('br, img, [data-field-id]')) {
+            parent?.insertBefore(before, block);
+          }
+          parent?.insertBefore(template.content, block);
+          if (after.textContent || after.querySelector('br, img, [data-field-id]')) {
+            parent?.insertBefore(after, block);
+          }
+          block.remove();
+
+          const lastNode = pastedNodes[pastedNodes.length - 1];
+          if (lastNode) {
+            range.setStartAfter(lastNode);
+            range.collapse(true);
+          }
+        } else {
+          const fragment = range.createContextualFragment(html);
+          const lastNode = fragment.lastChild;
+          range.insertNode(fragment);
+          if (lastNode) {
+            range.setStartAfter(lastNode);
+            range.collapse(true);
+          }
+        }
+
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      },
+      []
+    );
+
+    const normalizePastedHtmlForCurrentLine = useCallback(
+      (html: string, plainText: string): string => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        doc.querySelectorAll('script, iframe, object, embed, meta, link, style').forEach((el) => {
+          el.remove();
+        });
+
+        // Remove event handlers and javascript: hrefs
+        doc.querySelectorAll('*').forEach((el) => {
+          [...el.attributes].forEach((attr) => {
+            const name = attr.name.toLowerCase();
+            const value = attr.value.toLowerCase();
+            if (name.startsWith('on') || value.includes('javascript:')) {
+              el.removeAttribute(attr.name);
+            }
+          });
+        });
+
+        const hasTable = !!doc.querySelector('table');
+        if (hasTable) {
+          return doc.body.innerHTML;
+        }
+
+        const cleanText = plainText.trim();
+        const isSingleLine = cleanText && !cleanText.includes('\n');
+
+        if (isSingleLine) {
+          const bodyText = doc.body.textContent?.trim() || '';
+          const hasMeaningfulFormatting = Boolean(
+            doc.body.querySelector(
+              'b, strong, i, em, u, s, strike, sub, sup, [style], [data-docubox-page-break]'
+            )
+          );
+          if (bodyText === cleanText && !hasMeaningfulFormatting) {
+            // Single-line text with no meaningful HTML formatting — return as escaped text
+            return escapeHtml(cleanText);
+          }
+        }
+
+        return doc.body.innerHTML;
+      },
+      [escapeHtml]
+    );
+
+    // ── Direct onPaste handler for each page div ─────────────────────────────
+    const handlePaste = useCallback(
+      (e: React.ClipboardEvent<HTMLDivElement>, pageId: string, _pageIndex: number) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const clipboardData = e.clipboardData;
+        if (!clipboardData) return;
+
+        let html = clipboardData.getData('text/html');
+        const text = clipboardData.getData('text/plain');
+
+        if (!html && !text) return;
+
+        focusedPageIdRef.current = pageId;
+
+        const editorEl = e.currentTarget;
+        editorEl.focus();
+
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+
+        const range = sel.getRangeAt(0);
+
+        // Ensure selection is inside this editor; if not, move cursor to end
+        if (!editorEl.contains(range.commonAncestorContainer)) {
+          const endRange = document.createRange();
+          endRange.selectNodeContents(editorEl);
+          endRange.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(endRange);
+          const freshRange = sel.getRangeAt(0);
+          range.setStart(freshRange.startContainer, freshRange.startOffset);
+          range.setEnd(freshRange.endContainer, freshRange.endOffset);
+        }
+
+        range.deleteContents();
+
+        const hasTable = html && /<table[\s\S]*?>/i.test(html);
+        const hasMultipleLines = text.includes('\n');
+
+        if (hasTable) {
+          // Paste table HTML directly (sanitized)
+          insertHtmlAtRange(range, sanitizePastedHtml(html), editorEl);
+        } else if (html) {
+          // Normalize HTML: if it's a single-line copy, don't wrap in <p>/<div>
+          const sanitizedHtml = sanitizePastedHtml(html);
+          const inlineHtml = normalizePastedHtmlForCurrentLine(sanitizedHtml, text);
+          insertHtmlAtRange(range, inlineHtml, editorEl);
+        } else if (text) {
+          if (hasMultipleLines) {
+            insertMultilineTextAtRange(range, text);
+          } else {
+            insertPlainTextInlineAtRange(range, text);
+          }
+        }
+
+        // After insertion, re-initialize images and re-paginate
+        requestAnimationFrame(() => {
+          makeImagesResizable(editorEl);
+          makeSignatureFieldsResizable(editorEl);
+          runPagination();
+          notifyChange();
+        });
+      },
+      [
+        sanitizePastedHtml,
+        normalizePastedHtmlForCurrentLine,
+        insertHtmlAtRange,
+        insertMultilineTextAtRange,
+        insertPlainTextInlineAtRange,
+        runPagination,
+        notifyChange,
+        makeImagesResizable,
+        makeSignatureFieldsResizable,
+      ]
+    );
+
+    // ── Click handler for contextual toolbars ─────────────────────────────────
+    const handleClick = useCallback(
+      (e: React.MouseEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement;
+
+        // If clicking inside a figure, it's handled by the figure's own mousedown
+        if (target.closest('figure[data-docubox-image]')) {
+          return;
+        }
+
+        // Table cell click
+        const cell = target.closest('td, th') as HTMLTableCellElement | null;
+        if (cell) {
+          const table = cell.closest('table') as HTMLTableElement | null;
+          if (table) {
+            const rect = cell.getBoundingClientRect();
+            setTableToolbar({
+              visible: true,
+              top: rect.top - 44,
+              left: rect.left,
+              targetCell: cell,
+              targetTable: table,
+            });
+            setImageToolbar((t) => ({ ...t, visible: false }));
+            return;
+          }
+        }
+
+        // Clicked on empty area — deselect images
         deselectAllImages();
         setImageToolbar((t) => ({ ...t, visible: false }));
-      }
-    },
-    [runPagination, notifyChange, deselectAllImages]
-  );
+        setTableToolbar((t) => ({ ...t, visible: false }));
+      },
+      [deselectAllImages]
+    );
 
-  // ── Paste handler — preserve table formatting from Word ───────────────────
-  const sanitizePastedHtml = useCallback((html: string): string => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
+    // ── Compute margin px values ──────────────────────────────────────────────
+    const mt = margins ? cmToPx(margins.top) : DEFAULT_MARGIN_TOP;
+    const mb = margins ? cmToPx(margins.bottom) : DEFAULT_MARGIN_BOTTOM;
+    const ml = margins ? cmToPx(margins.left) : DEFAULT_MARGIN_LEFT;
+    const mr = margins ? cmToPx(margins.right) : DEFAULT_MARGIN_RIGHT;
 
-    doc.querySelectorAll('script, iframe, object, embed, meta, link, noscript').forEach((el) => el.remove());
+    // ── Render ────────────────────────────────────────────────────────────────
+    return (
+      <>
+        {/* Contextual toolbars */}
+        <TableContextualToolbar
+          state={tableToolbar}
+          onClose={() => setTableToolbar((t) => ({ ...t, visible: false }))}
+        />
+        <ImageContextualToolbar
+          state={imageToolbar}
+          onClose={() => setImageToolbar((t) => ({ ...t, visible: false }))}
+        />
 
-    doc.querySelectorAll('*').forEach((el) => {
-      [...el.attributes].forEach((attr) => {
-        const name = attr.name.toLowerCase();
-        if (name.startsWith('on')) {
-          el.removeAttribute(attr.name);
-        }
-        if (name === 'href' && attr.value.toLowerCase().includes('javascript:')) {
-          el.removeAttribute(attr.name);
-        }
-      });
-    });
-
-    doc.querySelectorAll('o\\:p, w\\:*, m\\:*').forEach((el) => {
-      const parent = el.parentNode;
-      if (parent) {
-        while (el.firstChild) parent.insertBefore(el.firstChild, el);
-        parent.removeChild(el);
-      }
-    });
-
-    doc.querySelectorAll('[class]').forEach((el) => {
-      const cls = el.getAttribute('class') || '';
-      if (cls.includes('mso') || cls.includes('Mso')) {
-        el.removeAttribute('class');
-      }
-    });
-
-    doc.querySelectorAll('table').forEach((table) => {
-      const existingStyle = table.getAttribute('style') || '';
-      if (!existingStyle.includes('border-collapse')) {
-        table.style.borderCollapse = 'collapse';
-      }
-      if (!existingStyle.includes('width')) {
-        table.style.width = '100%';
-      }
-      table.style.margin = '8px 0';
-
-      table.querySelectorAll('td, th').forEach((cell) => {
-        const el = cell as HTMLElement;
-        const computedBg = el.style.backgroundColor || el.getAttribute('bgcolor') || '';
-        const computedColor = el.style.color || '';
-        const computedBorder = el.style.border || el.style.borderTop || '';
-        const computedFontWeight = el.style.fontWeight || '';
-        const computedTextAlign = el.style.textAlign || '';
-        const computedPadding = el.style.padding || '6px 8px';
-        const computedWidth = el.style.width || '';
-
-        let preservedStyle = `padding:${computedPadding};min-width:40px;`;
-        if (computedBg) preservedStyle += `background-color:${computedBg};`;
-        if (computedColor) preservedStyle += `color:${computedColor};`;
-        if (computedBorder) {
-          preservedStyle += `border:${computedBorder};`;
-        } else {
-          preservedStyle += 'border:1px solid #ccc;';
-        }
-        if (computedFontWeight) preservedStyle += `font-weight:${computedFontWeight};`;
-        if (computedTextAlign) preservedStyle += `text-align:${computedTextAlign};`;
-        if (computedWidth) preservedStyle += `width:${computedWidth};`;
-
-        el.setAttribute('style', preservedStyle);
-      });
-    });
-
-    doc.querySelectorAll('[style]').forEach((el) => {
-      if (el.tagName === 'TD' || el.tagName === 'TH' || el.tagName === 'TABLE' || el.tagName === 'TR') return;
-      const style = el.getAttribute('style') || '';
-      const cleaned = style
-        .split(';')
-        .filter((s) => !s.trim().startsWith('mso-') && s.trim())
-        .join(';');
-      if (cleaned) {
-        el.setAttribute('style', cleaned);
-      } else {
-        el.removeAttribute('style');
-      }
-    });
-
-    return doc.body.innerHTML;
-  }, []);
-
-  // ── Paste helpers ─────────────────────────────────────────────────────────
-
-  const escapeHtml = useCallback((value: string): string => {
-    return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }, []);
-
-  const insertPlainTextInlineAtRange = useCallback((range: Range, text: string) => {
-    const textNode = document.createTextNode(text);
-    range.insertNode(textNode);
-    range.setStartAfter(textNode);
-    range.setEndAfter(textNode);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-  }, []);
-
-  const insertMultilineTextAtRange = useCallback((range: Range, text: string) => {
-    const fragment = document.createDocumentFragment();
-    const lines = text.replace(/\r\n/g, '\n').split('\n');
-    lines.forEach((line, index) => {
-      if (index > 0) {
-        fragment.appendChild(document.createElement('br'));
-      }
-      fragment.appendChild(document.createTextNode(line));
-    });
-    const lastNode = fragment.lastChild;
-    range.insertNode(fragment);
-    if (lastNode) {
-      range.setStartAfter(lastNode);
-      range.setEndAfter(lastNode);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    }
-  }, []);
-
-  const insertHtmlAtRange = useCallback((range: Range, html: string) => {
-    const fragment = range.createContextualFragment(html);
-    const lastNode = fragment.lastChild;
-    range.insertNode(fragment);
-    if (lastNode) {
-      range.setStartAfter(lastNode);
-      range.setEndAfter(lastNode);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    }
-  }, []);
-
-  const normalizePastedHtmlForCurrentLine = useCallback((html: string, plainText: string): string => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-
-    doc.querySelectorAll('script, iframe, object, embed, meta, link, style').forEach((el) => {
-      el.remove();
-    });
-
-    // Remove event handlers and javascript: hrefs
-    doc.querySelectorAll('*').forEach((el) => {
-      [...el.attributes].forEach((attr) => {
-        const name = attr.name.toLowerCase();
-        const value = attr.value.toLowerCase();
-        if (name.startsWith('on') || value.includes('javascript:')) {
-          el.removeAttribute(attr.name);
-        }
-      });
-    });
-
-    const hasTable = !!doc.querySelector('table');
-    if (hasTable) {
-      return doc.body.innerHTML;
-    }
-
-    const cleanText = plainText.trim();
-    const isSingleLine = cleanText && !cleanText.includes('\n');
-
-    if (isSingleLine) {
-      const bodyText = doc.body.textContent?.trim() || '';
-      if (bodyText === cleanText) {
-        // Single-line text with no meaningful HTML formatting — return as escaped text
-        return escapeHtml(cleanText);
-      }
-    }
-
-    return doc.body.innerHTML;
-  }, [escapeHtml]);
-
-  // ── Direct onPaste handler for each page div ─────────────────────────────
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLDivElement>, pageId: string, _pageIndex: number) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const clipboardData = e.clipboardData;
-      if (!clipboardData) return;
-
-      let html = clipboardData.getData('text/html');
-      const text = clipboardData.getData('text/plain');
-
-      if (!html && !text) return;
-
-      focusedPageIdRef.current = pageId;
-
-      const editorEl = e.currentTarget;
-      editorEl.focus();
-
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-
-      const range = sel.getRangeAt(0);
-
-      // Ensure selection is inside this editor; if not, move cursor to end
-      if (!editorEl.contains(range.commonAncestorContainer)) {
-        const endRange = document.createRange();
-        endRange.selectNodeContents(editorEl);
-        endRange.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(endRange);
-        const freshRange = sel.getRangeAt(0);
-        range.setStart(freshRange.startContainer, freshRange.startOffset);
-        range.setEnd(freshRange.endContainer, freshRange.endOffset);
-      }
-
-      range.deleteContents();
-
-      const hasTable = html && /<table[\s\S]*?>/i.test(html);
-      const hasMultipleLines = text.includes('\n');
-
-      if (hasTable) {
-        // Paste table HTML directly (sanitized)
-        insertHtmlAtRange(range, sanitizePastedHtml(html));
-      } else if (html) {
-        // Normalize HTML: if it's a single-line copy, don't wrap in <p>/<div>
-        const inlineHtml = normalizePastedHtmlForCurrentLine(html, text);
-        insertHtmlAtRange(range, inlineHtml);
-      } else if (text) {
-        if (hasMultipleLines) {
-          insertMultilineTextAtRange(range, text);
-        } else {
-          insertPlainTextInlineAtRange(range, text);
-        }
-      }
-
-      // After insertion, re-initialize images and re-paginate
-      requestAnimationFrame(() => {
-        makeImagesResizable(editorEl);
-        runPagination();
-        notifyChange();
-      });
-    },
-    [
-      sanitizePastedHtml,
-      normalizePastedHtmlForCurrentLine,
-      insertHtmlAtRange,
-      insertMultilineTextAtRange,
-      insertPlainTextInlineAtRange,
-      runPagination,
-      notifyChange,
-      makeImagesResizable,
-    ]
-  );
-
-  // ── Click handler for contextual toolbars ─────────────────────────────────
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-
-    // If clicking inside a figure, it's handled by the figure's own mousedown
-    if (target.closest('figure[data-docubox-image]')) {
-      return;
-    }
-
-    // Table cell click
-    const cell = target.closest('td, th') as HTMLTableCellElement | null;
-    if (cell) {
-      const table = cell.closest('table') as HTMLTableElement | null;
-      if (table) {
-        const rect = cell.getBoundingClientRect();
-        setTableToolbar({
-          visible: true,
-          top: rect.top - 44,
-          left: rect.left,
-          targetCell: cell,
-          targetTable: table,
-        });
-        setImageToolbar((t) => ({ ...t, visible: false }));
-        return;
-      }
-    }
-
-    // Clicked on empty area — deselect images
-    deselectAllImages();
-    setImageToolbar((t) => ({ ...t, visible: false }));
-    setTableToolbar((t) => ({ ...t, visible: false }));
-  }, [deselectAllImages]);
-
-  // ── Compute margin px values ──────────────────────────────────────────────
-  const mt = margins ? cmToPx(margins.top) : DEFAULT_MARGIN_TOP;
-  const mb = margins ? cmToPx(margins.bottom) : DEFAULT_MARGIN_BOTTOM;
-  const ml = margins ? cmToPx(margins.left) : DEFAULT_MARGIN_LEFT;
-  const mr = margins ? cmToPx(margins.right) : DEFAULT_MARGIN_RIGHT;
-
-  // ── Render ────────────────────────────────────────────────────────────────
-  return (
-    <>
-      {/* Contextual toolbars */}
-      <TableContextualToolbar
-        state={tableToolbar}
-        onClose={() => setTableToolbar((t) => ({ ...t, visible: false }))}
-      />
-      <ImageContextualToolbar
-        state={imageToolbar}
-        onClose={() => setImageToolbar((t) => ({ ...t, visible: false }))}
-      />
-
-      <div className="document-preview" style={documentPreviewStyle}>
-        {pages.map((page, index) => (
-          <div key={page.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            {/* Horizontal ruler (only for first page, shown above) */}
-            {showRulers && index === 0 && (
-              <div style={{ display: 'flex', marginLeft: '20px' }}>
-                <HorizontalRuler width={dims.width} marginLeft={ml} marginRight={mr} />
-              </div>
-            )}
-
-            <div style={{ display: 'flex' }}>
-              {/* Vertical ruler */}
-              {showRulers && (
-                <VerticalRuler height={dims.height} marginTop={mt} marginBottom={mb} />
+        <div className="document-preview" style={documentPreviewStyle}>
+          {pages.map((page, index) => (
+            <div
+              key={page.id}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}
+            >
+              {/* Horizontal ruler (only for first page, shown above) */}
+              {showRulers && index === 0 && (
+                <div style={{ display: 'flex', marginLeft: '20px' }}>
+                  <HorizontalRuler width={dims.width} marginLeft={ml} marginRight={mr} />
+                </div>
               )}
 
-              {/* Page */}
-              <div
-                className="page"
-                data-page={index + 1}
-                style={pageStyle(dims)}
-              >
-                {/* Fixed-height page header (hidden UI chrome, not document header) */}
-                <div className="page-header" style={pageHeaderStyle}>
-                  Página {index + 1}
-                </div>
+              <div style={{ display: 'flex' }}>
+                {/* Vertical ruler */}
+                {showRulers && (
+                  <VerticalRuler height={dims.height} marginTop={mt} marginBottom={mb} />
+                )}
 
-                {/* Page content area — full height flex column */}
-                <div
-                  className="page-content"
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    height: '100%',
-                    overflow: 'hidden',
-                    padding: 0,
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  {/* Header zone — occupies top margin area, aligned to left/right margins */}
-                  {showHeader ? (
-                    index === 0 ? (
-                      <HeaderFooterZone
-                        type="header"
-                        onRemove={onRemoveHeader || (() => {})}
-                        onPageNumbers={onPageNumbers || (() => {})}
-                        contentRef={headerContentRef}
-                        marginLeft={ml}
-                        marginRight={mr}
-                        zoneHeight={mt}
-                      />
-                    ) : (
-                      <HeaderFooterZoneReadOnly
-                        type="header"
-                        sourceRef={headerContentRef}
-                        marginLeft={ml}
-                        marginRight={mr}
-                        pageIndex={index}
-                        zoneHeight={mt}
-                      />
-                    )
-                  ) : (
-                    /* No header: top spacer to preserve top margin */
-                    <div style={{ height: `${mt}px`, flexShrink: 0 }} />
-                  )}
+                {/* Page */}
+                <div className="page" data-page={index + 1} style={pageStyle(dims)}>
+                  {/* Fixed-height page header (hidden UI chrome, not document header) */}
+                  <div className="page-header" style={pageHeaderStyle}>
+                    Página {index + 1}
+                  </div>
 
-                  {/* Main editable content — only left/right padding; top/bottom handled by header/footer zones */}
+                  {/* Page content area — full height flex column */}
                   <div
-                    ref={(el) => {
-                      if (el) {
-                        pageContentRefs.current.set(page.id, el);
-                        if (!pageIdsRef.current.includes(page.id)) {
-                          pageIdsRef.current = pages.map((p) => p.id);
-                        }
-                        if (el.innerHTML === '' && page.content) {
-                          el.innerHTML = page.content;
-                          makeImagesResizable(el);
-                        }
-                      } else {
-                        pageContentRefs.current.delete(page.id);
-                      }
-                    }}
-                    contentEditable
-                    suppressContentEditableWarning
-                    tabIndex={0}
-                    onFocus={() => {
-                      focusedPageIdRef.current = page.id;
-                      onActivePageChange?.(index + 1);
-                    }}
-                    onInput={() => handleInput(page.id, index)}
-                    onKeyDown={(e) => handleKeyDown(e, page.id, index)}
-                    onPaste={(e) => handlePaste(e, page.id, index)}
-                    onClick={handleClick}
+                    className="page-content"
                     style={{
-                      outline: 'none',
-                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      height: '100%',
                       overflow: 'hidden',
-                      fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
-                      fontSize: '11pt',
-                      lineHeight: '1.6',
-                      wordBreak: 'break-word',
-                      overflowWrap: 'break-word',
-                      color: '#111827',
-                      paddingLeft: `${ml}px`,
-                      paddingRight: `${mr}px`,
-                      paddingTop: 0,
-                      paddingBottom: 0,
+                      padding: 0,
                       boxSizing: 'border-box',
-                      cursor: 'text',
-                      userSelect: 'text',
-                      WebkitUserSelect: 'text',
-                      ...editorStyle,
                     }}
-                    data-page-id={page.id}
-                    data-page-content="true"
-                  />
-
-                  {/* Footer zone — occupies bottom margin area, aligned to left/right margins */}
-                  {showFooter ? (
-                    index === 0 ? (
-                      <HeaderFooterZone
-                        type="footer"
-                        onRemove={onRemoveFooter || (() => {})}
-                        onPageNumbers={onPageNumbers || (() => {})}
-                        contentRef={footerContentRef}
-                        marginLeft={ml}
-                        marginRight={mr}
-                        zoneHeight={mb}
-                      />
+                  >
+                    {/* Header zone — occupies top margin area, aligned to left/right margins */}
+                    {showHeader ? (
+                      index === 0 ? (
+                        <HeaderFooterZone
+                          type="header"
+                          onRemove={onRemoveHeader || (() => {})}
+                          onPageNumbers={onPageNumbers || (() => {})}
+                          contentRef={headerContentRef}
+                          marginLeft={ml}
+                          marginRight={mr}
+                          zoneHeight={mt}
+                        />
+                      ) : (
+                        <HeaderFooterZoneReadOnly
+                          type="header"
+                          sourceRef={headerContentRef}
+                          marginLeft={ml}
+                          marginRight={mr}
+                          pageIndex={index}
+                          zoneHeight={mt}
+                        />
+                      )
                     ) : (
-                      <HeaderFooterZoneReadOnly
-                        type="footer"
-                        sourceRef={footerContentRef}
-                        marginLeft={ml}
-                        marginRight={mr}
-                        pageIndex={index}
-                        zoneHeight={mb}
-                      />
-                    )
-                  ) : (
-                    /* No footer: bottom spacer to preserve bottom margin */
-                    <div style={{ height: `${mb}px`, flexShrink: 0 }} />
-                  )}
+                      /* No header: top spacer to preserve top margin */
+                      <div style={{ height: `${mt}px`, flexShrink: 0 }} />
+                    )}
+
+                    {/* Main editable content — only left/right padding; top/bottom handled by header/footer zones */}
+                    <div
+                      ref={(el) => {
+                        if (el) {
+                          pageContentRefs.current.set(page.id, el);
+                          if (!pageIdsRef.current.includes(page.id)) {
+                            pageIdsRef.current = pages.map((p) => p.id);
+                          }
+                          if (el.innerHTML === '' && page.content) {
+                            el.innerHTML = page.content;
+                            makeImagesResizable(el);
+                            makeSignatureFieldsResizable(el);
+                          }
+                        } else {
+                          pageContentRefs.current.delete(page.id);
+                        }
+                      }}
+                      contentEditable
+                      suppressContentEditableWarning
+                      tabIndex={0}
+                      onFocus={() => {
+                        focusedPageIdRef.current = page.id;
+                        onActivePageChange?.(index + 1);
+                      }}
+                      onInput={() => handleInput(page.id, index)}
+                      onMouseDown={handleSignatureResizeStart}
+                      onKeyDown={(e) => handleKeyDown(e, page.id)}
+                      onPaste={(e) => handlePaste(e, page.id, index)}
+                      onClick={handleClick}
+                      style={{
+                        outline: 'none',
+                        flex: 1,
+                        overflow: 'hidden',
+                        fontFamily:
+                          "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
+                        fontSize: '11pt',
+                        lineHeight: '1.6',
+                        wordBreak: 'break-word',
+                        overflowWrap: 'break-word',
+                        color: '#111827',
+                        paddingLeft: `${ml}px`,
+                        paddingRight: `${mr}px`,
+                        paddingTop: 0,
+                        paddingBottom: 0,
+                        boxSizing: 'border-box',
+                        cursor: 'text',
+                        userSelect: 'text',
+                        WebkitUserSelect: 'text',
+                        ...editorStyle,
+                      }}
+                      data-page-id={page.id}
+                      data-page-content="true"
+                    />
+
+                    {/* Footer zone — occupies bottom margin area, aligned to left/right margins */}
+                    {showFooter ? (
+                      index === 0 ? (
+                        <HeaderFooterZone
+                          type="footer"
+                          onRemove={onRemoveFooter || (() => {})}
+                          onPageNumbers={onPageNumbers || (() => {})}
+                          contentRef={footerContentRef}
+                          marginLeft={ml}
+                          marginRight={mr}
+                          zoneHeight={mb}
+                        />
+                      ) : (
+                        <HeaderFooterZoneReadOnly
+                          type="footer"
+                          sourceRef={footerContentRef}
+                          marginLeft={ml}
+                          marginRight={mr}
+                          pageIndex={index}
+                          zoneHeight={mb}
+                        />
+                      )
+                    ) : (
+                      /* No footer: bottom spacer to preserve bottom margin */
+                      <div style={{ height: `${mb}px`, flexShrink: 0 }} />
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      <style>{`
+        <style>{`
         [contenteditable][data-placeholder]:empty:before {
           content: attr(data-placeholder);
           color: #9ca3af;
@@ -2114,6 +3021,23 @@ export const MultiPageEditor = forwardRef<
         [data-page-content] * {
           user-select: text;
           -webkit-user-select: text;
+        }
+        [data-page-content] [data-field-type="signature"] {
+          position: relative;
+          resize: both;
+          overflow: hidden;
+        }
+        [data-signature-resize-handle] {
+          position: absolute;
+          right: 3px;
+          bottom: 3px;
+          width: 10px;
+          height: 10px;
+          border-right: 2px solid #2563eb;
+          border-bottom: 2px solid #2563eb;
+          cursor: nwse-resize;
+          user-select: none !important;
+          -webkit-user-select: none !important;
         }
         [data-page-content] h1 {
           font-size: 28px;
@@ -2238,9 +3162,10 @@ export const MultiPageEditor = forwardRef<
           transform: scale(1.2);
         }
       `}</style>
-    </>
-  );
-});
+      </>
+    );
+  }
+);
 
 // ─── EditableDocumentPaginator (legacy wrapper kept for compatibility) ─────────
 

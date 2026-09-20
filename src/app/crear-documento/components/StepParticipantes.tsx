@@ -1,23 +1,88 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Users, User, UserCheck, UserPlus, Search, X, Mail, Smartphone, ChevronDown, CheckCircle2, Edit3, Eye, ShieldCheck, Bell, GripVertical, Trash2, BookUser } from 'lucide-react';
+import {
+  Users,
+  User,
+  UserCheck,
+  UserPlus,
+  Search,
+  Mail,
+  Smartphone,
+  ChevronDown,
+  CheckCircle2,
+  Edit3,
+  Eye,
+  ShieldCheck,
+  Bell,
+  GripVertical,
+  Trash2,
+  BookUser,
+  Tablet,
+  Paperclip,
+  ClipboardList,
+} from 'lucide-react';
 import { InfoTooltip, FavoriteSearchableSelect } from './SharedComponents';
 import { createClient } from '@/lib/supabase/client';
 import type { Participant, ParticipantMode } from './types';
 import { reconcileParticipantsForMode, type CurrentUserIdentity } from './participant-mode';
+import type {
+  ParticipantRequirementDraft,
+  SupplementalDocumentDraft,
+} from '@/lib/document-package/types';
+import { getEffectiveTimeZone } from '@/lib/datetime';
 
-const PARTICIPANT_OPTIONS: { id: ParticipantMode; icon: React.ReactNode; title: string; description: string }[] = [
-  { id: 'solo_yo', icon: <User size={36} strokeWidth={1.5} />, title: 'Solo yo', description: 'Tú eres el único participante.' },
-  { id: 'yo_y_otros', icon: <Users size={36} strokeWidth={1.5} />, title: 'Yo y otros', description: 'Tú y otros participantes.' },
-  { id: 'solo_otros', icon: <UserCheck size={36} strokeWidth={1.5} />, title: 'Solo otros', description: 'Únicamente otros participantes.' },
+const PARTICIPANT_OPTIONS: {
+  id: ParticipantMode;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}[] = [
+  {
+    id: 'solo_yo',
+    icon: <User size={36} strokeWidth={1.5} />,
+    title: 'Solo yo',
+    description: 'Tú eres el único participante.',
+  },
+  {
+    id: 'yo_y_otros',
+    icon: <Users size={36} strokeWidth={1.5} />,
+    title: 'Yo y otros',
+    description: 'Tú y otros participantes.',
+  },
+  {
+    id: 'solo_otros',
+    icon: <UserCheck size={36} strokeWidth={1.5} />,
+    title: 'Solo otros',
+    description: 'Únicamente otros participantes.',
+  },
 ];
 
 const PARTICIPATION_ORDER_OPTIONS = [
-  { id: 'paralelo', label: 'Paralelo', description: 'Todos los participantes reciben el documento al mismo tiempo y pueden participar sin esperar a los demás.' },
-  { id: 'secuencial', label: 'Secuencial', description: 'El documento pasa de un participante al siguiente, en orden definido. Nadie puede participar fuera de turno.' },
-  { id: 'mixto', label: 'Mixto', description: 'Combina grupos que participan en paralelo, pero esos grupos tienen un orden entre sí.' },
-  { id: 'condicional', label: 'Condicional', description: 'La solicitud a un participante depende de que otro participe, rechace o apruebe antes.' },
+  {
+    id: 'paralelo',
+    label: 'Paralelo',
+    description:
+      'Todos los participantes reciben el documento al mismo tiempo y pueden participar sin esperar a los demás.',
+  },
+  {
+    id: 'secuencial',
+    label: 'Secuencial',
+    description:
+      'El documento pasa de un participante al siguiente, en orden definido. Nadie puede participar fuera de turno.',
+  },
+  {
+    id: 'mixto',
+    label: 'Mixto',
+    description:
+      'Combina grupos que participan en paralelo, pero esos grupos tienen un orden entre sí.',
+  },
+  {
+    id: 'condicional',
+    label: 'Condicional',
+    description:
+      'La solicitud a un participante depende de que otro participe, rechace o apruebe antes.',
+  },
 ];
 
 // ─── Invite Form ──────────────────────────────────────────────────────────────
@@ -37,26 +102,59 @@ interface InviteFormData {
   denominacion: string;
 }
 
-function InvitarParticipanteForm({ prefilledEmail, prefilledPhone, onBack, onSubmit }: { prefilledEmail: string; prefilledPhone: string; onBack: () => void; onSubmit: (data: InviteFormData) => void }) {
+function InvitarParticipanteForm({
+  prefilledEmail,
+  prefilledPhone,
+  onBack,
+  onCancel,
+  onSubmit,
+}: {
+  prefilledEmail: string;
+  prefilledPhone: string;
+  onBack: () => void;
+  onCancel: () => void;
+  onSubmit: (data: InviteFormData) => void;
+}) {
   const [form, setForm] = useState<InviteFormData>({
-    nombre: '', apellidoPaterno: '', apellidoMaterno: '',
+    nombre: '',
+    apellidoPaterno: '',
+    apellidoMaterno: '',
     contactarPor: { correo: !!prefilledEmail, sms: !!prefilledPhone },
-    correo: prefilledEmail, telefono: prefilledPhone,
-    forzarRfc: false, rfc: '', forzarCurp: false, curp: '',
-    tipoPersona: 'fisica', denominacion: '',
+    correo: prefilledEmail,
+    telefono: prefilledPhone,
+    forzarRfc: false,
+    rfc: '',
+    forzarCurp: false,
+    curp: '',
+    tipoPersona: 'fisica',
+    denominacion: '',
   });
-  const set = (field: keyof InviteFormData, value: unknown) => setForm((prev) => ({ ...prev, [field]: value }));
+  const set = (field: keyof InviteFormData, value: unknown) =>
+    setForm((prev) => ({ ...prev, [field]: value }));
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={onBack} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500">
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          <button
+            type="button"
+            onClick={onBack}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500"
+          >
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
           </button>
           <div>
             <h2 className="text-base font-bold text-gray-900">Invitar a Participante</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Completa la información para invitar a un nuevo participante al documento.</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Completa la información para invitar a un nuevo participante al documento.
+            </p>
           </div>
         </div>
       </div>
@@ -64,7 +162,8 @@ function InvitarParticipanteForm({ prefilledEmail, prefilledPhone, onBack, onSub
         {/* Tipo de Persona */}
         <div>
           <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 mb-2">
-            <User size={15} className="text-gray-500" />Tipo de Persona <span className="text-red-500">*</span>
+            <User size={15} className="text-gray-500" />
+            Tipo de Persona <span className="text-red-500">*</span>
           </label>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -72,8 +171,12 @@ function InvitarParticipanteForm({ prefilledEmail, prefilledPhone, onBack, onSub
               onClick={() => set('tipoPersona', 'fisica')}
               className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${form.tipoPersona === 'fisica' ? 'border-primary bg-primary/5 text-primary' : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
             >
-              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${form.tipoPersona === 'fisica' ? 'border-primary' : 'border-gray-300'}`}>
-                {form.tipoPersona === 'fisica' && <div className="w-2 h-2 rounded-full bg-primary" />}
+              <div
+                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${form.tipoPersona === 'fisica' ? 'border-primary' : 'border-gray-300'}`}
+              >
+                {form.tipoPersona === 'fisica' && (
+                  <div className="w-2 h-2 rounded-full bg-primary" />
+                )}
               </div>
               <div className="text-left">
                 <p className="font-semibold">Persona Física</p>
@@ -85,8 +188,12 @@ function InvitarParticipanteForm({ prefilledEmail, prefilledPhone, onBack, onSub
               onClick={() => set('tipoPersona', 'moral')}
               className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${form.tipoPersona === 'moral' ? 'border-primary bg-primary/5 text-primary' : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
             >
-              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${form.tipoPersona === 'moral' ? 'border-primary' : 'border-gray-300'}`}>
-                {form.tipoPersona === 'moral' && <div className="w-2 h-2 rounded-full bg-primary" />}
+              <div
+                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${form.tipoPersona === 'moral' ? 'border-primary' : 'border-gray-300'}`}
+              >
+                {form.tipoPersona === 'moral' && (
+                  <div className="w-2 h-2 rounded-full bg-primary" />
+                )}
               </div>
               <div className="text-left">
                 <p className="font-semibold">Persona Moral</p>
@@ -100,7 +207,22 @@ function InvitarParticipanteForm({ prefilledEmail, prefilledPhone, onBack, onSub
         {form.tipoPersona === 'moral' && (
           <div>
             <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 mb-2">
-              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="text-gray-500"><rect x="2" y="7" width="20" height="14" rx="2" strokeWidth="2"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+              <svg
+                width="15"
+                height="15"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                className="text-gray-500"
+              >
+                <rect x="2" y="7" width="20" height="14" rx="2" strokeWidth="2" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"
+                />
+              </svg>
               Denominación o Razón Social <span className="text-red-500">*</span>
             </label>
             <input
@@ -110,100 +232,177 @@ function InvitarParticipanteForm({ prefilledEmail, prefilledPhone, onBack, onSub
               placeholder="Ej: EMPRESA EJEMPLO S.A. DE C.V."
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300 uppercase"
             />
-            <p className="text-xs text-gray-400 mt-1.5">Nombre legal de la empresa u organización.</p>
+            <p className="text-xs text-gray-400 mt-1.5">
+              Nombre legal de la empresa u organización.
+            </p>
           </div>
         )}
 
         {form.tipoPersona === 'fisica' && (
-        <div>
-          <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 mb-2"><User size={15} className="text-gray-500" />
-            Nombre completo <span className="text-red-500">*</span>
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            <input
-              type="text"
-              value={form.nombre}
-              onChange={(e) => set('nombre', e.target.value.toUpperCase())}
-              placeholder="Nombre"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300 uppercase"
-            />
-            <input
-              type="text"
-              value={form.apellidoPaterno}
-              onChange={(e) => set('apellidoPaterno', e.target.value.toUpperCase())}
-              placeholder="Apellido paterno"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300 uppercase"
-            />
-            <input
-              type="text"
-              value={form.apellidoMaterno}
-              onChange={(e) => set('apellidoMaterno', e.target.value.toUpperCase())}
-              placeholder="Apellido materno"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300 uppercase"
-            />
+          <div>
+            <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 mb-2">
+              <User size={15} className="text-gray-500" />
+              Nombre completo <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                type="text"
+                value={form.nombre}
+                onChange={(e) => set('nombre', e.target.value.toUpperCase())}
+                placeholder="Nombre"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300 uppercase"
+              />
+              <input
+                type="text"
+                value={form.apellidoPaterno}
+                onChange={(e) => set('apellidoPaterno', e.target.value.toUpperCase())}
+                placeholder="Apellido paterno"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300 uppercase"
+              />
+              <input
+                type="text"
+                value={form.apellidoMaterno}
+                onChange={(e) => set('apellidoMaterno', e.target.value.toUpperCase())}
+                placeholder="Apellido materno"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300 uppercase"
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">Ej: Juan Pérez García</p>
           </div>
-          <p className="text-xs text-gray-400 mt-1.5">Ej: Juan Pérez García</p>
-        </div>
         )}
         <div>
-          <label className="text-sm font-semibold text-gray-800 mb-2 block">Contactar por <span className="text-red-500">*</span></label>
+          <label className="text-sm font-semibold text-gray-800 mb-2 block">
+            Contactar por <span className="text-red-500">*</span>
+          </label>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input type="checkbox" checked={form.contactarPor.correo} onChange={(e) => set('contactarPor', { ...form.contactarPor, correo: e.target.checked })} className="w-4 h-4 rounded accent-primary" />
+              <input
+                type="checkbox"
+                checked={form.contactarPor.correo}
+                onChange={(e) =>
+                  set('contactarPor', { ...form.contactarPor, correo: e.target.checked })
+                }
+                className="w-4 h-4 rounded accent-primary"
+              />
               <span className="text-sm text-gray-700">Correo electrónico</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input type="checkbox" checked={form.contactarPor.sms} onChange={(e) => set('contactarPor', { ...form.contactarPor, sms: e.target.checked })} className="w-4 h-4 rounded accent-primary" />
+              <input
+                type="checkbox"
+                checked={form.contactarPor.sms}
+                onChange={(e) =>
+                  set('contactarPor', { ...form.contactarPor, sms: e.target.checked })
+                }
+                className="w-4 h-4 rounded accent-primary"
+              />
               <span className="text-sm text-gray-700">SMS</span>
             </label>
           </div>
         </div>
         {form.contactarPor.correo && (
           <div>
-            <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 mb-2"><Mail size={15} className="text-gray-500" />Correo electrónico <span className="text-red-500">*</span></label>
-            <input type="email" value={form.correo} onChange={(e) => set('correo', e.target.value)} placeholder="ejemplo@correo.com" className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300" />
+            <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 mb-2">
+              <Mail size={15} className="text-gray-500" />
+              Correo electrónico <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="email"
+              value={form.correo}
+              onChange={(e) => set('correo', e.target.value)}
+              placeholder="ejemplo@correo.com"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300"
+            />
           </div>
         )}
         {form.contactarPor.sms && (
           <div>
-            <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 mb-2"><Smartphone size={15} className="text-gray-500" />Número de teléfono <span className="text-red-500">*</span></label>
-            <input type="tel" value={form.telefono} onChange={(e) => set('telefono', e.target.value)} placeholder="+52 55 1234 5678" className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300" />
+            <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 mb-2">
+              <Smartphone size={15} className="text-gray-500" />
+              Número de teléfono <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="tel"
+              value={form.telefono}
+              onChange={(e) => set('telefono', e.target.value)}
+              placeholder="+52 55 1234 5678"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300"
+            />
           </div>
         )}
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm font-semibold text-gray-800">Forzar identidad del participante (opcional)</span>
+            <span className="text-sm font-semibold text-gray-800">
+              Forzar identidad del participante (opcional)
+            </span>
             <InfoTooltip text="Puedes requerir que el participante tenga un RFC o CURP específico para firmar el documento." />
           </div>
           <div className="mb-3">
             <label className="flex items-center gap-2 cursor-pointer select-none mb-2">
-              <input type="checkbox" checked={form.forzarRfc} onChange={(e) => set('forzarRfc', e.target.checked)} className="w-4 h-4 rounded accent-primary" />
+              <input
+                type="checkbox"
+                checked={form.forzarRfc}
+                onChange={(e) => set('forzarRfc', e.target.checked)}
+                className="w-4 h-4 rounded accent-primary"
+              />
               <span className="text-sm text-gray-700">Añadir RFC</span>
             </label>
             {form.forzarRfc && (
               <div className="ml-6">
-                <label className="text-xs font-medium text-gray-600 mb-1 block">RFC del participante <span className="text-red-500">*</span></label>
-                <input type="text" value={form.rfc} onChange={(e) => set('rfc', e.target.value.toUpperCase())} placeholder="Escribe el RFC" className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300" />
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  RFC del participante <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.rfc}
+                  onChange={(e) => set('rfc', e.target.value.toUpperCase())}
+                  placeholder="Escribe el RFC"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300"
+                />
               </div>
             )}
           </div>
           <div>
             <label className="flex items-center gap-2 cursor-pointer select-none mb-2">
-              <input type="checkbox" checked={form.forzarCurp} onChange={(e) => set('forzarCurp', e.target.checked)} className="w-4 h-4 rounded accent-primary" />
+              <input
+                type="checkbox"
+                checked={form.forzarCurp}
+                onChange={(e) => set('forzarCurp', e.target.checked)}
+                className="w-4 h-4 rounded accent-primary"
+              />
               <span className="text-sm text-gray-700">Añadir CURP</span>
             </label>
             {form.forzarCurp && (
               <div className="ml-6">
-                <label className="text-xs font-medium text-gray-600 mb-1 block">CURP del participante <span className="text-red-500">*</span></label>
-                <input type="text" value={form.curp} onChange={(e) => set('curp', e.target.value.toUpperCase())} placeholder="Escribe la CURP" className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300" />
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  CURP del participante <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.curp}
+                  onChange={(e) => set('curp', e.target.value.toUpperCase())}
+                  placeholder="Escribe la CURP"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder-gray-300"
+                />
               </div>
             )}
           </div>
         </div>
       </div>
-      <div className="px-6 py-4 border-t border-gray-100 shrink-0">
-        <button type="button" onClick={() => onSubmit(form)} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
-          <UserPlus size={16} />Siguiente: Configurar participante
+      <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="h-10 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={() => onSubmit(form)}
+          className="flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+        >
+          <UserPlus size={16} />
+          Siguiente: Configurar participante
         </button>
       </div>
     </div>
@@ -212,21 +411,74 @@ function InvitarParticipanteForm({ prefilledEmail, prefilledPhone, onBack, onSub
 
 // ─── Configurar Participación Modal ──────────────────────────────────────────
 
-function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentUser = false, userId, soloYo = false }: { participant: Participant; onClose: () => void; onSave: (updated: Participant) => void; isCurrentUser?: boolean; userId?: string; soloYo?: boolean }) {
+function ConfigurarParticipacionModal({
+  participant,
+  onClose,
+  onSave,
+  isCurrentUser = false,
+  userId,
+  soloYo = false,
+  supplementalResources,
+  inPersonSigningEnabled = false,
+  documentRequirements = [],
+}: {
+  participant: Participant;
+  onClose: () => void;
+  onSave: (updated: Participant) => boolean | void;
+  isCurrentUser?: boolean;
+  userId?: string;
+  soloYo?: boolean;
+  supplementalResources: SupplementalDocumentDraft[];
+  inPersonSigningEnabled?: boolean;
+  documentRequirements?: ParticipantRequirementDraft[];
+}) {
   const [nombreCompleto, setNombreCompleto] = useState(participant.name || '');
   const [correo, setCorreo] = useState(participant.email || '');
   const [telefono, setTelefono] = useState(participant.phone || '');
   // In soloYo mode, acto is always 'Firmante'
-  const [acto, setActo] = useState(soloYo ? 'Firmante' : (participant.acto || ''));
+  const [acto, setActo] = useState(soloYo ? 'Firmante' : participant.acto || '');
   const [rolDocumento, setRolDocumento] = useState('');
   const [rolOtro, setRolOtro] = useState('');
   const [tipoFirma, setTipoFirma] = useState<string[]>(participant.tipoFirma || []);
-  const [tipoNotificacion, setTipoNotificacion] = useState<string[]>(participant.tipoNotificacion || []);
+  const [tipoNotificacion, setTipoNotificacion] = useState<string[]>(
+    participant.tipoNotificacion || []
+  );
   const [actoDropdownOpen, setActoDropdownOpen] = useState(false);
   const [rolesDocumento, setRolesDocumento] = useState<{ id: string; nombre: string }[]>([]);
   const [rolesLoading, setRolesLoading] = useState(true);
   const [enviarMensaje, setEnviarMensaje] = useState(!!participant.mensajePersonalizado);
-  const [mensajePersonalizado, setMensajePersonalizado] = useState(participant.mensajePersonalizado || '');
+  const [mensajePersonalizado, setMensajePersonalizado] = useState(
+    participant.mensajePersonalizado || ''
+  );
+  const [deliveryMode, setDeliveryMode] = useState<'remote' | 'in_person'>(
+    participant.deliveryMode || 'remote'
+  );
+  const [routingMode] = useState<'immediate' | 'delay' | 'date_time' | 'after_event'>(
+    participant.routingMode || 'immediate'
+  );
+  const [routingDelayAmount] = useState(participant.routingDelayAmount || 1);
+  const [routingDelayUnit] = useState<'minutes' | 'hours' | 'days'>(
+    participant.routingDelayUnit || 'hours'
+  );
+  const [routingDate] = useState(participant.routingDate || '');
+  const [routingTime] = useState(participant.routingTime || '');
+  const [routingTimezone] = useState(participant.routingTimezone || getEffectiveTimeZone());
+  const [routingAfterEvent] = useState(participant.routingAfterEvent || 'document.completed');
+  const [requirements, setRequirements] = useState<ParticipantRequirementDraft[]>(
+    participant.requirements || []
+  );
+  const [visibleResourceIds, setVisibleResourceIds] = useState<string[]>(
+    participant.visibleResourceIds ?? []
+  );
+  const [showResourceAssignments, setShowResourceAssignments] = useState(false);
+  const [showRequirementAssignments, setShowRequirementAssignments] = useState(false);
+
+  const availableRequirements = [
+    ...documentRequirements,
+    ...(participant.requirements || []).filter(
+      (requirement) => !documentRequirements.some((item) => item.id === requirement.id)
+    ),
+  ];
 
   useEffect(() => {
     const loadRoles = async () => {
@@ -237,7 +489,9 @@ function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentU
         if (data.data) {
           setRolesDocumento(data.data);
           if (participant.rolDocumento) {
-            const matched = data.data.find((r: { id: string; nombre: string }) => r.nombre === participant.rolDocumento);
+            const matched = data.data.find(
+              (r: { id: string; nombre: string }) => r.nombre === participant.rolDocumento
+            );
             if (matched) {
               setRolDocumento(matched.id);
             } else {
@@ -248,67 +502,159 @@ function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentU
             setRolDocumento('');
           }
         }
-      } catch { /* silently fail */ }
-      finally { setRolesLoading(false); }
+      } catch {
+        /* silently fail */
+      } finally {
+        setRolesLoading(false);
+      }
     };
     loadRoles();
   }, [participant.rolDocumento]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
   const ACTO_OPTIONS = [
-    { value: 'Firmante', label: 'Firmante', description: 'Usuario firmará el documento.', icon: <Edit3 size={18} className="text-primary" /> },
-    { value: 'Observador', label: 'Observador', description: 'Usuario solo mirará el documento.', icon: <Eye size={18} className="text-primary" /> },
-    { value: 'Aprobador', label: 'Aprobador', description: 'Aprueba o rechaza el documento.', icon: <CheckCircle2 size={18} className="text-primary" /> },
+    {
+      value: 'Firmante',
+      label: 'Firmante',
+      description: 'Usuario firmará el documento.',
+      icon: <Edit3 size={18} className="text-primary" />,
+    },
+    {
+      value: 'Observador',
+      label: 'Observador',
+      description: 'Usuario solo mirará el documento.',
+      icon: <Eye size={18} className="text-primary" />,
+    },
+    {
+      value: 'Aprobador',
+      label: 'Aprobador',
+      description: 'Aprueba o rechaza el documento.',
+      icon: <CheckCircle2 size={18} className="text-primary" />,
+    },
+    {
+      value: 'Testigo',
+      label: 'Testigo',
+      description: 'Atestigua electrónicamente el acto sin firmar como firmante.',
+      icon: <ShieldCheck size={18} className="text-primary" />,
+    },
   ];
   const FIRMA_OPTIONS = [
-    { id: 'autografa', label: 'Firma Autógrafa Digital', icon: <Edit3 size={15} className="text-gray-400" /> },
-    { id: 'efirma', label: 'e-Firma SAT', icon: <ShieldCheck size={15} className="text-gray-400" /> },
-    { id: 'click_sign', label: 'Click & sign', icon: <CheckCircle2 size={15} className="text-gray-400" /> },
+    {
+      id: 'autografa',
+      label: 'Firma Autógrafa Digital',
+      icon: <Edit3 size={15} className="text-gray-400" />,
+    },
+    {
+      id: 'efirma',
+      label: 'e-Firma SAT',
+      icon: <ShieldCheck size={15} className="text-gray-400" />,
+    },
+    {
+      id: 'click_sign',
+      label: 'Click & sign',
+      icon: <CheckCircle2 size={15} className="text-gray-400" />,
+    },
   ];
   const NOTIF_OPTIONS = [
-    { id: 'docubox', label: 'Notificación en Docubox', icon: <Bell size={15} className="text-gray-400" /> },
-    { id: 'correo', label: 'Correo electrónico', icon: <Mail size={15} className="text-gray-400" /> },
+    {
+      id: 'docubox',
+      label: 'Notificación en Docubox',
+      icon: <Bell size={15} className="text-gray-400" />,
+    },
+    {
+      id: 'correo',
+      label: 'Correo electrónico',
+      icon: <Mail size={15} className="text-gray-400" />,
+    },
     { id: 'sms', label: 'Mensaje SMS', icon: <Smartphone size={15} className="text-gray-400" /> },
-    { id: 'whatsapp', label: 'WhatsApp', icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="text-gray-400"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg> },
+    {
+      id: 'whatsapp',
+      label: 'WhatsApp',
+      icon: (
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          className="text-gray-400"
+        >
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+        </svg>
+      ),
+    },
   ];
 
-  const toggleFirma = (id: string) => setTipoFirma((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
-  const toggleNotif = (id: string) => setTipoNotificacion((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  const toggleFirma = (id: string) =>
+    setTipoFirma((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleNotif = (id: string) =>
+    setTipoNotificacion((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
 
   const handleSave = () => {
-    const resolvedRolLabel = rolDocumento === '__otro__' ? rolOtro.trim() : (rolesDocumento.find((r) => r.id === rolDocumento)?.nombre || rolDocumento);
-    onSave({
+    const resolvedRolLabel =
+      rolDocumento === '__otro__'
+        ? rolOtro.trim()
+        : rolesDocumento.find((r) => r.id === rolDocumento)?.nombre || rolDocumento;
+    const saved = onSave({
       ...participant,
       name: isCurrentUser ? participant.name : nombreCompleto,
       email: isCurrentUser ? participant.email : correo,
       phone: isCurrentUser ? participant.phone : telefono,
       acto,
+      role:
+        acto === 'Aprobador'
+          ? 'aprobador'
+          : acto === 'Observador'
+            ? 'observador'
+            : acto === 'Testigo'
+              ? 'testigo'
+              : 'firmante',
       rolDocumento: resolvedRolLabel,
       tipoFirma,
       tipoNotificacion,
       mensajePersonalizado: enviarMensaje ? mensajePersonalizado : '',
+      deliveryMode: acto === 'Firmante' ? deliveryMode : 'remote',
+      routingMode,
+      routingDelayAmount: routingMode === 'delay' ? routingDelayAmount : undefined,
+      routingDelayUnit: routingMode === 'delay' ? routingDelayUnit : undefined,
+      routingDate: routingMode === 'date_time' ? routingDate : undefined,
+      routingTime: routingMode === 'date_time' ? routingTime : undefined,
+      routingTimezone: routingMode === 'date_time' ? routingTimezone : undefined,
+      routingAfterEvent: routingMode === 'after_event' ? routingAfterEvent : undefined,
+      requirements,
+      visibleResourceIds,
       configured: true,
     });
-    onClose();
+    if (saved !== false) onClose();
   };
 
   const isRolValid = rolDocumento !== '' && (rolDocumento !== '__otro__' || rolOtro.trim() !== '');
   const isFirmante = acto === 'Firmante';
-  // If Firmante: must have at least 1 tipo de firma AND 1 tipo de notificación
+  // Remote signers require a delivery channel; in-person handoff does not.
   // For all actos: rol en documento is required
-  const canSave = isRolValid && acto !== '' && (!isFirmante || (tipoFirma.length > 0 && tipoNotificacion.length > 0));
+  const canSave =
+    isRolValid &&
+    acto !== '' &&
+    (!isFirmante ||
+      (tipoFirma.length > 0 && (deliveryMode === 'in_person' || tipoNotificacion.length > 0)));
 
   // Validation messages
   const validationErrors: string[] = [];
   if (!acto) validationErrors.push('Selecciona el acto del participante.');
   if (!isRolValid) validationErrors.push('El campo Rol en el documento es obligatorio.');
-  if (isFirmante && tipoFirma.length === 0) validationErrors.push('Selecciona al menos un Tipo de Firma.');
-  if (isFirmante && tipoNotificacion.length === 0) validationErrors.push('Selecciona al menos un Tipo de Notificación.');
+  if (isFirmante && tipoFirma.length === 0)
+    validationErrors.push('Selecciona al menos un Tipo de Firma.');
+  if (isFirmante && deliveryMode === 'remote' && tipoNotificacion.length === 0) {
+    validationErrors.push('Selecciona al menos un Tipo de Notificación.');
+  }
 
   // Build options for FavoriteSearchableSelect: roles + "Otro"
   const rolOptions = [
@@ -318,43 +664,61 @@ function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentU
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[95vh] overflow-y-auto flex flex-col">
-        <div className="flex items-start justify-between p-6 pb-4 shrink-0">
+      <div className="flex h-[min(760px,calc(100vh-2rem))] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="shrink-0 border-b border-gray-100 px-6 py-5">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">{isCurrentUser ? 'Configurar mi participación' : 'Configurar Participante'}</h2>
+            <h2 className="text-xl font-bold text-gray-900">
+              {isCurrentUser ? 'Configurar mi participación' : 'Configurar Participante'}
+            </h2>
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors ml-4 flex-shrink-0"><X size={18} /></button>
         </div>
-        <div className="px-6 py-4 space-y-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-6 py-5">
           {/* Participant card - only for non-current-user */}
           {!isCurrentUser && (
-            <div className={`border rounded-xl p-4 flex items-center gap-4 ${participant.isNewUser ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
-              <div className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ${participant.isNewUser ? 'bg-amber-100' : 'bg-green-100'}`}>
-                <UserPlus size={20} className={participant.isNewUser ? 'text-amber-600' : 'text-green-600'} />
+            <div
+              className={`border rounded-xl p-4 flex items-center gap-4 ${participant.isNewUser ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}
+            >
+              <div
+                className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ${participant.isNewUser ? 'bg-amber-100' : 'bg-green-100'}`}
+              >
+                <UserPlus
+                  size={20}
+                  className={participant.isNewUser ? 'text-amber-600' : 'text-green-600'}
+                />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-gray-900 truncate">
                   {participant.tipoPersona === 'moral' && participant.denominacion
                     ? participant.denominacion
-                    : (participant.name || '—')}
+                    : participant.name || '—'}
                 </p>
                 {participant.tipoPersona === 'moral' && participant.denominacion ? (
                   <>
-                    {participant.email && <p className="text-sm text-gray-500 truncate">{participant.email}</p>}
-                    {participant.phone && <p className="text-sm text-gray-500 truncate">{participant.phone}</p>}
+                    {participant.email && (
+                      <p className="text-sm text-gray-500 truncate">{participant.email}</p>
+                    )}
+                    {participant.phone && (
+                      <p className="text-sm text-gray-500 truncate">{participant.phone}</p>
+                    )}
                   </>
                 ) : (
                   <>
                     <p className="text-sm text-gray-500 truncate">{participant.email || '—'}</p>
-                    {participant.phone && <p className="text-sm text-gray-500 truncate">{participant.phone}</p>}
+                    {participant.phone && (
+                      <p className="text-sm text-gray-500 truncate">{participant.phone}</p>
+                    )}
                   </>
                 )}
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${participant.isNewUser ? 'bg-amber-200 text-amber-800' : 'bg-green-200 text-green-800'}`}>
+                  <span
+                    className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${participant.isNewUser ? 'bg-amber-200 text-amber-800' : 'bg-green-200 text-green-800'}`}
+                  >
                     {participant.isNewUser ? 'Usuario nuevo' : 'Usuario registrado'}
                   </span>
                   {participant.tipoPersona && (
-                    <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${participant.tipoPersona === 'moral' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                    <span
+                      className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${participant.tipoPersona === 'moral' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}
+                    >
                       {participant.tipoPersona === 'moral' ? 'Persona Moral' : 'Persona Física'}
                     </span>
                   )}
@@ -363,8 +727,10 @@ function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentU
             </div>
           )}
           {/* Acto del participante */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Acto del participante <span className="text-red-500">*</span></label>
+          <div className="relative z-20">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Acto del participante <span className="text-red-500">*</span>
+            </label>
             {soloYo ? (
               // In Solo yo mode: locked as Firmante, inactive
               <div className="w-full flex items-center gap-3 border border-gray-200 rounded-lg px-3 py-2.5 bg-gray-50 opacity-70 cursor-not-allowed select-none">
@@ -373,52 +739,98 @@ function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentU
                   <p className="text-sm font-medium text-gray-800">Firmante</p>
                   <p className="text-xs text-gray-500">Usuario firmará el documento.</p>
                 </div>
-                <span className="text-xs text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">Fijo</span>
+                <span className="text-xs text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">
+                  Fijo
+                </span>
               </div>
             ) : (
-            <div className="relative">
-              <button type="button" onClick={() => setActoDropdownOpen((prev) => !prev)} className="w-full flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white hover:bg-gray-50 transition-colors">
-                <span className={acto ? "text-gray-700" : "text-gray-400"}>{acto || 'Selecciona un acto'}</span>
-                <ChevronDown size={14} className={`text-gray-400 transition-transform ${actoDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {actoDropdownOpen && (
-                <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                  {ACTO_OPTIONS.map((opt) => (
-                    <button key={opt.value} type="button" onClick={() => { setActo(opt.value); setActoDropdownOpen(false); }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${acto === opt.value ? 'bg-primary/5' : ''}`}>
-                      {opt.icon}
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{opt.label}</p>
-                        <p className="text-xs text-gray-500">{opt.description}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setActoDropdownOpen((prev) => !prev)}
+                  className="w-full flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white hover:bg-gray-50 transition-colors"
+                >
+                  <span className={acto ? 'text-gray-700' : 'text-gray-400'}>
+                    {acto || 'Selecciona un acto'}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-gray-400 transition-transform ${actoDropdownOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {actoDropdownOpen && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    {ACTO_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setActo(opt.value);
+                          setActoDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${acto === opt.value ? 'bg-primary/5' : ''}`}
+                      >
+                        {opt.icon}
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{opt.label}</p>
+                          <p className="text-xs text-gray-500">{opt.description}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
           {/* Rol en el documento — FavoriteSearchableSelect */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Rol en el documento <span className="text-red-500">*</span></label>
+          <div className="relative z-10">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Rol en el documento <span className="text-red-500">*</span>
+            </label>
             {rolesLoading ? (
               <div className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-400 bg-gray-50 flex items-center gap-2">
-                <svg className="animate-spin h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></svg>
+                <svg
+                  className="animate-spin h-4 w-4 text-primary"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
                 Cargando roles...
               </div>
             ) : (
               <FavoriteSearchableSelect
                 options={rolOptions}
                 value={rolDocumento}
-                onChange={(id) => { setRolDocumento(id); if (id !== '__otro__') setRolOtro(''); }}
+                onChange={(id) => {
+                  setRolDocumento(id);
+                  if (id !== '__otro__') setRolOtro('');
+                }}
                 placeholder="Seleccione o cree un rol..."
                 storageKey="fav_roles_documento"
                 userId={userId}
+                menuMaxHeightClass="max-h-44"
               />
             )}
             {rolDocumento === '__otro__' && (
               <div className="mt-2">
-                <input type="text" value={rolOtro} onChange={(e) => setRolOtro(e.target.value)} placeholder="Especifica el rol en el documento..." className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" autoFocus />
+                <input
+                  type="text"
+                  value={rolOtro}
+                  onChange={(e) => setRolOtro(e.target.value)}
+                  placeholder="Especifica el rol en el documento..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  autoFocus
+                />
               </div>
             )}
           </div>
@@ -430,38 +842,218 @@ function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentU
               </p>
               {acto && acto !== 'Firmante' ? (
                 <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-400">
-                  <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="shrink-0"><circle cx="12" cy="12" r="10" strokeWidth="2"/><line x1="12" y1="8" x2="12" y2="12" strokeWidth="2" strokeLinecap="round"/><line x1="12" y1="16" x2="12.01" y2="16" strokeWidth="2" strokeLinecap="round"/></svg>
+                  <svg
+                    width="15"
+                    height="15"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    className="shrink-0"
+                  >
+                    <circle cx="12" cy="12" r="10" strokeWidth="2" />
+                    <line x1="12" y1="8" x2="12" y2="12" strokeWidth="2" strokeLinecap="round" />
+                    <line
+                      x1="12"
+                      y1="16"
+                      x2="12.01"
+                      y2="16"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
                   No aplica para {acto}
                 </div>
               ) : (
                 <div className="space-y-2">
                   {FIRMA_OPTIONS.map((opt) => (
-                    <label key={opt.id} className={`flex items-center gap-2.5 border border-gray-200 rounded-lg px-3 py-2.5 transition-colors ${!acto ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-primary/40 hover:bg-gray-50'}`}>
-                      <input type="checkbox" checked={tipoFirma.includes(opt.id)} onChange={() => acto === 'Firmante' && toggleFirma(opt.id)} disabled={!acto} className="w-4 h-4 accent-primary rounded" />
-                      {opt.icon}<span className="text-sm text-gray-700">{opt.label}</span>
+                    <label
+                      key={opt.id}
+                      className={`flex items-center gap-2.5 border border-gray-200 rounded-lg px-3 py-2.5 transition-colors ${!acto ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-primary/40 hover:bg-gray-50'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={tipoFirma.includes(opt.id)}
+                        onChange={() => acto === 'Firmante' && toggleFirma(opt.id)}
+                        disabled={!acto}
+                        className="w-4 h-4 accent-primary rounded"
+                      />
+                      {opt.icon}
+                      <span className="text-sm text-gray-700">{opt.label}</span>
                     </label>
                   ))}
                 </div>
               )}
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-3">Tipo de Notificación <span className="text-red-500">*</span></p>
+              <p className="text-sm font-medium text-gray-700 mb-3">
+                Tipo de Notificación{' '}
+                {deliveryMode === 'remote' && <span className="text-red-500">*</span>}
+              </p>
               <div className="space-y-2">
-                {NOTIF_OPTIONS.map((opt) => (
-                  <label key={opt.id} className="flex items-center gap-2.5 border border-gray-200 rounded-lg px-3 py-2.5 cursor-pointer hover:border-primary/40 hover:bg-gray-50 transition-colors">
-                    <input type="checkbox" checked={tipoNotificacion.includes(opt.id)} onChange={() => toggleNotif(opt.id)} className="w-4 h-4 accent-primary rounded" />
-                    {opt.icon}<span className="text-sm text-gray-700">{opt.label}</span>
+                {NOTIF_OPTIONS.filter((opt) => opt.id !== 'whatsapp').map((opt) => (
+                  <label
+                    key={opt.id}
+                    className="flex items-center gap-2.5 border border-gray-200 rounded-lg px-3 py-2.5 cursor-pointer hover:border-primary/40 hover:bg-gray-50 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={tipoNotificacion.includes(opt.id)}
+                      onChange={() => toggleNotif(opt.id)}
+                      className="w-4 h-4 accent-primary rounded"
+                    />
+                    {opt.icon}
+                    <span className="text-sm text-gray-700">{opt.label}</span>
                   </label>
                 ))}
               </div>
             </div>
           </div>
+          {isFirmante &&
+            (process.env.NODE_ENV !== 'production' ||
+              process.env.NEXT_PUBLIC_DOCUBOX_PHASE_B_ENABLED === 'true') &&
+            (inPersonSigningEnabled ||
+              supplementalResources.length > 0 ||
+              availableRequirements.length > 0) && (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                {inPersonSigningEnabled && (
+                  <label className="flex cursor-pointer items-center gap-3 rounded-md bg-white px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={deliveryMode === 'in_person'}
+                      onChange={(event) =>
+                        setDeliveryMode(event.target.checked ? 'in_person' : 'remote')
+                      }
+                      className="h-4 w-4 rounded border-slate-300 accent-primary"
+                    />
+                    <Tablet size={15} className="text-slate-400" />
+                    <span className="text-sm font-normal text-slate-700">Firma presencial</span>
+                  </label>
+                )}
+
+                {supplementalResources.length > 0 && (
+                  <div className="rounded-md bg-white">
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={visibleResourceIds.length > 0}
+                        onChange={(event) =>
+                          setVisibleResourceIds(
+                            event.target.checked
+                              ? supplementalResources.map((resource) => resource.id)
+                              : []
+                          )
+                        }
+                        aria-label="Recibirá documentos complementarios"
+                        className="h-4 w-4 rounded border-slate-300 accent-primary"
+                      />
+                      <Paperclip size={15} className="text-slate-400" />
+                      <span className="min-w-0 flex-1 text-sm font-normal text-slate-700">
+                        Documentos complementarios
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowResourceAssignments((current) => !current)}
+                        className="text-xs font-500 text-primary hover:underline"
+                      >
+                        {visibleResourceIds.length} asignados
+                      </button>
+                    </div>
+                    {showResourceAssignments && (
+                      <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+                        {supplementalResources.map((resource) => (
+                          <label
+                            key={resource.id}
+                            className="flex cursor-pointer items-center gap-2 text-xs text-slate-700"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={visibleResourceIds.includes(resource.id)}
+                              onChange={(event) =>
+                                setVisibleResourceIds((current) =>
+                                  event.target.checked
+                                    ? [...new Set([...current, resource.id])]
+                                    : current.filter((id) => id !== resource.id)
+                                )
+                              }
+                              className="h-4 w-4 rounded border-slate-300 accent-primary"
+                            />
+                            <span className="min-w-0 flex-1 truncate">{resource.title}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {availableRequirements.length > 0 && (
+                  <div className="rounded-md bg-white">
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={requirements.length > 0}
+                        onChange={(event) =>
+                          setRequirements(event.target.checked ? availableRequirements : [])
+                        }
+                        aria-label="Debe entregar documentos"
+                        className="h-4 w-4 rounded border-slate-300 accent-primary"
+                      />
+                      <ClipboardList size={15} className="text-slate-400" />
+                      <span className="min-w-0 flex-1 text-sm font-normal text-slate-700">
+                        Documentos requeridos
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowRequirementAssignments((current) => !current)}
+                        className="text-xs font-500 text-primary hover:underline"
+                      >
+                        {requirements.length}{' '}
+                        {requirements.length === 1 ? 'requisito' : 'requisitos'}
+                      </button>
+                    </div>
+                    {showRequirementAssignments && (
+                      <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+                        {availableRequirements.map((requirement) => (
+                          <label
+                            key={requirement.id}
+                            className="flex cursor-pointer items-center gap-2 text-xs text-slate-700"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={requirements.some((item) => item.id === requirement.id)}
+                              onChange={(event) =>
+                                setRequirements((current) =>
+                                  event.target.checked
+                                    ? [
+                                        ...current.filter((item) => item.id !== requirement.id),
+                                        requirement,
+                                      ]
+                                    : current.filter((item) => item.id !== requirement.id)
+                                )
+                              }
+                              className="h-4 w-4 rounded border-slate-300 accent-primary"
+                            />
+                            <span className="min-w-0 flex-1 truncate">{requirement.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           {/* Enviar mensaje personalizado */}
           {!isCurrentUser && (
             <div className="space-y-2">
               <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                <input type="checkbox" checked={enviarMensaje} onChange={(e) => setEnviarMensaje(e.target.checked)} className="w-4 h-4 accent-primary rounded border-gray-300" />
-                <span className="text-sm text-gray-700">Enviar mensaje personalizado al participante</span>
+                <input
+                  type="checkbox"
+                  checked={enviarMensaje}
+                  onChange={(e) => setEnviarMensaje(e.target.checked)}
+                  className="w-4 h-4 accent-primary rounded border-gray-300"
+                />
+                <span className="text-sm text-gray-700">
+                  Enviar mensaje personalizado al participante
+                </span>
               </label>
               {enviarMensaje && (
                 <textarea
@@ -474,22 +1066,50 @@ function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentU
               )}
             </div>
           )}
-          {/* Actions */}
-          <div className="flex flex-col gap-2 pt-2 border-t border-gray-100">
-            {!canSave && validationErrors.length > 0 && (
-              <div className="flex flex-col gap-1 px-1">
-                {validationErrors.map((err, i) => (
-                  <p key={i} className="text-xs text-red-500 flex items-center gap-1.5">
-                    <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="shrink-0"><circle cx="12" cy="12" r="10" strokeWidth="2"/><line x1="12" y1="8" x2="12" y2="12" strokeWidth="2" strokeLinecap="round"/><line x1="12" y1="16" x2="12.01" y2="16" strokeWidth="2" strokeLinecap="round"/></svg>
-                    {err}
-                  </p>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center justify-end gap-3">
-              <button onClick={onClose} className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">Cancelar</button>
-              <button onClick={handleSave} disabled={!canSave} className="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">Guardar Configuración</button>
+        </div>
+        <div className="flex shrink-0 flex-col gap-2 border-t border-gray-100 bg-white px-6 py-4">
+          {!canSave && validationErrors.length > 0 && (
+            <div className="flex flex-col gap-1 px-1">
+              {validationErrors.map((err, i) => (
+                <p key={i} className="flex items-center gap-1.5 text-xs text-red-500">
+                  <svg
+                    width="12"
+                    height="12"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    className="shrink-0"
+                  >
+                    <circle cx="12" cy="12" r="10" strokeWidth="2" />
+                    <line x1="12" y1="8" x2="12" y2="12" strokeWidth="2" strokeLinecap="round" />
+                    <line
+                      x1="12"
+                      y1="16"
+                      x2="12.01"
+                      y2="16"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  {err}
+                </p>
+              ))}
             </div>
+          )}
+          <div className="flex items-center justify-end gap-3">
+            <button
+              onClick={onClose}
+              className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!canSave}
+              className="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Guardar Configuración
+            </button>
           </div>
         </div>
       </div>
@@ -499,13 +1119,33 @@ function ConfigurarParticipacionModal({ participant, onClose, onSave, isCurrentU
 
 // ─── Añadir Participantes Modal ───────────────────────────────────────────────
 
-function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, currentUserId, currentUserEmail, mode, onAddNew, startWithInvite }: { onClose: () => void; onAdd: (participant: Participant) => void; existingParticipants: Participant[]; currentUserId?: string; currentUserEmail?: string; mode?: ParticipantMode; onAddNew?: () => void; startWithInvite?: boolean }) {
+function AñadirParticipantesModal({
+  onClose,
+  onAdd,
+  existingParticipants,
+  currentUserId,
+  currentUserEmail,
+  mode,
+  onAddNew,
+  startWithInvite,
+}: {
+  onClose: () => void;
+  onAdd: (participant: Participant) => void;
+  existingParticipants: Participant[];
+  currentUserId?: string;
+  currentUserEmail?: string;
+  mode?: ParticipantMode;
+  onAddNew?: () => void;
+  startWithInvite?: boolean;
+}) {
   const [activeTab, setActiveTab] = useState<'contactos' | 'buscar'>('contactos');
   const [contactSearch, setContactSearch] = useState('');
   const [platformSearch, setPlatformSearch] = useState('');
   const [platformResults, setPlatformResults] = useState<Participant[]>([]);
   const [platformSearched, setPlatformSearched] = useState(false);
-  const [searchCriteria, setSearchCriteria] = useState<'correo' | 'telefono' | 'rfc' | 'curp'>('correo');
+  const [searchCriteria, setSearchCriteria] = useState<'correo' | 'telefono' | 'rfc' | 'curp'>(
+    'correo'
+  );
   const [criteriaDropdownOpen, setCriteriaDropdownOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(startWithInvite ?? false);
@@ -519,65 +1159,124 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
       setContactsLoading(true);
       try {
         const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { setContactsLoading(false); return; }
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          setContactsLoading(false);
+          return;
+        }
         const { data } = await supabase
           .from('contacts')
           .select('id, nombre, apellido_paterno, apellido_materno, email, telefono')
           .eq('user_id', user.id)
           .order('nombre', { ascending: true });
         if (data) {
-          const mapped: Participant[] = data.map((c: { id: string; nombre: string; apellido_paterno: string | null; apellido_materno: string | null; email: string | null; telefono: string | null }) => ({
-            id: `contact-${c.id}`,
-            name: [c.nombre, c.apellido_paterno, c.apellido_materno].filter(Boolean).join(' '),
-            email: c.email || '',
-            phone: c.telefono || undefined,
-            role: 'firmante' as const,
-          }));
+          const mapped: Participant[] = data.map(
+            (c: {
+              id: string;
+              nombre: string;
+              apellido_paterno: string | null;
+              apellido_materno: string | null;
+              email: string | null;
+              telefono: string | null;
+            }) => ({
+              id: `contact-${c.id}`,
+              name: [c.nombre, c.apellido_paterno, c.apellido_materno].filter(Boolean).join(' '),
+              email: c.email || '',
+              phone: c.telefono || undefined,
+              role: 'firmante' as const,
+            })
+          );
           setContacts(mapped);
         }
-      } catch { /* silent */ }
-      finally { setContactsLoading(false); }
+      } catch {
+        /* silent */
+      } finally {
+        setContactsLoading(false);
+      }
     };
     loadContacts();
   }, []);
 
-  const filteredContacts = contacts.filter((c) => c.name.toLowerCase().includes(contactSearch.toLowerCase()) || c.email.toLowerCase().includes(contactSearch.toLowerCase()));
+  const filteredContacts = contacts.filter(
+    (c) =>
+      c.name.toLowerCase().includes(contactSearch.toLowerCase()) ||
+      c.email.toLowerCase().includes(contactSearch.toLowerCase())
+  );
 
   const performSearch = async (query: string, criteria: string) => {
-    if (!query.trim()) { setPlatformResults([]); setPlatformSearched(false); setIsSearching(false); return; }
-    setIsSearching(true); setPlatformSearched(true);
+    if (!query.trim()) {
+      setPlatformResults([]);
+      setPlatformSearched(false);
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    setPlatformSearched(true);
     try {
-      const res = await fetch(`/api/documentos/buscar-participante?q=${encodeURIComponent(query.trim())}&criteria=${criteria}`);
+      const res = await fetch(
+        `/api/documentos/buscar-participante?q=${encodeURIComponent(query.trim())}&criteria=${criteria}`
+      );
       const data = await res.json();
       if (data.users) {
-        const mapped: Participant[] = data.users.map((u: { id: string; full_name: string; email: string }) => ({ id: u.id, name: u.full_name || u.email, email: u.email, role: 'firmante' as const }));
+        const mapped: Participant[] = data.users.map(
+          (u: { id: string; full_name: string; email: string }) => ({
+            id: u.id,
+            name: u.full_name || u.email,
+            email: u.email,
+            role: 'firmante' as const,
+          })
+        );
         setPlatformResults(mapped);
-      } else { setPlatformResults([]); }
-    } catch { setPlatformResults([]); }
-    finally { setIsSearching(false); }
+      } else {
+        setPlatformResults([]);
+      }
+    } catch {
+      setPlatformResults([]);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
-  const handlePlatformSearch = () => { if (debounceRef.current) clearTimeout(debounceRef.current); performSearch(platformSearch, searchCriteria); };
+  const handlePlatformSearch = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    performSearch(platformSearch, searchCriteria);
+  };
 
   const handleAddContact = (p: Participant) => {
-    const alreadyAdded = existingParticipants.some((ep) => ep.id === p.id || (ep.email && ep.email === p.email));
+    const alreadyAdded = existingParticipants.some(
+      (ep) => ep.id === p.id || (ep.email && ep.email === p.email)
+    );
     if (alreadyAdded) return;
     // Block current user in solo_otros mode
-    if (mode === 'solo_otros' && (p.id === currentUserId || (currentUserEmail && p.email && p.email.toLowerCase() === currentUserEmail.toLowerCase()))) return;
-    onAdd({ ...p, id: p.id.startsWith('search-') ? p.id.replace('search-', 'participant-') : p.id });
+    if (
+      mode === 'solo_otros' &&
+      (p.id === currentUserId ||
+        (currentUserEmail && p.email && p.email.toLowerCase() === currentUserEmail.toLowerCase()))
+    )
+      return;
+    onAdd({
+      ...p,
+      id: p.id.startsWith('search-') ? p.id.replace('search-', 'participant-') : p.id,
+    });
     onClose();
   };
 
   const handleInviteFormSubmit = (data: InviteFormData) => {
-    const fullName = [data.nombre, data.apellidoPaterno, data.apellidoMaterno].filter(Boolean).join(' ');
+    const fullName = [data.nombre, data.apellidoPaterno, data.apellidoMaterno]
+      .filter(Boolean)
+      .join(' ');
     // Map contactarPor checkboxes → tipoNotificacion array used by the email/SMS sending logic
     const tipoNotificacion: string[] = [];
     if (data.contactarPor.correo) tipoNotificacion.push('correo');
     if (data.contactarPor.sms) tipoNotificacion.push('sms');
     const newParticipant: Participant = {
       id: `invited-${Date.now()}`,
-      name: data.tipoPersona === 'moral' ? (data.denominacion || data.correo || data.telefono || 'Nuevo participante') : (fullName || data.correo || data.telefono || 'Nuevo participante'),
+      name:
+        data.tipoPersona === 'moral'
+          ? data.denominacion || data.correo || data.telefono || 'Nuevo participante'
+          : fullName || data.correo || data.telefono || 'Nuevo participante',
       email: data.correo,
       phone: data.telefono,
       role: 'firmante',
@@ -590,7 +1289,9 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
     const saveUnregistered = async () => {
       try {
         const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         const { data: wsData } = await supabase
           .from('workspace_members')
           .select('workspace_id')
@@ -607,43 +1308,68 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
           rfc: data.rfc || null,
           curp: data.curp || null,
           tipo_persona: data.tipoPersona,
-          denominacion_razon_social: data.tipoPersona === 'moral' ? (data.denominacion || null) : null,
+          denominacion_razon_social:
+            data.tipoPersona === 'moral' ? data.denominacion || null : null,
         });
-      } catch { /* silent — don't block the flow */ }
+      } catch {
+        /* silent — don't block the flow */
+      }
     };
     saveUnregistered();
-    onAdd(newParticipant); onClose();
+    onAdd(newParticipant);
+    onClose();
   };
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  useEffect(() => { return () => { if (debounceRef.current) clearTimeout(debounceRef.current); }; }, []);
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl h-[680px] overflow-hidden flex flex-col">
         {showInviteForm ? (
-          <InvitarParticipanteForm prefilledEmail={searchCriteria === 'correo' ? platformSearch : ''} prefilledPhone={searchCriteria === 'telefono' ? platformSearch : ''} onBack={() => setShowInviteForm(false)} onSubmit={handleInviteFormSubmit} />
+          <InvitarParticipanteForm
+            prefilledEmail={searchCriteria === 'correo' ? platformSearch : ''}
+            prefilledPhone={searchCriteria === 'telefono' ? platformSearch : ''}
+            onBack={() => setShowInviteForm(false)}
+            onCancel={onClose}
+            onSubmit={handleInviteFormSubmit}
+          />
         ) : (
           <>
-            <div className="flex items-start justify-between p-6 pb-4 shrink-0">
+            <div className="p-6 pb-4 shrink-0">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">Añadir Participantes</h2>
-                <p className="text-sm text-gray-400 mt-0.5">Selecciona un contacto o busca un usuario para configurar su participación.</p>
+                <p className="text-sm text-gray-400 mt-0.5">
+                  Selecciona un contacto o busca un usuario para configurar su participación.
+                </p>
               </div>
-              <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors ml-4 flex-shrink-0"><X size={18} /></button>
             </div>
             <div className="px-6 shrink-0">
               <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-                <button onClick={() => setActiveTab('contactos')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-r border-gray-200 ${activeTab === 'contactos' ? 'bg-primary text-white' : 'bg-white text-gray-900 hover:bg-gray-50'}`}>
-                  <Users size={16} />Mis Contactos
+                <button
+                  onClick={() => setActiveTab('contactos')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-r border-gray-200 ${activeTab === 'contactos' ? 'bg-primary text-white' : 'bg-white text-gray-900 hover:bg-gray-50'}`}
+                >
+                  <Users size={16} />
+                  Mis Contactos
                 </button>
-                <button onClick={() => setActiveTab('buscar')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${activeTab === 'buscar' ? 'bg-primary text-white' : 'bg-white text-gray-900 hover:bg-gray-50'}`}>
-                  <Search size={16} />Buscar Participante
+                <button
+                  onClick={() => setActiveTab('buscar')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${activeTab === 'buscar' ? 'bg-primary text-white' : 'bg-white text-gray-900 hover:bg-gray-50'}`}
+                >
+                  <Search size={16} />
+                  Buscar Participante
                 </button>
               </div>
             </div>
@@ -651,36 +1377,80 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
               {activeTab === 'contactos' && (
                 <div className="flex flex-col gap-4">
                   <div className="relative">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input type="text" value={contactSearch} onChange={(e) => setContactSearch(e.target.value)} placeholder="Buscar en mis contactos..." className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                    <Search
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type="text"
+                      value={contactSearch}
+                      onChange={(e) => setContactSearch(e.target.value)}
+                      placeholder="Buscar en mis contactos..."
+                      className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
                   </div>
                   {contactsLoading ? (
                     <div className="flex items-center justify-center py-10 gap-2 text-sm text-gray-400">
-                      <svg className="w-5 h-5 animate-spin text-primary" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></svg>
+                      <svg
+                        className="w-5 h-5 animate-spin text-primary"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8v8H4z"
+                        />
+                      </svg>
                       <span>Cargando contactos...</span>
                     </div>
                   ) : filteredContacts.length > 0 ? (
                     <ul className="space-y-2">
                       {filteredContacts.map((c) => (
-                        <li key={c.id} className="flex items-center justify-between px-4 py-3 border border-gray-200 rounded-lg hover:border-primary/40 hover:bg-gray-50 transition-colors">
+                        <li
+                          key={c.id}
+                          className="flex items-center justify-between px-4 py-3 border border-gray-200 rounded-lg hover:border-primary/40 hover:bg-gray-50 transition-colors"
+                        >
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center"><User size={16} className="text-primary" /></div>
+                            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                              <User size={16} className="text-primary" />
+                            </div>
                             <div>
-                              <p className="text-sm font-semibold text-gray-900">{(c.name || '(sin nombre)').toUpperCase()}</p>
+                              <p className="text-sm font-semibold text-gray-900">
+                                {(c.name || '(sin nombre)').toUpperCase()}
+                              </p>
                               <p className="text-xs text-gray-400">{c.email}</p>
                             </div>
                           </div>
-                          <button onClick={() => handleAddContact(c)} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-lg hover:bg-primary/90 transition-colors">
-                            <UserPlus size={13} />Agregar
+                          <button
+                            onClick={() => handleAddContact(c)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-lg hover:bg-primary/90 transition-colors"
+                          >
+                            <UserPlus size={13} />
+                            Agregar
                           </button>
                         </li>
                       ))}
                     </ul>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-16 gap-4">
-                      <p className="text-sm text-gray-400 text-center">No tienes contactos. Intenta buscar en la plataforma.</p>
-                      <button onClick={() => setActiveTab('buscar')} className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-                        <UserPlus size={15} />Buscar en la plataforma
+                      <p className="text-sm text-gray-400 text-center">
+                        No tienes contactos. Intenta buscar en la plataforma.
+                      </p>
+                      <button
+                        onClick={() => setActiveTab('buscar')}
+                        className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        <UserPlus size={15} />
+                        Buscar en la plataforma
                       </button>
                     </div>
                   )}
@@ -690,33 +1460,91 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
                 <div className="flex flex-col gap-4">
                   {mode === 'solo_otros' && (
                     <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-                      <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 5.133a4 4 0 00-1.732-3z" /></svg>
-                      <span>En modo <strong>Solo otros</strong> no puedes agregarte como participante.</span>
+                      <svg
+                        className="w-4 h-4 mt-0.5 shrink-0"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 5.133a4 4 0 00-1.732-3z"
+                        />
+                      </svg>
+                      <span>
+                        En modo <strong>Solo otros</strong> no puedes agregarte como participante.
+                      </span>
                     </div>
                   )}
                   <div className="flex gap-2 relative">
                     <div className="relative">
-                      <button type="button" onClick={() => setCriteriaDropdownOpen((o) => !o)} className="flex items-center gap-1.5 px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 transition-colors min-w-[120px] justify-between">
+                      <button
+                        type="button"
+                        onClick={() => setCriteriaDropdownOpen((o) => !o)}
+                        className="flex items-center gap-1.5 px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 transition-colors min-w-[120px] justify-between"
+                      >
                         <span>
                           {searchCriteria === 'correo' && 'Correo Electrónico'}
                           {searchCriteria === 'telefono' && 'Teléfono'}
                           {searchCriteria === 'rfc' && 'RFC'}
                           {searchCriteria === 'curp' && 'CURP'}
                         </span>
-                        <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                        <svg
+                          className="w-4 h-4 text-gray-400"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
                       </button>
                       {criteriaDropdownOpen && (
                         <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                          {([
-                            { value: 'correo', label: 'Correo Electrónico' },
-                            { value: 'telefono', label: 'Teléfono' },
-                            { value: 'rfc', label: 'RFC' },
-                            { value: 'curp', label: 'CURP' },
-                          ] as { value: 'correo' | 'telefono' | 'rfc' | 'curp'; label: string }[]).map((opt) => (
-                            <button key={opt.value} type="button" onClick={() => { setSearchCriteria(opt.value); setCriteriaDropdownOpen(false); setPlatformSearch(''); setPlatformSearched(false); setPlatformResults([]); }}
-                              className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors ${searchCriteria === opt.value ? 'bg-primary/5' : ''}`}>
-                              {searchCriteria === opt.value && <svg className="w-4 h-4 text-gray-700 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
-                              {searchCriteria !== opt.value && <span className="w-4 flex-shrink-0" />}
+                          {(
+                            [
+                              { value: 'correo', label: 'Correo Electrónico' },
+                              { value: 'telefono', label: 'Teléfono' },
+                              { value: 'rfc', label: 'RFC' },
+                              { value: 'curp', label: 'CURP' },
+                            ] as { value: 'correo' | 'telefono' | 'rfc' | 'curp'; label: string }[]
+                          ).map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => {
+                                setSearchCriteria(opt.value);
+                                setCriteriaDropdownOpen(false);
+                                setPlatformSearch('');
+                                setPlatformSearched(false);
+                                setPlatformResults([]);
+                              }}
+                              className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors ${searchCriteria === opt.value ? 'bg-primary/5' : ''}`}
+                            >
+                              {searchCriteria === opt.value && (
+                                <svg
+                                  className="w-4 h-4 text-gray-700 flex-shrink-0"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M5 13l4 4L19 7"
+                                  />
+                                </svg>
+                              )}
+                              {searchCriteria !== opt.value && (
+                                <span className="w-4 flex-shrink-0" />
+                              )}
                               {opt.label}
                             </button>
                           ))}
@@ -729,63 +1557,186 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
                       onChange={(e) => {
                         let val = e.target.value;
                         if (searchCriteria === 'curp') {
-                          val = val.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 18);
+                          val = val
+                            .toUpperCase()
+                            .replace(/[^A-Z0-9]/g, '')
+                            .slice(0, 18);
                         } else if (searchCriteria === 'rfc') {
-                          val = val.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 13);
+                          val = val
+                            .toUpperCase()
+                            .replace(/[^A-Z0-9]/g, '')
+                            .slice(0, 13);
                         } else if (searchCriteria === 'telefono') {
                           val = val.replace(/\D/g, '').slice(0, 10);
                         }
                         setPlatformSearch(val);
                       }}
                       onKeyDown={(e) => e.key === 'Enter' && handlePlatformSearch()}
-                      maxLength={searchCriteria === 'curp' ? 18 : searchCriteria === 'rfc' ? 13 : searchCriteria === 'telefono' ? 10 : undefined}
-                      placeholder={
-                        searchCriteria === 'correo' ? 'ejemplo@correo.com' :
-                        searchCriteria === 'telefono' ? '5512345678' :
-                        searchCriteria === 'rfc' ? 'AAAA000000AAA' :'AAAA000000XXXXXXXX'
+                      maxLength={
+                        searchCriteria === 'curp'
+                          ? 18
+                          : searchCriteria === 'rfc'
+                            ? 13
+                            : searchCriteria === 'telefono'
+                              ? 10
+                              : undefined
                       }
-                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                    <button onClick={handlePlatformSearch} className="px-3.5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center">
-                      {isSearching ? (<svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></svg>) : (<Search size={16} />)}
+                      placeholder={
+                        searchCriteria === 'correo'
+                          ? 'ejemplo@correo.com'
+                          : searchCriteria === 'telefono'
+                            ? '5512345678'
+                            : searchCriteria === 'rfc'
+                              ? 'AAAA000000AAA'
+                              : 'AAAA000000XXXXXXXX'
+                      }
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                    <button
+                      onClick={handlePlatformSearch}
+                      className="px-3.5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+                    >
+                      {isSearching ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8v8H4z"
+                          />
+                        </svg>
+                      ) : (
+                        <Search size={16} />
+                      )}
                     </button>
                   </div>
                   {!platformSearched ? (
                     <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
-                      <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 5.133a4 4 0 00-1.732-3z" /></svg>
-                      <span>Realiza una búsqueda para encontrar participantes en la plataforma.</span>
+                      <svg
+                        className="w-4 h-4 flex-shrink-0"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13 16h-1v-4h-1m1-4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 5.133a4 4 0 00-1.732-3z"
+                        />
+                      </svg>
+                      <span>
+                        Realiza una búsqueda para encontrar participantes en la plataforma.
+                      </span>
                     </div>
                   ) : isSearching ? (
                     <div className="flex items-center justify-center py-10 gap-2 text-sm text-gray-400">
-                      <svg className="w-5 h-5 animate-spin text-primary" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></svg>
+                      <svg
+                        className="w-5 h-5 animate-spin text-primary"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8v8H4z"
+                        />
+                      </svg>
                       <span>Buscando...</span>
                     </div>
                   ) : platformResults.length > 0 ? (
                     <ul className="space-y-2">
                       {platformResults.map((r) => {
-                        const alreadyAdded = existingParticipants.some((ep) => ep.id === r.id || (ep.email && ep.email === r.email));
-                        const isCurrentUser = mode === 'solo_otros' && (r.id === currentUserId || (currentUserEmail && r.email && r.email.toLowerCase() === currentUserEmail.toLowerCase()));
+                        const alreadyAdded = existingParticipants.some(
+                          (ep) => ep.id === r.id || (ep.email && ep.email === r.email)
+                        );
+                        const isCurrentUser =
+                          mode === 'solo_otros' &&
+                          (r.id === currentUserId ||
+                            (currentUserEmail &&
+                              r.email &&
+                              r.email.toLowerCase() === currentUserEmail.toLowerCase()));
                         return (
-                          <li key={r.id} className={`flex items-center justify-between px-4 py-3 border rounded-lg transition-colors ${alreadyAdded || isCurrentUser ? 'border-amber-200 bg-amber-50' : 'border-gray-200 hover:border-primary/40 hover:bg-gray-50'}`}>
+                          <li
+                            key={r.id}
+                            className={`flex items-center justify-between px-4 py-3 border rounded-lg transition-colors ${alreadyAdded || isCurrentUser ? 'border-amber-200 bg-amber-50' : 'border-gray-200 hover:border-primary/40 hover:bg-gray-50'}`}
+                          >
                             <div className="flex items-center gap-3">
-                              <div className={`w-9 h-9 rounded-full flex items-center justify-center ${alreadyAdded || isCurrentUser ? 'bg-amber-100' : 'bg-primary/10'}`}><User size={16} className={alreadyAdded || isCurrentUser ? 'text-amber-500' : 'text-primary'} /></div>
+                              <div
+                                className={`w-9 h-9 rounded-full flex items-center justify-center ${alreadyAdded || isCurrentUser ? 'bg-amber-100' : 'bg-primary/10'}`}
+                              >
+                                <User
+                                  size={16}
+                                  className={
+                                    alreadyAdded || isCurrentUser
+                                      ? 'text-amber-500'
+                                      : 'text-primary'
+                                  }
+                                />
+                              </div>
                               <div>
-                                <p className="text-sm font-semibold text-gray-900">{(r.name || '(sin nombre)').toUpperCase()}</p>
+                                <p className="text-sm font-semibold text-gray-900">
+                                  {(r.name || '(sin nombre)').toUpperCase()}
+                                </p>
                                 <p className="text-xs text-gray-400">{r.email}</p>
                               </div>
                             </div>
                             {alreadyAdded ? (
                               <span className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-lg border border-amber-200">
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                                  />
+                                </svg>
                                 Ya agregado
                               </span>
                             ) : isCurrentUser ? (
                               <span className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-lg border border-amber-200">
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                                  />
+                                </svg>
                                 No permitido
                               </span>
                             ) : (
-                              <button onClick={() => handleAddContact({ ...r, isNewUser: false })} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-lg hover:bg-primary/90 transition-colors">
-                                <UserPlus size={13} />Agregar
+                              <button
+                                onClick={() => handleAddContact({ ...r, isNewUser: false })}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-lg hover:bg-primary/90 transition-colors"
+                              >
+                                <UserPlus size={13} />
+                                Agregar
                               </button>
                             )}
                           </li>
@@ -794,14 +1745,30 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
                     </ul>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-8 gap-2">
-                      <p className="text-sm text-gray-400 text-center">No se encontró ningún usuario con ese criterio.</p>
-                      <button type="button" onClick={() => setShowInviteForm(true)} className="flex items-center gap-2 px-5 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                        <UserPlus size={16} className="text-gray-600" />Invitar como nuevo participante
+                      <p className="text-sm text-gray-400 text-center">
+                        No se encontró ningún usuario con ese criterio.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowInviteForm(true)}
+                        className="flex items-center gap-2 px-5 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        <UserPlus size={16} className="text-gray-600" />
+                        Invitar como nuevo participante
                       </button>
                     </div>
                   )}
                 </div>
               )}
+            </div>
+            <div className="flex shrink-0 justify-end border-t border-gray-100 px-6 py-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
             </div>
           </>
         )}
@@ -812,7 +1779,35 @@ function AñadirParticipantesModal({ onClose, onAdd, existingParticipants, curre
 
 // ─── Step 2: Participantes ────────────────────────────────────────────────────
 
-export function StepParticipantes({ participants, onChange, mode, onModeChange, onOrderChange, participationOrder: participationOrderProp = '', vencimientoSolicitudEnabled = false, currentUser }: { participants: Participant[]; onChange: React.Dispatch<React.SetStateAction<Participant[]>>; mode: ParticipantMode; onModeChange: (m: ParticipantMode) => void; onOrderChange?: (order: string) => void; participationOrder?: string; vencimientoSolicitudEnabled?: boolean; currentUser?: CurrentUserIdentity }) {
+export function StepParticipantes({
+  participants,
+  onChange,
+  mode,
+  onModeChange,
+  onOrderChange,
+  participationOrder: participationOrderProp = '',
+  vencimientoSolicitudEnabled = false,
+  currentUser,
+  supplementalResources,
+  inPersonSigningEnabled = false,
+  documentRequirements = [],
+  templateSignatureCapacity = null,
+  onSignatureCapacityExceeded,
+}: {
+  participants: Participant[];
+  onChange: React.Dispatch<React.SetStateAction<Participant[]>>;
+  mode: ParticipantMode;
+  onModeChange: (m: ParticipantMode) => void;
+  onOrderChange?: (order: string) => void;
+  participationOrder?: string;
+  vencimientoSolicitudEnabled?: boolean;
+  currentUser?: CurrentUserIdentity;
+  supplementalResources: SupplementalDocumentDraft[];
+  inPersonSigningEnabled?: boolean;
+  documentRequirements?: ParticipantRequirementDraft[];
+  templateSignatureCapacity?: number | null;
+  onSignatureCapacityExceeded?: (capacity: number) => void;
+}) {
   const [participationOrder, setParticipationOrder] = useState(participationOrderProp);
   const [orderDropdownOpen, setOrderDropdownOpen] = useState(false);
   const [configuringParticipant, setConfiguringParticipant] = useState<Participant | null>(null);
@@ -833,7 +1828,9 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
   useEffect(() => {
     const loadUser = async () => {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (session?.user?.id) setUserId(session.user.id);
       if (session?.user?.email) setCurrentUserEmail(session.user.email);
       if (session?.user) {
@@ -854,7 +1851,9 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
               resolvedName = fullName.trim();
             }
           }
-        } catch { /* silent */ }
+        } catch {
+          /* silent */
+        }
         // Fallback to user_metadata full_name
         if (!resolvedName) {
           const metaName = session.user.user_metadata?.full_name as string | undefined;
@@ -875,7 +1874,7 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
       }
     };
     loadUser();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const isSecuencial = participationOrder === 'secuencial';
@@ -916,7 +1915,25 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
     }
   };
 
-  const handleSaveConfig = (updated: Participant) => onChange(participants.map((p) => p.id === updated.id ? updated : p));
+  const handleSaveConfig = (updated: Participant) => {
+    const updatedParticipants = participants.map((participant) =>
+      participant.id === updated.id ? updated : participant
+    );
+    const configuredSignerCount = updatedParticipants.filter(
+      (participant) =>
+        participant.configured === true &&
+        ((participant.acto || '').toLocaleLowerCase('es-MX') === 'firmante' ||
+          (!participant.acto && participant.role === 'firmante'))
+    ).length;
+
+    if (templateSignatureCapacity !== null && configuredSignerCount > templateSignatureCapacity) {
+      onSignatureCapacityExceeded?.(templateSignatureCapacity);
+      return false;
+    }
+
+    onChange(updatedParticipants);
+    return true;
+  };
 
   const handleAddParticipant = (p: Participant) => {
     onChange([...participants, p]);
@@ -964,23 +1981,32 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
   const handleRegisterContact = async (participant: Participant) => {
     try {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) return;
       const nameParts = (participant.name || '').trim().split(' ');
       const nombre = nameParts[0] || '';
       const apellidoPaterno = nameParts[1] || null;
       const apellidoMaterno = nameParts.slice(2).join(' ') || null;
-      await supabase.from('contacts').upsert({
-        user_id: user.id,
-        nombre,
-        apellido_paterno: apellidoPaterno,
-        apellido_materno: apellidoMaterno,
-        email: participant.email || null,
-        telefono: participant.phone || null,
-      }, { onConflict: 'user_id,email' });
+      await supabase.from('contacts').upsert(
+        {
+          user_id: user.id,
+          nombre,
+          apellido_paterno: apellidoPaterno,
+          apellido_materno: apellidoMaterno,
+          email: participant.email || null,
+          telefono: participant.phone || null,
+        },
+        { onConflict: 'user_id,email' }
+      );
       // Mark participant as saved contact
-      onChange(participants.map((p) => p.id === participant.id ? { ...p, savedAsContact: true } : p));
-    } catch { /* silent */ }
+      onChange(
+        participants.map((p) => (p.id === participant.id ? { ...p, savedAsContact: true } : p))
+      );
+    } catch {
+      /* silent */
+    }
   };
 
   const selectedOption = PARTICIPANT_OPTIONS.find((o) => o.id === mode);
@@ -991,7 +2017,11 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
         <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {PARTICIPANT_OPTIONS.map((option) => (
-              <button key={option.id} onClick={() => handleModeChange(option.id)} className="flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/[0.02]">
+              <button
+                key={option.id}
+                onClick={() => handleModeChange(option.id)}
+                className="flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/[0.02]"
+              >
                 <span className="text-gray-700">{option.icon}</span>
                 <span className="text-sm font-bold text-gray-900">{option.title}</span>
                 <span className="text-xs text-gray-500">{option.description}</span>
@@ -1012,25 +2042,57 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
                   <p className="text-sm font-semibold text-gray-900">{selectedOption?.title}</p>
                 </div>
               </div>
-              <button onClick={() => { onModeChange(null); onChange([]); }} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-primary hover:bg-primary/5 transition-colors" title="Cambiar modo">
+              <button
+                onClick={() => {
+                  onModeChange(null);
+                  onChange([]);
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-primary hover:bg-primary/5 transition-colors"
+                title="Cambiar modo"
+              >
                 <Edit3 size={15} />
               </button>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Orden de Participación *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Orden de Participación *
+              </label>
               <div className="relative">
-                <button type="button" onClick={() => mode !== 'solo_yo' && setOrderDropdownOpen((v) => !v)} disabled={mode === 'solo_yo'}
-                  className={`appearance-none w-full border border-gray-200 rounded-lg px-3 py-2.5 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 flex items-center justify-between ${mode === 'solo_yo' ? 'border-gray-200 opacity-60 cursor-not-allowed bg-gray-50 text-gray-500' : 'border-gray-200 hover:border-gray-300 cursor-pointer text-gray-500'}`}>
-                  <span className={participationOrder ? 'text-gray-800' : 'text-gray-400'}>{PARTICIPATION_ORDER_OPTIONS.find((o) => o.id === participationOrder)?.label ?? 'Seleccione una opción...'}</span>
-                  <ChevronDown size={14} className={`text-gray-400 transition-transform ${orderDropdownOpen ? 'rotate-180' : ''}`} />
+                <button
+                  type="button"
+                  onClick={() => mode !== 'solo_yo' && setOrderDropdownOpen((v) => !v)}
+                  disabled={mode === 'solo_yo'}
+                  className={`appearance-none w-full border border-gray-200 rounded-lg px-3 py-2.5 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 flex items-center justify-between ${mode === 'solo_yo' ? 'border-gray-200 opacity-60 cursor-not-allowed bg-gray-50 text-gray-500' : 'border-gray-200 hover:border-gray-300 cursor-pointer text-gray-500'}`}
+                >
+                  <span className={participationOrder ? 'text-gray-800' : 'text-gray-400'}>
+                    {PARTICIPATION_ORDER_OPTIONS.find((o) => o.id === participationOrder)?.label ??
+                      'Seleccione una opción...'}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-gray-400 transition-transform ${orderDropdownOpen ? 'rotate-180' : ''}`}
+                  />
                 </button>
                 {orderDropdownOpen && (
                   <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                    {PARTICIPATION_ORDER_OPTIONS.filter((o) => (mode === 'solo_yo' ? o.id === 'paralelo' : true) && o.id !== 'condicional').map((o) => (
-                      <button key={o.id} type="button" onClick={() => { setParticipationOrder(o.id); onOrderChange?.(o.id); setOrderDropdownOpen(false); }}
-                        className={`w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b border-gray-100 ${participationOrder === o.id ? 'bg-blue-50' : ''}`}>
+                    {PARTICIPATION_ORDER_OPTIONS.filter(
+                      (o) =>
+                        (mode === 'solo_yo' ? o.id === 'paralelo' : true) && o.id !== 'condicional'
+                    ).map((o) => (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => {
+                          setParticipationOrder(o.id);
+                          onOrderChange?.(o.id);
+                          setOrderDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b border-gray-100 ${participationOrder === o.id ? 'bg-blue-50' : ''}`}
+                      >
                         <div className="text-sm font-semibold text-gray-800">{o.label}</div>
-                        <div className="text-xs text-gray-500 mt-0.5 leading-snug">{o.description}</div>
+                        <div className="text-xs text-gray-500 mt-0.5 leading-snug">
+                          {o.description}
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -1053,24 +2115,53 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
                 <thead>
                   <tr className="border-b border-gray-200">
                     {isSecuencial && (
-                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 w-16">Orden</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 w-16">
+                        Orden
+                      </th>
                     )}
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Nombre</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Acto/Rol</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">
+                      Nombre
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">
+                      Acto/Rol
+                    </th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Rol</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Tipo de Firma</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Tipo de Notificación</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">
+                      Tipo de Firma
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">
+                      Tipo de Notificación
+                    </th>
                     {vencimientoSolicitudEnabled && (
-                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Vencimiento participación</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">
+                        Vencimiento participación
+                      </th>
                     )}
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Configuración</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Acciones</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">
+                      Configuración
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">
+                      Acciones
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {participants.length === 0 ? (
                     <tr>
-                      <td colSpan={isSecuencial ? (vencimientoSolicitudEnabled ? 9 : 8) : (vencimientoSolicitudEnabled ? 8 : 7)} className="px-4 py-8 text-center text-sm text-gray-400">No hay participantes agregados.</td>
+                      <td
+                        colSpan={
+                          isSecuencial
+                            ? vencimientoSolicitudEnabled
+                              ? 9
+                              : 8
+                            : vencimientoSolicitudEnabled
+                              ? 8
+                              : 7
+                        }
+                        className="px-4 py-8 text-center text-sm text-gray-400"
+                      >
+                        No hay participantes agregados.
+                      </td>
                     </tr>
                   ) : (
                     participants.map((p, index) => (
@@ -1087,7 +2178,9 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               <GripVertical size={16} className="text-gray-400 flex-shrink-0" />
-                              <span className="text-sm font-semibold text-gray-700">{index + 1}</span>
+                              <span className="text-sm font-semibold text-gray-700">
+                                {index + 1}
+                              </span>
                             </div>
                           </td>
                         )}
@@ -1099,20 +2192,50 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
                         <td className="px-4 py-3 text-gray-500 text-xs">{p.rolDocumento || '—'}</td>
                         <td className="px-4 py-3 text-gray-500 text-xs">
                           {p.tipoFirma && p.tipoFirma.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">{p.tipoFirma.map((f) => <span key={f} className="inline-block px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium capitalize">{f}</span>)}</div>
-                          ) : '—'}
+                            <div className="flex flex-wrap gap-1">
+                              {p.tipoFirma.map((f) => (
+                                <span
+                                  key={f}
+                                  className="inline-block px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium capitalize"
+                                >
+                                  {f}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">
                           {p.tipoNotificacion && p.tipoNotificacion.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">{p.tipoNotificacion.map((n) => <span key={n} className="inline-block px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 text-xs font-medium capitalize">{n}</span>)}</div>
-                          ) : '—'}
+                            <div className="flex flex-wrap gap-1">
+                              {p.tipoNotificacion.map((n) => (
+                                <span
+                                  key={n}
+                                  className="inline-block px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 text-xs font-medium capitalize"
+                                >
+                                  {n}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         {vencimientoSolicitudEnabled && (
                           <td className="px-4 py-3">
                             <input
                               type="date"
                               value={p.fechaVencimientoParticipacion || ''}
-                              onChange={(e) => onChange(participants.map((pt) => pt.id === p.id ? { ...pt, fechaVencimientoParticipacion: e.target.value } : pt))}
+                              onChange={(e) =>
+                                onChange(
+                                  participants.map((pt) =>
+                                    pt.id === p.id
+                                      ? { ...pt, fechaVencimientoParticipacion: e.target.value }
+                                      : pt
+                                  )
+                                )
+                              }
                               className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 w-36"
                               title="Fecha de vencimiento para la participación de este firmante"
                             />
@@ -1120,14 +2243,22 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
                         )}
                         <td className="px-4 py-3">
                           {p.configured ? (
-                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500 text-white"><CheckCircle2 size={11} /> Configurado</span>
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500 text-white">
+                              <CheckCircle2 size={11} /> Configurado
+                            </span>
                           ) : (
-                            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-500 text-white">Sin configurar</span>
+                            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-500 text-white">
+                              Sin configurar
+                            </span>
                           )}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
-                            <button onClick={() => setConfiguringParticipant(p)} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-primary hover:bg-primary/5 transition-colors" title="Configurar participación">
+                            <button
+                              onClick={() => setConfiguringParticipant(p)}
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-primary hover:bg-primary/5 transition-colors"
+                              title="Configurar participación"
+                            >
                               <Edit3 size={14} />
                             </button>
                             {p.id !== 'current-user' && (
@@ -1135,11 +2266,19 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
                                 <button
                                   onClick={() => !p.savedAsContact && handleRegisterContact(p)}
                                   className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${p.savedAsContact ? 'text-emerald-600 bg-emerald-50 cursor-default' : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'}`}
-                                  title={p.savedAsContact ? 'Guardado como contacto' : 'Registrar como contacto'}
+                                  title={
+                                    p.savedAsContact
+                                      ? 'Guardado como contacto'
+                                      : 'Registrar como contacto'
+                                  }
                                 >
                                   <BookUser size={14} />
                                 </button>
-                                <button onClick={() => handleRemoveParticipant(p.id)} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Eliminar participante">
+                                <button
+                                  onClick={() => handleRemoveParticipant(p.id)}
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                  title="Eliminar participante"
+                                >
                                   <Trash2 size={14} />
                                 </button>
                               </>
@@ -1153,15 +2292,46 @@ export function StepParticipantes({ participants, onChange, mode, onModeChange, 
               </table>
             </div>
             {(mode === 'yo_y_otros' || mode === 'solo_otros') && (
-              <button onClick={() => setAñadirParticipantesOpen(true)} className="mt-3 w-full border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-gray-500 hover:border-primary hover:text-primary transition-colors flex items-center justify-center gap-2">
+              <button
+                onClick={() => setAñadirParticipantesOpen(true)}
+                className="mt-3 w-full border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-gray-500 hover:border-primary hover:text-primary transition-colors flex items-center justify-center gap-2"
+              >
                 <span className="text-lg leading-none">+</span> Agregar participante
               </button>
             )}
           </div>
         </div>
       )}
-      {añadirParticipantesOpen && <AñadirParticipantesModal onClose={() => { setAñadirParticipantesOpen(false); setOpenInviteDirectly(false); }} onAdd={handleAddParticipant} existingParticipants={participants} currentUserId={userId} currentUserEmail={currentUserEmail} mode={mode} onAddNew={() => { setOpenInviteDirectly(true); }} startWithInvite={openInviteDirectly} />}
-      {configuringParticipant && <ConfigurarParticipacionModal participant={configuringParticipant} onClose={() => setConfiguringParticipant(null)} onSave={handleSaveConfig} isCurrentUser={configuringParticipant.id === 'current-user'} userId={userId} soloYo={mode === 'solo_yo' && configuringParticipant.id === 'current-user'} />}
+      {añadirParticipantesOpen && (
+        <AñadirParticipantesModal
+          onClose={() => {
+            setAñadirParticipantesOpen(false);
+            setOpenInviteDirectly(false);
+          }}
+          onAdd={handleAddParticipant}
+          existingParticipants={participants}
+          currentUserId={userId}
+          currentUserEmail={currentUserEmail}
+          mode={mode}
+          onAddNew={() => {
+            setOpenInviteDirectly(true);
+          }}
+          startWithInvite={openInviteDirectly}
+        />
+      )}
+      {configuringParticipant && (
+        <ConfigurarParticipacionModal
+          participant={configuringParticipant}
+          onClose={() => setConfiguringParticipant(null)}
+          onSave={handleSaveConfig}
+          isCurrentUser={configuringParticipant.id === 'current-user'}
+          userId={userId}
+          soloYo={mode === 'solo_yo' && configuringParticipant.id === 'current-user'}
+          supplementalResources={supplementalResources}
+          inPersonSigningEnabled={inPersonSigningEnabled}
+          documentRequirements={documentRequirements}
+        />
+      )}
     </div>
   );
 }

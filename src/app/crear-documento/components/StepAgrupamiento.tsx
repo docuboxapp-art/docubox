@@ -1,8 +1,19 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import { Plus, Trash2, GripVertical, ChevronDown, MessageSquare, Info, Users, Pencil, Check } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import {
+  Plus,
+  Trash2,
+  GripVertical,
+  ChevronDown,
+  MessageSquare,
+  Info,
+  Users,
+  Pencil,
+  Check,
+} from 'lucide-react';
 import type { Participant } from './types';
+import { useAuth } from '@/contexts/AuthContext';
 
 export interface GrupoFirma {
   id: string;
@@ -10,24 +21,93 @@ export interface GrupoFirma {
   tipo: 'paralelo' | 'secuencial';
   mensaje: string;
   participantIds: string[];
+  completionPolicy?: 'ALL' | 'ANY_ONE';
+  organizationUnitId?: string | null;
 }
 
 interface StepAgrupamientoProps {
   participants: Participant[];
   grupos: GrupoFirma[];
   onChange: (grupos: GrupoFirma[]) => void;
+  organizationWorkspaceId?: string | null;
 }
+
+type OrganizationUnitOption = { id: string; name: string; participantIds: string[] };
 
 function generateGrupoId(): string {
   return `grupo-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 
-export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupamientoProps) {
+export function StepAgrupamiento({
+  participants,
+  grupos,
+  onChange,
+  organizationWorkspaceId,
+}: StepAgrupamientoProps) {
+  const { session } = useAuth();
   const [dragOverGrupoIndex, setDragOverGrupoIndex] = useState<number | null>(null);
   const dragGrupoIndexRef = useRef<number | null>(null);
   const [tipoDropdownOpen, setTipoDropdownOpen] = useState<string | null>(null);
   const [editingNombreId, setEditingNombreId] = useState<string | null>(null);
   const [editingNombreValue, setEditingNombreValue] = useState<string>('');
+  const [organizationUnits, setOrganizationUnits] = useState<OrganizationUnitOption[]>([]);
+
+  useEffect(() => {
+    if (!organizationWorkspaceId || !session?.access_token) {
+      return;
+    }
+    let cancelled = false;
+    void fetch(
+      `/api/organizacion/structure?workspace_id=${encodeURIComponent(organizationWorkspaceId)}&resource=units`,
+      {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: 'no-store',
+      }
+    )
+      .then(async (response) =>
+        response.ok ? response.json() : Promise.reject(new Error('units'))
+      )
+      .then((payload) => {
+        if (cancelled) return;
+        const memberById = new Map<string, string>();
+        for (const member of payload.members || []) {
+          const profile = Array.isArray(member.user_profiles)
+            ? member.user_profiles[0]
+            : member.user_profiles;
+          const email = String(profile?.email || '')
+            .trim()
+            .toLowerCase();
+          if (email) memberById.set(member.id, email);
+        }
+        const participantByEmail = new Map(
+          participants.map((participant) => [
+            participant.email.trim().toLowerCase(),
+            participant.id,
+          ])
+        );
+        const memberships = Array.isArray(payload.memberships) ? payload.memberships : [];
+        setOrganizationUnits(
+          (payload.data || [])
+            .filter((unit: any) => unit.status === 'active')
+            .map((unit: any) => ({
+              id: unit.id,
+              name: unit.name,
+              participantIds: memberships
+                .filter((membership: any) => membership.unit_id === unit.id)
+                .map((membership: any) =>
+                  participantByEmail.get(memberById.get(membership.member_id) || '')
+                )
+                .filter(Boolean),
+            }))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setOrganizationUnits([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationWorkspaceId, participants, session?.access_token]);
 
   // Participants not assigned to any group
   const assignedIds = new Set(grupos.flatMap((g) => g.participantIds));
@@ -40,6 +120,8 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
       tipo: 'paralelo',
       mensaje: '',
       participantIds: [],
+      completionPolicy: 'ALL',
+      organizationUnitId: null,
     };
     onChange([...grupos, newGrupo]);
   };
@@ -137,7 +219,13 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
   };
 
   const handleRemoveParticipantFromGrupo = (grupoId: string, participantId: string) => {
-    onChange(grupos.map((g) => g.id === grupoId ? { ...g, participantIds: g.participantIds.filter((id) => id !== participantId) } : g));
+    onChange(
+      grupos.map((g) =>
+        g.id === grupoId
+          ? { ...g, participantIds: g.participantIds.filter((id) => id !== participantId) }
+          : g
+      )
+    );
   };
 
   return (
@@ -152,7 +240,9 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
             </span>
           </div>
           {unassignedParticipants.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-4">Todos los participantes han sido asignados a un grupo.</p>
+            <p className="text-xs text-gray-400 text-center py-4">
+              Todos los participantes han sido asignados a un grupo.
+            </p>
           ) : (
             <div className="space-y-2">
               {unassignedParticipants.map((p) => (
@@ -169,7 +259,9 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
                     <p className="text-xs text-gray-400 truncate">{p.email}</p>
                   </div>
                   {p.acto && (
-                    <span className="ml-auto shrink-0 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{p.acto}</span>
+                    <span className="ml-auto shrink-0 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                      {p.acto}
+                    </span>
                   )}
                 </div>
               ))}
@@ -192,7 +284,9 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
 
           {grupos.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-300 bg-white py-12 text-center">
-              <p className="text-sm text-gray-400">No hay grupos creados. Haz clic en "+ Nuevo Grupo" para comenzar.</p>
+              <p className="text-sm text-gray-400">
+                No hay grupos creados. Usa Nuevo Grupo para comenzar.
+              </p>
             </div>
           ) : (
             <div className="space-y-4 max-h-[480px] overflow-y-auto pr-1">
@@ -229,7 +323,9 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 flex-1 min-w-0 group/name">
-                        <span className="text-sm font-bold text-gray-900 truncate">{grupo.nombre}</span>
+                        <span className="text-sm font-bold text-gray-900 truncate">
+                          {grupo.nombre}
+                        </span>
                         <button
                           onClick={() => handleStartEditNombre(grupo)}
                           className="w-5 h-5 flex items-center justify-center rounded text-gray-300 hover:text-primary opacity-0 group-hover/name:opacity-100 transition-all shrink-0"
@@ -247,21 +343,92 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
                   </div>
 
                   <div className="px-4 py-3 space-y-3">
+                    {organizationUnits.length > 0 && (
+                      <div>
+                        <label className="mb-1.5 block text-xs text-gray-500">
+                          Equipo de la organización (opcional)
+                        </label>
+                        <select
+                          value={grupo.organizationUnitId || ''}
+                          onChange={(event) => {
+                            const unit = organizationUnits.find(
+                              (item) => item.id === event.target.value
+                            );
+                            handleUpdateGrupo(grupo.id, {
+                              organizationUnitId: unit?.id || null,
+                              participantIds: unit?.participantIds.length
+                                ? unit.participantIds
+                                : grupo.participantIds,
+                            });
+                          }}
+                          className="h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        >
+                          <option value="">Grupo configurado para este documento</option>
+                          {organizationUnits.map((unit) => (
+                            <option key={unit.id} value={unit.id}>
+                              {unit.name} ({unit.participantIds.length})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {organizationWorkspaceId && (
+                      <div>
+                        <p className="mb-1.5 text-xs text-gray-500">El grupo termina cuando</p>
+                        <div
+                          className="grid grid-cols-2 gap-2"
+                          role="radiogroup"
+                          aria-label="Regla de finalización del grupo"
+                        >
+                          {(
+                            [
+                              ['ALL', 'Todos participan'],
+                              ['ANY_ONE', 'Cualquiera participa'],
+                            ] as const
+                          ).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              role="radio"
+                              aria-checked={(grupo.completionPolicy || 'ALL') === value}
+                              onClick={() =>
+                                handleUpdateGrupo(grupo.id, { completionPolicy: value })
+                              }
+                              className={`h-9 rounded-lg border px-3 text-xs transition-colors ${(grupo.completionPolicy || 'ALL') === value ? 'border-primary bg-primary/5 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Tipo selector */}
                     <div className="relative">
                       <button
                         type="button"
-                        onClick={() => setTipoDropdownOpen(tipoDropdownOpen === grupo.id ? null : grupo.id)}
+                        onClick={() =>
+                          setTipoDropdownOpen(tipoDropdownOpen === grupo.id ? null : grupo.id)
+                        }
                         className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:border-gray-300 transition-colors bg-white"
                       >
-                        <span className="font-medium">{grupo.tipo === 'paralelo' ? 'Paralelo' : 'Secuencial'}</span>
-                        <ChevronDown size={14} className={`text-gray-400 transition-transform ${tipoDropdownOpen === grupo.id ? 'rotate-180' : ''}`} />
+                        <span className="font-medium">
+                          {grupo.tipo === 'paralelo' ? 'Paralelo' : 'Secuencial'}
+                        </span>
+                        <ChevronDown
+                          size={14}
+                          className={`text-gray-400 transition-transform ${tipoDropdownOpen === grupo.id ? 'rotate-180' : ''}`}
+                        />
                       </button>
                       {tipoDropdownOpen === grupo.id && (
                         <div className="absolute z-50 left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden w-56">
                           <button
                             type="button"
-                            onClick={() => { handleUpdateGrupo(grupo.id, { tipo: 'paralelo' }); setTipoDropdownOpen(null); }}
+                            onClick={() => {
+                              handleUpdateGrupo(grupo.id, { tipo: 'paralelo' });
+                              setTipoDropdownOpen(null);
+                            }}
                             className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors flex items-center gap-2 ${grupo.tipo === 'paralelo' ? 'bg-blue-50' : ''}`}
                           >
                             {grupo.tipo === 'paralelo' && <span className="text-primary">✓</span>}
@@ -272,12 +439,17 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
                           </button>
                           <button
                             type="button"
-                            onClick={() => { handleUpdateGrupo(grupo.id, { tipo: 'secuencial' }); setTipoDropdownOpen(null); }}
+                            onClick={() => {
+                              handleUpdateGrupo(grupo.id, { tipo: 'secuencial' });
+                              setTipoDropdownOpen(null);
+                            }}
                             className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors flex items-center gap-2 ${grupo.tipo === 'secuencial' ? 'bg-blue-50' : ''}`}
                           >
                             {grupo.tipo === 'secuencial' && <span className="text-primary">✓</span>}
                             <div>
-                              <span className="text-sm font-semibold text-gray-800">Secuencial</span>
+                              <span className="text-sm font-semibold text-gray-800">
+                                Secuencial
+                              </span>
                               <span className="text-xs text-gray-400 ml-2">(Uno tras otro)</span>
                             </div>
                           </button>
@@ -316,14 +488,21 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
                             const p = participants.find((x) => x.id === pid);
                             if (!p) return null;
                             return (
-                              <div key={pid} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg">
+                              <div
+                                key={pid}
+                                className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg"
+                              >
                                 <GripVertical size={14} className="text-gray-400 shrink-0" />
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold text-gray-900 truncate">{p.name}</p>
+                                  <p className="text-sm font-semibold text-gray-900 truncate">
+                                    {p.name}
+                                  </p>
                                   <p className="text-xs text-gray-400 truncate">{p.email}</p>
                                 </div>
                                 {p.acto && (
-                                  <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{p.acto}</span>
+                                  <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                                    {p.acto}
+                                  </span>
                                 )}
                                 <button
                                   onClick={() => handleRemoveParticipantFromGrupo(grupo.id, pid)}
@@ -348,7 +527,11 @@ export function StepAgrupamiento({ participants, grupos, onChange }: StepAgrupam
             <Info size={16} className="shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold">Orden de Grupos</span>
-              <p className="text-xs mt-0.5 text-blue-600">Cuando todos los participantes de un grupo hayan terminado su participación (firmar, revisar, etc.), el proceso se moverá automáticamente al siguiente grupo en el orden definido.</p>
+              <p className="text-xs mt-0.5 text-blue-600">
+                Cada grupo avanza según su regla de finalización. En “Cualquiera participa”, el
+                primer resultado confirmado cierra el grupo y los demás integrantes quedan sin
+                acción pendiente.
+              </p>
             </div>
           </div>
         </div>

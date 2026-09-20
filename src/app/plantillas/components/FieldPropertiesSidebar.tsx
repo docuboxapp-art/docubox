@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Settings, Trash2 } from 'lucide-react';
+import { Copy, X, Plus, Settings, Trash2 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface InsertedField {
   id: string;
+  valueKey?: string;
   label: string;
   fieldType: string;
   customName: string;
@@ -34,6 +35,7 @@ interface FieldPropertiesSidebarProps {
   onUpdate: (id: string, updates: Partial<InsertedField>) => void;
   allFields?: InsertedField[];
   onSelectField?: (id: string) => void;
+  onDuplicateField?: (id: string) => void;
   onDeleteField?: (id: string) => void;
 }
 
@@ -43,8 +45,19 @@ const TYPES_WITH_OPTIONS = ['Botones de opción', 'Desplegable', 'radio', 'selec
 // ─── Type-specific config labels ─────────────────────────────────────────────
 const NUMBER_FORMATS = ['Decimal', 'Entero', 'Porcentaje', 'Científico'];
 const NUMBER_DECIMALS = ['0 decimales', '1 decimal', '2 decimales', '3 decimales', '4 decimales'];
-const TIME_FORMATS = ['HH:mm (24 horas)', 'hh:mm AM/PM (12 horas)', 'HH:mm:ss (con segundos)', 'hh:mm:ss AM/PM'];
-const DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'DD de MMMM de YYYY', 'MMMM DD, YYYY'];
+const TIME_FORMATS = [
+  'HH:mm (24 horas)',
+  'hh:mm AM/PM (12 horas)',
+  'HH:mm:ss (con segundos)',
+  'hh:mm:ss AM/PM',
+];
+const DATE_FORMATS = [
+  'DD/MM/YYYY',
+  'MM/DD/YYYY',
+  'YYYY-MM-DD',
+  'DD de MMMM de YYYY',
+  'MMMM DD, YYYY',
+];
 const CURRENCY_SYMBOLS = ['$ (MXN)', '$ (USD)', '€ (EUR)', '£ (GBP)', '¥ (JPY)', 'Personalizado'];
 const CURRENCY_FORMATS = ['$1,234.56', '$1.234,56', '1,234.56 $', '1.234,56 $'];
 const IMAGE_SIZES = ['Pequeño (100px)', 'Mediano (200px)', 'Grande (300px)', 'Personalizado'];
@@ -79,7 +92,12 @@ function SelectField({
           ))}
         </select>
         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5">
-          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg
+            className="w-4 h-4 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </div>
@@ -96,6 +114,7 @@ export function FieldPropertiesSidebar({
   onUpdate,
   allFields = [],
   onSelectField,
+  onDuplicateField,
   onDeleteField,
 }: FieldPropertiesSidebarProps) {
   const [localName, setLocalName] = useState('');
@@ -139,7 +158,7 @@ export function FieldPropertiesSidebar({
       >
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
-          <h2 className="text-sm font-semibold text-gray-900">Campos insertados</h2>
+          <h2 className="text-[13px] font-normal text-gray-900">Campos insertados</h2>
         </div>
 
         {allFields.length === 0 ? (
@@ -162,31 +181,44 @@ export function FieldPropertiesSidebar({
                 <button
                   type="button"
                   onClick={() => onSelectField?.(f.id)}
-                  className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2.5 text-left"
+                  className="flex min-w-0 flex-1 items-start justify-between gap-2 px-3 py-2.5 text-left font-normal"
                   title="Localizar campo en el documento"
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="h-2 w-2 flex-shrink-0 rounded-full bg-blue-400" />
+                  <div className="flex min-w-0 items-start gap-2">
+                    <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-blue-500" />
                     <div className="min-w-0">
-                      <span className="block truncate text-sm text-gray-800">
+                      <span className="block truncate text-xs font-normal leading-4 text-slate-600">
                         {f.customName && f.customName !== f.label ? f.customName : f.label}
                       </span>
-                      <span className="block truncate text-xs text-gray-400">Tipo: {f.label}</span>
+                      <span className="mt-0.5 block truncate text-[10px] font-normal leading-[14px] text-slate-400">
+                        Tipo: {f.label}
+                      </span>
                     </div>
                   </div>
-                  <span className="flex-shrink-0 whitespace-nowrap text-xs text-gray-400 group-hover:text-blue-500">
+                  <span className="mt-0.5 flex-shrink-0 whitespace-nowrap text-[10px] font-normal leading-[14px] text-slate-400 group-hover:text-blue-500">
                     Pág. {f.pageIndex + 1}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onDeleteField?.(f.id)}
-                  className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                  title="Eliminar campo"
-                  aria-label={`Eliminar ${f.customName || f.label}`}
-                >
-                  <Trash2 size={15} />
-                </button>
+                <div className="mr-2 flex shrink-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => onDuplicateField?.(f.id)}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                    title="Duplicar campo"
+                    aria-label={`Duplicar ${f.customName || f.label}`}
+                  >
+                    <Copy size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteField?.(f.id)}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                    title="Eliminar campo"
+                    aria-label={`Eliminar ${f.customName || f.label}`}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -196,7 +228,8 @@ export function FieldPropertiesSidebar({
   }
 
   const fieldLabel = field.label;
-  const hasOptions = TYPES_WITH_OPTIONS.includes(fieldLabel) || TYPES_WITH_OPTIONS.includes(field.fieldType);
+  const hasOptions =
+    TYPES_WITH_OPTIONS.includes(fieldLabel) || TYPES_WITH_OPTIONS.includes(field.fieldType);
   const isNumero = fieldLabel === 'Número';
   const isHora = fieldLabel === 'Hora';
   const isFecha = fieldLabel === 'Fecha';
@@ -253,20 +286,23 @@ export function FieldPropertiesSidebar({
       className="flex flex-col bg-white border-l border-gray-200 h-full overflow-y-auto"
     >
       {/* Header */}
-      <div className="flex items-start justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-900">Propiedades del campo</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Personaliza el nombre y la visibilidad de la etiqueta para este campo.
-          </p>
+      <div className="sticky top-0 z-10 border-b border-gray-100 bg-white px-4 py-3">
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Propiedades del campo</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Personaliza el nombre y la visibilidad de la etiqueta para este campo.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors ml-2 mt-0.5 flex-shrink-0"
+            aria-label="Cerrar propiedades"
+          >
+            <X size={15} />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors ml-2 mt-0.5 flex-shrink-0"
-        >
-          <X size={15} />
-        </button>
       </div>
 
       <div className="p-4 space-y-5">
@@ -298,7 +334,8 @@ export function FieldPropertiesSidebar({
           <div>
             <p className="text-sm font-semibold text-gray-800">Mostrar etiqueta en el documento</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              Si activas esta opción, el nombre del campo aparecerá visiblemente encima del elemento en el PDF final.
+              Si activas esta opción, el nombre del campo aparecerá visiblemente encima del elemento
+              en el PDF final.
             </p>
           </div>
         </label>
@@ -340,7 +377,12 @@ export function FieldPropertiesSidebar({
                   type="text"
                   value={newOption}
                   onChange={(e) => setNewOption(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddOption(); } }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddOption();
+                    }
+                  }}
                   placeholder="Nueva opción"
                   className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-400 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
                 />
@@ -373,13 +415,19 @@ export function FieldPropertiesSidebar({
                     label="Formato de número"
                     value={numberFormat}
                     options={NUMBER_FORMATS}
-                    onChange={(v) => { setNumberFormat(v); onUpdate(field.id, { numberFormat: v }); }}
+                    onChange={(v) => {
+                      setNumberFormat(v);
+                      onUpdate(field.id, { numberFormat: v });
+                    }}
                   />
                   <SelectField
                     label="Decimales"
                     value={numberDecimals}
                     options={NUMBER_DECIMALS}
-                    onChange={(v) => { setNumberDecimals(v); onUpdate(field.id, { numberDecimals: v }); }}
+                    onChange={(v) => {
+                      setNumberDecimals(v);
+                      onUpdate(field.id, { numberDecimals: v });
+                    }}
                   />
                 </>
               )}
@@ -390,7 +438,10 @@ export function FieldPropertiesSidebar({
                   label="Formato de hora"
                   value={timeFormat}
                   options={TIME_FORMATS}
-                  onChange={(v) => { setTimeFormat(v); onUpdate(field.id, { timeFormat: v }); }}
+                  onChange={(v) => {
+                    setTimeFormat(v);
+                    onUpdate(field.id, { timeFormat: v });
+                  }}
                 />
               )}
 
@@ -400,7 +451,10 @@ export function FieldPropertiesSidebar({
                   label="Formato de fecha"
                   value={dateFormat}
                   options={DATE_FORMATS}
-                  onChange={(v) => { setDateFormat(v); onUpdate(field.id, { dateFormat: v }); }}
+                  onChange={(v) => {
+                    setDateFormat(v);
+                    onUpdate(field.id, { dateFormat: v });
+                  }}
                 />
               )}
 
@@ -411,13 +465,19 @@ export function FieldPropertiesSidebar({
                     label="Símbolo de moneda"
                     value={currencySymbol}
                     options={CURRENCY_SYMBOLS}
-                    onChange={(v) => { setCurrencySymbol(v); onUpdate(field.id, { currencySymbol: v }); }}
+                    onChange={(v) => {
+                      setCurrencySymbol(v);
+                      onUpdate(field.id, { currencySymbol: v });
+                    }}
                   />
                   <SelectField
                     label="Formato de moneda"
                     value={currencyFormat}
                     options={CURRENCY_FORMATS}
-                    onChange={(v) => { setCurrencyFormat(v); onUpdate(field.id, { currencyFormat: v }); }}
+                    onChange={(v) => {
+                      setCurrencyFormat(v);
+                      onUpdate(field.id, { currencyFormat: v });
+                    }}
                   />
                 </>
               )}
@@ -428,7 +488,10 @@ export function FieldPropertiesSidebar({
                   label="Tamaño de imagen"
                   value={imageWidth}
                   options={IMAGE_SIZES}
-                  onChange={(v) => { setImageWidth(v); onUpdate(field.id, { imageWidth: v }); }}
+                  onChange={(v) => {
+                    setImageWidth(v);
+                    onUpdate(field.id, { imageWidth: v });
+                  }}
                 />
               )}
 
@@ -438,7 +501,10 @@ export function FieldPropertiesSidebar({
                   label="Estado por defecto"
                   value={checkboxDefault}
                   options={CHECKBOX_DEFAULTS}
-                  onChange={(v) => { setCheckboxDefault(v); onUpdate(field.id, { checkboxDefault: v }); }}
+                  onChange={(v) => {
+                    setCheckboxDefault(v);
+                    onUpdate(field.id, { checkboxDefault: v });
+                  }}
                 />
               )}
             </div>
@@ -455,14 +521,25 @@ export function FieldPropertiesSidebar({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => onDeleteField?.(field.id)}
-          className="flex w-full items-center justify-center gap-2 rounded-md border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
-        >
-          <Trash2 size={15} />
-          Eliminar campo
-        </button>
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => onDeleteField?.(field.id)}
+            className="flex w-full items-center justify-center gap-2 rounded-md border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+          >
+            <Trash2 size={15} />
+            Eliminar campo
+          </button>
+          <button
+            type="button"
+            onClick={() => onDuplicateField?.(field.id)}
+            className="flex w-full items-center justify-center gap-2 rounded-md border border-blue-200 px-3 py-2.5 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50"
+            title="Duplicar en la posición del cursor"
+          >
+            <Copy size={15} />
+            Duplicar campo
+          </button>
+        </div>
       </div>
     </aside>
   );

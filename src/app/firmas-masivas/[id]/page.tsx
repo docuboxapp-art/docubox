@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ElementType } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   AlertTriangle,
@@ -16,15 +16,14 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Trash2,
   Users,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { createClient } from '@/lib/supabase/client';
+import { bulkSignatureApiFetch } from '@/lib/bulk-signatures/client';
 import {
   BULK_TYPE_LABELS,
-  createDemoItems,
-  findBulkCampaign,
   mapBulkCampaignRow,
   type BulkCampaignItem,
   type BulkCampaignSummary,
@@ -47,36 +46,63 @@ export default function BulkCampaignMonitorPage() {
   const [tab, setTab] = useState<Tab>('documents');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [actionPending, setActionPending] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
+
+  const load = useCallback(
+    async (showLoader = false) => {
+      if (!params.id) return;
+      if (showLoader) setLoading(true);
+      try {
+        const response = await bulkSignatureApiFetch(`/api/bulk-signatures/${params.id}`);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'No se pudo consultar la campana.');
+        const mapped = mapBulkCampaignRow(payload.data);
+        setCampaign(mapped);
+        setItems((payload.data.bulk_campaign_items || []).map(mapItem));
+        if (mapped.scheduledAt) {
+          setScheduledAt((current) => current || toLocalDateTime(mapped.scheduledAt!));
+        }
+        setActionError('');
+      } catch (cause) {
+        setActionError(cause instanceof Error ? cause.message : 'No se pudo consultar la campana.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [params.id]
+  );
 
   useEffect(() => {
-    if (!params.id) return;
-    let cancelled = false;
-    const load = async () => {
-      setLoading(true);
-      const { data, error } = await createClient()
-        .from('bulk_signature_campaigns')
-        .select('*, bulk_campaign_items(*)')
-        .eq('id', params.id)
-        .maybeSingle();
-      if (cancelled) return;
-      if (error || !data) {
-        const local = findBulkCampaign(params.id);
-        if (local) {
-          setCampaign(local);
-          setItems(createDemoItems(local));
-        }
-      } else {
-        const mapped = mapBulkCampaignRow(data);
-        setCampaign(mapped);
-        setItems((data.bulk_campaign_items || []).map(mapItem));
-      }
-      setLoading(false);
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [params.id, activeWorkspace?.id]);
+    const timer = window.setTimeout(() => void load(true), 0);
+    return () => window.clearTimeout(timer);
+  }, [activeWorkspace?.id, load]);
+
+  useEffect(() => {
+    if (!campaign || !['ready', 'scheduled', 'processing', 'active'].includes(campaign.status))
+      return;
+    const timer = window.setInterval(() => void load(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [campaign, load]);
+
+  const mutateCampaign = async (action: string, extra: Record<string, unknown> = {}) => {
+    setActionPending(true);
+    setActionError('');
+    try {
+      const response = await bulkSignatureApiFetch(`/api/bulk-signatures/${params.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ action, ...extra }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'No se pudo actualizar la campana.');
+      await load();
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'No se pudo actualizar la campana.');
+    } finally {
+      setActionPending(false);
+    }
+  };
 
   const filteredItems = useMemo(
     () =>
@@ -141,9 +167,38 @@ export default function BulkCampaignMonitorPage() {
               <button className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 dark:border-border dark:bg-card">
                 <Mail size={15} /> Recordatorio
               </button>
-              <button className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 dark:border-border dark:bg-card">
-                {campaign.status === 'paused' ? <Play size={15} /> : <Pause size={15} />}
-                {campaign.status === 'paused' ? 'Reanudar' : 'Pausar'}
+              <button
+                disabled={actionPending}
+                onClick={() =>
+                  void mutateCampaign(
+                    campaign.status === 'draft'
+                      ? 'launch'
+                      : campaign.status === 'paused'
+                        ? 'resume'
+                        : 'pause'
+                  )
+                }
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 disabled:opacity-50 dark:border-border dark:bg-card"
+              >
+                {['draft', 'paused'].includes(campaign.status) ? (
+                  <Play size={15} />
+                ) : (
+                  <Pause size={15} />
+                )}
+                {campaign.status === 'draft'
+                  ? 'Ejecutar'
+                  : campaign.status === 'paused'
+                    ? 'Reanudar'
+                    : 'Pausar'}
+              </button>
+              <button
+                disabled={
+                  actionPending || ['completed', 'cancelled', 'closed'].includes(campaign.status)
+                }
+                onClick={() => void mutateCampaign('cancel')}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-sm font-600 text-red-600 disabled:opacity-50 dark:bg-card"
+              >
+                <Trash2 size={15} /> Cancelar
               </button>
               <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-600 text-white">
                 <Download size={15} /> Descargar
@@ -151,6 +206,12 @@ export default function BulkCampaignMonitorPage() {
             </div>
           </div>
         </header>
+
+        {actionError && (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {actionError}
+          </div>
+        )}
 
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.7fr)]">
           <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-border dark:bg-card">
@@ -191,6 +252,33 @@ export default function BulkCampaignMonitorPage() {
                 value={campaign.participantCount.toLocaleString('es-MX')}
               />
               <InfoRow label="Aislamiento" value="Workspace + RLS" />
+              {['draft', 'scheduled', 'paused', 'ready'].includes(campaign.status) && (
+                <div className="border-t border-slate-200 pt-3 dark:border-border">
+                  <label className="text-xs font-600 text-slate-500" htmlFor="bulk-scheduled-at">
+                    Programar ejecucion
+                  </label>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      id="bulk-scheduled-at"
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={(event) => setScheduledAt(event.target.value)}
+                      className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 px-2 text-xs dark:border-border dark:bg-background"
+                    />
+                    <button
+                      disabled={actionPending || !scheduledAt}
+                      onClick={() =>
+                        void mutateCampaign('reschedule', {
+                          scheduledAt: new Date(scheduledAt).toISOString(),
+                        })
+                      }
+                      className="h-9 rounded-md border border-slate-200 px-3 text-xs font-600 disabled:opacity-50 dark:border-border"
+                    >
+                      Guardar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -219,7 +307,7 @@ export default function BulkCampaignMonitorPage() {
                 },
                 { id: 'evidence', label: 'Evidencia', icon: ShieldCheck },
                 { id: 'reports', label: 'Reportes', icon: Download },
-              ] as Array<{ id: Tab; label: string; icon: React.ElementType; count?: number }>
+              ] as Array<{ id: Tab; label: string; icon: ElementType; count?: number }>
             ).map((item) => {
               const Icon = item.icon;
               return (
@@ -271,7 +359,13 @@ export default function BulkCampaignMonitorPage() {
             </>
           )}
           {tab === 'participants' && <ParticipantsSummary items={items} />}
-          {tab === 'incidents' && <IncidentsPanel items={incidents} />}
+          {tab === 'incidents' && (
+            <IncidentsPanel
+              items={incidents}
+              disabled={actionPending}
+              onRetry={(itemId) => void mutateCampaign('retry_item', { itemId })}
+            />
+          )}
           {tab === 'evidence' && <EvidencePanel campaign={campaign} />}
           {tab === 'reports' && <ReportsPanel campaign={campaign} />}
         </section>
@@ -359,7 +453,15 @@ function ParticipantsSummary({ items }: { items: BulkCampaignItem[] }) {
     </div>
   );
 }
-function IncidentsPanel({ items }: { items: BulkCampaignItem[] }) {
+function IncidentsPanel({
+  items,
+  disabled,
+  onRetry,
+}: {
+  items: BulkCampaignItem[];
+  disabled: boolean;
+  onRetry: (itemId: string) => void;
+}) {
   return items.length ? (
     <div className="divide-y divide-slate-200 dark:divide-border">
       {items.map((item) => (
@@ -371,7 +473,11 @@ function IncidentsPanel({ items }: { items: BulkCampaignItem[] }) {
             <p className="text-sm font-600">{item.documentName}</p>
             <p className="mt-0.5 text-xs text-slate-500">{item.errorMessage}</p>
           </div>
-          <button className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-600">
+          <button
+            disabled={disabled}
+            onClick={() => onRetry(item.id)}
+            className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-600 disabled:opacity-50"
+          >
             <RefreshCw size={13} /> Reintentar
           </button>
         </div>
@@ -446,7 +552,7 @@ function EmptyState({
 }: {
   title: string;
   description: string;
-  icon?: React.ElementType;
+  icon?: ElementType;
 }) {
   return (
     <div className="flex min-h-56 flex-col items-center justify-center px-6 text-center">
@@ -461,12 +567,18 @@ function EmptyState({
 function ItemStatus({ status }: { status: BulkCampaignItem['status'] }) {
   const labels: Record<BulkCampaignItem['status'], string> = {
     pending: 'Pendiente',
+    validating: 'Validando',
     generating: 'Generando',
+    ready: 'Lista',
+    queued: 'En cola',
+    sending: 'Enviando',
     sent: 'Enviado',
     viewed: 'Visto',
+    signing: 'Firmando',
     signed: 'Firmado',
     rejected: 'Rechazado',
     expired: 'Vencido',
+    cancelled: 'Cancelado',
     failed: 'Error',
   };
   const tone =
@@ -522,16 +634,26 @@ function formatDate(value: string) {
     minute: '2-digit',
   }).format(new Date(value));
 }
-function mapItem(row: any): BulkCampaignItem {
+function toLocalDateTime(value: string) {
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+function mapItem(row: Record<string, unknown>): BulkCampaignItem {
+  const source = (row.source_payload || {}) as Record<string, unknown>;
   return {
-    id: row.id,
-    documentId: row.document_id || undefined,
-    documentName: row.source_payload?.documentName || row.source_row_id || 'Documento',
-    participantName: row.source_payload?.participantName || 'Participante',
-    participantEmail: row.source_payload?.participantEmail || '',
-    status: row.status || 'pending',
+    id: String(row.id),
+    documentId: typeof row.document_id === 'string' ? row.document_id : undefined,
+    documentName: String(source.documentName || row.source_row_id || 'Documento'),
+    participantName: String(
+      row.participant_name || source.nombre || source.participantName || 'Participante'
+    ),
+    participantEmail: String(
+      row.participant_email || source.correo || source.email || source.participantEmail || ''
+    ),
+    status: (row.status || 'pending') as BulkCampaignItem['status'],
     progress: Number(row.progress || 0),
-    errorMessage: row.error_message || undefined,
-    updatedAt: row.updated_at || new Date().toISOString(),
+    errorMessage: typeof row.error_message === 'string' ? row.error_message : undefined,
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : new Date().toISOString(),
   };
 }

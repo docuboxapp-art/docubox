@@ -237,14 +237,7 @@ export default function TopNav() {
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const [searchCollapsed, setSearchCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return localStorage.getItem(SEARCH_COLLAPSED_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [searchCollapsed, setSearchCollapsed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
@@ -338,6 +331,17 @@ export default function TopNav() {
   };
 
   // Theme toggle — removed local useEffect, now handled by ThemeContext
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        setSearchCollapsed(localStorage.getItem(SEARCH_COLLAPSED_KEY) === 'true');
+      } catch {
+        setSearchCollapsed(false);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // Expand screen toggle
   useEffect(() => {

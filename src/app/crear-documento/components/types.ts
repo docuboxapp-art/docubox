@@ -1,9 +1,11 @@
+import type { ReactNode } from 'react';
+
 export interface Participant {
   id: string;
   name: string;
   email: string;
   phone?: string;
-  role: 'firmante' | 'aprobador' | 'observador';
+  role: 'firmante' | 'aprobador' | 'observador' | 'testigo';
   configured?: boolean;
   isNewUser?: boolean;
   acto?: string;
@@ -15,6 +17,16 @@ export interface Participant {
   tipoPersona?: 'fisica' | 'moral';
   denominacion?: string;
   fechaVencimientoParticipacion?: string;
+  deliveryMode?: 'remote' | 'in_person';
+  routingMode?: 'immediate' | 'delay' | 'date_time' | 'after_event';
+  routingDelayAmount?: number;
+  routingDelayUnit?: 'minutes' | 'hours' | 'days';
+  routingDate?: string;
+  routingTime?: string;
+  routingTimezone?: string;
+  routingAfterEvent?: string;
+  requirements?: import('@/lib/document-package/types').ParticipantRequirementDraft[];
+  visibleResourceIds?: string[];
 }
 
 export interface DocumentSettings {
@@ -158,8 +170,12 @@ export type ParticipantMode = 'solo_yo' | 'yo_y_otros' | 'solo_otros' | null;
 
 export interface PlacedField {
   id: string;
+  valueKey?: string;
   label: string;
-  icon: React.ReactNode;
+  tipo?: string;
+  required?: boolean;
+  templateField?: boolean;
+  icon: ReactNode;
   x: number;
   y: number;
   width: number;
@@ -235,4 +251,6 @@ export interface GrupoFirma {
   tipo: 'paralelo' | 'secuencial';
   mensaje: string;
   participantIds: string[];
+  completionPolicy?: 'ALL' | 'ANY_ONE';
+  organizationUnitId?: string | null;
 }

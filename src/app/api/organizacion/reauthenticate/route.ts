@@ -21,6 +21,8 @@ const ALLOWED_SCOPES = new Set([
   'signature_policies.manage',
   'members.offboard',
   'organization.transfer_ownership',
+  'documents.custody.transfer',
+  'documents.custody.receive',
 ]);
 
 export async function POST(request: Request) {

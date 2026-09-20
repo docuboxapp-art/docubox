@@ -98,7 +98,7 @@ test('creation captures all required hold metadata through the existing modal', 
   ]) {
     assert.match(createStep, new RegExp(field));
   }
-  assert.match(createStep, /permanece activo hasta su liberación expresa/);
+  assert.match(createStep, /permanece activo\s+hasta su liberación expresa/);
 });
 
 test('viewer exposes a first-level LEGAL HOLD tab only for history or requested activation', () => {

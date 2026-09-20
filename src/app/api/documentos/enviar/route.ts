@@ -25,6 +25,25 @@ import {
   type LegalHoldReasonCode,
 } from '@/lib/documents/legal-hold';
 import { requestFingerprint } from '@/lib/security/document-view-access';
+import {
+  appendPackageEvent,
+  ensureDocumentPackage,
+  isPhaseBFeatureEnabled,
+  PHASE_B_FEATURE_KEYS,
+} from '@/lib/document-package/server';
+import { validatePackageFile } from '@/lib/document-package/file-validation';
+import {
+  DEFAULT_REQUIREMENT_MIME_TYPES,
+  isSupplementalResourceType,
+} from '@/lib/document-package/types';
+import { isSupportedTimeZone, zonedDateTimeToUtcIso } from '@/lib/datetime';
+import { appendDocumentOperationalEvent } from '@/lib/documents/operational-events';
+import { isPhaseCFeatureEnabled, PHASE_C_FEATURE_KEYS } from '@/lib/orchestration/feature-flags';
+import {
+  consumeServerRateLimit,
+  ServerRateLimitUnavailableError,
+} from '@/lib/security/server-rate-limit';
+import { snapshotDocumentSigningGroups } from '@/lib/organization/phase-d';
 
 type OrganizationGovernance = {
   workflow: Record<string, any> | null;
@@ -70,6 +89,16 @@ function isAdditionalMetadataSchemaMissing(
     error.code === 'PGRST204' ||
     (/additional_metadata|document_additional_metadata/i.test(message) &&
       /schema cache|does not exist|relation/i.test(message))
+  );
+}
+
+function isTemplateOriginColumnMissing(
+  error: { code?: string | null; message?: string | null } | null
+) {
+  return Boolean(
+    error &&
+    /source_template_id/i.test(error.message || '') &&
+    (error.code === 'PGRST204' || /schema cache|does not exist|column/i.test(error.message || ''))
   );
 }
 
@@ -369,8 +398,56 @@ export async function POST(req: NextRequest) {
       urgente,
       metadatosAdicionales,
       additionalMetadata,
+      sourceTemplateId,
       docuboxSource,
+      supplementalResources,
+      deliveryTiming,
     } = JSON.parse(metaRaw);
+
+    let scheduledDelivery: { scheduledAt: string; timezone: string } | null = null;
+    if (deliveryTiming?.mode === 'scheduled') {
+      const timezone = typeof deliveryTiming.timezone === 'string' ? deliveryTiming.timezone : '';
+      const scheduledAt = zonedDateTimeToUtcIso(
+        String(deliveryTiming.date || ''),
+        String(deliveryTiming.time || ''),
+        timezone
+      );
+      if (!isSupportedTimeZone(timezone) || !scheduledAt) {
+        return NextResponse.json(
+          { error: 'La fecha, hora o zona horaria no es válida.' },
+          { status: 400 }
+        );
+      }
+      if (new Date(scheduledAt).getTime() <= Date.now() + 60_000) {
+        return NextResponse.json(
+          { error: 'El envío programado debe ser posterior a la hora actual.' },
+          { status: 400 }
+        );
+      }
+      if (!(await isPhaseCFeatureEnabled(supabaseAdmin, PHASE_C_FEATURE_KEYS.scheduledSending))) {
+        return NextResponse.json(
+          { error: 'El envío programado no está habilitado.' },
+          { status: 409 }
+        );
+      }
+      const ip =
+        req.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() ||
+        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        'unknown';
+      const allowed = await consumeServerRateLimit({
+        scope: 'document.schedule.create',
+        identifiers: [user.id, ip],
+        limit: 12,
+        windowSeconds: 60,
+      });
+      if (!allowed) {
+        return NextResponse.json(
+          { error: 'Demasiados envíos programados. Intenta nuevamente más tarde.' },
+          { status: 429, headers: { 'Retry-After': '60' } }
+        );
+      }
+      scheduledDelivery = { scheduledAt, timezone };
+    }
 
     if (!documentoId || !fileName || !fileHashSha256) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
@@ -504,6 +581,30 @@ export async function POST(req: NextRequest) {
       resolvedWorkspaceId = await resolvePersonalWorkspace(user.id);
     }
 
+    let verifiedSourceTemplateId: string | null = null;
+    if (sourceTemplateId) {
+      if (!resolvedWorkspaceId || typeof sourceTemplateId !== 'string') {
+        return NextResponse.json(
+          { error: 'La plantilla de origen no pertenece al espacio de trabajo activo.' },
+          { status: 403 }
+        );
+      }
+      const sourceTemplate = await supabaseAdmin
+        .from('plantillas')
+        .select('id')
+        .eq('id', sourceTemplateId)
+        .eq('workspace_id', resolvedWorkspaceId)
+        .maybeSingle();
+      if (sourceTemplate.error) throw sourceTemplate.error;
+      if (!sourceTemplate.data) {
+        return NextResponse.json(
+          { error: 'La plantilla de origen no pertenece al espacio de trabajo activo.' },
+          { status: 403 }
+        );
+      }
+      verifiedSourceTemplateId = sourceTemplate.data.id;
+    }
+
     let resolvedInternalSource: ResolvedInternalSource | null = null;
     if (docuboxSource) {
       if (!resolvedWorkspaceId || docuboxSource.workspaceId !== resolvedWorkspaceId) {
@@ -569,6 +670,9 @@ export async function POST(req: NextRequest) {
       'rechazado',
       'cancelo',
       'cancelado',
+      'atestiguo',
+      'testigo_completado',
+      'superseded',
     ];
     function isTerminalEnviar(sub: string): boolean {
       return TERMINAL_SUB_ESTADOS_ENVIAR.includes((sub ?? '').toLowerCase());
@@ -637,6 +741,12 @@ export async function POST(req: NextRequest) {
           ? null
           : 'No especificado';
 
+    const participantsForPersistence = scheduledDelivery
+      ? participantesConVisibilidad.map((participant: Record<string, unknown>) => ({
+          ...participant,
+          visible: participant.isCurrentUser === true,
+        }))
+      : participantesConVisibilidad;
     const documentRecord: Record<string, unknown> = {
       documento_id: documentoId,
       owner_id: user.id,
@@ -653,7 +763,7 @@ export async function POST(req: NextRequest) {
       otro_tipo_documento: resolvedOtherDocumentType,
       ruta_guardado: ruta || 'raiz',
       etiquetas_ids: etiquetasIds || [],
-      estado: 'en_proceso',
+      estado: scheduledDelivery ? 'programado' : 'en_proceso',
       tiene_vencimiento: vencimientoEnabled === true,
       tiene_codigo_acceso: codigoAccesoEnabled === true,
       fecha_vencimiento: expirationAt,
@@ -668,7 +778,7 @@ export async function POST(req: NextRequest) {
       impedir_modificacion: impedirModificacion === true,
       impedir_extraccion: impedirExtraccion === true,
       evitar_montaje: evitarMontaje === true,
-      participantes: participantesConVisibilidad,
+      participantes: participantsForPersistence,
       campos_solicitados: camposSolicitados || [],
       participation_order: effectiveOrder,
       grupos_firma: effectiveGrupos.length > 0 ? effectiveGrupos : null,
@@ -680,6 +790,7 @@ export async function POST(req: NextRequest) {
       estampa_autenticacion: estampaAutenticacion ?? false,
       blockchain_evidence_enabled: true,
       metadatos_adicionales: metadatosAdicionales ?? false,
+      source_template_id: verifiedSourceTemplateId,
     };
     if (hasAdditionalMetadata) {
       documentRecord.additional_metadata = normalizedAdditionalMetadata;
@@ -691,9 +802,16 @@ export async function POST(req: NextRequest) {
       documentRecord.organization_governance_applied_at = governance.snapshot.applied_at;
     }
 
-    const { error: upsertError } = await supabaseAdmin
+    let upsertResult = await supabaseAdmin
       .from('documentos')
       .upsert(documentRecord, { onConflict: 'documento_id' });
+    if (isTemplateOriginColumnMissing(upsertResult.error)) {
+      delete documentRecord.source_template_id;
+      upsertResult = await supabaseAdmin
+        .from('documentos')
+        .upsert(documentRecord, { onConflict: 'documento_id' });
+    }
+    const upsertError = upsertResult.error;
 
     if (upsertError) {
       console.error('[DOCUBOX][enviar] Error en upsert documentos:', upsertError.message);
@@ -717,6 +835,10 @@ export async function POST(req: NextRequest) {
 
     const dbDocumentId = docRow.id;
 
+    if (effectiveOrder === 'mixto' && effectiveGrupos.length > 0 && resolvedWorkspaceId) {
+      await snapshotDocumentSigningGroups(supabaseAdmin, dbDocumentId);
+    }
+
     if (codigoAccesoEnabled === true && typeof codigoAcceso === 'string' && codigoAcceso) {
       const fingerprint = requestFingerprint(req);
       const protection = await supabaseAdmin.rpc('configure_document_view_access', {
@@ -731,7 +853,10 @@ export async function POST(req: NextRequest) {
         p_user_agent: fingerprint.userAgent,
       });
       if (protection.error) {
-        return NextResponse.json({ error: 'No se pudo configurar el código de acceso.' }, { status: 500 });
+        return NextResponse.json(
+          { error: 'No se pudo configurar el código de acceso.' },
+          { status: 500 }
+        );
       }
     }
 
@@ -1005,6 +1130,266 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const normalizedSupplementalResources = Array.isArray(supplementalResources)
+      ? supplementalResources
+      : [];
+    const participantRequirementCount = (participantesConVisibilidad || []).reduce(
+      (total: number, participant: Record<string, unknown>) =>
+        total + (Array.isArray(participant.requirements) ? participant.requirements.length : 0),
+      0
+    );
+    const hasPackageConfiguration =
+      normalizedSupplementalResources.length > 0 || participantRequirementCount > 0;
+
+    if (hasPackageConfiguration) {
+      if (!resolvedWorkspaceId) {
+        return NextResponse.json(
+          { error: 'El paquete documental requiere un espacio de trabajo válido.' },
+          { status: 409 }
+        );
+      }
+      const [packagesEnabled, requirementsEnabled, visibilityEnabled] = await Promise.all([
+        isPhaseBFeatureEnabled(supabaseAdmin, PHASE_B_FEATURE_KEYS.packages),
+        isPhaseBFeatureEnabled(supabaseAdmin, PHASE_B_FEATURE_KEYS.requirements),
+        isPhaseBFeatureEnabled(supabaseAdmin, PHASE_B_FEATURE_KEYS.visibility),
+      ]);
+      if (!packagesEnabled || (participantRequirementCount > 0 && !requirementsEnabled)) {
+        return NextResponse.json(
+          { error: 'La configuración del paquete todavía no está habilitada.' },
+          { status: 409 }
+        );
+      }
+      if (normalizedSupplementalResources.length > 20) {
+        return NextResponse.json(
+          { error: 'Puedes agregar hasta 20 documentos complementarios.' },
+          { status: 400 }
+        );
+      }
+
+      const packageRow = await ensureDocumentPackage({
+        service: supabaseAdmin,
+        documentId: dbDocumentId,
+        workspaceId: resolvedWorkspaceId,
+        actorUserId: user.id,
+      });
+      const participantReferencesResult = await supabaseAdmin
+        .from('document_participant_references')
+        .select('id,participant_json_id,ordinal')
+        .eq('document_id', dbDocumentId)
+        .eq('active', true);
+      if (participantReferencesResult.error) throw participantReferencesResult.error;
+      const participantReferences = participantReferencesResult.data || [];
+      const insertedResourceIds: string[] = [];
+
+      try {
+        for (const rawResource of normalizedSupplementalResources) {
+          if (!rawResource || typeof rawResource !== 'object') {
+            throw new Error('PACKAGE_RESOURCE_INVALID');
+          }
+          const resource = rawResource as Record<string, unknown>;
+          const resourceId = String(resource.id || '');
+          const title = String(resource.title || '').trim();
+          if (
+            !/^[0-9a-f-]{36}$/i.test(resourceId) ||
+            !title ||
+            title.length > 180 ||
+            !isSupplementalResourceType(resource.type)
+          ) {
+            throw new Error('PACKAGE_RESOURCE_INVALID');
+          }
+          const supplementalFile = formData.get(`supplemental:${resourceId}`);
+          if (!(supplementalFile instanceof File)) throw new Error('PACKAGE_RESOURCE_FILE_MISSING');
+          const validated = await validatePackageFile(
+            supplementalFile,
+            DEFAULT_REQUIREMENT_MIME_TYPES
+          );
+          const storagePath = encryptionPolicy.enabled
+            ? `tenants/${resolvedWorkspaceId}/documents/${dbDocumentId}/package/${resourceId}/payload.enc`
+            : `tenants/${resolvedWorkspaceId}/documents/${dbDocumentId}/package/${resourceId}/${validated.safeName}`;
+          if (encryptionPolicy.enabled) {
+            if (!targetVersionId) throw new Error('PACKAGE_DOCUMENT_VERSION_REQUIRED');
+            await encryptAndUploadDocumentObject({
+              service: supabaseAdmin,
+              plaintext: validated.bytes,
+              tenantId: resolvedWorkspaceId,
+              documentId: dbDocumentId,
+              documentVersionId: targetVersionId,
+              artifactKind: 'attachment',
+              storageBucket: 'documents',
+              storagePath,
+              originalFileName: supplementalFile.name,
+              originalMimeType: validated.detectedMime,
+              userId: user.id,
+              requestId,
+            });
+          } else {
+            const upload = await supabaseAdmin.storage
+              .from('documents')
+              .upload(storagePath, validated.bytes, {
+                contentType: validated.detectedMime,
+                cacheControl: '0',
+                upsert: false,
+              });
+            if (upload.error) throw upload.error;
+          }
+          validated.bytes.fill(0);
+          const inserted = await supabaseAdmin.from('document_package_resources').insert({
+            id: resourceId,
+            package_id: packageRow.id,
+            workspace_id: resolvedWorkspaceId,
+            document_id: dbDocumentId,
+            document_version_id: targetVersionId,
+            resource_kind: 'supplemental',
+            interaction_mode: resource.type,
+            title,
+            description: String(resource.description || '').trim() || null,
+            storage_bucket: 'documents',
+            storage_path: storagePath,
+            original_name: supplementalFile.name,
+            mime_type: validated.detectedMime,
+            byte_size: supplementalFile.size,
+            sha256: validated.sha256,
+            malware_scan_status: 'pending',
+            created_by: user.id,
+          });
+          if (inserted.error) throw inserted.error;
+          insertedResourceIds.push(resourceId);
+
+          if (visibilityEnabled) {
+            const visibilityByReference = (participantesConVisibilidad || [])
+              .map((participant: Record<string, unknown>, index: number) => {
+                const visibleIds = Array.isArray(participant.visible_resource_ids)
+                  ? participant.visible_resource_ids
+                  : normalizedSupplementalResources.map((item: Record<string, unknown>) => item.id);
+                const referenceId = participantReferences.find(
+                  (reference) =>
+                    reference.participant_json_id === participant.id || reference.ordinal === index
+                )?.id;
+                return referenceId
+                  ? {
+                      participantReferenceId: referenceId,
+                      visible: visibleIds.includes(resourceId),
+                    }
+                  : null;
+              })
+              .filter((value: unknown) => value !== null) as Array<{
+              participantReferenceId: string;
+              visible: boolean;
+            }>;
+            if (visibilityByReference.some((item: { visible: boolean }) => !item.visible)) {
+              const visibilityInsert = await supabaseAdmin
+                .from('document_resource_visibility')
+                .insert(
+                  visibilityByReference.map(
+                    ({
+                      participantReferenceId,
+                      visible,
+                    }: {
+                      participantReferenceId: string;
+                      visible: boolean;
+                    }) => ({
+                      workspace_id: resolvedWorkspaceId,
+                      document_id: dbDocumentId,
+                      resource_id: resourceId,
+                      participant_reference_id: participantReferenceId,
+                      visibility_mode: visible ? 'allow' : 'deny',
+                      created_by: user.id,
+                    })
+                  )
+                );
+              if (visibilityInsert.error) throw visibilityInsert.error;
+            }
+          }
+          await appendPackageEvent({
+            service: supabaseAdmin,
+            workspaceId: resolvedWorkspaceId,
+            documentId: dbDocumentId,
+            actorUserId: user.id,
+            eventType: 'package.resource.created',
+            eventKey: `package-resource:${resourceId}:created`,
+            payload: { resource_id: resourceId, interaction_mode: resource.type },
+          });
+        }
+
+        for (let index = 0; index < participantesConVisibilidad.length; index += 1) {
+          const participant = participantesConVisibilidad[index] as Record<string, unknown>;
+          const reference = participantReferences.find(
+            (candidate) =>
+              candidate.participant_json_id === participant.id || candidate.ordinal === index
+          );
+          const requirements = Array.isArray(participant.requirements)
+            ? participant.requirements
+            : [];
+          if (!reference && requirements.length > 0)
+            throw new Error('PACKAGE_PARTICIPANT_REFERENCE_MISSING');
+          for (const rawRequirement of requirements) {
+            const requirement = rawRequirement as Record<string, unknown>;
+            const requirementId = String(requirement.id || '');
+            const requirementName = String(requirement.name || '').trim();
+            const allowedMimeTypes = Array.isArray(requirement.allowedMimeTypes)
+              ? requirement.allowedMimeTypes.filter(
+                  (mime): mime is string =>
+                    typeof mime === 'string' &&
+                    DEFAULT_REQUIREMENT_MIME_TYPES.includes(mime as never)
+                )
+              : [...DEFAULT_REQUIREMENT_MIME_TYPES];
+            if (
+              !/^[0-9a-f-]{36}$/i.test(requirementId) ||
+              !requirementName ||
+              allowedMimeTypes.length === 0
+            ) {
+              throw new Error('PARTICIPANT_REQUIREMENT_INVALID');
+            }
+            const requirementInsert = await supabaseAdmin
+              .from('participant_document_requirements')
+              .insert({
+                id: requirementId,
+                package_id: packageRow.id,
+                workspace_id: resolvedWorkspaceId,
+                document_id: dbDocumentId,
+                document_version_id: targetVersionId,
+                participant_reference_id: reference!.id,
+                requirement_type: 'document',
+                name: requirementName,
+                description: String(requirement.description || '').trim() || null,
+                required: requirement.required !== false,
+                allowed_mime_types: allowedMimeTypes,
+                max_size_bytes: Math.min(Number(requirement.maxSizeBytes) || 26214400, 26214400),
+                created_by: user.id,
+              });
+            if (requirementInsert.error) throw requirementInsert.error;
+            await appendPackageEvent({
+              service: supabaseAdmin,
+              workspaceId: resolvedWorkspaceId,
+              documentId: dbDocumentId,
+              participantReferenceId: reference!.id,
+              actorUserId: user.id,
+              eventType: 'participant.requirement.created',
+              eventKey: `participant-requirement:${requirementId}:created`,
+              payload: { requirement_id: requirementId, required: requirement.required !== false },
+            });
+          }
+        }
+      } catch (packageError) {
+        if (insertedResourceIds.length > 0) {
+          const insertedRows = await supabaseAdmin
+            .from('document_package_resources')
+            .select('storage_path')
+            .in('id', insertedResourceIds);
+          if (insertedRows.data?.length) {
+            await supabaseAdmin.storage
+              .from('documents')
+              .remove(insertedRows.data.map((item) => item.storage_path));
+          }
+        }
+        await supabaseAdmin
+          .from('documentos')
+          .update({ estado: 'borrador' })
+          .eq('id', dbDocumentId);
+        throw packageError;
+      }
+    }
+
     if (resolvedInternalSource && resolvedWorkspaceId) {
       const relation = await supabaseAdmin.from('document_relations').insert({
         workspace_id: resolvedWorkspaceId,
@@ -1099,6 +1484,60 @@ export async function POST(req: NextRequest) {
         .eq('id', dbDocumentId);
     }
 
+    if (scheduledDelivery) {
+      const schedule = await supabaseAdmin
+        .from('document_send_schedules')
+        .upsert(
+          {
+            workspace_id: resolvedWorkspaceId,
+            document_id: dbDocumentId,
+            created_by: user.id,
+            scheduled_at: scheduledDelivery.scheduledAt,
+            timezone: scheduledDelivery.timezone,
+            status: 'scheduled',
+            idempotency_key: `document-send:${dbDocumentId}`,
+            payload: { initial_visible_ids: [...initialVisibleIds], schema_version: 1 },
+          },
+          { onConflict: 'document_id' }
+        )
+        .select('id,scheduled_at,timezone')
+        .single();
+      if (schedule.error) throw schedule.error;
+      await appendDocumentOperationalEvent(supabaseAdmin, {
+        documentId: dbDocumentId,
+        workspaceId: resolvedWorkspaceId,
+        actorUserId: user.id,
+        eventType: 'document.send_scheduled',
+        eventKey: `send-scheduled:${schedule.data.id}`,
+        payload: {
+          schedule_id: schedule.data.id,
+          scheduled_at: schedule.data.scheduled_at,
+          timezone: schedule.data.timezone,
+        },
+      });
+      await supabaseAdmin.from('audit_trail').insert({
+        documento_id: dbDocumentId,
+        actor_id: user.id,
+        action: 'envio_programado',
+        category: 'orquestacion',
+        details: {
+          schedule_id: schedule.data.id,
+          scheduled_at: schedule.data.scheduled_at,
+          timezone: schedule.data.timezone,
+        },
+      });
+      return NextResponse.json(
+        {
+          success: true,
+          dbDocumentId,
+          scheduled: true,
+          schedule: schedule.data,
+          invitations: { attempted: 0, sent: 0, failed: 0 },
+        },
+        { status: 200 }
+      );
+    }
+
     // ── Send the initial invitation to every participant who selected email ──
     let invitationSummary = { attempted: 0, sent: 0, failed: 0 };
 
@@ -1108,6 +1547,7 @@ export async function POST(req: NextRequest) {
         name?: string;
         isCurrentUser?: boolean;
         tipoNotificacion?: string[];
+        delivery_mode?: string;
         portal_token?: string;
         [key: string]: unknown;
       };
@@ -1116,6 +1556,7 @@ export async function POST(req: NextRequest) {
         participantesConVisibilidad || []
       ).filter((p: EmailInvitationParticipant) => {
         if (!p.visible || !p.email) return false;
+        if (p.delivery_mode === 'in_person') return false;
         if (!p.email.includes('@')) return false;
         return isEmailNotificationEnabled(p.tipoNotificacion);
       });
@@ -1296,11 +1737,26 @@ export async function POST(req: NextRequest) {
       // Non-blocking: document was already saved successfully
     }
 
+    await appendDocumentOperationalEvent(supabaseAdmin, {
+      documentId: dbDocumentId,
+      workspaceId: resolvedWorkspaceId,
+      actorUserId: user.id,
+      eventType: 'document.sent',
+      eventKey: `send-now:${dbDocumentId}`,
+      payload: { invitation_count: invitationSummary.attempted },
+    }).catch(() => undefined);
+
     return NextResponse.json(
       { success: true, dbDocumentId, invitations: invitationSummary },
       { status: 200 }
     );
   } catch (err: unknown) {
+    if (err instanceof ServerRateLimitUnavailableError) {
+      return NextResponse.json(
+        { error: 'La protección de solicitudes no está disponible temporalmente.' },
+        { status: 503 }
+      );
+    }
     if (err instanceof InternalSourceError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
     }

@@ -9,6 +9,15 @@ import { createEvidenceV2Package } from './generator';
 import { isEvidenceV2KmsSigningEnabled } from './feature-flags';
 import { metadataSnapshotDigest } from './canonical';
 import { validateEvidenceV21Readiness } from './readiness';
+import {
+  buildEvidenceParticipationContext,
+  type CanonicalEventSource,
+  type CompletionAttemptSource,
+  type DelegationSource,
+  type InPersonSessionSource,
+  type SigningGroupMemberSource,
+  type SigningGroupSource,
+} from './participation-context';
 import { registerEvidenceSigningKey, verifyEvidenceSealAgainstRegistry } from './trust-registry';
 import type {
   EvidenceNom151,
@@ -542,56 +551,110 @@ export async function generateEvidenceV2ForDocument(
     .maybeSingle();
   if (existingResult.error) throw existingResult.error;
 
-  const [timestampResult, nom151Result, otsResult, signaturesResult, responsesResult] =
-    await Promise.all([
-      service
-        .from('timestamp_records')
-        .select(
-          'id,status,message_imprint_sha256,timestamp_token_sha256,gen_time,tsa_name,tsa_policy_oid,tsa_serial_number,token_storage_path,verified_at'
-        )
-        .eq('document_certification_id', certification.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      service
-        .from('nom151_constancias_doc')
-        .select(
-          'id,status,verification_status,provider,psc_name,environment,production_trusted,operation_id,folio,document_digest,constancia_sha256,constancia_path,constancia_storage_path,issued_at,verified_at,certificate_serial,tst_policy_oid,created_at'
-        )
-        .eq('documento_id', input.documentId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      service
-        .from('document_blockchain_evidence')
-        .select(
-          'id,status,evidence_hash,manifest_hash,proof_sha256,proof_storage_path,anchored_at,verified_at,bitcoin_block_height'
-        )
-        .eq('document_id', input.documentId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      service
-        .from('signature_evidence')
-        .select(
-          'id,capture_id,signature_id,participant_record_id,document_version_id,evidence_role,captured_by,participant_email,evidence_type,image_sha256,strokes_sha256,combined_sha256,storage_image_path,storage_strokes_path,image_storage_bucket,strokes_storage_bucket,captured_at,document_sha256,cert_serial_number,cert_rfc,cert_curp,cert_subject,cert_issuer,cert_not_before,cert_not_after,cert_fingerprint_sha256,ocsp_status,ocsp_checked_at,signed_at,signed_payload_sha256,digital_seal,digital_seal_sha256,digital_seal_path,sign_algorithm,validation_provider,provider_reference,efirma_bundle_path,efirma_bundle_sha256,bundle_storage_bucket,consent_text_version,consent_text_sha256,consent_accepted,consent_accepted_at,ip_address,user_agent,timezone,geo_latitude,geo_longitude,geo_accuracy_m,city,region,country,country_code,device_type,screen_resolution,context_ip_status,context_geo_status,context_user_agent_status'
-        )
-        .eq('document_id', input.documentId)
-        .eq('is_voided', false)
-        .order('captured_at', { ascending: true }),
-      service
-        .from('participation_responses')
-        .select(
-          'id,participante_id,participant_record_id,participante_email,firma_completada_at,respondido_at,signature_evidence_id,consent_text_version,consent_text_sha256,consent_accepted,consent_accepted_at'
-        )
-        .eq('documento_id', input.documentId),
-    ]);
+  const [
+    timestampResult,
+    nom151Result,
+    otsResult,
+    signaturesResult,
+    responsesResult,
+    completionAttemptsResult,
+    inPersonSessionsResult,
+    completionEventsResult,
+    signingGroupsResult,
+    signingGroupMembersResult,
+    delegationsResult,
+  ] = await Promise.all([
+    service
+      .from('timestamp_records')
+      .select(
+        'id,status,message_imprint_sha256,timestamp_token_sha256,gen_time,tsa_name,tsa_policy_oid,tsa_serial_number,token_storage_path,verified_at'
+      )
+      .eq('document_certification_id', certification.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    service
+      .from('nom151_constancias_doc')
+      .select(
+        'id,status,verification_status,provider,psc_name,environment,production_trusted,operation_id,folio,document_digest,constancia_sha256,constancia_path,constancia_storage_path,issued_at,verified_at,certificate_serial,tst_policy_oid,created_at'
+      )
+      .eq('documento_id', input.documentId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    service
+      .from('document_blockchain_evidence')
+      .select(
+        'id,status,evidence_hash,manifest_hash,proof_sha256,proof_storage_path,anchored_at,verified_at,bitcoin_block_height'
+      )
+      .eq('document_id', input.documentId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    service
+      .from('signature_evidence')
+      .select(
+        'id,capture_id,signature_id,participant_record_id,document_version_id,evidence_role,captured_by,participant_email,evidence_type,image_sha256,strokes_sha256,combined_sha256,storage_image_path,storage_strokes_path,image_storage_bucket,strokes_storage_bucket,captured_at,document_sha256,cert_serial_number,cert_rfc,cert_curp,cert_subject,cert_issuer,cert_not_before,cert_not_after,cert_fingerprint_sha256,ocsp_status,ocsp_checked_at,signed_at,signed_payload_sha256,digital_seal,digital_seal_sha256,digital_seal_path,sign_algorithm,validation_provider,provider_reference,efirma_bundle_path,efirma_bundle_sha256,bundle_storage_bucket,consent_text_version,consent_text_sha256,consent_accepted,consent_accepted_at,ip_address,user_agent,timezone,geo_latitude,geo_longitude,geo_accuracy_m,city,region,country,country_code,device_type,screen_resolution,context_ip_status,context_geo_status,context_user_agent_status'
+      )
+      .eq('document_id', input.documentId)
+      .eq('is_voided', false)
+      .order('captured_at', { ascending: true }),
+    service
+      .from('participation_responses')
+      .select(
+        'id,participante_id,participant_record_id,participante_email,firma_completada_at,respondido_at,signature_evidence_id,consent_text_version,consent_text_sha256,consent_accepted,consent_accepted_at'
+      )
+      .eq('documento_id', input.documentId),
+    service
+      .from('participant_completion_attempts')
+      .select(
+        'id,status,participant_reference_id,in_person_session_id,signature_evidence_id,participation_response_id,correlation_id,claimed_at,committed_at,effective_actor_user_id,delegation_id,requested_action_type'
+      )
+      .eq('document_id', input.documentId)
+      .eq('action_type', 'signature')
+      .eq('status', 'committed')
+      .order('committed_at', { ascending: true }),
+    service
+      .from('in_person_signing_sessions')
+      .select('id,status,participant_reference_id,created_at,started_at,completed_at')
+      .eq('document_id', input.documentId)
+      .eq('status', 'completed')
+      .order('completed_at', { ascending: true }),
+    service
+      .from('document_operational_events')
+      .select('id,event_key,correlation_id,occurred_at,payload')
+      .eq('document_id', input.documentId)
+      .eq('event_type', 'participant.completion_committed')
+      .order('occurred_at', { ascending: true }),
+    service
+      .from('document_signing_groups')
+      .select('id,completion_policy,winner_participant_reference_id')
+      .eq('document_id', input.documentId),
+    service
+      .from('document_signing_group_members')
+      .select('group_id,participant_reference_id,ordinal')
+      .eq('document_id', input.documentId)
+      .order('ordinal', { ascending: true }),
+    service
+      .from('document_participant_delegations')
+      .select(
+        'id,original_participant_reference_id,group_member_slot_id,delegate_participant_reference_id,delegate_user_id,created_by,policy_mode,reason,created_at,completed_at'
+      )
+      .eq('document_id', input.documentId)
+      .eq('status', 'completed'),
+  ]);
   for (const result of [
     timestampResult,
     nom151Result,
     otsResult,
     signaturesResult,
     responsesResult,
+    completionAttemptsResult,
+    inPersonSessionsResult,
+    completionEventsResult,
+    signingGroupsResult,
+    signingGroupMembersResult,
+    delegationsResult,
   ])
     if (result.error) throw result.error;
   const timestamp = timestampResult.data as Record<string, unknown> | null;
@@ -601,6 +664,12 @@ export async function generateEvidenceV2ForDocument(
     (row) => row.evidence_role === 'FINAL_SIGNATURE'
   );
   const responses = (responsesResult.data || []) as Array<Record<string, unknown>>;
+  const completionAttempts = (completionAttemptsResult.data || []) as CompletionAttemptSource[];
+  const inPersonSessions = (inPersonSessionsResult.data || []) as InPersonSessionSource[];
+  const completionEvents = (completionEventsResult.data || []) as CanonicalEventSource[];
+  const signingGroups = (signingGroupsResult.data || []) as SigningGroupSource[];
+  const signingGroupMembers = (signingGroupMembersResult.data || []) as SigningGroupMemberSource[];
+  const delegations = (delegationsResult.data || []) as DelegationSource[];
 
   if (existingResult.data) {
     if (normalized(existingResult.data.document_final_sha256) !== finalHash) {
@@ -881,6 +950,40 @@ export async function generateEvidenceV2ForDocument(
         : response?.firma_completada_at
           ? String(response.firma_completada_at)
           : null;
+      const completionAttempt = completionAttempts.find(
+        (candidate) => String(candidate.signature_evidence_id || '') === String(row.id)
+      );
+      const inPersonSessionId = String(completionAttempt?.in_person_session_id || '');
+      const inPersonSession = inPersonSessionId
+        ? inPersonSessions.find((candidate) => String(candidate.id) === inPersonSessionId)
+        : null;
+      const completionEvent = completionAttempt
+        ? completionEvents.find(
+            (candidate) =>
+              String(candidate.event_key || '') ===
+              `completion:${String(completionAttempt.id)}:committed`
+          )
+        : null;
+      const completionPayload =
+        completionEvent?.payload && typeof completionEvent.payload === 'object'
+          ? (completionEvent.payload as Record<string, unknown>)
+          : {};
+      const signingGroup = signingGroups.find(
+        (candidate) => String(candidate.id) === String(completionPayload.signing_group_id || '')
+      );
+      const delegation = delegations.find(
+        (candidate) => String(candidate.id) === String(completionAttempt?.delegation_id || '')
+      );
+      const participation = buildEvidenceParticipationContext({
+        attempt: completionAttempt,
+        session: inPersonSession,
+        canonicalEvent: completionEvent,
+        signingGroup,
+        signingGroupMembers,
+        delegation,
+        signingMethod: method,
+        consentTextHash: row.consent_text_sha256,
+      });
       return {
         signatureRef: `signature:${String(row.signature_id || row.id)}`,
         participantRef: signatureParticipantRef(row, participants),
@@ -897,6 +1000,7 @@ export async function generateEvidenceV2ForDocument(
             : null,
         signedAt,
         evidenceRole: 'FINAL_SIGNATURE' as const,
+        participation,
         context: {
           ipStatus: (row.context_ip_status || (row.ip_address ? 'available' : 'unavailable')) as
             'available' | 'unavailable' | 'denied' | 'not_applicable',

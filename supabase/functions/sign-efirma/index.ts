@@ -32,6 +32,12 @@ function validBrowserGeolocation(geo: unknown) {
   );
 }
 
+function resolveParticipantRecordId(value: unknown, authenticatedUserId: string) {
+  const candidate = String(value || '').trim();
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidPattern.test(candidate) ? candidate : authenticatedUserId;
+}
+
 async function sha256Hex(value: string | Uint8Array) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
   const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer);
@@ -272,7 +278,7 @@ serve(async (request) => {
       id: evidenceId,
       capture_id: evidenceId,
       signature_id: evidenceId,
-      participant_record_id: body.participant_id || user.id,
+      participant_record_id: resolveParticipantRecordId(body.participant_id, user.id),
       evidence_role: 'FINAL_SIGNATURE',
       document_id: documentId,
       evidence_type: 'efirma_sat',

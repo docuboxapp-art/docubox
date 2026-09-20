@@ -136,12 +136,18 @@ test('document viewer keeps blockchain evidence visible before a proof exists', 
 test('blockchain evidence uses the same authenticated participant access as the document viewer', () => {
   const access = readFileSync('src/lib/blockchain-evidence/access.ts', 'utf8');
   const viewer = readFileSync('src/app/api/documentos/[documentId]/viewer-file/route.ts', 'utf8');
+  const contentAccess = readFileSync('src/lib/security/document-content-access.ts', 'utf8');
+  const documentAccess = readFileSync('src/lib/security/document-access.ts', 'utf8');
 
   assert.match(access, /service\.auth\.getUser\(authorization\.slice\(7\)\.trim\(\)\)/);
   assert.match(access, /\.select\('participantes'\)/);
   assert.match(access, /row\.id === user\.id/);
   assert.match(access, /normalizeEmail\(row\.email\) === email/);
-  assert.match(viewer, /let participant = isParticipant\(document\.participantes, user\.id, email\)/);
+  assert.match(viewer, /requireDocumentContentAccess\(request, documentId\)/);
+  assert.match(contentAccess, /requireDocumentAccess\(request, documentId\)/);
+  assert.match(documentAccess, /document_access_permissions/);
+  assert.match(documentAccess, /canAccessParticipantDocument\(participantEntry\)/);
+  assert.match(documentAccess, /!listedParticipant[\s\S]*?!explicitPermission/);
 });
 
 test('blockchain evidence is automatic and cannot be disabled during document creation', () => {

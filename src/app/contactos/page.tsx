@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, Search, Plus, Mail, Phone, Trash2, Check, LayoutGrid, List, MoreVertical, Eye, Tag, FileText, ChevronDown, Activity, Edit2, Save, Hash, StickyNote, MapPin, X, Pencil, ExternalLink, Shield, ShieldOff, ShieldAlert, AlertTriangle, Clock, CheckCircle2, XCircle, AlertCircle, Info, Calendar, User, Copy } from 'lucide-react';
+import { Users, Search, Plus, Mail, Phone, Trash2, Check, LayoutGrid, LayoutList, MoreVertical, Eye, Tag, FileText, ChevronDown, Activity, Edit2, Save, Hash, StickyNote, MapPin, X, Pencil, ExternalLink, Shield, ShieldOff, ShieldAlert, AlertTriangle, Clock, CheckCircle2, XCircle, AlertCircle, Info, Calendar, User, Copy } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1603,11 +1603,11 @@ export default function ContactosPage() {
         <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5 sm:order-2">
+              <button onClick={() => setViewMode('list')} className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:text-slate-700'}`} title="Vista lista">
+                <LayoutList size={16} />
+              </button>
               <button onClick={() => setViewMode('grid')} className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:text-slate-700'}`} title="Vista cuadrícula">
                 <LayoutGrid size={16} />
-              </button>
-              <button onClick={() => setViewMode('list')} className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:text-slate-700'}`} title="Vista lista">
-                <List size={16} />
               </button>
             </div>
             <div className="relative min-w-[220px] flex-1 sm:order-1">

@@ -45,6 +45,10 @@ import {
   Lock,
   Folder,
   UserCog,
+  Tablet,
+  Paperclip,
+  Building2,
+  Sparkles,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
@@ -52,19 +56,34 @@ import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
 import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { LegalHoldPanel } from '@/components/documents/LegalHoldPanel';
+import { AccessProtectionPanel } from '@/components/documents/AccessProtectionPanel';
+import { DocumentPackagePanel } from '@/components/documents/DocumentPackagePanel';
+import { OrganizationDocumentGovernancePanel } from '@/components/documents/OrganizationDocumentGovernancePanel';
+import { ContractIntelligencePanel } from '@/components/documents/ContractIntelligencePanel';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createNotification } from '@/lib/notificationsInApp';
 import { getNom151Presentation } from '@/lib/nom151/presentation';
+import {
+  DOCUMENT_VIEWER_SELECT,
+  LEGACY_DOCUMENT_VIEWER_SELECT,
+  isMissingDocumentCustodyColumns,
+} from '@/lib/documents/viewer-select';
 import {
   formatEvidenceTimestamp,
   formatLocalTimestampWithOffset,
   getEffectiveTimeZone,
   getTimeZoneOffsetLabel,
 } from '@/lib/datetime';
-import { CodigoAccesoModal, StepSubir } from '@/app/crear-documento/components/StepSubir';
+import { StepSubir } from '@/app/crear-documento/components/StepSubir';
 import { StepParticipantes } from '@/app/crear-documento/components/StepParticipantes';
 import { StepAjustes } from '@/app/crear-documento/components/StepAjustes';
+import { TemplateDocumentPreview } from '@/components/templates/TemplateDocumentPreview';
+import {
+  loadTemplateDocumentSource,
+  type TemplateFieldValues,
+} from '@/lib/templates/document-flow';
+import type { PublishedTemplateDocument } from '@/lib/templates/preview';
 import type {
   Participant,
   DocumentSettings,
@@ -83,6 +102,10 @@ interface DocumentData {
   file_size?: number;
   formato?: string;
   file_type?: string;
+  source_template_id?: string | null;
+  tiene_vencimiento?: boolean;
+  tiene_codigo_acceso?: boolean;
+  metadatos_adicionales?: boolean;
   created_at?: string;
   updated_at?: string;
   vencimiento?: string;
@@ -100,6 +123,8 @@ interface DocumentData {
   cancelado_at?: string;
   fecha_completado?: string;
   workspace_id?: string;
+  current_custodian_workspace_id?: string;
+  custody_updated_at?: string;
   sealed_pdf_path?: string;
   xml_evidencia_path?: string;
   xml_hash_sha256?: string;
@@ -260,6 +285,18 @@ async function apiAuthHeaders(includeJson = false): Promise<Record<string, strin
   return headers;
 }
 
+async function fetchDocumentActivity(documentId: string): Promise<ActivityEvent[]> {
+  const response = await fetch(
+    `/api/documentos/${encodeURIComponent(documentId)}/activity`,
+    { headers: await apiAuthHeaders(), cache: 'no-store' }
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || 'No fue posible cargar la actividad.');
+  }
+  return Array.isArray(payload?.events) ? (payload.events as ActivityEvent[]) : [];
+}
+
 interface Participante {
   id: string;
   nombre: string;
@@ -278,6 +315,8 @@ interface Participante {
   fecha_notificacion?: string;
   fecha_recordatorio?: string;
   fecha_participacion?: string;
+  participant_reference_id?: string;
+  delivery_mode?: 'remote' | 'in_person';
 }
 
 interface SectionState {
@@ -312,6 +351,7 @@ interface ActivityEvent {
 }
 
 interface CampoSolicitado {
+  valueKey?: string;
   label: string;
   participantId: string | null;
   participantName: string | null;
@@ -425,6 +465,15 @@ const CAMPO_COLORS: { border: string; bg: string; text: string }[] = [
   { border: 'border-teal-400', bg: 'bg-teal-50', text: 'text-teal-600' },
 ];
 
+function mixFieldColorWithWhite(color: string, whiteRatio = 0.88) {
+  const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color);
+  if (!match) return '#f8fafc';
+
+  const channel = (value: string) =>
+    Math.round(Number.parseInt(value, 16) * (1 - whiteRatio) + 255 * whiteRatio);
+  return `rgb(${channel(match[1])}, ${channel(match[2])}, ${channel(match[3])})`;
+}
+
 // Avatar colors per participant index
 const AVATAR_COLORS = [
   { bg: 'bg-blue-100', text: 'text-blue-600' },
@@ -485,7 +534,15 @@ interface DocumentAccessPermission {
   updated_at: string;
 }
 
-function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style, children }: PdfCanvasProps) {
+function PdfCanvas({
+  fileUrl,
+  page,
+  zoom,
+  onTotalPages,
+  className,
+  style,
+  children,
+}: PdfCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
   const pdfDocRef = useRef<any>(null);
@@ -589,7 +646,11 @@ function PdfCanvas({ fileUrl, page, zoom, onTotalPages, className, style, childr
     } catch (err: any) {
       if (err?.name !== 'RenderingCancelledException') {
         console.error('[PdfCanvas] render error:', err);
-        if (/DOCUMENT_ACCESS_CODE_REQUIRED|ACCESS_CODE_REQUIRED|423/.test(String(err?.message || err?.name || ''))) {
+        if (
+          /DOCUMENT_ACCESS_CODE_REQUIRED|ACCESS_CODE_REQUIRED|423/.test(
+            String(err?.message || err?.name || '')
+          )
+        ) {
           setRequiresAccessCode(true);
         }
         setError(true);
@@ -797,6 +858,8 @@ export default function VisorDocumentoPage() {
     user?.user_metadata?.full_name || user?.user_metadata?.nombre || userEmail || 'Usuario';
 
   const [document, setDocument] = useState<DocumentData | null>(null);
+  const [templateDocument, setTemplateDocument] =
+    useState<PublishedTemplateDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [docError, setDocError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
@@ -820,13 +883,28 @@ export default function VisorDocumentoPage() {
     | 'descargas'
     | 'auditoria'
     | 'permisos'
+    | 'access'
     | 'legal-hold'
+    | 'package'
+    | 'governance'
+    | 'lucia'
   >('details');
+  const [accessSummary, setAccessSummary] = useState({
+    loaded: false,
+    enabled: false,
+    canManage: false,
+  });
   const [legalHoldSummary, setLegalHoldSummary] = useState({
     loaded: false,
     hasHistory: false,
     activeCount: 0,
     canCreate: false,
+  });
+  const [packageReadiness, setPackageReadiness] = useState({
+    loaded: false,
+    ready: false,
+    hasContent: false,
+    blockers: [] as unknown[],
   });
   const [documentPermissions, setDocumentPermissions] = useState<DocumentAccessPermission[]>([]);
   const [permissionsLoading, setPermissionsLoading] = useState(false);
@@ -857,6 +935,7 @@ export default function VisorDocumentoPage() {
   const [cancelDescripcion, setCancelDescripcion] = useState('');
   const [cancelConfirmStep, setCancelConfirmStep] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [inPersonStartingId, setInPersonStartingId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>([]);
@@ -976,14 +1055,14 @@ export default function VisorDocumentoPage() {
   const blockchainEvidenceReady = blockchainEvidence?.status === 'VERIFIED';
   const blockchainEvidenceFailed = Boolean(
     blockchainEvidenceError ||
-      (blockchainEvidence &&
-        [
-          'SUBMISSION_FAILED',
-          'UPGRADE_FAILED',
-          'VERIFICATION_FAILED',
-          'INVALID_PROOF',
-          'STORAGE_ERROR',
-        ].includes(blockchainEvidence.status))
+    (blockchainEvidence &&
+      [
+        'SUBMISSION_FAILED',
+        'UPGRADE_FAILED',
+        'VERIFICATION_FAILED',
+        'INVALID_PROOF',
+        'STORAGE_ERROR',
+      ].includes(blockchainEvidence.status))
   );
   const blockchainEvidenceStatusLabel = blockchainEvidenceReady
     ? 'Verificada'
@@ -1013,19 +1092,100 @@ export default function VisorDocumentoPage() {
     }
   }, [docId, user]);
 
-  const handleLegalHoldChanged = useCallback((summary: {
-    hasHistory: boolean;
-    activeCount: number;
-  }) => {
-    setLegalHoldSummary((current) => ({ ...current, loaded: true, ...summary }));
-    setDocument((current) => current ? {
-      ...current,
-      legal_hold: summary.activeCount > 0,
-      legal_hold_status: summary.activeCount > 0 ? 'ACTIVE' : 'RELEASED',
-    } : current);
+  const refreshAccessSummary = useCallback(async () => {
+    if (!docId || !user) return;
+    try {
+      const response = await fetch(`/api/documentos/${docId}/view-access`, {
+        headers: await apiAuthHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        setAccessSummary({ loaded: true, enabled: false, canManage: false });
+        return;
+      }
+      const payload = await response.json();
+      setAccessSummary({
+        loaded: true,
+        enabled: payload.enabled === true,
+        canManage: payload.canManage === true,
+      });
+      if (
+        searchParams.get('tab') === 'access' &&
+        payload.enabled === true &&
+        payload.canManage === true
+      ) {
+        setActiveTab('access');
+      }
+    } catch {
+      setAccessSummary((current) => ({ ...current, loaded: true }));
+    }
+  }, [docId, searchParams, user]);
+
+  const handleLegalHoldChanged = useCallback(
+    (summary: { hasHistory: boolean; activeCount: number }) => {
+      setLegalHoldSummary((current) => ({ ...current, loaded: true, ...summary }));
+      setDocument((current) =>
+        current
+          ? {
+              ...current,
+              legal_hold: summary.activeCount > 0,
+              legal_hold_status: summary.activeCount > 0 ? 'ACTIVE' : 'RELEASED',
+            }
+          : current
+      );
+    },
+    []
+  );
+
+  const handleAccessChanged = useCallback((summary: { enabled: boolean; canManage: boolean }) => {
+    setAccessSummary({ loaded: true, ...summary });
   }, []);
 
-  useEffect(() => { void refreshLegalHoldSummary(); }, [refreshLegalHoldSummary]);
+  const handlePackageReadinessChanged = useCallback(
+    (readiness: { ready: boolean; blockers: unknown[] }) => {
+      setPackageReadiness((current) => ({ ...current, loaded: true, ...readiness }));
+    },
+    []
+  );
+
+  useEffect(() => {
+    void refreshLegalHoldSummary();
+  }, [refreshLegalHoldSummary]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void refreshAccessSummary(), 0);
+    return () => window.clearTimeout(timer);
+  }, [refreshAccessSummary]);
+
+  const refreshPackageReadiness = useCallback(async () => {
+    if (!docId || !user) return;
+    try {
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/package`, {
+        headers: await apiAuthHeaders(),
+        cache: 'no-store',
+      });
+      if (response.status === 404 || response.status === 503) {
+        setPackageReadiness({ loaded: true, ready: true, hasContent: false, blockers: [] });
+        return;
+      }
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'PACKAGE_READINESS_FAILED');
+      setPackageReadiness({
+        loaded: true,
+        ready: payload.data?.readiness?.ready !== false,
+        hasContent:
+          (payload.data?.resources?.length || 0) > 0 ||
+          (payload.data?.requirements?.length || 0) > 0,
+        blockers: payload.data?.readiness?.blockers || [],
+      });
+    } catch {
+      setPackageReadiness({ loaded: true, ready: true, hasContent: false, blockers: [] });
+    }
+  }, [docId, user]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void refreshPackageReadiness(), 0);
+    return () => window.clearTimeout(timer);
+  }, [refreshPackageReadiness]);
 
   useEffect(() => {
     if (!legalHoldSummary.loaded) return;
@@ -1086,7 +1246,10 @@ export default function VisorDocumentoPage() {
           setEvidenceV2Error('');
         }
       } catch (error) {
-        if (active) setEvidenceV2Error(error instanceof Error ? error.message : 'No se pudo consultar la evidencia.');
+        if (active)
+          setEvidenceV2Error(
+            error instanceof Error ? error.message : 'No se pudo consultar la evidencia.'
+          );
       } finally {
         if (active) setEvidenceV2Loading(false);
       }
@@ -1099,34 +1262,40 @@ export default function VisorDocumentoPage() {
     };
   }, [docId, document?.estado]);
 
-  const downloadEvidenceV2 = useCallback(async (kind: 'xml' | 'package') => {
-    if (!docId) return;
-    setEvidenceV2Download(kind);
-    try {
-      const response = await fetch(
-        `/api/documentos/${encodeURIComponent(docId)}/evidence/${kind}`,
-        { headers: await apiAuthHeaders() }
-      );
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || 'No fue posible descargar la evidencia.');
+  const downloadEvidenceV2 = useCallback(
+    async (kind: 'xml' | 'package') => {
+      if (!docId) return;
+      setEvidenceV2Download(kind);
+      try {
+        const response = await fetch(
+          `/api/documentos/${encodeURIComponent(docId)}/evidence/${kind}`,
+          { headers: await apiAuthHeaders() }
+        );
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error || 'No fue posible descargar la evidencia.');
+        }
+        const url = URL.createObjectURL(await response.blob());
+        const anchor = window.document.createElement('a');
+        anchor.href = url;
+        anchor.download =
+          kind === 'xml'
+            ? `evidencia-${evidenceV2?.technical?.packageId || docId}.xml`
+            : `paquete-evidencia-${evidenceV2?.technical?.packageId || docId}.zip`;
+        window.document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      } catch (error) {
+        setEvidenceV2Error(
+          error instanceof Error ? error.message : 'No fue posible descargar la evidencia.'
+        );
+      } finally {
+        setEvidenceV2Download(null);
       }
-      const url = URL.createObjectURL(await response.blob());
-      const anchor = window.document.createElement('a');
-      anchor.href = url;
-      anchor.download = kind === 'xml'
-        ? `evidencia-${evidenceV2?.technical?.packageId || docId}.xml`
-        : `paquete-evidencia-${evidenceV2?.technical?.packageId || docId}.zip`;
-      window.document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-    } catch (error) {
-      setEvidenceV2Error(error instanceof Error ? error.message : 'No fue posible descargar la evidencia.');
-    } finally {
-      setEvidenceV2Download(null);
-    }
-  }, [docId, evidenceV2?.technical?.packageId]);
+    },
+    [docId, evidenceV2?.technical?.packageId]
+  );
 
   useEffect(() => {
     if (!document?.id) return;
@@ -2286,10 +2455,9 @@ export default function VisorDocumentoPage() {
     setPermissionsLoading(true);
     setPermissionsError(null);
     try {
-      const response = await fetch(
-        `/api/documentos/${encodeURIComponent(docId)}/permissions`,
-        { headers: await apiAuthHeaders() }
-      );
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/permissions`, {
+        headers: await apiAuthHeaders(),
+      });
       if (response.status === 403) {
         setDocumentPermissions([]);
         setCanManagePermissions(false);
@@ -2317,18 +2485,15 @@ export default function VisorDocumentoPage() {
     setPermissionSaving(true);
     setPermissionsError(null);
     try {
-      const response = await fetch(
-        `/api/documentos/${encodeURIComponent(docId)}/permissions`,
-        {
-          method: 'POST',
-          headers: await apiAuthHeaders(true),
-          body: JSON.stringify({
-            email: permissionEmail,
-            accessLevel: permissionAccessLevel,
-            canInvite: permissionCanInvite,
-          }),
-        }
-      );
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/permissions`, {
+        method: 'POST',
+        headers: await apiAuthHeaders(true),
+        body: JSON.stringify({
+          email: permissionEmail,
+          accessLevel: permissionAccessLevel,
+          canInvite: permissionCanInvite,
+        }),
+      });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'No fue posible guardar el permiso.');
       setPermissionEmail('');
@@ -2381,17 +2546,20 @@ export default function VisorDocumentoPage() {
     const loadDocument = async () => {
       setLoading(true);
       setDocError(null);
+      setTemplateDocument(null);
       try {
         let data: any = null;
 
         // First try direct Supabase query (works for owners and when RLS policies are applied)
-        const { data: directData, error } = await supabase
-          .from('documentos')
-          .select(
-            'id, documento_id, nombre, estado, owner_id, file_url, file_size, file_type, file_hash_sha256, es_publico, legal_hold, legal_hold_status, created_at, updated_at, fecha_vencimiento, fecha_vencimiento_timezone, carpeta_id, campos_solicitados, workspace_id, cancelacion_motivo, cancelacion_descripcion, cancelado_at, fecha_completado, participantes, sealed_pdf_path, xml_evidencia_path, xml_hash_sha256, xml_generated_at, blockchain_evidence_enabled'
-          )
-          .eq('id', docId)
-          .single();
+        const queryDocument = (columns: string) =>
+          supabase.from('documentos').select(columns).eq('id', docId).maybeSingle();
+        let directResult = await queryDocument(DOCUMENT_VIEWER_SELECT);
+
+        if (isMissingDocumentCustodyColumns(directResult.error)) {
+          directResult = await queryDocument(LEGACY_DOCUMENT_VIEWER_SELECT);
+        }
+
+        const { data: directData, error } = directResult;
 
         if (error || !directData) {
           // Fallback: use API route with service role to verify access server-side
@@ -2493,7 +2661,7 @@ export default function VisorDocumentoPage() {
         const carpetaNombre = folderResult.data?.nombre || 'Documentos Generales';
         const organizacion = workspaceResult.data?.name || 'Mi Organización';
 
-        setDocument({
+        const loadedDocument: DocumentData = {
           ...data,
           file_url: viewerFileUrl,
           vencimiento: data.fecha_vencimiento || undefined,
@@ -2517,14 +2685,23 @@ export default function VisorDocumentoPage() {
           xml_generated_at: data.xml_generated_at || undefined,
           es_publico: data.es_publico ?? false,
           metadata: metadataResult.data || null,
-        });
+        };
+        setDocument(loadedDocument);
+        const templateHeaders = await apiAuthHeaders();
+        const resolvedTemplate = await loadTemplateDocumentSource({
+          documentId: docId,
+          fileType: loadedDocument.file_type,
+          fileUrl: loadedDocument.file_url,
+          headers: templateHeaders,
+        }).catch(() => null);
+        setTemplateDocument(resolvedTemplate);
 
         void loadAdditionalMetadata();
 
         const rawParts: any[] = data.participantes || [];
 
         if (rawParts.length > 0) {
-          const mapped = rawParts.map((p: any, idx: number) => ({
+          const mapped: Participante[] = rawParts.map((p: any, idx: number) => ({
             id: p.id || String(idx),
             nombre: p.nombre || p.name || '',
             email: p.email || '',
@@ -2553,6 +2730,9 @@ export default function VisorDocumentoPage() {
             fecha_notificacion: p.fecha_notificacion || undefined,
             fecha_recordatorio: p.fecha_recordatorio || undefined,
             fecha_participacion: p.fecha_participacion || p.fecha_firma || undefined,
+            participant_reference_id: p.participant_ref_id || undefined,
+            delivery_mode:
+              p.delivery_mode === 'in_person' ? ('in_person' as const) : ('remote' as const),
           }));
           setParticipantes(mapped);
 
@@ -2610,6 +2790,15 @@ export default function VisorDocumentoPage() {
     const loadActivity = async () => {
       setActivityLoading(true);
       try {
+        try {
+          setActivityEvents(await fetchDocumentActivity(docId));
+          return;
+        } catch (activityApiError) {
+          console.warn(
+            '[visor-documento] Activity API unavailable, using direct fallback:',
+            activityApiError
+          );
+        }
         const allEvents: ActivityEvent[] = [];
 
         // ── 1. security_audit_log (own events + doc events) ──────────────────
@@ -3268,6 +3457,12 @@ export default function VisorDocumentoPage() {
   // ── Send reminder email to a participant ───────────────────────────────────
   const handleSendReminder = async (p: Participante) => {
     if (!p.email || !document) return;
+    const isCreatorOnlyParticipant =
+      document.owner_id === user?.id &&
+      participantes.length === 1 &&
+      (p.id === user.id ||
+        p.email.trim().toLowerCase() === user.email?.trim().toLowerCase());
+    if (isCreatorOnlyParticipant) return;
     setSendingReminderFor(p.id);
     try {
       const res = await fetch('/api/documentos/send-reminder', {
@@ -4230,11 +4425,13 @@ export default function VisorDocumentoPage() {
       LEGAL_HOLD_UPDATED: 'Legal Hold actualizado',
       LEGAL_HOLD_RELEASED: 'Legal Hold liberado',
       VIEW_ACCESS_PROTECTION_ENABLED: 'Se habilitó la protección de visualización',
+      VIEW_ACCESS_PROTECTION_REENABLED: 'Se reactivó la protección de visualización',
       VIEW_ACCESS_CHALLENGE_SHOWN: 'Se solicitó el código de visualización',
       VIEW_ACCESS_FAILED: 'Se detectó un intento incorrecto de acceso',
       VIEW_ACCESS_GRANTED: 'Documento desbloqueado',
       VIEW_ACCESS_TEMPORARILY_LOCKED: 'Acceso bloqueado temporalmente',
       VIEW_ACCESS_CODE_CHANGED: 'Se modificó el código de acceso',
+      VIEW_ACCESS_UNLOCKS_INVALIDATED: 'Se invalidaron desbloqueos anteriores',
       VIEW_ACCESS_PROTECTION_DISABLED: 'Se desactivó la protección de visualización',
       VIEW_ACCESS_SESSION_EXPIRED: 'Expiró el desbloqueo temporal',
     };
@@ -4305,14 +4502,17 @@ export default function VisorDocumentoPage() {
       const normalizedAssignedId = assignedParticipantId.toLowerCase();
       const resolvedEmail = assignedParticipantId.includes('@')
         ? normalizedAssignedId
-        : participantes.find((participant) => participant.id === assignedParticipantId)?.email
-            ?.trim()
+        : participantes
+            .find((participant) => participant.id === assignedParticipantId)
+            ?.email?.trim()
             .toLowerCase() || null;
       const resp = participationResponses.find(
         (r) =>
           r.firma_completada &&
           Boolean(r.firma_data) &&
-          (String(r.participante_id || '').trim().toLowerCase() === normalizedAssignedId ||
+          (String(r.participante_id || '')
+            .trim()
+            .toLowerCase() === normalizedAssignedId ||
             (resolvedEmail && r.participante_email.trim().toLowerCase() === resolvedEmail))
       );
       return resp?.firma_data || null;
@@ -4332,28 +4532,45 @@ export default function VisorDocumentoPage() {
       const normalizedAssignedId = assignedParticipantId.toLowerCase();
       const resolvedEmail = assignedParticipantId.includes('@')
         ? normalizedAssignedId
-        : participantes.find((participant) => participant.id === assignedParticipantId)?.email
-            ?.trim()
+        : participantes
+            .find((participant) => participant.id === assignedParticipantId)
+            ?.email?.trim()
             .toLowerCase() || null;
       const eligibleResponses = assignedParticipantId
         ? participationResponses.filter(
             (response) =>
-              String(response.participante_id || '').trim().toLowerCase() === normalizedAssignedId ||
+              String(response.participante_id || '')
+                .trim()
+                .toLowerCase() === normalizedAssignedId ||
               (resolvedEmail && response.participante_email.trim().toLowerCase() === resolvedEmail)
           )
         : participationResponses;
       const matches = eligibleResponses.flatMap((response) =>
         (response.campos_completados || []).filter(
           (completed) =>
-            (campo.id && completed.campo_id === campo.id) ||
-            (!campo.id && campo.label && completed.label === campo.label)
+            ((campo.valueKey || campo.id) && completed.campo_id === (campo.valueKey || campo.id)) ||
+            (!campo.valueKey && !campo.id && campo.label && completed.label === campo.label)
         )
       );
-      const values = Array.from(new Set(matches.map((completed) => completed.value).filter(Boolean)));
+      const values = Array.from(
+        new Set(matches.map((completed) => completed.value).filter(Boolean))
+      );
       return values.length === 1 ? values[0] : '';
     },
     [document?.owner_id, participantes, participationResponses]
   );
+
+  const templateFieldValues = React.useMemo<TemplateFieldValues>(() => {
+    const values: TemplateFieldValues = {};
+    effectiveCampos.forEach((campo) => {
+      const key = campo.valueKey || campo.id;
+      if (!key) return;
+      const type = String(campo.tipo || '').toLowerCase();
+      const value = type === 'firma' ? getFirmaDataForCampo(campo) : getFilledValueForCampo(campo);
+      if (value) values[key] = value;
+    });
+    return values;
+  }, [effectiveCampos, getFilledValueForCampo, getFirmaDataForCampo]);
 
   // Helper: render a field value correctly based on its type
   const renderFieldDisplayValue = (
@@ -4456,8 +4673,10 @@ export default function VisorDocumentoPage() {
     const colors = CAMPO_COLORS[colorIdx];
     const style = getFieldOverlayStyle(campo);
     const borderColor = campo.colorHex ?? undefined;
-    const bgColor = campo.colorHex ? `${campo.colorHex}20` : undefined;
+    const bgColor = campo.colorHex ? mixFieldColorWithWhite(campo.colorHex) : undefined;
     const textColor = campo.colorHex ?? undefined;
+    const displayLabel = campo.fieldConfig?.customName?.trim() || campo.label;
+    const overlayFontSize = Math.max(7, (9 * zoom) / 100);
 
     const resolvedTipo = campo.tipo || (campo.label === 'Firma' ? 'firma' : 'texto');
     const isFirma =
@@ -4469,7 +4688,7 @@ export default function VisorDocumentoPage() {
     if (isFirma && firmaData) {
       return (
         <div
-          key={`${keyPrefix}-${campo.label}-${idx}`}
+          key={`${keyPrefix}-${campo.id || campo.label}-${idx}`}
           style={{ ...style, zIndex: 10 }}
           className="absolute"
         >
@@ -4495,7 +4714,7 @@ export default function VisorDocumentoPage() {
       const isCasilla = resolvedTipo === 'casilla' || resolvedTipo === 'checkbox';
       return (
         <div
-          key={`${keyPrefix}-${campo.label}-${idx}`}
+          key={`${keyPrefix}-${campo.id || campo.label}-${idx}`}
           style={{
             ...style,
             zIndex: 10,
@@ -4516,15 +4735,19 @@ export default function VisorDocumentoPage() {
     // Default: show the campo label placeholder (original behavior)
     return (
       <div
-        key={`${keyPrefix}-${campo.label}-${idx}`}
+        key={`${keyPrefix}-${campo.id || campo.label}-${idx}`}
         style={{ ...style, borderColor, backgroundColor: bgColor }}
-        className={`border-2 rounded flex items-center justify-center ${!borderColor ? `${colors.border} ${colors.bg}` : ''}`}
+        className={`flex items-center justify-center overflow-hidden rounded border ${!borderColor ? `${colors.border} ${colors.bg}` : ''}`}
       >
         <span
-          className={`text-xs font-semibold px-1 text-center leading-tight ${!textColor ? colors.text : ''}`}
-          style={textColor ? { color: textColor } : undefined}
+          className={`px-0.5 text-center font-semibold ${!textColor ? colors.text : ''}`}
+          style={{
+            color: textColor,
+            fontSize: `${overlayFontSize}px`,
+            lineHeight: 1.05,
+          }}
         >
-          {campo.label}
+          {displayLabel}
         </span>
       </div>
     );
@@ -4585,6 +4808,30 @@ export default function VisorDocumentoPage() {
     }
   };
 
+  const handleStartInPersonSigning = async (participant: Participante) => {
+    if (!document || !participant.participant_reference_id || inPersonStartingId) return;
+    setInPersonStartingId(participant.id);
+    try {
+      const response = await fetch(
+        `/api/documentos/${encodeURIComponent(document.id)}/in-person-sessions`,
+        {
+          method: 'POST',
+          headers: await apiAuthHeaders(true),
+          body: JSON.stringify({ participantReferenceId: participant.participant_reference_id }),
+        }
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(body.error || 'No fue posible iniciar la firma presencial.');
+      window.location.assign(body.data.path);
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : 'No fue posible iniciar la firma presencial.'
+      );
+      setInPersonStartingId(null);
+    }
+  };
+
   // ── Edit tab state ─────────────────────────────────────────────────────────
   const [editModal, setEditModal] = useState<
     'datos' | 'archivo' | 'participantes' | 'ajustes' | null
@@ -4624,26 +4871,6 @@ export default function VisorDocumentoPage() {
   const [editSecuritySettings, setEditSecuritySettings] = useState<SecuritySettings | undefined>(
     undefined
   );
-  const [viewProtection, setViewProtection] = useState<{
-    enabled: boolean;
-    canManage: boolean;
-    configuredAt?: string | null;
-    updatedAt?: string | null;
-  } | null>(null);
-  const [viewProtectionModal, setViewProtectionModal] = useState<'change' | 'disable' | null>(null);
-
-  useEffect(() => {
-    if (!document?.id) return;
-    let active = true;
-    void (async () => {
-      const response = await fetch(`/api/documentos/${document.id}/view-access`, {
-        headers: await apiAuthHeaders(),
-      });
-      const data = response.ok ? await response.json() : null;
-      if (active && data) setViewProtection(data);
-    })().catch(() => undefined);
-    return () => { active = false; };
-  }, [document?.id]);
 
   const handleOpenEditModal = (modal: 'datos' | 'archivo' | 'participantes' | 'ajustes') => {
     if (modal === 'datos' && document) {
@@ -4837,6 +5064,7 @@ export default function VisorDocumentoPage() {
       if (editPlacedFields.length > 0) {
         updates.campos_solicitados = editPlacedFields.map((f) => ({
           id: f.id,
+          valueKey: f.valueKey || f.id,
           label: f.label,
           x: f.x,
           y: f.y,
@@ -4852,7 +5080,6 @@ export default function VisorDocumentoPage() {
         if (editSecuritySettings.vencimientoEnabled && editSecuritySettings.fechaVencimiento) {
           updates.fecha_vencimiento = editSecuritySettings.fechaVencimiento;
         }
-        updates.tiene_codigo_acceso = editSecuritySettings.codigoAccesoEnabled;
         updates.es_urgente = editSecuritySettings.urgente;
         updates.es_publico = editSecuritySettings.publico;
       }
@@ -4973,13 +5200,45 @@ export default function VisorDocumentoPage() {
       title: 'Participantes',
       label: 'Participantes',
     },
-    ...(canManagePermissions || canInviteViewers
+    ...(packageReadiness.loaded && packageReadiness.hasContent
+      ? [
+          {
+            key: 'package' as typeof activeTab,
+            icon: <Paperclip size={20} />,
+            title: 'Paquete documental',
+            label: 'Recursos',
+          },
+        ]
+      : []),
+    ...(document.estado === 'completado' && (canManagePermissions || canInviteViewers)
       ? [
           {
             key: 'permisos' as typeof activeTab,
             icon: <UserCog size={20} />,
             title: 'Permisos del documento',
             label: 'Permisos',
+          },
+        ]
+      : []),
+    ...(activeWorkspace?.workspaceType === 'business' &&
+    (document.current_custodian_workspace_id || document.workspace_id) === activeWorkspace.id &&
+    (activeWorkspace.role === 'owner' || activeWorkspace.role === 'admin')
+      ? [
+          {
+            key: 'governance' as typeof activeTab,
+            icon: <Building2 size={20} />,
+            title: 'Gobernanza del documento',
+            label: 'Gobernanza',
+          },
+        ]
+      : []),
+    ...(document.estado === 'completado' && document.workspace_id
+      ? [
+          {
+            key: 'lucia' as typeof activeTab,
+            icon: <Sparkles size={20} />,
+            title: 'LucIA contractual',
+            label: 'LucIA',
           },
         ]
       : []),
@@ -4995,21 +5254,37 @@ export default function VisorDocumentoPage() {
       title: 'Actividad y auditoría',
       label: 'Actividad',
     },
+    ...(accessSummary.enabled && accessSummary.canManage
+      ? [
+          {
+            key: 'access' as typeof activeTab,
+            icon: <Lock size={20} />,
+            title: 'Protección de acceso',
+            label: 'Acceso',
+          },
+        ]
+      : []),
     ...(legalHoldSummary.hasHistory ||
     (searchParams.get('action') === 'activate' && legalHoldSummary.canCreate)
-      ? [{
-          key: 'legal-hold' as typeof activeTab,
-          icon: <ShieldCheck size={20} />,
-          title: 'Conservación legal del documento',
-          label: 'LEGAL HOLD',
-        }]
+      ? [
+          {
+            key: 'legal-hold' as typeof activeTab,
+            icon: <ShieldCheck size={20} />,
+            title: 'Conservación legal del documento',
+            label: 'LEGAL HOLD',
+          },
+        ]
       : []),
-    {
-      key: 'vencimientos',
-      icon: <Calendar size={20} />,
-      title: 'Vencimientos',
-      label: 'Vencimientos',
-    },
+    ...(document.tiene_vencimiento && document.vencimiento
+      ? [
+          {
+            key: 'vencimientos' as typeof activeTab,
+            icon: <Calendar size={20} />,
+            title: 'Vencimientos',
+            label: 'Vencimientos',
+          },
+        ]
+      : []),
     { key: 'fields', icon: <StickyNote size={20} />, title: 'Notas y comentarios', label: 'Notas' },
     ...(document?.estado === 'completado'
       ? [
@@ -5027,7 +5302,16 @@ export default function VisorDocumentoPage() {
           },
         ]
       : []),
-    { key: 'metadata', icon: <Tag size={20} />, title: 'Metadatos', label: 'Metadatos' },
+    ...(document.metadatos_adicionales || additionalMetadata.length > 0
+      ? [
+          {
+            key: 'metadata' as typeof activeTab,
+            icon: <Tag size={20} />,
+            title: 'Metadatos',
+            label: 'Metadatos',
+          },
+        ]
+      : []),
     ...(document?.estado === 'en_proceso' && canEditDocument
       ? [
           {
@@ -5057,25 +5341,25 @@ export default function VisorDocumentoPage() {
         className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
       >
         <div className="flex items-center gap-1 rounded-full border border-border bg-white/90 px-3 py-1.5 shadow-md backdrop-blur-sm select-none">
-        <button
-          onClick={handleZoomOut}
-          disabled={zoom <= ZOOM_MIN}
-          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-40"
-          title="Reducir zoom"
-        >
-          <ZoomOut size={14} />
-        </button>
-        <span className="min-w-[44px] text-center text-sm font-medium text-slate-600">
-          {zoom}%
-        </span>
-        <button
-          onClick={handleZoomIn}
-          disabled={zoom >= ZOOM_MAX}
-          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-40"
-          title="Aumentar zoom"
-        >
-          <ZoomIn size={14} />
-        </button>
+          <button
+            onClick={handleZoomOut}
+            disabled={zoom <= ZOOM_MIN}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-40"
+            title="Reducir zoom"
+          >
+            <ZoomOut size={14} />
+          </button>
+          <span className="min-w-[44px] text-center text-sm font-medium text-slate-600">
+            {zoom}%
+          </span>
+          <button
+            onClick={handleZoomIn}
+            disabled={zoom >= ZOOM_MAX}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-40"
+            title="Aumentar zoom"
+          >
+            <ZoomIn size={14} />
+          </button>
           <div className="mx-1 h-5 w-px bg-slate-200" />
           {canNavigatePages ? (
             <>
@@ -5088,7 +5372,10 @@ export default function VisorDocumentoPage() {
               >
                 <ChevronLeft size={14} />
               </button>
-              <div className="flex min-w-[112px] items-center justify-center gap-1 text-sm" aria-live="polite">
+              <div
+                className="flex min-w-[112px] items-center justify-center gap-1 text-sm"
+                aria-live="polite"
+              >
                 {canJumpToPage ? (
                   <>
                     <span className="text-slate-400">Página</span>
@@ -5241,13 +5528,31 @@ export default function VisorDocumentoPage() {
                       <span className="hidden xl:inline">Solicitar cambios</span>
                     </button>
                     <button
-                      onClick={() => router.push(`/firmar-documento/${document.id}`)}
+                      onClick={() => {
+                        if (packageReadiness.hasContent && !packageReadiness.ready) {
+                          setActiveTab('package');
+                          return;
+                        }
+                        router.push(`/firmar-documento/${document.id}`);
+                      }}
                       className="flex h-9 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-600 text-white transition-colors hover:bg-emerald-700"
-                      title="Aceptar y participar"
+                      title={
+                        !packageReadiness.hasContent || packageReadiness.ready
+                          ? 'Aceptar y participar'
+                          : 'Completar requisitos'
+                      }
                     >
                       <CheckCircle2 size={16} />
-                      <span className="hidden xl:inline">Aceptar y participar</span>
-                      <span className="xl:hidden">Aceptar</span>
+                      <span className="hidden xl:inline">
+                        {!packageReadiness.hasContent || packageReadiness.ready
+                          ? 'Aceptar y participar'
+                          : 'Completar requisitos'}
+                      </span>
+                      <span className="xl:hidden">
+                        {!packageReadiness.hasContent || packageReadiness.ready
+                          ? 'Aceptar'
+                          : 'Requisitos'}
+                      </span>
                     </button>
                   </>
                 )}
@@ -5282,21 +5587,23 @@ export default function VisorDocumentoPage() {
           <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-gray-100">
             <div className="pointer-events-none absolute left-4 right-4 top-3 z-10 flex items-center justify-between">
               <div className="pointer-events-auto">
-                <button
-                  onClick={() => setShowCampos((v) => !v)}
-                  aria-pressed={showCampos}
-                  className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur transition-colors hover:bg-white hover:text-slate-950"
-                >
-                  <div
-                    className={`relative h-4 w-7 rounded-full transition-colors ${showCampos ? 'bg-blue-600' : 'bg-slate-300'}`}
+                {!(templateDocument && document.estado !== 'completado') && (
+                  <button
+                    onClick={() => setShowCampos((v) => !v)}
+                    aria-pressed={showCampos}
+                    className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur transition-colors hover:bg-white hover:text-slate-950"
                   >
                     <div
-                      className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${showCampos ? 'translate-x-3.5' : 'translate-x-0.5'}`}
-                    />
-                  </div>
-                  <Eye size={14} className="text-slate-400" />
-                  <span className="text-xs font-600">Campos ({effectiveCampos.length})</span>
-                </button>
+                      className={`relative h-4 w-7 rounded-full transition-colors ${showCampos ? 'bg-blue-600' : 'bg-slate-300'}`}
+                    >
+                      <div
+                        className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${showCampos ? 'translate-x-3.5' : 'translate-x-0.5'}`}
+                      />
+                    </div>
+                    <Eye size={14} className="text-slate-400" />
+                    <span className="text-xs font-600">Campos ({effectiveCampos.length})</span>
+                  </button>
+                )}
               </div>
               {document.file_url && (
                 <div className="pointer-events-auto">
@@ -5316,7 +5623,18 @@ export default function VisorDocumentoPage() {
               className="flex-1 overflow-auto"
               style={{ paddingTop: '56px', paddingBottom: '72px' }}
             >
-              {document.file_url ? (
+              {templateDocument && document.estado !== 'completado' ? (
+                <div className="flex min-h-full min-w-full items-start justify-center p-4 md:p-6">
+                  <TemplateDocumentPreview
+                    template={templateDocument}
+                    values={templateFieldValues}
+                    pageIndex={currentPage - 1}
+                    zoom={zoom}
+                    title={`Documento de plantilla ${document.nombre}`}
+                    onPageCountChange={handleTotalPages}
+                  />
+                </div>
+              ) : document.file_url ? (
                 <div className="flex min-h-full min-w-full items-start justify-center p-4 md:p-6">
                   <div className="relative flex-shrink-0 border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.12)]">
                     <PdfCanvas
@@ -5326,7 +5644,10 @@ export default function VisorDocumentoPage() {
                       onTotalPages={handleTotalPages}
                     >
                       {showCampos && camposEnPaginaActual.length > 0 && (
-                        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
+                        <div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{ zIndex: 10 }}
+                        >
                           {camposEnPaginaActual.map((campo, idx) =>
                             renderCampoOverlay(campo, idx, 'main')
                           )}
@@ -5430,7 +5751,11 @@ export default function VisorDocumentoPage() {
                               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
                                 FORMATO
                               </p>
-                              <p className="text-sm text-foreground">{document.formato || 'PDF'}</p>
+                              <p className="text-sm text-foreground">
+                                {templateDocument && document.estado !== 'completado'
+                                  ? 'Documento de plantilla'
+                                  : document.formato || 'PDF'}
+                              </p>
                             </div>
                             <div className="flex-1">
                               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
@@ -5473,45 +5798,6 @@ export default function VisorDocumentoPage() {
                           </div>
                         </div>
                       </div>
-
-                      {viewProtection?.canManage && (
-                        <div className="overflow-hidden rounded-xl border border-border bg-white">
-                          <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
-                            <Lock size={15} className="text-slate-500" />
-                            <span className="text-sm font-semibold text-foreground">
-                              Protección de visualización
-                            </span>
-                            <span className={`ml-auto text-[11px] font-medium ${viewProtection.enabled ? 'text-emerald-700' : 'text-slate-500'}`}>
-                              {viewProtection.enabled ? 'Activa' : 'Inactiva'}
-                            </span>
-                          </div>
-                          <div className="space-y-3 p-4">
-                            {viewProtection.enabled && viewProtection.updatedAt && (
-                              <p className="text-xs text-slate-500">
-                                Último cambio: {formatDate(viewProtection.updatedAt)}
-                              </p>
-                            )}
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setViewProtectionModal('change')}
-                                className="h-8 rounded-md border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                              >
-                                {viewProtection.enabled ? 'Cambiar código' : 'Activar'}
-                              </button>
-                              {viewProtection.enabled && (
-                                <button
-                                  type="button"
-                                  onClick={() => setViewProtectionModal('disable')}
-                                  className="h-8 rounded-md border border-red-200 px-3 text-xs font-medium text-red-600 hover:bg-red-50"
-                                >
-                                  Desactivar
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
 
                       {document.es_publico &&
                         document.estado === 'completado' &&
@@ -6040,21 +6326,31 @@ export default function VisorDocumentoPage() {
                           <span className="shrink-0 font-medium text-slate-500">Propietario</span>
                         </div>
                         {participantes.slice(0, 4).map((participant) => (
-                          <div key={participant.id} className="flex items-center justify-between gap-3 text-xs">
+                          <div
+                            key={participant.id}
+                            className="flex items-center justify-between gap-3 text-xs"
+                          >
                             <span className="truncate text-slate-700">
                               {participant.nombre || participant.email || 'Participante'}
                             </span>
-                            <span className="shrink-0 font-medium text-slate-500">Participante</span>
+                            <span className="shrink-0 font-medium text-slate-500">
+                              Participante
+                            </span>
                           </div>
                         ))}
                         {participantes.length > 4 && (
-                          <p className="text-xs text-slate-400">y {participantes.length - 4} participantes más</p>
+                          <p className="text-xs text-slate-400">
+                            y {participantes.length - 4} participantes más
+                          </p>
                         )}
                       </div>
                     </div>
 
                     {permissionsError && (
-                      <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
+                      <div
+                        className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                        role="alert"
+                      >
                         {permissionsError}
                       </div>
                     )}
@@ -6081,7 +6377,9 @@ export default function VisorDocumentoPage() {
                           Acceso
                           <select
                             value={permissionAccessLevel}
-                            onChange={(event) => setPermissionAccessLevel(event.target.value as 'view' | 'edit')}
+                            onChange={(event) =>
+                              setPermissionAccessLevel(event.target.value as 'view' | 'edit')
+                            }
                             disabled={!canManagePermissions}
                             className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                           >
@@ -6106,7 +6404,11 @@ export default function VisorDocumentoPage() {
                           disabled={!permissionEmail.trim() || permissionSaving}
                           className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {permissionSaving ? <RefreshCw size={14} className="animate-spin" /> : <UserPlus size={14} />}
+                          {permissionSaving ? (
+                            <RefreshCw size={14} className="animate-spin" />
+                          ) : (
+                            <UserPlus size={14} />
+                          )}
                           {canManagePermissions ? 'Guardar permiso' : 'Invitar lector'}
                         </button>
                       </div>
@@ -6127,7 +6429,10 @@ export default function VisorDocumentoPage() {
                     ) : (
                       <div className="flex flex-col gap-2">
                         {documentPermissions.map((permission) => (
-                          <div key={permission.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div
+                            key={permission.id}
+                            className="rounded-xl border border-slate-200 bg-white p-3"
+                          >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-medium text-slate-900">
@@ -6135,8 +6440,14 @@ export default function VisorDocumentoPage() {
                                 </p>
                                 <div className="mt-1 flex flex-wrap gap-1.5">
                                   <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                                    {permission.access_level === 'edit' ? <Edit3 size={10} /> : <Eye size={10} />}
-                                    {permission.access_level === 'edit' ? 'Puede editar' : 'Puede ver'}
+                                    {permission.access_level === 'edit' ? (
+                                      <Edit3 size={10} />
+                                    ) : (
+                                      <Eye size={10} />
+                                    )}
+                                    {permission.access_level === 'edit'
+                                      ? 'Puede editar'
+                                      : 'Puede ver'}
                                   </span>
                                   {permission.can_invite && (
                                     <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
@@ -6368,6 +6679,37 @@ export default function VisorDocumentoPage() {
                     </div>
                   </div>
                 </>
+              ) : activeTab === 'package' ? (
+                <>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Paquete documental</span>
+                  </div>
+                  <DocumentPackagePanel
+                    documentId={document.id}
+                    onReadinessChange={handlePackageReadinessChanged}
+                  />
+                </>
+              ) : activeTab === 'governance' && document.workspace_id ? (
+                <>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Gobernanza</span>
+                  </div>
+                  <OrganizationDocumentGovernancePanel
+                    documentId={document.id}
+                    workspaceId={activeWorkspace?.id || document.workspace_id}
+                    participants={participantes}
+                  />
+                </>
+              ) : activeTab === 'lucia' && document.workspace_id ? (
+                <>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">LucIA contractual</span>
+                  </div>
+                  <ContractIntelligencePanel
+                    documentId={document.id}
+                    workspaceId={document.workspace_id}
+                  />
+                </>
               ) : activeTab === 'participants' ? (
                 /* ── Participants Panel ─────────────────────────────────── */
                 <>
@@ -6394,6 +6736,10 @@ export default function VisorDocumentoPage() {
                             (p.id === user.id ||
                               p.email.trim().toLowerCase() === user.email?.trim().toLowerCase())
                           );
+                          const isCreatorOnlyParticipant =
+                            participantes.length === 1 &&
+                            document.owner_id === user?.id &&
+                            isAuthenticatedParticipant;
                           const ownSignedResponse = participationResponses.find(
                             (response) =>
                               response.participante_email.trim().toLowerCase() ===
@@ -6462,6 +6808,36 @@ export default function VisorDocumentoPage() {
                                   <span className="text-xs text-slate-600">{p.acto}</span>
                                 </div>
                               )}
+                              {user?.id === document.owner_id &&
+                                document.estado === 'en_proceso' &&
+                                p.delivery_mode === 'in_person' &&
+                                p.participant_reference_id &&
+                                ![
+                                  'firmo',
+                                  'firmado',
+                                  'rechazo',
+                                  'rechazado',
+                                  'aprobo',
+                                  'aprobado',
+                                ].includes(String(p.sub_estado || p.estado || '').toLowerCase()) &&
+                                (process.env.NODE_ENV !== 'production' ||
+                                  process.env.NEXT_PUBLIC_DOCUBOX_PHASE_B_ENABLED === 'true') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleStartInPersonSigning(p)}
+                                    disabled={inPersonStartingId !== null}
+                                    className="mt-3 flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 text-xs font-600 text-primary transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {inPersonStartingId === p.id ? (
+                                      <RefreshCw size={13} className="animate-spin" />
+                                    ) : (
+                                      <Tablet size={13} />
+                                    )}
+                                    {inPersonStartingId === p.id
+                                      ? 'Preparando sesión...'
+                                      : 'Iniciar firma presencial'}
+                                  </button>
+                                )}
                               {/* Método de firma — solo si es firmante */}
                               {isFirmante && p.metodo_firma && (
                                 <div className="flex items-center gap-1.5 mt-1.5">
@@ -6633,6 +7009,7 @@ export default function VisorDocumentoPage() {
                                 </button>
                               )}
                               {p.email &&
+                                !isCreatorOnlyParticipant &&
                                 ![
                                   'firmo',
                                   'firmado',
@@ -6927,6 +7304,19 @@ export default function VisorDocumentoPage() {
                     )}
                   </div>
                 </>
+              ) : activeTab === 'access' ? (
+                <>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Protección de acceso</span>
+                  </div>
+                  <AccessProtectionPanel
+                    documentId={document.id}
+                    initialSection={
+                      searchParams.get('section') === 'audit' ? 'audit' : 'configuration'
+                    }
+                    onChanged={handleAccessChanged}
+                  />
+                </>
               ) : activeTab === 'legal-hold' ? (
                 <>
                   <div className="viewer-panel-header">
@@ -6949,9 +7339,19 @@ export default function VisorDocumentoPage() {
                       </p>
                     </div>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (!docId || !user) return;
                         setActivityLoading(true);
+                        try {
+                          setActivityEvents(await fetchDocumentActivity(docId));
+                          setActivityLoading(false);
+                          return;
+                        } catch (activityApiError) {
+                          console.warn(
+                            '[visor-documento] Activity refresh API unavailable, using direct fallback:',
+                            activityApiError
+                          );
+                        }
                         const supabase = createClient();
                         const allEvents: ActivityEvent[] = [];
                         Promise.all([
@@ -6974,8 +7374,17 @@ export default function VisorDocumentoPage() {
                             )
                             .eq('documento_id', docId)
                             .order('created_at', { ascending: false }),
+                          apiAuthHeaders()
+                            .then((headers) =>
+                              fetch(`/api/documentos/${docId}/view-access`, {
+                                headers,
+                                cache: 'no-store',
+                              })
+                            )
+                            .then(async (response) => (response.ok ? response.json() : null))
+                            .catch(() => null),
                         ])
-                          .then(([secRes, auditRes, actRes]) => {
+                          .then(([secRes, auditRes, actRes, accessRes]) => {
                             if (secRes.data)
                               secRes.data.forEach((row: any) =>
                                 allEvents.push({
@@ -7029,6 +7438,19 @@ export default function VisorDocumentoPage() {
                                   actor_name: row.actor_nombre || 'Usuario',
                                   actor_email: row.actor_email || '',
                                   source: 'security_log',
+                                })
+                              );
+                            if (accessRes?.events)
+                              accessRes.events.forEach((row: any) =>
+                                allEvents.push({
+                                  id: `view_access_${row.id}`,
+                                  action: row.action,
+                                  details: { reason: row.reason, result: row.result },
+                                  created_at: row.created_at,
+                                  actor_name: row.actor_email || 'Usuario autorizado',
+                                  actor_email: row.actor_email || '',
+                                  source: 'audit_trail',
+                                  category: 'seguridad',
                                 })
                               );
                             const seen = new Set<string>();
@@ -7975,6 +8397,10 @@ export default function VisorDocumentoPage() {
                             </div>
                           </div>
 
+                        </>
+                      )}
+                      {activeTab === 'auditoria' && (
+                        <>
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
                               <span className="text-xs font-bold uppercase tracking-wide text-foreground">
@@ -7990,308 +8416,314 @@ export default function VisorDocumentoPage() {
                               {blockchainEvidence ? (
                                 <>
                                   <div className="flex items-start gap-2">
-                                  {blockchainEvidence.status === 'VERIFIED' ? (
-                                    <CheckCircle2
-                                      size={18}
-                                      className="mt-0.5 shrink-0 text-emerald-600"
-                                    />
-                                  ) : [
+                                    {blockchainEvidence.status === 'VERIFIED' ? (
+                                      <CheckCircle2
+                                        size={18}
+                                        className="mt-0.5 shrink-0 text-emerald-600"
+                                      />
+                                    ) : [
+                                        'SUBMISSION_FAILED',
+                                        'UPGRADE_FAILED',
+                                        'VERIFICATION_FAILED',
+                                        'INVALID_PROOF',
+                                        'STORAGE_ERROR',
+                                      ].includes(blockchainEvidence.status) ? (
+                                      <AlertTriangle
+                                        size={18}
+                                        className="mt-0.5 shrink-0 text-red-600"
+                                      />
+                                    ) : (
+                                      <Clock size={18} className="mt-0.5 shrink-0 text-amber-600" />
+                                    )}
+                                    <div>
+                                      <p className="text-sm font-semibold text-foreground">
+                                        {blockchainEvidence.status === 'VERIFIED'
+                                          ? 'Anclaje Bitcoin verificado'
+                                          : [
+                                                'SUBMISSION_FAILED',
+                                                'UPGRADE_FAILED',
+                                                'VERIFICATION_FAILED',
+                                                'INVALID_PROOF',
+                                                'STORAGE_ERROR',
+                                              ].includes(blockchainEvidence.status)
+                                            ? 'No fue posible completar el anclaje'
+                                            : 'Esperando anclaje Bitcoin'}
+                                      </p>
+                                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                                        La prueba OpenTimestamps se procesa sin publicar el
+                                        documento ni datos personales en blockchain.
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
+                                    {[
+                                      [
+                                        'Protocolo',
+                                        blockchainEvidence.protocol || 'OpenTimestamps',
+                                      ],
+                                      [
+                                        'Red de registro',
+                                        blockchainEvidence.blockchain || 'Bitcoin',
+                                      ],
+                                      ['Estado', blockchainEvidenceStatusLabel],
+                                      [
+                                        'Verificación criptográfica',
+                                        blockchainEvidenceReady
+                                          ? 'Verificada'
+                                          : blockchainEvidenceFailed
+                                            ? 'No completada'
+                                            : 'Pendiente',
+                                      ],
+                                      ...(blockchainEvidence.submitted_at
+                                        ? [
+                                            [
+                                              'Enviada a OpenTimestamps',
+                                              formatEvidenceTimestamp(
+                                                blockchainEvidence.submitted_at
+                                              ),
+                                            ],
+                                          ]
+                                        : []),
+                                      ...(blockchainEvidenceReady
+                                        ? [
+                                            [
+                                              'Bloque de Bitcoin',
+                                              blockchainEvidence.bitcoin_block_height
+                                                ? `Altura ${blockchainEvidence.bitcoin_block_height}`
+                                                : 'Verificado',
+                                            ],
+                                            [
+                                              'Fecha de verificación',
+                                              blockchainEvidence.verified_at
+                                                ? formatEvidenceTimestamp(
+                                                    blockchainEvidence.verified_at
+                                                  )
+                                                : 'Verificada',
+                                            ],
+                                          ]
+                                        : []),
+                                    ].map(([label, value], index) => (
+                                      <div
+                                        key={String(label)}
+                                        className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
+                                      >
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                          {label}
+                                        </span>
+                                        <span className="max-w-[190px] text-right text-xs text-foreground">
+                                          {value}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="space-y-2">
+                                    {blockchainEvidenceReady && blockchainEvidence.public_token ? (
+                                      <a
+                                        href={`/verify/blockchain/${blockchainEvidence.public_token}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                                      >
+                                        <Shield size={15} />
+                                        Verificar evidencia blockchain
+                                      </a>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled
+                                        title="La verificación estará disponible cuando termine el anclaje Bitcoin."
+                                        className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white opacity-60"
+                                      >
+                                        <Shield size={15} />
+                                        Verificar evidencia blockchain
+                                      </button>
+                                    )}
+                                    {blockchainEvidenceReady && blockchainEvidence.proof_sha256 ? (
+                                      <a
+                                        href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/proof`}
+                                        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
+                                      >
+                                        <Download size={15} />
+                                        Descargar prueba OpenTimestamps (.ots)
+                                      </a>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled
+                                        title="La prueba descargable estará disponible al concluir la verificación."
+                                        className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border-2 border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
+                                      >
+                                        <Download size={15} />
+                                        Descargar prueba OpenTimestamps (.ots)
+                                      </button>
+                                    )}
+                                    {blockchainEvidenceReady && blockchainEvidence.public_token ? (
+                                      <a
+                                        href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/certificate`}
+                                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
+                                      >
+                                        <Download size={15} />
+                                        Descargar constancia
+                                      </a>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled
+                                        title="La constancia estará disponible cuando la evidencia esté verificada."
+                                        className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
+                                      >
+                                        <Download size={15} />
+                                        Descargar constancia
+                                      </button>
+                                    )}
+                                    {blockchainEvidenceReady ? (
+                                      <a
+                                        href={`/api/documents/${docId}/blockchain-evidence/package`}
+                                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
+                                      >
+                                        <Download size={15} />
+                                        Descargar paquete de evidencia
+                                      </a>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled
+                                        title="El paquete estará disponible cuando la evidencia esté verificada."
+                                        className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
+                                      >
+                                        <Download size={15} />
+                                        Descargar paquete de evidencia
+                                      </button>
+                                    )}
+                                    {[
                                       'SUBMISSION_FAILED',
                                       'UPGRADE_FAILED',
                                       'VERIFICATION_FAILED',
-                                      'INVALID_PROOF',
                                       'STORAGE_ERROR',
-                                    ].includes(blockchainEvidence.status) ? (
-                                    <AlertTriangle
-                                      size={18}
-                                      className="mt-0.5 shrink-0 text-red-600"
-                                    />
-                                  ) : (
-                                    <Clock size={18} className="mt-0.5 shrink-0 text-amber-600" />
-                                  )}
-                                  <div>
-                                    <p className="text-sm font-semibold text-foreground">
-                                      {blockchainEvidence.status === 'VERIFIED'
-                                        ? 'Anclaje Bitcoin verificado'
-                                        : [
-                                              'SUBMISSION_FAILED',
-                                              'UPGRADE_FAILED',
-                                              'VERIFICATION_FAILED',
-                                              'INVALID_PROOF',
-                                              'STORAGE_ERROR',
-                                            ].includes(blockchainEvidence.status)
-                                          ? 'No fue posible completar el anclaje'
-                                          : 'Esperando anclaje Bitcoin'}
-                                    </p>
-                                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                                      La prueba OpenTimestamps se procesa sin publicar el documento
-                                      ni datos personales en blockchain.
-                                    </p>
+                                    ].includes(blockchainEvidence.status) && (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          const response = await fetch(
+                                            `/api/documents/${docId}/blockchain-evidence`,
+                                            { method: 'POST', headers: await apiAuthHeaders() }
+                                          );
+                                          if (response.ok)
+                                            setBlockchainEvidence((await response.json()).evidence);
+                                        }}
+                                        className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"
+                                      >
+                                        <RefreshCw size={14} />
+                                        Reintentar
+                                      </button>
+                                    )}
                                   </div>
-                                </div>
-                                <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
-                                  {[
-                                    ['Protocolo', blockchainEvidence.protocol || 'OpenTimestamps'],
-                                    ['Red de registro', blockchainEvidence.blockchain || 'Bitcoin'],
-                                    ['Estado', blockchainEvidenceStatusLabel],
-                                    [
-                                      'Verificación criptográfica',
-                                      blockchainEvidenceReady
-                                        ? 'Verificada'
-                                        : blockchainEvidenceFailed
-                                          ? 'No completada'
-                                          : 'Pendiente',
-                                    ],
-                                    ...(blockchainEvidence.submitted_at
-                                      ? [
-                                          [
-                                            'Enviada a OpenTimestamps',
-                                            formatEvidenceTimestamp(
-                                              blockchainEvidence.submitted_at
-                                            ),
-                                          ],
-                                        ]
-                                      : []),
-                                    ...(blockchainEvidenceReady
-                                      ? [
-                                          [
-                                            'Bloque de Bitcoin',
-                                            blockchainEvidence.bitcoin_block_height
-                                              ? `Altura ${blockchainEvidence.bitcoin_block_height}`
-                                              : 'Verificado',
-                                          ],
-                                          [
-                                            'Fecha de verificación',
-                                            blockchainEvidence.verified_at
-                                              ? formatEvidenceTimestamp(
-                                                  blockchainEvidence.verified_at
-                                                )
-                                              : 'Verificada',
-                                          ],
-                                        ]
-                                      : []),
-                                  ].map(([label, value], index) => (
-                                    <div
-                                      key={String(label)}
-                                      className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
-                                    >
-                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        {label}
-                                      </span>
-                                      <span className="max-w-[190px] text-right text-xs text-foreground">
-                                        {value}
-                                      </span>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="flex items-start gap-2">
+                                    {blockchainEvidenceLoading ? (
+                                      <RefreshCw
+                                        size={18}
+                                        className="mt-0.5 shrink-0 animate-spin text-amber-600"
+                                      />
+                                    ) : blockchainEvidenceError ? (
+                                      <AlertTriangle
+                                        size={18}
+                                        className="mt-0.5 shrink-0 text-red-600"
+                                      />
+                                    ) : (
+                                      <Shield
+                                        size={18}
+                                        className="mt-0.5 shrink-0 text-muted-foreground"
+                                      />
+                                    )}
+                                    <div>
+                                      <p className="text-sm font-semibold text-foreground">
+                                        {blockchainEvidenceLoading
+                                          ? 'Consultando evidencia blockchain'
+                                          : blockchainEvidenceError
+                                            ? 'No fue posible consultar la evidencia'
+                                            : document?.estado !== 'completado'
+                                              ? 'Disponible al completar el documento'
+                                              : document.blockchain_evidence_enabled
+                                                ? 'Evidencia solicitada, aún no disponible'
+                                                : 'Evidencia no solicitada para este documento'}
+                                      </p>
+                                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                                        {blockchainEvidenceError ||
+                                          (document?.estado !== 'completado'
+                                            ? 'La prueba OpenTimestamps sólo puede crearse sobre el PDF final completado.'
+                                            : document.blockchain_evidence_enabled
+                                              ? 'Docubox mostrará aquí la prueba y sus descargas cuando termine el procesamiento.'
+                                              : 'Este documento se completó sin solicitar una prueba OpenTimestamps. No se ha publicado el documento ni información personal en blockchain.')}
+                                      </p>
                                     </div>
-                                  ))}
-                                </div>
-                                <div className="space-y-2">
-                                  {blockchainEvidenceReady && blockchainEvidence.public_token ? (
-                                    <a
-                                      href={`/verify/blockchain/${blockchainEvidence.public_token}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                                    >
-                                      <Shield size={15} />
-                                      Verificar evidencia blockchain
-                                    </a>
-                                  ) : (
+                                  </div>
+                                  <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
+                                    {[
+                                      ['Protocolo', 'OpenTimestamps'],
+                                      ['Red de registro', 'Bitcoin'],
+                                      ['Estado', blockchainEvidenceStatusLabel],
+                                      [
+                                        'PDF final',
+                                        document?.estado === 'completado'
+                                          ? 'Preparado para evidencia'
+                                          : 'Pendiente de completar',
+                                      ],
+                                      ['Verificación criptográfica', 'Pendiente'],
+                                    ].map(([label, value], index) => (
+                                      <div
+                                        key={String(label)}
+                                        className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
+                                      >
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                          {label}
+                                        </span>
+                                        <span className="max-w-[190px] text-right text-xs text-foreground">
+                                          {value}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="space-y-2">
                                     <button
                                       type="button"
                                       disabled
-                                      title="La verificación estará disponible cuando termine el anclaje Bitcoin."
+                                      title="Esta opción se habilitará cuando la evidencia esté verificada."
                                       className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white opacity-60"
                                     >
                                       <Shield size={15} />
                                       Verificar evidencia blockchain
                                     </button>
-                                  )}
-                                  {blockchainEvidenceReady && blockchainEvidence.proof_sha256 ? (
-                                    <a
-                                      href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/proof`}
-                                      className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
-                                    >
-                                      <Download size={15} />
-                                      Descargar prueba OpenTimestamps (.ots)
-                                    </a>
-                                  ) : (
                                     <button
                                       type="button"
                                       disabled
-                                      title="La prueba descargable estará disponible al concluir la verificación."
+                                      title="Esta opción se habilitará cuando la evidencia esté verificada."
                                       className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border-2 border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
                                     >
                                       <Download size={15} />
                                       Descargar prueba OpenTimestamps (.ots)
                                     </button>
-                                  )}
-                                  {blockchainEvidenceReady && blockchainEvidence.public_token ? (
-                                    <a
-                                      href={`/api/verify/blockchain/${blockchainEvidence.public_token}/artifacts/certificate`}
-                                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
-                                    >
-                                      <Download size={15} />
-                                      Descargar constancia
-                                    </a>
-                                  ) : (
                                     <button
                                       type="button"
                                       disabled
-                                      title="La constancia estará disponible cuando la evidencia esté verificada."
+                                      title="Esta opción se habilitará cuando la evidencia esté verificada."
                                       className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
                                     >
                                       <Download size={15} />
                                       Descargar constancia
                                     </button>
-                                  )}
-                                  {blockchainEvidenceReady ? (
-                                    <a
-                                      href={`/api/documents/${docId}/blockchain-evidence/package`}
-                                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
-                                    >
-                                      <Download size={15} />
-                                      Descargar paquete de evidencia
-                                    </a>
-                                  ) : (
                                     <button
                                       type="button"
                                       disabled
-                                      title="El paquete estará disponible cuando la evidencia esté verificada."
+                                      title="Esta opción se habilitará cuando la evidencia esté verificada."
                                       className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
                                     >
                                       <Download size={15} />
                                       Descargar paquete de evidencia
                                     </button>
-                                  )}
-                                  {[
-                                    'SUBMISSION_FAILED',
-                                    'UPGRADE_FAILED',
-                                    'VERIFICATION_FAILED',
-                                    'STORAGE_ERROR',
-                                  ].includes(blockchainEvidence.status) && (
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        const response = await fetch(
-                                          `/api/documents/${docId}/blockchain-evidence`,
-                                          { method: 'POST', headers: await apiAuthHeaders() }
-                                        );
-                                        if (response.ok)
-                                          setBlockchainEvidence((await response.json()).evidence);
-                                      }}
-                                      className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted/50"
-                                    >
-                                      <RefreshCw size={14} />
-                                      Reintentar
-                                    </button>
-                                  )}
                                   </div>
-                                </>
-                              ) : (
-                                <>
-                                <div className="flex items-start gap-2">
-                                  {blockchainEvidenceLoading ? (
-                                    <RefreshCw
-                                      size={18}
-                                      className="mt-0.5 shrink-0 animate-spin text-amber-600"
-                                    />
-                                  ) : blockchainEvidenceError ? (
-                                    <AlertTriangle
-                                      size={18}
-                                      className="mt-0.5 shrink-0 text-red-600"
-                                    />
-                                  ) : (
-                                    <Shield
-                                      size={18}
-                                      className="mt-0.5 shrink-0 text-muted-foreground"
-                                    />
-                                  )}
-                                  <div>
-                                    <p className="text-sm font-semibold text-foreground">
-                                      {blockchainEvidenceLoading
-                                        ? 'Consultando evidencia blockchain'
-                                        : blockchainEvidenceError
-                                          ? 'No fue posible consultar la evidencia'
-                                          : document?.estado !== 'completado'
-                                            ? 'Disponible al completar el documento'
-                                            : document.blockchain_evidence_enabled
-                                              ? 'Evidencia solicitada, aún no disponible'
-                                              : 'Evidencia no solicitada para este documento'}
-                                    </p>
-                                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                                      {blockchainEvidenceError ||
-                                        (document?.estado !== 'completado'
-                                          ? 'La prueba OpenTimestamps sólo puede crearse sobre el PDF final completado.'
-                                          : document.blockchain_evidence_enabled
-                                            ? 'Docubox mostrará aquí la prueba y sus descargas cuando termine el procesamiento.'
-                                            : 'Este documento se completó sin solicitar una prueba OpenTimestamps. No se ha publicado el documento ni información personal en blockchain.')}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
-                                  {[
-                                    ['Protocolo', 'OpenTimestamps'],
-                                    ['Red de registro', 'Bitcoin'],
-                                    ['Estado', blockchainEvidenceStatusLabel],
-                                    [
-                                      'PDF final',
-                                      document?.estado === 'completado'
-                                        ? 'Preparado para evidencia'
-                                        : 'Pendiente de completar',
-                                    ],
-                                    ['Verificación criptográfica', 'Pendiente'],
-                                  ].map(([label, value], index) => (
-                                    <div
-                                      key={String(label)}
-                                      className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
-                                    >
-                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        {label}
-                                      </span>
-                                      <span className="max-w-[190px] text-right text-xs text-foreground">
-                                        {value}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="space-y-2">
-                                  <button
-                                    type="button"
-                                    disabled
-                                    title="Esta opción se habilitará cuando la evidencia esté verificada."
-                                    className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white opacity-60"
-                                  >
-                                    <Shield size={15} />
-                                    Verificar evidencia blockchain
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled
-                                    title="Esta opción se habilitará cuando la evidencia esté verificada."
-                                    className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border-2 border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
-                                  >
-                                    <Download size={15} />
-                                    Descargar prueba OpenTimestamps (.ots)
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled
-                                    title="Esta opción se habilitará cuando la evidencia esté verificada."
-                                    className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
-                                  >
-                                    <Download size={15} />
-                                    Descargar constancia
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled
-                                    title="Esta opción se habilitará cuando la evidencia esté verificada."
-                                    className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground opacity-60"
-                                  >
-                                    <Download size={15} />
-                                    Descargar paquete de evidencia
-                                  </button>
-                                </div>
                                 </>
                               )}
                             </div>
@@ -8302,48 +8734,139 @@ export default function VisorDocumentoPage() {
                               <span className="text-xs font-bold uppercase tracking-wide text-foreground">
                                 XML de Evidencia
                               </span>
-                              <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-normal ${evidenceV2?.xmlAvailable ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : evidenceV2Error || evidenceV2?.state === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                {evidenceV2?.xmlAvailable ? (evidenceV2.state === 'verified' ? 'Verificado' : 'Generado') : evidenceV2Loading ? 'Consultando' : evidenceV2Error || evidenceV2?.state === 'error' ? 'Requiere atención' : 'Preparando'}
+                              <span
+                                className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-normal ${evidenceV2?.xmlAvailable ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : evidenceV2Error || evidenceV2?.state === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
+                              >
+                                {evidenceV2?.xmlAvailable
+                                  ? evidenceV2.state === 'verified'
+                                    ? 'Verificado'
+                                    : 'Generado'
+                                  : evidenceV2Loading
+                                    ? 'Consultando'
+                                    : evidenceV2Error || evidenceV2?.state === 'error'
+                                      ? 'Requiere atención'
+                                      : 'Preparando'}
                               </span>
                             </div>
                             <div className="space-y-3 p-4">
                               {evidenceV2?.xmlAvailable ? (
                                 <>
                                   <div className="flex items-start gap-2">
-                                    <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+                                    <CheckCircle2
+                                      size={18}
+                                      className="mt-0.5 shrink-0 text-emerald-600"
+                                    />
                                     <div>
-                                      <p className="text-sm font-semibold text-foreground">Evidencia criptográfica del documento</p>
-                                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">El XML vincula el PDF final, las firmas y la cadena probatoria. La versión técnica se conserva sin reescrituras.</p>
+                                      <p className="text-sm font-semibold text-foreground">
+                                        Evidencia criptográfica del documento
+                                      </p>
+                                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                                        El XML vincula el PDF final, las firmas y la cadena
+                                        probatoria. La versión técnica se conserva sin reescrituras.
+                                      </p>
                                     </div>
                                   </div>
                                   <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
                                     {[
                                       ['Versión técnica', `V${evidenceV2.schemaVersion}`],
-                                      ['Integridad del documento', evidenceV2.verification?.documentIntegrity || 'unavailable'],
-                                      ['Cadena de evidencia', evidenceV2.verification?.evidenceChain || 'unavailable'],
-                                      ['Firma Docubox', evidenceV2.verification?.docuboxSignature || 'unavailable'],
-                                      ['RFC 3161', evidenceV2.verification?.timestamp || 'unavailable'],
-                                      ['OpenTimestamps', evidenceV2.verification?.openTimestamps || 'unavailable'],
+                                      [
+                                        'Integridad del documento',
+                                        evidenceV2.verification?.documentIntegrity || 'unavailable',
+                                      ],
+                                      [
+                                        'Cadena de evidencia',
+                                        evidenceV2.verification?.evidenceChain || 'unavailable',
+                                      ],
+                                      [
+                                        'Firma Docubox',
+                                        evidenceV2.verification?.docuboxSignature || 'unavailable',
+                                      ],
+                                      [
+                                        'RFC 3161',
+                                        evidenceV2.verification?.timestamp || 'unavailable',
+                                      ],
+                                      [
+                                        'OpenTimestamps',
+                                        evidenceV2.verification?.openTimestamps || 'unavailable',
+                                      ],
                                       ['NOM-151', evidenceV2.verification?.nom151 || 'unavailable'],
                                     ].map(([label, value], index) => (
-                                      <div key={label} className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}>
-                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
-                                        <span className="max-w-[190px] text-right text-xs text-foreground">{value === 'valid' ? 'Válida' : value === 'pending' ? 'Pendiente' : value === 'not_applicable' ? 'No aplica' : value === 'unavailable' ? 'No disponible' : value}</span>
+                                      <div
+                                        key={label}
+                                        className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
+                                      >
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                          {label}
+                                        </span>
+                                        <span className="max-w-[190px] text-right text-xs text-foreground">
+                                          {value === 'valid'
+                                            ? 'Válida'
+                                            : value === 'pending'
+                                              ? 'Pendiente'
+                                              : value === 'not_applicable'
+                                                ? 'No aplica'
+                                                : value === 'unavailable'
+                                                  ? 'No disponible'
+                                                  : value}
+                                        </span>
                                       </div>
                                     ))}
                                   </div>
-                                  {evidenceV2.evidenceRoot && <p className="truncate font-mono text-[10px] text-muted-foreground" title={evidenceV2.evidenceRoot}>Raíz SHA-256: {evidenceV2.evidenceRoot}</p>}
-                                  <button type="button" onClick={() => void downloadEvidenceV2('xml')} disabled={evidenceV2Download !== null} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-xs font-normal text-white hover:opacity-90 disabled:opacity-60">
-                                    {evidenceV2Download === 'xml' ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />} Descargar XML
+                                  {evidenceV2.evidenceRoot && (
+                                    <p
+                                      className="truncate font-mono text-[10px] text-muted-foreground"
+                                      title={evidenceV2.evidenceRoot}
+                                    >
+                                      Raíz SHA-256: {evidenceV2.evidenceRoot}
+                                    </p>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => void downloadEvidenceV2('xml')}
+                                    disabled={evidenceV2Download !== null}
+                                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-xs font-normal text-white hover:opacity-90 disabled:opacity-60"
+                                  >
+                                    {evidenceV2Download === 'xml' ? (
+                                      <RefreshCw size={14} className="animate-spin" />
+                                    ) : (
+                                      <Download size={14} />
+                                    )}{' '}
+                                    Descargar XML
                                   </button>
                                 </>
                               ) : (
                                 <div className="flex flex-col items-center gap-3 py-4 text-center">
-                                  {evidenceV2Loading ? <RefreshCw size={24} className="animate-spin text-muted-foreground" /> : <Clock size={24} className="text-muted-foreground" />}
-                                  <div><p className="text-sm font-semibold text-foreground">{evidenceV2Loading ? 'Consultando la evidencia' : evidenceV2?.state === 'waiting_certifications' ? 'Esperando certificaciones' : evidenceV2?.state === 'generating' ? 'Generando evidencia' : 'Evidencia en preparación'}</p><p className="mt-1 text-xs text-muted-foreground">{evidenceV2Error || evidenceV2?.errorCode || 'Se genera automáticamente al completar el documento.'}</p></div>
+                                  {evidenceV2Loading ? (
+                                    <RefreshCw
+                                      size={24}
+                                      className="animate-spin text-muted-foreground"
+                                    />
+                                  ) : (
+                                    <Clock size={24} className="text-muted-foreground" />
+                                  )}
+                                  <div>
+                                    <p className="text-sm font-semibold text-foreground">
+                                      {evidenceV2Loading
+                                        ? 'Consultando la evidencia'
+                                        : evidenceV2?.state === 'waiting_certifications'
+                                          ? 'Esperando certificaciones'
+                                          : evidenceV2?.state === 'generating'
+                                            ? 'Generando evidencia'
+                                            : 'Evidencia en preparación'}
+                                    </p>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {evidenceV2Error ||
+                                        evidenceV2?.errorCode ||
+                                        'Se genera automáticamente al completar el documento.'}
+                                    </p>
+                                  </div>
                                 </div>
                               )}
-                              {evidenceV2Error && evidenceV2 && <p className="text-xs text-red-600" role="alert">{evidenceV2Error}</p>}
+                              {evidenceV2Error && evidenceV2 && (
+                                <p className="text-xs text-red-600" role="alert">
+                                  {evidenceV2Error}
+                                </p>
+                              )}
                             </div>
                           </div>
 
@@ -8395,7 +8918,8 @@ export default function VisorDocumentoPage() {
                                       Paquete base
                                     </span>
                                     <span className="text-xs text-muted-foreground">
-                                      {evidenceV2.technical?.packageId?.slice(0, 16) || 'Disponible'}
+                                      {evidenceV2.technical?.packageId?.slice(0, 16) ||
+                                        'Disponible'}
                                     </span>
                                   </div>
                                 </div>
@@ -8409,7 +8933,9 @@ export default function VisorDocumentoPage() {
                                   ) : (
                                     <Download size={15} />
                                   )}
-                                  {evidenceV2Download === 'package' ? 'Descargando…' : 'Descargar paquete'}
+                                  {evidenceV2Download === 'package'
+                                    ? 'Descargando…'
+                                    : 'Descargar paquete'}
                                 </button>
                                 {evidenceV2Error && (
                                   <p className="text-xs text-red-600" role="alert">
@@ -8437,7 +8963,8 @@ export default function VisorDocumentoPage() {
                                       : 'Paquete de evidencia pendiente.'}
                                   <br />
                                   <span className="text-xs">
-                                    {evidenceV2Error || evidenceV2?.errorCode ||
+                                    {evidenceV2Error ||
+                                      evidenceV2?.errorCode ||
                                       'Estará disponible automáticamente junto con el XML.'}
                                   </span>
                                 </p>
@@ -8741,22 +9268,33 @@ export default function VisorDocumentoPage() {
               </button>
             </div>
             <div className="relative flex flex-1 items-start justify-center overflow-auto p-6">
-              <div className="relative flex-shrink-0 border border-slate-700 bg-white shadow-[0_18px_48px_rgba(0,0,0,0.35)]">
-                <PdfCanvas
-                  fileUrl={document.file_url}
-                  page={currentPage}
+              {templateDocument && document.estado !== 'completado' ? (
+                <TemplateDocumentPreview
+                  template={templateDocument}
+                  values={templateFieldValues}
+                  pageIndex={currentPage - 1}
                   zoom={zoom}
-                  onTotalPages={handleTotalPages}
-                >
-                  {showCampos && camposEnPaginaActual.length > 0 && (
-                    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
-                      {camposEnPaginaActual.map((campo, idx) =>
-                        renderCampoOverlay(campo, idx, 'modal')
-                      )}
-                    </div>
-                  )}
-                </PdfCanvas>
-              </div>
+                  title={`Documento de plantilla ${document.nombre}`}
+                  onPageCountChange={handleTotalPages}
+                />
+              ) : (
+                <div className="relative flex-shrink-0 border border-slate-700 bg-white shadow-[0_18px_48px_rgba(0,0,0,0.35)]">
+                  <PdfCanvas
+                    fileUrl={document.file_url}
+                    page={currentPage}
+                    zoom={zoom}
+                    onTotalPages={handleTotalPages}
+                  >
+                    {showCampos && camposEnPaginaActual.length > 0 && (
+                      <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
+                        {camposEnPaginaActual.map((campo, idx) =>
+                          renderCampoOverlay(campo, idx, 'modal')
+                        )}
+                      </div>
+                    )}
+                  </PdfCanvas>
+                </div>
+              )}
               {renderPaginationBar(true)}
             </div>
           </div>
@@ -9004,31 +9542,6 @@ export default function VisorDocumentoPage() {
           </div>
         )}
 
-        {viewProtectionModal && document && (
-          <CodigoAccesoModal
-            databaseDocumentId={document.id}
-            configured={viewProtection?.enabled === true}
-            initialDelete={viewProtectionModal === 'disable'}
-            onClose={() => setViewProtectionModal(null)}
-            onSaved={() => {
-              setViewProtection((current) => ({
-                enabled: true,
-                canManage: true,
-                configuredAt: current?.configuredAt || new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              }));
-            }}
-            onDeleted={() => {
-              setViewProtection((current) => ({
-                enabled: false,
-                canManage: true,
-                configuredAt: current?.configuredAt,
-                updatedAt: new Date().toISOString(),
-              }));
-            }}
-          />
-        )}
-
         {/* Edit Modals */}
         {editModal === 'datos' && (
           <EditModal
@@ -9046,6 +9559,8 @@ export default function VisorDocumentoPage() {
                 viewMode="stacked"
                 onGuardarAvance={() => {}}
                 savingDraft={false}
+                supplementalResources={[]}
+                onSupplementalResourcesChange={() => {}}
               />
             </div>
           </EditModal>
@@ -9066,6 +9581,8 @@ export default function VisorDocumentoPage() {
                 viewMode="stacked"
                 onGuardarAvance={() => {}}
                 savingDraft={false}
+                supplementalResources={[]}
+                onSupplementalResourcesChange={() => {}}
               />
             </div>
           </EditModal>
@@ -9085,6 +9602,7 @@ export default function VisorDocumentoPage() {
                 onModeChange={setEditParticipantMode}
                 participationOrder={editParticipationOrder}
                 onOrderChange={setEditParticipationOrder}
+                supplementalResources={[]}
               />
             </div>
           </EditModal>

@@ -3,7 +3,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Upload,
-  ExternalLink,
   FileText,
   CheckCircle2,
   Eye,
@@ -24,6 +23,8 @@ import {
   Layers,
   Plus,
   Lock,
+  Loader2,
+  LayoutTemplate,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -34,9 +35,22 @@ import {
   zonedDateTimeToUtcIso,
 } from '@/lib/datetime';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
+import { templateApiFetch } from '@/lib/templates/client';
 import { SearchableSelect, InfoTooltip } from './SharedComponents';
 import { DocuboxSourceSelector } from './DocuboxSourceSelector';
+import { TemplateSourceSelector, type PublishedTemplateSummary } from './TemplateSourceSelector';
+import { getTemplateFamilyId } from '@/lib/templates/versioning';
+import {
+  TemplateHtmlPreview,
+  TemplatePreviewModal,
+} from '@/components/templates/TemplateHtmlPreview';
+import { ParticipationDocumentOptions } from './ParticipationDocumentOptions';
+import type {
+  ParticipantRequirementDraft,
+  SupplementalDocumentDraft,
+} from '@/lib/document-package/types';
 import type {
   AdditionalDocumentMetadata,
   AdditionalMetadataDataType,
@@ -47,6 +61,7 @@ import type {
   Etiqueta,
   Carpeta,
   DocuboxSourceSelection,
+  Participant,
 } from './types';
 
 // --- Brand Icons --------------------------------------------------------------
@@ -485,14 +500,8 @@ function SearchFieldWithModal({
             className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-base font-semibold text-gray-900">{label}</h3>
-              <button
-                onClick={() => setOpen(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X size={18} />
-              </button>
             </div>
             <div className="px-5 pt-4 pb-2">
               <div className="relative">
@@ -555,6 +564,15 @@ function SearchFieldWithModal({
                   })}
                 </div>
               )}
+            </div>
+            <div className="flex justify-end border-t border-gray-100 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
@@ -707,14 +725,8 @@ function EtiquetasSearchFieldWithModal({
             style={{ maxHeight: '85vh' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-base font-semibold text-gray-900">Etiquetas</h3>
-              <button
-                onClick={() => setOpen(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X size={18} />
-              </button>
             </div>
             <div className="px-5 pt-4 pb-2">
               <div className="relative">
@@ -812,10 +824,17 @@ function EtiquetasSearchFieldWithModal({
                 </div>
               )}
             </div>
-            <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                Cerrar
+              </button>
               <button
                 onClick={() => setOpen(false)}
-                className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+                className="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90"
               >
                 Confirmar ({selectedIds.length} seleccionadas)
               </button>
@@ -1033,14 +1052,8 @@ function DocumentTypeSelectorModal({
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-base font-semibold text-gray-900">Tipo de documento</h3>
-              <button
-                onClick={() => setOpen(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X size={18} />
-              </button>
             </div>
 
             {/* Search bar */}
@@ -1323,6 +1336,15 @@ function DocumentTypeSelectorModal({
                 </>
               )}
             </div>
+            <div className="flex justify-end border-t border-gray-100 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1503,11 +1525,8 @@ function MetadatosModal({
         style={{ maxHeight: '85vh' }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-900">Metaetiquetas del documento</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X size={18} />
-          </button>
         </div>
 
         {loadingExisting ? (
@@ -1951,27 +1970,21 @@ function AdditionalMetadataModal({
         role="dialog"
         aria-labelledby="additional-metadata-title"
       >
-        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+        <header className="border-b border-slate-200 px-5 py-3">
           <div>
-              <h3 id="additional-metadata-title" className="text-[15px] font-semibold text-slate-950">
-                Metadatos adicionales
-              </h3>
-              <p className="mt-0.5 text-[12px] leading-5 text-slate-500">
-                Agrega información de negocio sin modificar los metadatos técnicos de Docubox.
-              </p>
+            <h3 id="additional-metadata-title" className="text-[15px] font-semibold text-slate-950">
+              Metadatos adicionales
+            </h3>
+            <p className="mt-0.5 text-[12px] leading-5 text-slate-500">
+              Agrega información de negocio sin modificar los metadatos técnicos de Docubox.
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Cerrar"
-          >
-            <X size={18} />
-          </button>
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-          <p className="mb-2 text-xs font-medium text-slate-700">Selecciona dónde se utilizará el metadato</p>
+          <p className="mb-2 text-xs font-medium text-slate-700">
+            Selecciona dónde se utilizará el metadato
+          </p>
           <div
             className="grid gap-2.5 sm:grid-cols-2"
             role="radiogroup"
@@ -1991,14 +2004,10 @@ function AdditionalMetadataModal({
                     className={`min-h-[74px] rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-100 ${selected ? 'border-blue-300 bg-blue-50/70' : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/30'}`}
                   >
                     <span className="flex items-center gap-2">
-                      <span
-                        className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500"
-                      >
+                      <span className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500">
                         {scope === 'document' ? <Lock size={14} /> : <Folder size={14} />}
                       </span>
-                      <span className="text-[13px] font-medium text-slate-900">
-                        {copy.title}
-                      </span>
+                      <span className="text-[13px] font-medium text-slate-900">{copy.title}</span>
                     </span>
                     <span className="mt-1 block !text-[11px] !font-normal leading-[14px] text-slate-500">
                       {copy.description}
@@ -2141,8 +2150,9 @@ function AdditionalMetadataModal({
                           </span>
                           <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
                             {
-                              ADDITIONAL_METADATA_TYPES.find((type) => type.value === entry.dataType)
-                                ?.label
+                              ADDITIONAL_METADATA_TYPES.find(
+                                (type) => type.value === entry.dataType
+                              )?.label
                             }
                           </span>
                         </div>
@@ -2150,7 +2160,11 @@ function AdditionalMetadataModal({
                           <span className="font-medium text-slate-600">Valor:</span>
                           <span className="break-words text-slate-700">
                             {String(
-                              entry.value === true ? 'Sí' : entry.value === false ? 'No' : entry.value
+                              entry.value === true
+                                ? 'Sí'
+                                : entry.value === false
+                                  ? 'No'
+                                  : entry.value
                             )}
                           </span>
                         </p>
@@ -2166,7 +2180,9 @@ function AdditionalMetadataModal({
                         <button
                           type="button"
                           onClick={() =>
-                            setSavedEntries((current) => current.filter((item) => item.id !== entry.id))
+                            setSavedEntries((current) =>
+                              current.filter((item) => item.id !== entry.id)
+                            )
                           }
                           className="rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                         >
@@ -2223,23 +2239,15 @@ function SelloUbicacionModal({
         className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <header className="border-b border-slate-100 px-5 py-4">
           <div>
-              <h3 id="sello-ubicacion-title" className="text-base font-semibold text-slate-900">
-                Ubicación de la certificación
-              </h3>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Define dónde se integrará el sello digital y la cadena original.
-              </p>
+            <h3 id="sello-ubicacion-title" className="text-base font-semibold text-slate-900">
+              Ubicación de la certificación
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Define dónde se integrará el sello digital y la cadena original.
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600"
-          >
-            <X size={18} />
-          </button>
         </header>
         <div className="space-y-4 px-5 py-5">
           <div>
@@ -2270,7 +2278,9 @@ function SelloUbicacionModal({
             </div>
           </div>
           <div className="rounded-lg bg-slate-50 px-3 py-3">
-            <p className="mb-2 text-xs font-semibold text-slate-700">Así aparecerá en el documento</p>
+            <p className="mb-2 text-xs font-semibold text-slate-700">
+              Así aparecerá en el documento
+            </p>
             <div className="flex items-center gap-3">
               <div className="relative h-20 w-14 shrink-0 rounded border border-slate-200 bg-white shadow-sm">
                 <span className="absolute left-2 right-2 top-3 h-px bg-slate-200" />
@@ -2290,7 +2300,8 @@ function SelloUbicacionModal({
                   <>
                     <p>La cadena original y el sello digital se mostrarán después del contenido.</p>
                     <p className="mt-1 text-slate-500">
-                      Si la última página no tiene espacio suficiente, Docubox agregará una página nueva.
+                      Si la última página no tiene espacio suficiente, Docubox agregará una página
+                      nueva.
                     </p>
                   </>
                 ) : (
@@ -2306,10 +2317,18 @@ function SelloUbicacionModal({
           </div>
         </div>
         <footer className="flex justify-end gap-3 border-t border-slate-100 px-5 py-3">
-          <button type="button" onClick={onClose} className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+          >
             Cancelar
           </button>
-          <button type="button" onClick={() => onSave(value)} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90">
+          <button
+            type="button"
+            onClick={() => onSave(value)}
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+          >
             Guardar ubicación
           </button>
         </footer>
@@ -2334,26 +2353,83 @@ function SecurityConfigurationModal({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section role="dialog" aria-modal="true" aria-labelledby="security-configuration-title" className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
-        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <div><h3 id="security-configuration-title" className="text-[15px] font-semibold text-slate-950">{title}</h3><p className="mt-0.5 text-xs text-slate-500">{description}</p></div>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X size={18} /></button>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="security-configuration-title"
+        className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="border-b border-slate-200 px-5 py-3">
+          <div>
+            <h3
+              id="security-configuration-title"
+              className="text-[15px] font-semibold text-slate-950"
+            >
+              {title}
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+          </div>
         </header>
         <div className="flex-1 overflow-y-auto p-5">{children}</div>
-        <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3"><button type="button" onClick={onClose} className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button><button type="button" disabled={saveDisabled} onClick={() => { onSave(); onClose(); }} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-slate-300">Guardar configuración</button></footer>
+        <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={saveDisabled}
+            onClick={() => {
+              onSave();
+              onClose();
+            }}
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            Guardar configuración
+          </button>
+        </footer>
       </section>
     </div>
   );
 }
 
-function ConfiguredOptionSummary({ children, onEdit, onRemove, removeLabel = 'Quitar' }: { children: React.ReactNode; onEdit: () => void; onRemove: () => void; removeLabel?: string }) {
+function ConfiguredOptionSummary({
+  children,
+  onEdit,
+  onRemove,
+  removeLabel = 'Quitar',
+}: {
+  children: React.ReactNode;
+  onEdit: () => void;
+  onRemove: () => void;
+  removeLabel?: string;
+}) {
   return (
     <div className="mx-3 mb-2 ml-10 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
       <CheckCircle2 size={13} className="shrink-0 text-emerald-500" />
       <span className="min-w-0 flex-1 text-xs text-emerald-700">{children}</span>
-      <button type="button" onClick={onEdit} className="shrink-0 text-xs font-medium text-primary hover:text-primary/80">Editar</button>
-      <button type="button" onClick={onRemove} className="shrink-0 text-xs font-medium text-red-500 hover:text-red-600">{removeLabel}</button>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="shrink-0 text-xs font-medium text-primary hover:text-primary/80"
+      >
+        Editar
+      </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="shrink-0 text-xs font-medium text-red-500 hover:text-red-600"
+      >
+        {removeLabel}
+      </button>
     </div>
   );
 }
@@ -2492,7 +2568,7 @@ export function CodigoAccesoModal({
         className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="px-5 py-4 border-b border-gray-100">
           <div>
             <h3 className="text-base font-semibold text-gray-900">
               {confirmDelete
@@ -2507,9 +2583,6 @@ export function CodigoAccesoModal({
                 : 'Define un código que será necesario para visualizar el contenido de este documento.'}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X size={18} />
-          </button>
         </div>
 
         <div className="px-5 py-4">
@@ -2694,6 +2767,7 @@ export function CodigoAccesoModal({
 
 function FileUploadedLayout({
   file,
+  templateSource,
   onRemove,
   config,
   onConfigChange,
@@ -2704,8 +2778,17 @@ function FileUploadedLayout({
   securitySettings,
   databaseDocumentId,
   onPdfMetadata,
+  supplementalResources,
+  onSupplementalResourcesChange,
+  participants = [],
+  onParticipantsChange = () => undefined,
+  inPersonSigningEnabled = false,
+  onInPersonSigningEnabledChange = () => undefined,
+  documentRequirements = [],
+  onDocumentRequirementsChange = () => undefined,
 }: {
-  file: File;
+  file: File | null;
+  templateSource?: PublishedTemplateSummary | null;
   onRemove: () => void;
   config: DocumentConfig;
   onConfigChange: (c: DocumentConfig) => void;
@@ -2731,6 +2814,14 @@ function FileUploadedLayout({
     author?: string;
     creationDate?: string;
   }) => void;
+  supplementalResources: SupplementalDocumentDraft[];
+  onSupplementalResourcesChange: (resources: SupplementalDocumentDraft[]) => void;
+  participants?: Participant[];
+  onParticipantsChange?: React.Dispatch<React.SetStateAction<Participant[]>>;
+  inPersonSigningEnabled?: boolean;
+  onInPersonSigningEnabledChange?: (enabled: boolean) => void;
+  documentRequirements?: ParticipantRequirementDraft[];
+  onDocumentRequirementsChange?: (requirements: ParticipantRequirementDraft[]) => void;
 }) {
   const { user } = useAuth();
   const [userId, setUserId] = useState<string | undefined>(user?.id);
@@ -2751,17 +2842,31 @@ function FileUploadedLayout({
   const [vencimiento, setVencimiento] = useState(securitySettings?.vencimientoEnabled ?? false);
   const [showVencimientoModal, setShowVencimientoModal] = useState(false);
   // Vencimiento sub-options
-  const [vencimientoSolicitud, setVencimientoSolicitud] = useState(securitySettings?.vencimientoSolicitud ?? false);
-  const [vencimientoCompletar, setVencimientoCompletar] = useState(securitySettings?.vencimientoCompletar ?? false);
-  const [incluirHoraVencimiento, setIncluirHoraVencimiento] = useState(securitySettings?.incluirHoraVencimiento ?? false);
+  const [vencimientoSolicitud, setVencimientoSolicitud] = useState(
+    securitySettings?.vencimientoSolicitud ?? false
+  );
+  const [vencimientoCompletar, setVencimientoCompletar] = useState(
+    securitySettings?.vencimientoCompletar ?? false
+  );
+  const [incluirHoraVencimiento, setIncluirHoraVencimiento] = useState(
+    securitySettings?.incluirHoraVencimiento ?? false
+  );
   const [presetVencimiento, setPresetVencimiento] = useState<
     '24h' | '3d' | '7d' | '15d' | '30d' | 'personalizado'
   >(securitySettings?.vencimientoPreset ?? '7d');
-  const [fechaVencimientoPersonalizado, setFechaVencimientoPersonalizado] = useState(securitySettings?.fechaVencimientoPersonalizado ?? '');
-  const [horaVencimiento, setHoraVencimiento] = useState(securitySettings?.horaVencimiento ?? '23:59');
-  const [zonaHoraria, setZonaHoraria] = useState(securitySettings?.fechaVencimientoTimezone ?? 'UTC');
+  const [fechaVencimientoPersonalizado, setFechaVencimientoPersonalizado] = useState(
+    securitySettings?.fechaVencimientoPersonalizado ?? ''
+  );
+  const [horaVencimiento, setHoraVencimiento] = useState(
+    securitySettings?.horaVencimiento ?? '23:59'
+  );
+  const [zonaHoraria, setZonaHoraria] = useState(
+    securitySettings?.fechaVencimientoTimezone ?? 'UTC'
+  );
   const [diasHabiles, setDiasHabiles] = useState(securitySettings?.diasHabiles ?? false);
-  const [recordatorioEnabled, setRecordatorioEnabled] = useState(securitySettings?.recordatorioEnabled ?? Boolean(securitySettings?.recordatorioFrecuencia));
+  const [recordatorioEnabled, setRecordatorioEnabled] = useState(
+    securitySettings?.recordatorioEnabled ?? Boolean(securitySettings?.recordatorioFrecuencia)
+  );
   const [recordatorioCuando, setRecordatorioCuando] = useState<'diario' | '48h' | '24h' | '6h'>(
     (securitySettings?.recordatorioFrecuencia as 'diario' | '48h' | '24h' | '6h') || '24h'
   );
@@ -2774,19 +2879,29 @@ function FileUploadedLayout({
   useEffect(() => {
     if (databaseDocumentId && codigoAcceso) setCodigoAccesoValue('');
   }, [databaseDocumentId, codigoAcceso]);
-  const [proteccionFirmado, setProteccionFirmado] = useState(securitySettings?.proteccionAdicionalEnabled ?? false);
+  const [proteccionFirmado, setProteccionFirmado] = useState(
+    securitySettings?.proteccionAdicionalEnabled ?? false
+  );
   const [showProteccionFirmadoModal, setShowProteccionFirmadoModal] = useState(false);
-  const [proteccionParticipacion, setProteccionParticipacion] = useState(securitySettings?.proteccionParticipacionEnabled ?? false);
+  const [proteccionParticipacion, setProteccionParticipacion] = useState(
+    securitySettings?.proteccionParticipacionEnabled ?? false
+  );
   const [urgente, setUrgente] = useState(securitySettings?.urgente ?? false);
   const [publico, setPublico] = useState(securitySettings?.publico ?? false);
   const [selloDigital, setSelloDigital] = useState(securitySettings?.selloDigital ?? false);
-  const [selloUbicacion, setSelloUbicacion] = useState<'calce' | 'libre'>(securitySettings?.selloUbicacion ?? 'calce');
+  const [selloUbicacion, setSelloUbicacion] = useState<'calce' | 'libre'>(
+    securitySettings?.selloUbicacion ?? 'calce'
+  );
   const [showSelloUbicacionModal, setShowSelloUbicacionModal] = useState(false);
-  const [estampaAutenticacion, setEstampaAutenticacion] = useState(securitySettings?.estampaAutenticacion ?? false);
+  const [estampaAutenticacion, setEstampaAutenticacion] = useState(
+    securitySettings?.estampaAutenticacion ?? false
+  );
   // The blockchain evidence is generated automatically with the final document,
   // just like the NOM-151 evidence. It is not a user-configurable setting.
   const blockchainEvidence = true;
-  const [metadatosAdicionales, setMetadatosAdicionales] = useState(securitySettings?.metadatosAdicionales ?? false);
+  const [metadatosAdicionales, setMetadatosAdicionales] = useState(
+    securitySettings?.metadatosAdicionales ?? false
+  );
   const [showMetadatosModal, setShowMetadatosModal] = useState(false);
   const savedMetadatosCount = config.additionalMetadata?.length ?? 0;
 
@@ -2794,15 +2909,26 @@ function FileUploadedLayout({
     if (savedMetadatosCount > 0) setMetadatosAdicionales(true);
   }, [savedMetadatosCount]);
 
-  const [impedirImpresion, setImpedirImpresion] = useState(securitySettings?.impedirImpresion ?? false);
-  const [evitarCopiaTexto, setEvitarCopiaTexto] = useState(securitySettings?.evitarCopiaTexto ?? false);
-  const [impedirModificacion, setImpedirModificacion] = useState(securitySettings?.impedirModificacion ?? false);
-  const [impedirExtraccion, setImpedirExtraccion] = useState(securitySettings?.impedirExtraccion ?? false);
+  const [impedirImpresion, setImpedirImpresion] = useState(
+    securitySettings?.impedirImpresion ?? false
+  );
+  const [evitarCopiaTexto, setEvitarCopiaTexto] = useState(
+    securitySettings?.evitarCopiaTexto ?? false
+  );
+  const [impedirModificacion, setImpedirModificacion] = useState(
+    securitySettings?.impedirModificacion ?? false
+  );
+  const [impedirExtraccion, setImpedirExtraccion] = useState(
+    securitySettings?.impedirExtraccion ?? false
+  );
   const [evitarMontaje, setEvitarMontaje] = useState(securitySettings?.evitarMontaje ?? false);
-  const [legalHoldEnabled, setLegalHoldEnabled] = useState(securitySettings?.legalHoldEnabled ?? false);
+  const [legalHoldEnabled, setLegalHoldEnabled] = useState(
+    securitySettings?.legalHoldEnabled ?? false
+  );
   const [showLegalHoldModal, setShowLegalHoldModal] = useState(false);
-  const [legalHoldReason, setLegalHoldReason] =
-    useState<import('./types').SecuritySettings['legalHoldReason']>(securitySettings?.legalHoldReason ?? '');
+  const [legalHoldReason, setLegalHoldReason] = useState<
+    import('./types').SecuritySettings['legalHoldReason']
+  >(securitySettings?.legalHoldReason ?? '');
   const [legalHoldCaseReference, setLegalHoldCaseReference] = useState(
     securitySettings?.legalHoldCaseReference ?? ''
   );
@@ -2819,6 +2945,7 @@ function FileUploadedLayout({
   const [carpetas, setCarpetas] = useState<Carpeta[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [showTemplatePreview, setShowTemplatePreview] = useState(false);
 
   useEffect(() => {
     const userTimeZone = getEffectiveTimeZone();
@@ -2832,7 +2959,13 @@ function FileUploadedLayout({
       presetVencimiento === 'personalizado'
         ? fechaVencimientoPersonalizado
         : addCalendarDaysInTimeZone(zonaHoraria, daysMap[presetVencimiento] ?? 7);
-    return zonedDateTimeToUtcIso(date, incluirHoraVencimiento ? horaVencimiento : '23:59', zonaHoraria) || '';
+    return (
+      zonedDateTimeToUtcIso(
+        date,
+        incluirHoraVencimiento ? horaVencimiento : '23:59',
+        zonaHoraria
+      ) || ''
+    );
   };
 
   const recordatorioFrecuencia = recordatorioEnabled ? recordatorioCuando : '';
@@ -2908,8 +3041,9 @@ function FileUploadedLayout({
     metadatosAdicionales,
   ]);
 
-  const isPdf = file.name.toLowerCase().endsWith('.pdf');
-  const fileSizeKB = (file.size / 1024).toFixed(2);
+  const isPdf = Boolean(file?.name.toLowerCase().endsWith('.pdf'));
+  const fileSizeKB = file ? (file.size / 1024).toFixed(2) : null;
+  const displayFileName = templateSource?.nombre || file?.name || 'Documento';
 
   const configRef = useRef(config);
   useEffect(() => {
@@ -2919,12 +3053,12 @@ function FileUploadedLayout({
   const autoNameSetRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (autoNameSetRef.current === file.name) return;
+    if (!file || templateSource || autoNameSetRef.current === file.name) return;
     autoNameSetRef.current = file.name;
     const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
     onConfigChange({ ...configRef.current, nombre: nameWithoutExt });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file.name]);
+  }, [file, templateSource]);
 
   // Load all data including all tipos for all grupos
   useEffect(() => {
@@ -2977,7 +3111,7 @@ function FileUploadedLayout({
   }, []);
 
   useEffect(() => {
-    if (!isPdf) return;
+    if (!file || !isPdf || templateSource) return;
     const objectUrl = URL.createObjectURL(file);
     const renderPdfThumbnail = async () => {
       try {
@@ -3085,7 +3219,7 @@ function FileUploadedLayout({
     return () => {
       URL.revokeObjectURL(objectUrl);
     };
-  }, [file, isPdf]);
+  }, [file, isPdf, onPdfMetadata, templateSource]);
 
   const update = (field: keyof DocumentConfig, value: any) =>
     onConfigChange({ ...config, [field]: value });
@@ -3106,13 +3240,21 @@ function FileUploadedLayout({
   ];
 
   const vencimientoSummary = (() => {
-    const plazo = presetVencimiento === 'personalizado'
-      ? fechaVencimientoPersonalizado || 'Fecha personalizada'
-      : PRESET_OPTIONS.find((option) => option.id === presetVencimiento)?.label || 'Plazo configurado';
+    const plazo =
+      presetVencimiento === 'personalizado'
+        ? fechaVencimientoPersonalizado || 'Fecha personalizada'
+        : PRESET_OPTIONS.find((option) => option.id === presetVencimiento)?.label ||
+          'Plazo configurado';
     const hora = incluirHoraVencimiento ? `, ${horaVencimiento}` : '';
     return `Vencimiento: ${plazo}${hora} (${getTimeZoneOffsetLabel(zonaHoraria)})`;
   })();
-  const protectionRestrictionCount = [impedirImpresion, evitarCopiaTexto, impedirModificacion, impedirExtraccion, evitarMontaje].filter(Boolean).length;
+  const protectionRestrictionCount = [
+    impedirImpresion,
+    evitarCopiaTexto,
+    impedirModificacion,
+    impedirExtraccion,
+    evitarMontaje,
+  ].filter(Boolean).length;
   const legalHoldReasonLabels: Record<string, string> = {
     litigio: 'Litigio / procedimiento judicial',
     requerimiento_autoridad: 'Requerimiento de autoridad',
@@ -3161,7 +3303,13 @@ function FileUploadedLayout({
             <h2 className="mb-4 text-base font-700 text-slate-950">Archivo cargado</h2>
             <div className="border border-gray-200 rounded-lg p-4 flex gap-4 items-start mb-4">
               <div className="w-20 h-28 bg-gray-100 rounded border border-gray-200 flex items-center justify-center shrink-0 overflow-hidden">
-                {thumbnailUrl ? (
+                {templateSource ? (
+                  <TemplateHtmlPreview
+                    template={templateSource}
+                    className="h-full w-full"
+                    title={`Miniatura de ${templateSource.nombre}`}
+                  />
+                ) : thumbnailUrl ? (
                   <img
                     src={thumbnailUrl}
                     alt="Miniatura del documento"
@@ -3175,19 +3323,27 @@ function FileUploadedLayout({
                   <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-blue-50">
                     <FileText size={24} className="text-primary" />
                     <span className="text-[9px] font-bold text-primary uppercase">
-                      {file.name.split('.').pop()}
+                      {file?.name.split('.').pop()}
                     </span>
                   </div>
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate">{file.name}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{fileSizeKB} KB</p>
+                <p className="text-sm font-semibold text-gray-900 truncate">{displayFileName}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {templateSource ? 'Plantilla publicada de Docubox' : `${fileSizeKB} KB`}
+                </p>
                 <div className="flex items-center gap-1.5 mt-3">
                   <button
                     onClick={() => {
-                      const url = URL.createObjectURL(file);
-                      window.open(url, '_blank');
+                      if (templateSource) {
+                        setShowTemplatePreview(true);
+                        return;
+                      }
+                      if (file) {
+                        const url = URL.createObjectURL(file);
+                        window.open(url, '_blank');
+                      }
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 hover:bg-gray-50 transition-colors"
                   >
@@ -3208,9 +3364,7 @@ function FileUploadedLayout({
           </div>
 
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <h2 className="text-base font-700 text-slate-950">
-              Configuración del documento
-            </h2>
+            <h2 className="text-base font-700 text-slate-950">Configuración del documento</h2>
             {/* Tabs - Configuración general FIRST (default), Seguridad y protección SECOND */}
             <div className="mt-4 flex gap-2 rounded-xl bg-gray-100 p-1">
               <button
@@ -3243,7 +3397,10 @@ function FileUploadedLayout({
                     <span className="flex-1 text-sm font-normal text-gray-700">
                       Marcar como documento urgente
                     </span>
-                    <InfoTooltip showOnParentHover text="Los participantes recibirán una indicación de prioridad y el documento se destacará en sus bandejas. Este ajuste no modifica el vencimiento." />
+                    <InfoTooltip
+                      showOnParentHover
+                      text="Los participantes recibirán una indicación de prioridad y el documento se destacará en sus bandejas. Este ajuste no modifica el vencimiento."
+                    />
                   </label>
                   {urgente && (
                     <p className="ml-7 mt-1.5 text-xs text-gray-500">
@@ -3259,13 +3416,29 @@ function FileUploadedLayout({
                       onChange={(e) => setPublico(e.target.checked)}
                       className="w-4 h-4 rounded border-gray-300 accent-primary"
                     />
-                    <span className="min-w-0 flex-1 text-sm font-normal text-gray-700">Permitir consulta pública del documento firmado</span>
-                    <InfoTooltip showOnParentHover text="La publicación sólo se habilita cuando el documento está completado. Podrá visualizarse desde el portal de verificación mediante su enlace o código QR. Si no activas esta opción, la consulta y descarga permanecerán privadas." />
+                    <span className="min-w-0 flex-1 text-sm font-normal text-gray-700">
+                      Permitir consulta pública del documento firmado
+                    </span>
+                    <InfoTooltip
+                      showOnParentHover
+                      text="La publicación sólo se habilita cuando el documento está completado. Podrá visualizarse desde el portal de verificación mediante su enlace o código QR. Si no activas esta opción, la consulta y descarga permanecerán privadas."
+                    />
                   </label>
-                  {publico && <p className="ml-7 mt-1.5 text-xs text-gray-500">Al completarse, se habilitará una consulta pública verificable mediante enlace o código QR.</p>}
+                  {publico && (
+                    <p className="ml-7 mt-1.5 text-xs text-gray-500">
+                      Al completarse, se habilitará una consulta pública verificable mediante enlace
+                      o código QR.
+                    </p>
+                  )}
                 </div>
                 <div>
-                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg" onClick={(event) => { event.preventDefault(); setShowSelloUbicacionModal(true); }}>
+                  <label
+                    className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setShowSelloUbicacionModal(true);
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={selloDigital}
@@ -3275,11 +3448,21 @@ function FileUploadedLayout({
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Agregar sello digital y cadena original
                     </span>
-                    <InfoTooltip showOnParentHover text="Genera la cadena original, el sello digital y la evidencia criptográfica con valores reales cuando el documento quede completado." />
+                    <InfoTooltip
+                      showOnParentHover
+                      text="Genera la cadena original, el sello digital y la evidencia criptográfica con valores reales cuando el documento quede completado."
+                    />
                   </label>
                   {selloDigital && (
-                    <ConfiguredOptionSummary onEdit={() => setShowSelloUbicacionModal(true)} onRemove={() => { setSelloDigital(false); setSelloUbicacion('calce'); }}>
-                      Certificación: {selloUbicacion === 'calce' ? 'al calce' : 'en cualquier parte'}
+                    <ConfiguredOptionSummary
+                      onEdit={() => setShowSelloUbicacionModal(true)}
+                      onRemove={() => {
+                        setSelloDigital(false);
+                        setSelloUbicacion('calce');
+                      }}
+                    >
+                      Certificación:{' '}
+                      {selloUbicacion === 'calce' ? 'al calce' : 'en cualquier parte'}
                     </ConfiguredOptionSummary>
                   )}
                 </div>
@@ -3301,7 +3484,8 @@ function FileUploadedLayout({
                   </label>
                   {estampaAutenticacion && (
                     <p className="ml-7 mt-1.5 text-xs text-gray-500">
-                      Se agregará automáticamente una franja de identificación y verificación al pie de cada página del documento.
+                      Se agregará automáticamente una franja de identificación y verificación al pie
+                      de cada página del documento.
                     </p>
                   )}
                 </div>
@@ -3322,14 +3506,36 @@ function FileUploadedLayout({
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Crear metadatos adicionales al documento
                     </span>
-                    <InfoTooltip showOnParentHover text="Agrega metadatos de negocio tipados. Los metadatos del documento se bloquean al iniciar la firma; los de gestión permanecen editables y auditados." />
+                    <InfoTooltip
+                      showOnParentHover
+                      text="Agrega metadatos de negocio tipados. Los metadatos del documento se bloquean al iniciar la firma; los de gestión permanecen editables y auditados."
+                    />
                   </label>
                   {metadatosAdicionales && savedMetadatosCount > 0 && (
-                    <ConfiguredOptionSummary onEdit={() => setShowMetadatosModal(true)} onRemove={() => { onConfigChange({ ...config, additionalMetadata: [] }); setMetadatosAdicionales(false); }}>
+                    <ConfiguredOptionSummary
+                      onEdit={() => setShowMetadatosModal(true)}
+                      onRemove={() => {
+                        onConfigChange({ ...config, additionalMetadata: [] });
+                        setMetadatosAdicionales(false);
+                      }}
+                    >
                       ({savedMetadatosCount}) Metadatos registrados
                     </ConfiguredOptionSummary>
                   )}
                 </div>
+                {(process.env.NODE_ENV !== 'production' ||
+                  process.env.NEXT_PUBLIC_DOCUBOX_PHASE_B_ENABLED === 'true') && (
+                  <ParticipationDocumentOptions
+                    participants={participants}
+                    onParticipantsChange={onParticipantsChange}
+                    inPersonEnabled={inPersonSigningEnabled}
+                    onInPersonEnabledChange={onInPersonSigningEnabledChange}
+                    resources={supplementalResources}
+                    onResourcesChange={onSupplementalResourcesChange}
+                    requirements={documentRequirements}
+                    onRequirementsChange={onDocumentRequirementsChange}
+                  />
+                )}
               </div>
             )}
 
@@ -3338,7 +3544,13 @@ function FileUploadedLayout({
               <div className="space-y-1.5">
                 {/* Vencimiento */}
                 <div>
-                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg" onClick={(event) => { event.preventDefault(); setShowVencimientoModal(true); }}>
+                  <label
+                    className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setShowVencimientoModal(true);
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={vencimiento}
@@ -3348,237 +3560,252 @@ function FileUploadedLayout({
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Establecer vencimiento para este documento
                     </span>
-                    <InfoTooltip showOnParentHover text="Define una fecha límite después de la cual el documento ya no podrá ser firmado o accedido." />
+                    <InfoTooltip
+                      showOnParentHover
+                      text="Define una fecha límite después de la cual el documento ya no podrá ser firmado o accedido."
+                    />
                   </label>
 
                   {vencimiento && (
-                    <ConfiguredOptionSummary onEdit={() => setShowVencimientoModal(true)} onRemove={removeVencimiento}>
+                    <ConfiguredOptionSummary
+                      onEdit={() => setShowVencimientoModal(true)}
+                      onRemove={removeVencimiento}
+                    >
                       {vencimientoSummary}
                     </ConfiguredOptionSummary>
                   )}
 
                   {showVencimientoModal && (
-                    <SecurityConfigurationModal title="Vencimiento del documento" description="Define el plazo y los recordatorios para completar la participación." saveDisabled={presetVencimiento === 'personalizado' && !fechaVencimientoPersonalizado} onSave={() => setVencimiento(true)} onClose={() => setShowVencimientoModal(false)}>
-                    <div className="space-y-4">
-                      {/* Sub-opciones de vencimiento */}
-                      <div className="space-y-2">
-                        <p className="text-xs font-semibold text-gray-700 mb-1">
-                          Tipo de vencimiento
-                        </p>
-                        <label className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-white rounded-lg border border-gray-100 bg-white">
-                          <input
-                            type="checkbox"
-                            checked={vencimientoSolicitud}
-                            onChange={(e) => setVencimientoSolicitud(e.target.checked)}
-                            className="w-4 h-4 rounded border-gray-300 accent-primary mt-0.5"
-                          />
-                          <div>
-                            <p className="text-sm text-gray-800 font-medium">
-                              Vencimiento de solicitud de participación
-                            </p>
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              El plazo para que los firmantes completen su acción. Al habilitarlo,
-                              en la configuración de participantes aparecerá un campo de fecha de
-                              vencimiento por participante.
-                            </p>
-                          </div>
-                        </label>
-                        <label className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-white rounded-lg border border-gray-100 bg-white">
-                          <input
-                            type="checkbox"
-                            checked={vencimientoCompletar}
-                            onChange={(e) => setVencimientoCompletar(e.target.checked)}
-                            className="w-4 h-4 rounded border-gray-300 accent-primary mt-0.5"
-                          />
-                          <div>
-                            <p className="text-sm text-gray-800 font-medium">
-                              Vencimiento para completar participación en documento
-                            </p>
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              El documento tiene vigencia legal limitada para poder completarse.
-                            </p>
-                          </div>
-                        </label>
-                      </div>
-
-                      {/* Presets de fecha */}
-                      <div>
-                        <p className="text-xs font-semibold text-gray-700 mb-2">
-                          Selección rápida de plazo
-                        </p>
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {PRESET_OPTIONS.map((p) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => setPresetVencimiento(p.id)}
-                              className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors text-center ${presetVencimiento === p.id ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}
-                            >
-                              {p.label}
-                            </button>
-                          ))}
+                    <SecurityConfigurationModal
+                      title="Vencimiento del documento"
+                      description="Define el plazo y los recordatorios para completar la participación."
+                      saveDisabled={
+                        presetVencimiento === 'personalizado' && !fechaVencimientoPersonalizado
+                      }
+                      onSave={() => setVencimiento(true)}
+                      onClose={() => setShowVencimientoModal(false)}
+                    >
+                      <div className="space-y-4">
+                        {/* Sub-opciones de vencimiento */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold text-gray-700 mb-1">
+                            Tipo de vencimiento
+                          </p>
+                          <label className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-white rounded-lg border border-gray-100 bg-white">
+                            <input
+                              type="checkbox"
+                              checked={vencimientoSolicitud}
+                              onChange={(e) => setVencimientoSolicitud(e.target.checked)}
+                              className="w-4 h-4 rounded border-gray-300 accent-primary mt-0.5"
+                            />
+                            <div>
+                              <p className="text-sm text-gray-800 font-medium">
+                                Vencimiento de solicitud de participación
+                              </p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                El plazo para que los firmantes completen su acción. Al habilitarlo,
+                                en la configuración de participantes aparecerá un campo de fecha de
+                                vencimiento por participante.
+                              </p>
+                            </div>
+                          </label>
+                          <label className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-white rounded-lg border border-gray-100 bg-white">
+                            <input
+                              type="checkbox"
+                              checked={vencimientoCompletar}
+                              onChange={(e) => setVencimientoCompletar(e.target.checked)}
+                              className="w-4 h-4 rounded border-gray-300 accent-primary mt-0.5"
+                            />
+                            <div>
+                              <p className="text-sm text-gray-800 font-medium">
+                                Vencimiento para completar participación en documento
+                              </p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                El documento tiene vigencia legal limitada para poder completarse.
+                              </p>
+                            </div>
+                          </label>
                         </div>
-                        {presetVencimiento === 'personalizado' && (
-                          <div className="mt-2">
-                            <input
-                              type="date"
-                              value={fechaVencimientoPersonalizado}
-                              onChange={(e) => setFechaVencimientoPersonalizado(e.target.value)}
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
-                            />
-                          </div>
-                        )}
-                      </div>
 
-                      {/* Hora de vencimiento */}
-                      <label className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-white rounded-lg border border-gray-100 bg-white">
-                        <input
-                          type="checkbox"
-                          checked={incluirHoraVencimiento}
-                          onChange={(e) => setIncluirHoraVencimiento(e.target.checked)}
-                          className="w-4 h-4 rounded border-gray-300 accent-primary mt-0.5"
-                        />
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-800 font-medium">
-                            Incluir hora de vencimiento
+                        {/* Presets de fecha */}
+                        <div>
+                          <p className="text-xs font-semibold text-gray-700 mb-2">
+                            Selección rápida de plazo
                           </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            La fecha/hora límite para que los participantes completen su
-                            participación.
-                          </p>
-                          {incluirHoraVencimiento && (
-                            <input
-                              type="time"
-                              value={horaVencimiento}
-                              onChange={(e) => setHoraVencimiento(e.target.value)}
-                              className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
-                            />
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {PRESET_OPTIONS.map((p) => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setPresetVencimiento(p.id)}
+                                className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors text-center ${presetVencimiento === p.id ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                          {presetVencimiento === 'personalizado' && (
+                            <div className="mt-2">
+                              <input
+                                type="date"
+                                value={fechaVencimientoPersonalizado}
+                                onChange={(e) => setFechaVencimientoPersonalizado(e.target.value)}
+                                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+                              />
+                            </div>
                           )}
                         </div>
-                      </label>
 
-                      {/* Zona horaria */}
-                      <div>
-                        <p className="text-xs font-semibold text-gray-700 mb-1.5">Zona horaria</p>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-700 flex items-center gap-2">
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="14"
-                              height="14"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              className="text-primary shrink-0"
-                            >
-                              <circle cx="12" cy="12" r="10" />
-                              <line x1="2" y1="12" x2="22" y2="12" />
-                              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                            </svg>
-                            <select
-                              value={zonaHoraria}
-                              onChange={(event) => setZonaHoraria(event.target.value)}
-                              className="min-w-0 flex-1 bg-transparent text-xs outline-none"
-                              aria-label="Zona horaria que define el vencimiento"
-                            >
-                              {Array.from(
-                                new Set([
-                                  getEffectiveTimeZone(),
-                                  'America/Mazatlan',
-                                  'America/Mexico_City',
-                                  'America/Chihuahua',
-                                  'America/Tijuana',
-                                  'America/Cancun',
-                                  'UTC',
-                                ])
-                              )
-                                .filter(isSupportedTimeZone)
-                                .map((zone) => (
-                                  <option key={zone} value={zone}>
-                                    {zone} ({getTimeZoneOffsetLabel(zone)})
-                                  </option>
-                                ))}
-                            </select>
-                          </div>
-                        </div>
-                        <p className="mt-1.5 text-xs text-gray-500">
-                          El plazo se guarda como un instante UTC; esta zona define la fecha y hora elegidas.
-                        </p>
-                      </div>
-
-                      {/* Días hábiles vs naturales */}
-                      <div className="flex items-center justify-between px-3 py-2.5 bg-white rounded-lg border border-gray-100">
-                        <div>
-                          <p className="text-sm text-gray-800 font-medium">
-                            Contar solo días hábiles
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            Relevante para trámites legales y fiscales.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setDiasHabiles((v) => !v)}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${diasHabiles ? 'bg-primary' : 'bg-gray-200'}`}
-                        >
-                          <span
-                            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${diasHabiles ? 'translate-x-4' : 'translate-x-0.5'}`}
+                        {/* Hora de vencimiento */}
+                        <label className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-white rounded-lg border border-gray-100 bg-white">
+                          <input
+                            type="checkbox"
+                            checked={incluirHoraVencimiento}
+                            onChange={(e) => setIncluirHoraVencimiento(e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 accent-primary mt-0.5"
                           />
-                        </button>
-                      </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-gray-800 font-medium">
+                              Incluir hora de vencimiento
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              La fecha/hora límite para que los participantes completen su
+                              participación.
+                            </p>
+                            {incluirHoraVencimiento && (
+                              <input
+                                type="time"
+                                value={horaVencimiento}
+                                onChange={(e) => setHoraVencimiento(e.target.value)}
+                                className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+                              />
+                            )}
+                          </div>
+                        </label>
 
-                      {/* Recordatorio */}
-                      <div className="space-y-2">
+                        {/* Zona horaria */}
+                        <div>
+                          <p className="text-xs font-semibold text-gray-700 mb-1.5">Zona horaria</p>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-700 flex items-center gap-2">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="text-primary shrink-0"
+                              >
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="2" y1="12" x2="22" y2="12" />
+                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                              </svg>
+                              <select
+                                value={zonaHoraria}
+                                onChange={(event) => setZonaHoraria(event.target.value)}
+                                className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+                                aria-label="Zona horaria que define el vencimiento"
+                              >
+                                {Array.from(
+                                  new Set([
+                                    getEffectiveTimeZone(),
+                                    'America/Mazatlan',
+                                    'America/Mexico_City',
+                                    'America/Chihuahua',
+                                    'America/Tijuana',
+                                    'America/Cancun',
+                                    'UTC',
+                                  ])
+                                )
+                                  .filter(isSupportedTimeZone)
+                                  .map((zone) => (
+                                    <option key={zone} value={zone}>
+                                      {zone} ({getTimeZoneOffsetLabel(zone)})
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          </div>
+                          <p className="mt-1.5 text-xs text-gray-500">
+                            El plazo se guarda como un instante UTC; esta zona define la fecha y
+                            hora elegidas.
+                          </p>
+                        </div>
+
+                        {/* Días hábiles vs naturales */}
                         <div className="flex items-center justify-between px-3 py-2.5 bg-white rounded-lg border border-gray-100">
                           <div>
                             <p className="text-sm text-gray-800 font-medium">
-                              Recordatorio previo al vencimiento
+                              Contar solo días hábiles
                             </p>
                             <p className="text-xs text-gray-500 mt-0.5">
-                              Notifica a los participantes antes de que venza el plazo.
+                              Relevante para trámites legales y fiscales.
                             </p>
                           </div>
                           <button
                             type="button"
-                            onClick={() => setRecordatorioEnabled((v) => !v)}
-                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${recordatorioEnabled ? 'bg-primary' : 'bg-gray-200'}`}
+                            onClick={() => setDiasHabiles((v) => !v)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${diasHabiles ? 'bg-primary' : 'bg-gray-200'}`}
                           >
                             <span
-                              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${recordatorioEnabled ? 'translate-x-4' : 'translate-x-0.5'}`}
+                              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${diasHabiles ? 'translate-x-4' : 'translate-x-0.5'}`}
                             />
                           </button>
                         </div>
-                        {recordatorioEnabled && (
-                          <div className="px-3">
-                            <p className="text-xs font-medium text-gray-600 mb-1.5">
-                              Cuándo enviar el recordatorio
-                            </p>
-                            <div className="grid grid-cols-2 gap-1.5">
-                              {(
-                                [
-                                  { id: 'diario', label: 'Diario' },
-                                  { id: '48h', label: '48h antes' },
-                                  { id: '24h', label: '24h antes' },
-                                  { id: '6h', label: '6h antes' },
-                                ] as const
-                              ).map((opt) => (
-                                <button
-                                  key={opt.id}
-                                  type="button"
-                                  onClick={() => setRecordatorioCuando(opt.id)}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${recordatorioCuando === opt.id ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}
-                                >
-                                  {opt.label}
-                                </button>
-                              ))}
+
+                        {/* Recordatorio */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between px-3 py-2.5 bg-white rounded-lg border border-gray-100">
+                            <div>
+                              <p className="text-sm text-gray-800 font-medium">
+                                Recordatorio previo al vencimiento
+                              </p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                Notifica a los participantes antes de que venza el plazo.
+                              </p>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => setRecordatorioEnabled((v) => !v)}
+                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${recordatorioEnabled ? 'bg-primary' : 'bg-gray-200'}`}
+                            >
+                              <span
+                                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${recordatorioEnabled ? 'translate-x-4' : 'translate-x-0.5'}`}
+                              />
+                            </button>
                           </div>
-                        )}
+                          {recordatorioEnabled && (
+                            <div className="px-3">
+                              <p className="text-xs font-medium text-gray-600 mb-1.5">
+                                Cuándo enviar el recordatorio
+                              </p>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {(
+                                  [
+                                    { id: 'diario', label: 'Diario' },
+                                    { id: '48h', label: '48h antes' },
+                                    { id: '24h', label: '24h antes' },
+                                    { id: '6h', label: '6h antes' },
+                                  ] as const
+                                ).map((opt) => (
+                                  <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => setRecordatorioCuando(opt.id)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${recordatorioCuando === opt.id ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
                     </SecurityConfigurationModal>
                   )}
                 </div>
@@ -3601,10 +3828,20 @@ function FileUploadedLayout({
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Proteger visualización con código de acceso
                     </span>
-                    <InfoTooltip showOnParentHover text="El código protege el contenido al abrirlo en el visor; no oculta la existencia ni la ficha del documento." />
+                    <InfoTooltip
+                      showOnParentHover
+                      text="El código protege el contenido al abrirlo en el visor; no oculta la existencia ni la ficha del documento."
+                    />
                   </label>
                   {codigoAcceso && (
-                    <ConfiguredOptionSummary removeLabel="Eliminar" onEdit={() => setShowCodigoAccesoModal(true)} onRemove={() => { setShowCodigoAccesoDeleteConfirm(true); setShowCodigoAccesoModal(true); }}>
+                    <ConfiguredOptionSummary
+                      removeLabel="Eliminar"
+                      onEdit={() => setShowCodigoAccesoModal(true)}
+                      onRemove={() => {
+                        setShowCodigoAccesoDeleteConfirm(true);
+                        setShowCodigoAccesoModal(true);
+                      }}
+                    >
                       Código de acceso configurado
                     </ConfiguredOptionSummary>
                   )}
@@ -3631,13 +3868,22 @@ function FileUploadedLayout({
                         </p>
                       )}
                     </div>
-                    <InfoTooltip showOnParentHover text="Requiere verificación adicional de identidad (token móvil o OTP por correo) antes de que el participante pueda firmar o interactuar con el documento." />
+                    <InfoTooltip
+                      showOnParentHover
+                      text="Requiere verificación adicional de identidad (token móvil o OTP por correo) antes de que el participante pueda firmar o interactuar con el documento."
+                    />
                   </label>
                 </div>
 
                 {/* Protección adicional */}
                 <div>
-                  <label className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg" onClick={(event) => { event.preventDefault(); setShowProteccionFirmadoModal(true); }}>
+                  <label
+                    className="group/option flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setShowProteccionFirmadoModal(true);
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={proteccionFirmado}
@@ -3647,74 +3893,93 @@ function FileUploadedLayout({
                     <span className="text-sm text-gray-700 flex-1 font-normal">
                       Protección adicional a documento firmado
                     </span>
-                    <InfoTooltip showOnParentHover text="Aplica una capa extra de seguridad al documento una vez que ha sido firmado, evitando modificaciones." />
+                    <InfoTooltip
+                      showOnParentHover
+                      text="Aplica una capa extra de seguridad al documento una vez que ha sido firmado, evitando modificaciones."
+                    />
                   </label>
                   {proteccionFirmado && (
-                    <ConfiguredOptionSummary onEdit={() => setShowProteccionFirmadoModal(true)} onRemove={removeProteccionFirmado}>
-                      Protección configurada: {protectionRestrictionCount} {protectionRestrictionCount === 1 ? 'restricción' : 'restricciones'}
+                    <ConfiguredOptionSummary
+                      onEdit={() => setShowProteccionFirmadoModal(true)}
+                      onRemove={removeProteccionFirmado}
+                    >
+                      Protección configurada: {protectionRestrictionCount}{' '}
+                      {protectionRestrictionCount === 1 ? 'restricción' : 'restricciones'}
                     </ConfiguredOptionSummary>
                   )}
                   {showProteccionFirmadoModal && (
-                    <SecurityConfigurationModal title="Protección del documento firmado" description="Selecciona las restricciones que se aplicarán al PDF final." saveDisabled={protectionRestrictionCount === 0} onSave={() => setProteccionFirmado(true)} onClose={() => setShowProteccionFirmadoModal(false)}>
-                    <div className="space-y-2">
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        <p className="text-xs text-amber-700">
-                          <span className="font-bold">¡Atención!</span> Esta acción es irreversible
-                          una vez que se envíe el documento.
+                    <SecurityConfigurationModal
+                      title="Protección del documento firmado"
+                      description="Selecciona las restricciones que se aplicarán al PDF final."
+                      saveDisabled={protectionRestrictionCount === 0}
+                      onSave={() => setProteccionFirmado(true)}
+                      onClose={() => setShowProteccionFirmadoModal(false)}
+                    >
+                      <div className="space-y-2">
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          <p className="text-xs text-amber-700">
+                            <span className="font-bold">¡Atención!</span> Esta acción es
+                            irreversible una vez que se envíe el documento.
+                          </p>
+                        </div>
+                        {[
+                          {
+                            label: 'Impedir la impresión de documentos.',
+                            state: impedirImpresion,
+                            set: setImpedirImpresion,
+                          },
+                          {
+                            label: 'Evite la copia de texto e imágenes.',
+                            state: evitarCopiaTexto,
+                            set: setEvitarCopiaTexto,
+                          },
+                          {
+                            label: 'Impedir la modificación.',
+                            state: impedirModificacion,
+                            set: setImpedirModificacion,
+                          },
+                          {
+                            label: 'Impedir la extracción de páginas.',
+                            state: impedirExtraccion,
+                            set: setImpedirExtraccion,
+                          },
+                          {
+                            label: 'Impedir reorganizar, insertar o eliminar páginas.',
+                            state: evitarMontaje,
+                            set: setEvitarMontaje,
+                          },
+                        ].map(({ label, state, set }) => (
+                          <label
+                            key={label}
+                            className="flex items-center gap-3 px-2 py-1.5 cursor-pointer hover:bg-gray-50 rounded-lg"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={state}
+                              onChange={(e) => set(e.target.checked)}
+                              className="w-4 h-4 rounded border-gray-300 accent-primary"
+                            />
+                            <span className="text-sm text-gray-700">{label}</span>
+                          </label>
+                        ))}
+                        <p className="px-2 pt-2 text-xs leading-5 text-slate-500">
+                          Estas restricciones se aplicarán al PDF final descargable y serán
+                          respetadas por lectores compatibles con el estándar PDF. Su comportamiento
+                          puede variar según el visor utilizado.
                         </p>
                       </div>
-                      {[
-                        {
-                          label: 'Impedir la impresión de documentos.',
-                          state: impedirImpresion,
-                          set: setImpedirImpresion,
-                        },
-                        {
-                          label: 'Evite la copia de texto e imágenes.',
-                          state: evitarCopiaTexto,
-                          set: setEvitarCopiaTexto,
-                        },
-                        {
-                          label: 'Impedir la modificación.',
-                          state: impedirModificacion,
-                          set: setImpedirModificacion,
-                        },
-                        {
-                          label: 'Impedir la extracción de páginas.',
-                          state: impedirExtraccion,
-                          set: setImpedirExtraccion,
-                        },
-                        {
-                          label: 'Impedir reorganizar, insertar o eliminar páginas.',
-                          state: evitarMontaje,
-                          set: setEvitarMontaje,
-                        },
-                      ].map(({ label, state, set }) => (
-                        <label
-                          key={label}
-                          className="flex items-center gap-3 px-2 py-1.5 cursor-pointer hover:bg-gray-50 rounded-lg"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={state}
-                            onChange={(e) => set(e.target.checked)}
-                            className="w-4 h-4 rounded border-gray-300 accent-primary"
-                          />
-                          <span className="text-sm text-gray-700">{label}</span>
-                        </label>
-                      ))}
-                      <p className="px-2 pt-2 text-xs leading-5 text-slate-500">
-                        Estas restricciones se aplicarán al PDF final descargable y serán respetadas
-                        por lectores compatibles con el estándar PDF. Su comportamiento puede variar
-                        según el visor utilizado.
-                      </p>
-                    </div>
                     </SecurityConfigurationModal>
                   )}
                 </div>
                 {/* Legal Hold */}
                 <div>
-                  <label className="group/option flex items-start gap-3 rounded-lg px-3 py-2 cursor-pointer hover:bg-amber-50/60" onClick={(event) => { event.preventDefault(); setShowLegalHoldModal(true); }}>
+                  <label
+                    className="group/option flex items-start gap-3 rounded-lg px-3 py-2 cursor-pointer hover:bg-amber-50/60"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setShowLegalHoldModal(true);
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={legalHoldEnabled}
@@ -3732,92 +3997,114 @@ function FileUploadedLayout({
                         </p>
                       )}
                     </div>
-                    <InfoTooltip showOnParentHover text="Legal Hold preserva el documento y su evidencia ante litigio, requerimiento de autoridad o auditoría. Requiere motivo, queda auditado y solo el propietario o un administrador podrá solicitar su liberación." />
+                    <InfoTooltip
+                      showOnParentHover
+                      text="Legal Hold preserva el documento y su evidencia ante litigio, requerimiento de autoridad o auditoría. Requiere motivo, queda auditado y solo el propietario o un administrador podrá solicitar su liberación."
+                    />
                   </label>
                   {legalHoldEnabled && legalHoldReason && (
-                    <ConfiguredOptionSummary onEdit={() => setShowLegalHoldModal(true)} onRemove={removeLegalHold}>
+                    <ConfiguredOptionSummary
+                      onEdit={() => setShowLegalHoldModal(true)}
+                      onRemove={removeLegalHold}
+                    >
                       Legal Hold: {legalHoldReasonLabels[legalHoldReason] || 'Motivo registrado'}
                     </ConfiguredOptionSummary>
                   )}
                   {showLegalHoldModal && (
-                    <SecurityConfigurationModal title="Legal Hold" description="Define el motivo de conservación legal del documento." saveDisabled={!legalHoldReason} onSave={() => setLegalHoldEnabled(true)} onClose={() => setShowLegalHoldModal(false)}>
-                    <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
-                      <label className="mb-1.5 block text-xs font-600 text-amber-900">
-                        Motivo de Legal Hold <span className="text-red-600">*</span>
-                      </label>
-                      <select
-                        value={legalHoldReason}
-                        onChange={(event) =>
-                          setLegalHoldReason(event.target.value as typeof legalHoldReason)
-                        }
-                        className="h-9 w-full rounded-md border border-amber-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      >
-                        <option value="">Selecciona un motivo</option>
-                        <option value="litigio">Litigio / procedimiento judicial</option>
-                        <option value="requerimiento_autoridad">Requerimiento de autoridad</option>
-                        <option value="auditoria">Auditoría</option>
-                        <option value="investigacion_interna">Investigación interna</option>
-                        <option value="controversia_contractual">Controversia contractual</option>
-                        <option value="cumplimiento_regulatorio_fiscal">Cumplimiento regulatorio/fiscal</option>
-                        <option value="solicitud_cliente">Solicitud del cliente</option>
-                        <option value="preservacion_preventiva">Preservación preventiva</option>
-                        <option value="otro">Otro</option>
-                      </select>
-                      <div className="mt-3 overflow-hidden rounded-md border border-amber-200 bg-white/70">
-                        <button
-                          type="button"
-                          aria-expanded={legalHoldAdditionalFieldsOpen}
-                          aria-controls="legal-hold-additional-fields"
-                          onClick={() => setLegalHoldAdditionalFieldsOpen((open) => !open)}
-                          className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-xs font-600 text-amber-900 hover:bg-amber-50"
+                    <SecurityConfigurationModal
+                      title="Legal Hold"
+                      description="Define el motivo de conservación legal del documento."
+                      saveDisabled={!legalHoldReason}
+                      onSave={() => setLegalHoldEnabled(true)}
+                      onClose={() => setShowLegalHoldModal(false)}
+                    >
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+                        <label className="mb-1.5 block text-xs font-600 text-amber-900">
+                          Motivo de Legal Hold <span className="text-red-600">*</span>
+                        </label>
+                        <select
+                          value={legalHoldReason}
+                          onChange={(event) =>
+                            setLegalHoldReason(event.target.value as typeof legalHoldReason)
+                          }
+                          className="h-9 w-full rounded-md border border-amber-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                         >
-                          <span>Información adicional</span>
-                          <ChevronDown
-                            size={15}
-                            className={`shrink-0 transition-transform ${legalHoldAdditionalFieldsOpen ? 'rotate-180' : ''}`}
-                          />
-                        </button>
-                        {legalHoldAdditionalFieldsOpen && (
-                          <div id="legal-hold-additional-fields" className="border-t border-amber-200 p-3">
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <label className="text-xs font-medium text-slate-700">
-                                Referencia / expediente
-                                <input
-                                  value={legalHoldCaseReference}
-                                  onChange={(event) => setLegalHoldCaseReference(event.target.value)}
-                                  maxLength={500}
-                                  className="mt-1 h-9 w-full rounded-md border border-amber-200 bg-white px-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                                  placeholder="Ej. EXP-2026-104"
+                          <option value="">Selecciona un motivo</option>
+                          <option value="litigio">Litigio / procedimiento judicial</option>
+                          <option value="requerimiento_autoridad">
+                            Requerimiento de autoridad
+                          </option>
+                          <option value="auditoria">Auditoría</option>
+                          <option value="investigacion_interna">Investigación interna</option>
+                          <option value="controversia_contractual">Controversia contractual</option>
+                          <option value="cumplimiento_regulatorio_fiscal">
+                            Cumplimiento regulatorio/fiscal
+                          </option>
+                          <option value="solicitud_cliente">Solicitud del cliente</option>
+                          <option value="preservacion_preventiva">Preservación preventiva</option>
+                          <option value="otro">Otro</option>
+                        </select>
+                        <div className="mt-3 overflow-hidden rounded-md border border-amber-200 bg-white/70">
+                          <button
+                            type="button"
+                            aria-expanded={legalHoldAdditionalFieldsOpen}
+                            aria-controls="legal-hold-additional-fields"
+                            onClick={() => setLegalHoldAdditionalFieldsOpen((open) => !open)}
+                            className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-xs font-600 text-amber-900 hover:bg-amber-50"
+                          >
+                            <span>Información adicional</span>
+                            <ChevronDown
+                              size={15}
+                              className={`shrink-0 transition-transform ${legalHoldAdditionalFieldsOpen ? 'rotate-180' : ''}`}
+                            />
+                          </button>
+                          {legalHoldAdditionalFieldsOpen && (
+                            <div
+                              id="legal-hold-additional-fields"
+                              className="border-t border-amber-200 p-3"
+                            >
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <label className="text-xs font-medium text-slate-700">
+                                  Referencia / expediente
+                                  <input
+                                    value={legalHoldCaseReference}
+                                    onChange={(event) =>
+                                      setLegalHoldCaseReference(event.target.value)
+                                    }
+                                    maxLength={500}
+                                    className="mt-1 h-9 w-full rounded-md border border-amber-200 bg-white px-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                    placeholder="Ej. EXP-2026-104"
+                                  />
+                                </label>
+                                <label className="text-xs font-medium text-slate-700">
+                                  Fecha de revisión
+                                  <input
+                                    type="date"
+                                    value={legalHoldReviewAt}
+                                    onChange={(event) => setLegalHoldReviewAt(event.target.value)}
+                                    className="mt-1 h-9 w-full rounded-md border border-amber-200 bg-white px-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                  />
+                                </label>
+                              </div>
+                              <label className="mt-3 block text-xs font-medium text-slate-700">
+                                Observaciones
+                                <textarea
+                                  value={legalHoldNotes}
+                                  onChange={(event) => setLegalHoldNotes(event.target.value)}
+                                  maxLength={2000}
+                                  rows={3}
+                                  className="mt-1 w-full resize-none rounded-md border border-amber-200 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                  placeholder="Contexto administrativo o jurídico opcional"
                                 />
                               </label>
-                              <label className="text-xs font-medium text-slate-700">
-                                Fecha de revisión
-                                <input
-                                  type="date"
-                                  value={legalHoldReviewAt}
-                                  onChange={(event) => setLegalHoldReviewAt(event.target.value)}
-                                  className="mt-1 h-9 w-full rounded-md border border-amber-200 bg-white px-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                                />
-                              </label>
+                              <p className="mt-2 text-xs leading-5 text-amber-800">
+                                La fecha de revisión es informativa. Legal Hold permanece activo
+                                hasta su liberación expresa.
+                              </p>
                             </div>
-                            <label className="mt-3 block text-xs font-medium text-slate-700">
-                              Observaciones
-                              <textarea
-                                value={legalHoldNotes}
-                                onChange={(event) => setLegalHoldNotes(event.target.value)}
-                                maxLength={2000}
-                                rows={3}
-                                className="mt-1 w-full resize-none rounded-md border border-amber-200 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                                placeholder="Contexto administrativo o jurídico opcional"
-                              />
-                            </label>
-                            <p className="mt-2 text-xs leading-5 text-amber-800">
-                              La fecha de revisión es informativa. Legal Hold permanece activo hasta su liberación expresa.
-                            </p>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
                     </SecurityConfigurationModal>
                   )}
                 </div>
@@ -3827,7 +4114,9 @@ function FileUploadedLayout({
         </div>
 
         <div className="h-fit rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <h2 className="mb-5 text-base font-700 leading-5 text-slate-950">Propiedades del documento</h2>
+          <h2 className="mb-5 text-base font-700 leading-5 text-slate-950">
+            Propiedades del documento
+          </h2>
           <div className="space-y-4 [&_button]:text-[13px] [&_input]:text-[13px]">
             {/* Nombre del documento */}
             <div>
@@ -4016,11 +4305,83 @@ function FileUploadedLayout({
           }}
         />
       )}
+      {showTemplatePreview && templateSource && (
+        <TemplatePreviewModal
+          template={templateSource}
+          onClose={() => setShowTemplatePreview(false)}
+        />
+      )}
     </div>
   );
 }
 
 // --- Step 1: Subir ------------------------------------------------------------
+
+type SavedTemplateSummary = PublishedTemplateSummary;
+
+const TEMPLATE_FAVORITES_KEY = 'plantillas';
+
+function SavedTemplateRow({
+  template,
+  isFavorite,
+  pending,
+  selecting,
+  onToggleFavorite,
+  onSelect,
+}: {
+  template: SavedTemplateSummary;
+  isFavorite: boolean;
+  pending: boolean;
+  selecting: boolean;
+  onToggleFavorite: (template: SavedTemplateSummary) => void;
+  onSelect: (template: SavedTemplateSummary) => void;
+}) {
+  const fieldsCount = Array.isArray(template.campos_insertados)
+    ? template.campos_insertados.length
+    : 0;
+
+  return (
+    <div className="flex min-h-[58px] items-center gap-3 px-1 py-2.5">
+      <span
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-primary"
+        title="Plantilla de Docubox"
+        aria-label="Plantilla de Docubox"
+      >
+        <LayoutTemplate size={17} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-slate-900">{template.nombre}</p>
+        <p className="mt-0.5 truncate text-xs text-slate-500">
+          {template.tipo_documento?.nombre || 'Sin tipo de documento'}
+          {fieldsCount > 0 ? ` · ${fieldsCount} ${fieldsCount === 1 ? 'campo' : 'campos'}` : ''}
+          {` · v${template.version_publicada || '1.0'}`}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => onSelect(template)}
+        disabled={selecting}
+        className="flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary disabled:cursor-wait disabled:opacity-60"
+      >
+        {selecting ? <Loader2 size={14} className="animate-spin" /> : 'Usar'}
+      </button>
+      <button
+        type="button"
+        onClick={() => onToggleFavorite(template)}
+        disabled={pending}
+        aria-label={isFavorite ? 'Quitar de mis favoritas' : 'Agregar a mis favoritas'}
+        title={isFavorite ? 'Quitar de mis favoritas' : 'Agregar a mis favoritas'}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors disabled:cursor-wait disabled:opacity-60 ${
+          isFavorite
+            ? 'bg-amber-50 text-amber-500'
+            : 'text-slate-400 hover:bg-amber-50 hover:text-amber-500'
+        }`}
+      >
+        <Star size={15} fill={isFavorite ? 'currentColor' : 'none'} />
+      </button>
+    </div>
+  );
+}
 
 export function StepSubir({
   file,
@@ -4037,9 +4398,19 @@ export function StepSubir({
   onPdfMetadata,
   sourceSelection,
   onSourceSelectionChange,
+  templateSource,
+  onTemplateSourceChange,
   isPreparingDocument = false,
   showPreparationMessage = false,
   documentPreparationError = null,
+  supplementalResources,
+  onSupplementalResourcesChange,
+  participants = [],
+  onParticipantsChange = () => undefined,
+  inPersonSigningEnabled = false,
+  onInPersonSigningEnabledChange = () => undefined,
+  documentRequirements = [],
+  onDocumentRequirementsChange = () => undefined,
 }: {
   file: File | null;
   onFileChange: (f: File | null) => void;
@@ -4069,9 +4440,19 @@ export function StepSubir({
   }) => void;
   sourceSelection?: DocuboxSourceSelection | null;
   onSourceSelectionChange?: (selection: DocuboxSourceSelection | null) => void;
+  templateSource?: PublishedTemplateSummary | null;
+  onTemplateSourceChange?: (template: PublishedTemplateSummary | null) => void;
   isPreparingDocument?: boolean;
   showPreparationMessage?: boolean;
   documentPreparationError?: string | null;
+  supplementalResources: SupplementalDocumentDraft[];
+  onSupplementalResourcesChange: (resources: SupplementalDocumentDraft[]) => void;
+  participants?: Participant[];
+  onParticipantsChange?: React.Dispatch<React.SetStateAction<Participant[]>>;
+  inPersonSigningEnabled?: boolean;
+  onInPersonSigningEnabledChange?: (enabled: boolean) => void;
+  documentRequirements?: ParticipantRequirementDraft[];
+  onDocumentRequirementsChange?: (requirements: ParticipantRequirementDraft[]) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -4079,32 +4460,156 @@ export function StepSubir({
     'computadora' | 'telefono' | 'docubox' | 'gdrive' | 'onedrive' | 'dropbox'
   >('computadora');
   const [showDocuboxSelector, setShowDocuboxSelector] = useState(false);
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const { isModuleActive } = useAppModules();
+  const { user } = useAuth();
+  const { activeWorkspace } = useWorkspace();
   const plantillasEnabled = isModuleActive('plantillas');
-  const [plantillas, setPlantillas] = useState<
-    { id: string; nombre: string; descripcion?: string }[]
-  >([]);
+  const [plantillas, setPlantillas] = useState<SavedTemplateSummary[]>([]);
   const [plantillasLoading, setPlantillasLoading] = useState(false);
+  const [plantillasError, setPlantillasError] = useState<string | null>(null);
+  const [templateFavorites, setTemplateFavorites] = useState<string[]>([]);
+  const [favoritePendingId, setFavoritePendingId] = useState<string | null>(null);
+  const [selectingTemplateId, setSelectingTemplateId] = useState<string | null>(null);
+  const [recentTemplateThreshold, setRecentTemplateThreshold] = useState<number | null>(null);
 
-  // Load plantillas if module is active
   useEffect(() => {
-    if (!plantillasEnabled) return;
-    setPlantillasLoading(true);
-    const supabase = createClient();
-    void (async () => {
+    const timer = window.setTimeout(() => {
+      setRecentTemplateThreshold(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!plantillasEnabled || !activeWorkspace?.id || !user?.id) return;
+
+    let active = true;
+    const loadTemplates = async () => {
       try {
-        const { data } = await supabase
-          .from('plantillas')
-          .select('id, nombre, descripcion')
-          .eq('estado', 'publicada')
-          .order('created_at', { ascending: false })
-          .limit(20);
-        setPlantillas(data || []);
+        setPlantillasLoading(true);
+        setPlantillasError(null);
+        const supabase = createClient();
+        const [templatesResponse, favoritesResult] = await Promise.all([
+          templateApiFetch(
+            `/api/plantillas?workspace_id=${encodeURIComponent(activeWorkspace.id)}&status=published&latest_only=true`
+          ),
+          supabase
+            .from('user_favorites')
+            .select('item_id')
+            .eq('user_id', user.id)
+            .eq('storage_key', TEMPLATE_FAVORITES_KEY)
+            .order('created_at', { ascending: true }),
+        ]);
+        const templatesPayload = (await templatesResponse.json()) as {
+          data?: SavedTemplateSummary[];
+          error?: string;
+        };
+        if (!templatesResponse.ok) {
+          throw new Error(templatesPayload.error || 'No fue posible cargar las plantillas.');
+        }
+        if (!active) return;
+        setPlantillas(templatesPayload.data || []);
+        setTemplateFavorites(
+          favoritesResult.error
+            ? []
+            : (favoritesResult.data || []).map((row: { item_id: string }) => row.item_id)
+        );
+      } catch {
+        if (!active) return;
+        setPlantillas([]);
+        setTemplateFavorites([]);
+        setPlantillasError('No fue posible cargar tus plantillas guardadas.');
       } finally {
-        setPlantillasLoading(false);
+        if (active) setPlantillasLoading(false);
       }
-    })();
-  }, [plantillasEnabled]);
+    };
+
+    void loadTemplates();
+    return () => {
+      active = false;
+    };
+  }, [activeWorkspace?.id, plantillasEnabled, user?.id]);
+
+  const toggleTemplateFavorite = async (template: SavedTemplateSummary) => {
+    if (!user?.id || favoritePendingId) return;
+
+    const favoriteId = getTemplateFamilyId(template);
+    const wasFavorite = templateFavorites.includes(favoriteId);
+    setFavoritePendingId(favoriteId);
+    setTemplateFavorites((current) =>
+      wasFavorite ? current.filter((id) => id !== favoriteId) : [...current, favoriteId]
+    );
+    try {
+      const supabase = createClient();
+      const operation = wasFavorite
+        ? supabase
+            .from('user_favorites')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('storage_key', TEMPLATE_FAVORITES_KEY)
+            .eq('item_id', favoriteId)
+        : supabase.from('user_favorites').upsert(
+            {
+              user_id: user.id,
+              storage_key: TEMPLATE_FAVORITES_KEY,
+              item_id: favoriteId,
+            },
+            { onConflict: 'user_id,storage_key,item_id' }
+          );
+      const { error } = await operation;
+      if (error) throw error;
+    } catch {
+      setTemplateFavorites((current) =>
+        wasFavorite
+          ? current.includes(favoriteId)
+            ? current
+            : [...current, favoriteId]
+          : current.filter((id) => id !== favoriteId)
+      );
+      setPlantillasError('No fue posible actualizar tus favoritas.');
+    } finally {
+      setFavoritePendingId(null);
+    }
+  };
+
+  const selectPublishedTemplate = async (template: SavedTemplateSummary) => {
+    if (!activeWorkspace?.id || selectingTemplateId) return;
+    setSelectingTemplateId(template.id);
+    setPlantillasError(null);
+    try {
+      const response = await templateApiFetch(
+        `/api/plantillas/${encodeURIComponent(template.id)}?workspace_id=${encodeURIComponent(activeWorkspace.id)}`
+      );
+      const payload = (await response.json()) as { data?: SavedTemplateSummary; error?: string };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || 'No fue posible cargar la plantilla seleccionada.');
+      }
+      const selectedTemplate = payload.data;
+      if (
+        selectedTemplate.estado !== 'published' &&
+        selectedTemplate.estado_plantilla !== 'Publicada'
+      ) {
+        throw new Error('La plantilla seleccionada ya no está publicada.');
+      }
+      onConfigChange({
+        ...config,
+        nombre: selectedTemplate.nombre,
+        descripcion: selectedTemplate.descripcion || '',
+        tipoDocumentoId: selectedTemplate.tipo_documento?.id || config.tipoDocumentoId,
+      });
+      onSourceSelectionChange?.(null);
+      onTemplateSourceChange?.(selectedTemplate);
+      setShowTemplateSelector(false);
+    } catch (selectionError) {
+      setPlantillasError(
+        selectionError instanceof Error
+          ? selectionError.message
+          : 'No fue posible utilizar la plantilla seleccionada.'
+      );
+    } finally {
+      setSelectingTemplateId(null);
+    }
+  };
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -4113,10 +4618,11 @@ export function StepSubir({
       const dropped = e.dataTransfer.files[0];
       if (dropped) {
         onSourceSelectionChange?.(null);
+        onTemplateSourceChange?.(null);
         onFileChange(dropped);
       }
     },
-    [onFileChange, onSourceSelectionChange]
+    [onFileChange, onSourceSelectionChange, onTemplateSourceChange]
   );
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -4129,10 +4635,11 @@ export function StepSubir({
     // Clear it immediately so selecting the same file is a real retry after a failed preparation.
     e.target.value = '';
     onSourceSelectionChange?.(null);
+    onTemplateSourceChange?.(null);
     onFileChange(selected);
   };
 
-  if (file) {
+  if (file || templateSource) {
     return (
       <div className="space-y-3">
         {sourceSelection && (
@@ -4157,8 +4664,10 @@ export function StepSubir({
         )}
         <FileUploadedLayout
           file={file}
+          templateSource={templateSource}
           onRemove={() => {
             onSourceSelectionChange?.(null);
+            onTemplateSourceChange?.(null);
             onFileChange(null);
           }}
           config={config}
@@ -4170,10 +4679,30 @@ export function StepSubir({
           securitySettings={securitySettings}
           databaseDocumentId={databaseDocumentId}
           onPdfMetadata={onPdfMetadata}
+          supplementalResources={supplementalResources}
+          onSupplementalResourcesChange={onSupplementalResourcesChange}
+          participants={participants}
+          onParticipantsChange={onParticipantsChange}
+          inPersonSigningEnabled={inPersonSigningEnabled}
+          onInPersonSigningEnabledChange={onInPersonSigningEnabledChange}
+          documentRequirements={documentRequirements}
+          onDocumentRequirementsChange={onDocumentRequirementsChange}
         />
       </div>
     );
   }
+
+  const favoriteTemplateIds = new Set(templateFavorites);
+  const favoriteTemplates = plantillas.filter((template) =>
+    favoriteTemplateIds.has(getTemplateFamilyId(template))
+  );
+  const recentPublishedTemplates = plantillas.filter(
+    (template) =>
+      !favoriteTemplateIds.has(getTemplateFamilyId(template)) &&
+      recentTemplateThreshold !== null &&
+      Number.isFinite(new Date(template.updated_at).getTime()) &&
+      new Date(template.updated_at).getTime() >= recentTemplateThreshold
+  );
 
   const tabs: Array<{
     id: 'computadora' | 'telefono' | 'docubox' | 'gdrive' | 'onedrive' | 'dropbox';
@@ -4244,8 +4773,8 @@ export function StepSubir({
                       Arrastra un archivo para subir
                     </p>
                     <p className="mt-1 text-center text-xs text-gray-400">
-                      PDF recomendado. También Word (.doc, .docx), Excel (.xls, .xlsx) y
-                      PowerPoint (.ppt, .pptx), hasta 25 MB.
+                      PDF recomendado. También Word (.doc, .docx), Excel (.xls, .xlsx) y PowerPoint
+                      (.ppt, .pptx), hasta 25 MB.
                     </p>
                     {showPreparationMessage && (
                       <p className="mt-3 text-sm font-medium text-slate-600">
@@ -4280,6 +4809,7 @@ export function StepSubir({
                 <PhoneUploadTab
                   onFileReceived={(receivedFile) => {
                     onSourceSelectionChange?.(null);
+                    onTemplateSourceChange?.(null);
                     onFileChange(receivedFile);
                   }}
                 />
@@ -4325,78 +4855,139 @@ export function StepSubir({
           </div>
         </div>
         {plantillasEnabled && (
-          <div className="flex flex-col justify-between rounded-lg border border-slate-200/90 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <div>
-              <div className="flex items-start gap-3 mb-4">
-                <div className="mt-0.5">
-                  <ExternalLink size={22} className="text-primary" />
+          <section className="flex min-h-[392px] flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="text-base font-700 text-slate-950">Añade una plantilla</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Inicia tu documento con una plantilla publicada de este espacio.
+              </p>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col p-4">
+              {plantillasLoading ? (
+                <div className="flex flex-1 items-center justify-center gap-2 py-10 text-sm text-slate-500">
+                  <Loader2 size={17} className="animate-spin text-primary" />
+                  Cargando plantillas guardadas...
                 </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">¿Buscas una plantilla?</h2>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Ahorra tiempo utilizando una de nuestras plantillas pre-diseñadas.
+              ) : plantillasError && plantillas.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+                  <AlertTriangle size={21} className="text-amber-500" />
+                  <p className="mt-2 text-sm font-medium text-slate-700">
+                    No pudimos cargar las plantillas
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Vuelve a intentarlo en unos momentos.
                   </p>
                 </div>
-              </div>
-              {plantillasLoading ? (
-                <div className="flex items-center gap-2 py-4 text-sm text-gray-400">
-                  <svg
-                    className="animate-spin h-4 w-4"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
-                  Cargando plantillas...
+              ) : plantillas.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+                  <FileText size={22} className="text-slate-400" />
+                  <p className="mt-2 text-sm font-medium text-slate-700">
+                    No hay plantillas publicadas
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Publica una plantilla para encontrarla aquí.
+                  </p>
                 </div>
-              ) : plantillas.length > 0 ? (
-                <div className="flex flex-col gap-2 mb-4 max-h-48 overflow-y-auto">
-                  {plantillas.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2.5 hover:border-primary/40 transition-colors cursor-pointer group"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{p.nombre}</p>
-                        {p.descripcion && (
-                          <p className="text-xs text-gray-400 truncate">{p.descripcion}</p>
-                        )}
-                      </div>
-                      <ChevronRight
-                        size={14}
-                        className="text-gray-400 group-hover:text-primary transition-colors flex-shrink-0"
-                      />
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div>
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                        <Star size={13} className="text-amber-500" />
+                        Mis favoritas
+                      </span>
+                      <span className="text-[11px] text-slate-400">{favoriteTemplates.length}</span>
                     </div>
-                  ))}
+                    {favoriteTemplates.length > 0 ? (
+                      <div className="divide-y divide-slate-100">
+                        {favoriteTemplates.map((template) => (
+                          <SavedTemplateRow
+                            key={template.id}
+                            template={template}
+                            isFavorite
+                            pending={favoritePendingId === getTemplateFamilyId(template)}
+                            selecting={selectingTemplateId === template.id}
+                            onToggleFavorite={toggleTemplateFavorite}
+                            onSelect={selectPublishedTemplate}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="py-3 text-xs leading-5 text-slate-400">
+                        Marca una plantilla con la estrella para verla en esta sección.
+                      </p>
+                    )}
+                  </div>
+
+                  {recentPublishedTemplates.length > 0 && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span className="text-xs font-medium text-slate-600">
+                          Últimas plantillas publicadas
+                        </span>
+                        <span className="text-[11px] text-slate-400">
+                          {recentPublishedTemplates.length}
+                        </span>
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {recentPublishedTemplates.map((template) => (
+                          <SavedTemplateRow
+                            key={template.id}
+                            template={template}
+                            isFavorite={false}
+                            pending={favoritePendingId === getTemplateFamilyId(template)}
+                            selecting={selectingTemplateId === template.id}
+                            onToggleFavorite={toggleTemplateFavorite}
+                            onSelect={selectPublishedTemplate}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ) : null}
+              )}
+
+              {plantillasError && plantillas.length > 0 && (
+                <p role="status" className="mt-2 text-xs text-amber-600">
+                  {plantillasError}
+                </p>
+              )}
             </div>
-            <button className="w-full border border-gray-300 bg-white rounded-lg py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-              Explorar Plantillas
-            </button>
-          </div>
+
+            <div className="border-t border-slate-100 p-3">
+              <button
+                type="button"
+                onClick={() => setShowTemplateSelector(true)}
+                className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+              >
+                Explorar plantillas
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </section>
         )}
       </div>
       <DocuboxSourceSelector
         open={showDocuboxSelector}
         onClose={() => setShowDocuboxSelector(false)}
         onSelect={(selectedFile, selection) => {
+          onTemplateSourceChange?.(null);
           onSourceSelectionChange?.(selection);
           onFileChange(selectedFile);
         }}
+      />
+      <TemplateSourceSelector
+        open={showTemplateSelector}
+        templates={plantillas}
+        favoriteIds={templateFavorites}
+        loading={plantillasLoading}
+        error={plantillasError}
+        favoritePendingId={favoritePendingId}
+        selectingId={selectingTemplateId}
+        onClose={() => setShowTemplateSelector(false)}
+        onSelect={selectPublishedTemplate}
+        onToggleFavorite={toggleTemplateFavorite}
       />
     </div>
   );

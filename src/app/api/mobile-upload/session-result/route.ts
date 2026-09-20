@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { captureEncryptionKey, decryptCapture } from '@/lib/identity/capture-crypto';
 import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
 import { hashCapabilityToken } from '@/lib/security/capability-token';
+import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
 
 function bearerToken(request: NextRequest) {
   const authorization = request.headers.get('authorization');
@@ -32,8 +33,16 @@ export async function GET(request: NextRequest) {
     .select('status,user_id,file_data,metadata')
     .eq('token_hash', hashCapabilityToken(token))
     .maybeSingle();
-  if (!session || session.user_id !== user.id) {
+  const metadata = session?.metadata as Record<string, unknown> | null;
+  const documentId = typeof metadata?.document_id === 'string' ? metadata.document_id : '';
+  if (!session || session.user_id !== user.id || !documentId) {
     return NextResponse.json({ error: 'Sesion no encontrada.' }, { status: 404 });
+  }
+  try {
+    await requireDocumentAccess(request, documentId);
+  } catch (error) {
+    const access = documentAccessResponse(error);
+    return NextResponse.json(access.body, { status: access.status });
   }
   if (session.status !== 'completed' && session.status !== 'identity_failed') {
     return NextResponse.json(

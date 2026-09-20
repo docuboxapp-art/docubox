@@ -15,6 +15,7 @@ export type LuciaIntent =
   | 'document_review'
   | 'document_summary'
   | 'document_content_search'
+  | 'contractual_search'
   | 'document_intelligence_profile'
   | 'document_classification'
   | 'document_extracted_fields'
@@ -280,6 +281,27 @@ export function classifyIntent(
     'forms',
   ]);
   if (documentIntelligenceModules.has(context.moduleKey)) {
+    if (
+      containsAny(q, [
+        'contratos que vencen',
+        'contratos por vencer',
+        'documentos con renovacion automatica',
+        'contratos con renovacion automatica',
+        'obligaciones proximas',
+        'obligaciones por vencer',
+        'contratos de determinado proveedor',
+        'contratos del proveedor',
+        'acuerdos superiores',
+        'contratos superiores',
+      ])
+    ) {
+      return {
+        intent: 'contractual_search',
+        mode: 'structured',
+        extractedDocumentId: context.currentResourceIds.documentId,
+        extractedCarpetaId: context.currentResourceIds.expedienteId,
+      };
+    }
     const intelligenceIntent = containsAny(q, ['fuentes de la respuesta', 'muestra las fuentes'])
       ? 'document_evidence_sources'
       : containsAny(q, ['compara esta version', 'compara versiones', 'version anterior'])

@@ -47,6 +47,33 @@ export function validateEvidenceV21Readiness(
     )
       missing.push('FINAL_SIGNATURE_BINDING_INCOMPLETE');
     if (signature.evidenceRole !== 'FINAL_SIGNATURE') errors.push('NON_FINAL_SIGNATURE_INCLUDED');
+    if (signature.participation) {
+      const participation = signature.participation;
+      if (
+        !participation.participantReference ||
+        participation.authentication.result !== 'verified' ||
+        !participation.authentication.verifiedAt ||
+        !participation.authentication.evidenceRef ||
+        participation.signingMethod !== signature.method ||
+        !participation.completion.attemptRef ||
+        !participation.completion.correlationId ||
+        !participation.completion.committedAt ||
+        !participation.completion.canonicalEventRef
+      )
+        errors.push('PARTICIPATION_CONTEXT_INVALID');
+      if (
+        participation.mode === 'in_person' &&
+        (!participation.inPersonSession ||
+          participation.inPersonSession.status !== 'completed' ||
+          !participation.inPersonSession.sessionRef ||
+          !participation.inPersonSession.createdAt ||
+          !participation.inPersonSession.startedAt ||
+          !participation.inPersonSession.completedAt)
+      )
+        errors.push('IN_PERSON_PARTICIPATION_INCOMPLETE');
+      if (participation.mode === 'remote' && participation.inPersonSession)
+        errors.push('REMOTE_PARTICIPATION_HAS_KIOSK_SESSION');
+    }
     if (
       !signature.consent ||
       !signature.consent.accepted ||

@@ -1,6 +1,10 @@
 import { createHash, createHmac, randomInt, randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  assertKioskDocumentScope,
+  kioskParticipantMatchesUser,
+} from '@/lib/in-person/kiosk-session.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,7 +15,7 @@ const OTP_RESEND_SECONDS = 60;
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } },
+  { auth: { persistSession: false, autoRefreshToken: false } }
 );
 
 function getOtpPepper() {
@@ -49,7 +53,10 @@ function escapeHtml(value: string) {
 async function requireUser(request: NextRequest) {
   const authorization = request.headers.get('authorization');
   if (!authorization?.startsWith('Bearer ')) return null;
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(authorization.slice(7).trim());
+  const {
+    data: { user },
+    error,
+  } = await supabaseAdmin.auth.getUser(authorization.slice(7).trim());
   return error ? null : user;
 }
 
@@ -63,9 +70,9 @@ async function getAuthorizedDocument(documentId: string, userId: string, userEma
 
   const email = normalizeEmail(userEmail);
   const participants = Array.isArray(document.participantes) ? document.participantes : [];
-  const listed = participants.some((participant: Record<string, unknown>) =>
-    participant.id === userId
-    || normalizeEmail(String(participant.email || '')) === email
+  const listed = participants.some(
+    (participant: Record<string, unknown>) =>
+      participant.id === userId || normalizeEmail(String(participant.email || '')) === email
   );
   if (document.owner_id === userId || listed) return document;
 
@@ -125,12 +132,26 @@ export async function POST(request: NextRequest) {
     const documentId = String(body.documentId || '');
     const requestedEmail = normalizeEmail(String(body.recipientEmail || ''));
     if (!documentId || !requestedEmail) {
-      return NextResponse.json({ error: 'documentId y recipientEmail son requeridos' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'documentId y recipientEmail son requeridos' },
+        { status: 400 }
+      );
+    }
+
+    const kioskSession = await assertKioskDocumentScope(request, documentId);
+    if (kioskSession) {
+      const identity = await kioskParticipantMatchesUser(supabaseAdmin, kioskSession, user);
+      if (!identity.matches) {
+        return NextResponse.json({ error: 'KIOSK_PARTICIPANT_MISMATCH' }, { status: 403 });
+      }
     }
 
     const authenticatedEmail = normalizeEmail(user.email);
     if (requestedEmail !== authenticatedEmail) {
-      return NextResponse.json({ error: 'El codigo solo puede enviarse al correo autenticado' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'El codigo solo puede enviarse al correo autenticado' },
+        { status: 403 }
+      );
     }
 
     const document = await getAuthorizedDocument(documentId, user.id, authenticatedEmail);
@@ -149,7 +170,7 @@ export async function POST(request: NextRequest) {
     if (recent) {
       return NextResponse.json(
         { error: `Espera ${OTP_RESEND_SECONDS} segundos antes de solicitar otro codigo` },
-        { status: 429 },
+        { status: 429 }
       );
     }
 
@@ -173,18 +194,28 @@ export async function POST(request: NextRequest) {
 
     const resendApiKey = process.env.RESEND_API_KEY;
     if (!resendApiKey) {
-      await supabaseAdmin.from('signature_otp_challenges')
-        .update({ delivery_status: 'FAILED' }).eq('id', challengeId);
+      await supabaseAdmin
+        .from('signature_otp_challenges')
+        .update({ delivery_status: 'FAILED' })
+        .eq('id', challengeId);
       return NextResponse.json({ error: 'Configuracion de correo no disponible' }, { status: 503 });
     }
 
     const documentName = escapeHtml(String(document.nombre || body.documentName || 'Documento'));
-    const recipientName = escapeHtml(String(body.recipientName || user.user_metadata?.full_name || user.email));
-    const appUrl = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://docubox-docubox.vercel.app').replace(/\/$/, '');
+    const recipientName = escapeHtml(
+      String(body.recipientName || user.user_metadata?.full_name || user.email)
+    );
+    const appUrl = (
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      'https://docubox-docubox.vercel.app'
+    ).replace(/\/$/, '');
     const logoUrl = `${appUrl}/assets/images/docubox-logo-2026.png`;
     const configuredFrom = process.env.FROM_EMAIL?.trim();
     const fromEmail = configuredFrom
-      ? configuredFrom.includes('<') ? configuredFrom : `Docubox <${configuredFrom}>`
+      ? configuredFrom.includes('<')
+        ? configuredFrom
+        : `Docubox <${configuredFrom}>`
       : 'Docubox <noreply@docubox.com.mx>';
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -221,26 +252,41 @@ export async function POST(request: NextRequest) {
       }),
       signal: AbortSignal.timeout(15_000),
     });
-    const emailData = await emailResponse.json().catch(() => ({})) as { id?: string };
+    const emailData = (await emailResponse.json().catch(() => ({}))) as { id?: string };
     if (!emailResponse.ok || !emailData.id) {
-      await supabaseAdmin.from('signature_otp_challenges')
-        .update({ delivery_status: 'FAILED' }).eq('id', challengeId);
+      await supabaseAdmin
+        .from('signature_otp_challenges')
+        .update({ delivery_status: 'FAILED' })
+        .eq('id', challengeId);
       await appendOtpEvent({
-        documentId, userId: user.id, userEmail: authenticatedEmail,
-        eventType: 'SIGNATURE_OTP_DELIVERY_FAILED', eventResult: 'FAILED',
+        documentId,
+        userId: user.id,
+        userEmail: authenticatedEmail,
+        eventType: 'SIGNATURE_OTP_DELIVERY_FAILED',
+        eventResult: 'FAILED',
         documentSha256: document.file_hash_sha256,
         payload: { challenge_id: challengeId, channel: 'EMAIL' },
         idempotencyKey: `otp-delivery-failed:${challengeId}`,
       });
-      return NextResponse.json({ error: 'No se pudo enviar el codigo. Intenta de nuevo.' }, { status: 502 });
+      return NextResponse.json(
+        { error: 'No se pudo enviar el codigo. Intenta de nuevo.' },
+        { status: 502 }
+      );
     }
 
-    await supabaseAdmin.from('signature_otp_challenges').update({
-      delivery_status: 'SENT', provider_message_id: emailData.id,
-    }).eq('id', challengeId);
+    await supabaseAdmin
+      .from('signature_otp_challenges')
+      .update({
+        delivery_status: 'SENT',
+        provider_message_id: emailData.id,
+      })
+      .eq('id', challengeId);
     await appendOtpEvent({
-      documentId, userId: user.id, userEmail: authenticatedEmail,
-      eventType: 'SIGNATURE_OTP_SENT', eventResult: 'SUCCESS',
+      documentId,
+      userId: user.id,
+      userEmail: authenticatedEmail,
+      eventType: 'SIGNATURE_OTP_SENT',
+      eventResult: 'SUCCESS',
       documentSha256: document.file_hash_sha256,
       payload: { challenge_id: challengeId, channel: 'EMAIL', expires_at: expiresAt.toISOString() },
       idempotencyKey: `otp-sent:${challengeId}`,
@@ -253,8 +299,14 @@ export async function POST(request: NextRequest) {
       expiryMinutes: OTP_EXPIRY_MINUTES,
     });
   } catch (error) {
-    console.error('[signature-otp] Send failed:', error instanceof Error ? error.message : 'unknown');
-    return NextResponse.json({ error: 'No se pudo enviar el codigo. Intenta de nuevo.' }, { status: 500 });
+    console.error(
+      '[signature-otp] Send failed:',
+      error instanceof Error ? error.message : 'unknown'
+    );
+    return NextResponse.json(
+      { error: 'No se pudo enviar el codigo. Intenta de nuevo.' },
+      { status: 500 }
+    );
   }
 }
 
@@ -262,7 +314,8 @@ export async function PUT(request: NextRequest) {
   try {
     const user = await requireUser(request);
     if (!user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    if (!getOtpPepper()) return NextResponse.json({ error: 'Servicio OTP no configurado' }, { status: 503 });
+    if (!getOtpPepper())
+      return NextResponse.json({ error: 'Servicio OTP no configurado' }, { status: 503 });
 
     const body = await request.json();
     const documentId = String(body.documentId || '');
@@ -282,9 +335,15 @@ export async function PUT(request: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (!challenge) return NextResponse.json({ error: 'Codigo no encontrado o ya utilizado' }, { status: 400 });
+    if (!challenge)
+      return NextResponse.json({ error: 'Codigo no encontrado o ya utilizado' }, { status: 400 });
 
-    const codeDigest = digestOtp({ challengeId: challenge.id, documentId, userId: user.id, otp: otpCode });
+    const codeDigest = digestOtp({
+      challengeId: challenge.id,
+      documentId,
+      userId: user.id,
+      otp: otpCode,
+    });
     const { data, error } = await supabaseAdmin.rpc('consume_signature_otp', {
       p_document_id: documentId,
       p_user_id: user.id,
@@ -298,10 +357,17 @@ export async function PUT(request: NextRequest) {
     const result = data[0] as { status: string; challenge_id: string; attempts_remaining: number };
     if (result.status !== 'VERIFIED') {
       await appendOtpEvent({
-        documentId, userId: user.id, userEmail: user.email,
-        eventType: 'SIGNATURE_OTP_REJECTED', eventResult: 'DENIED',
+        documentId,
+        userId: user.id,
+        userEmail: user.email,
+        eventType: 'SIGNATURE_OTP_REJECTED',
+        eventResult: 'DENIED',
         documentSha256: document.file_hash_sha256,
-        payload: { challenge_id: result.challenge_id, status: result.status, attempts_remaining: result.attempts_remaining },
+        payload: {
+          challenge_id: result.challenge_id,
+          status: result.status,
+          attempts_remaining: result.attempts_remaining,
+        },
       });
       const messages: Record<string, string> = {
         EXPIRED: 'El codigo OTP ha expirado',
@@ -311,21 +377,30 @@ export async function PUT(request: NextRequest) {
         INVALID: 'Codigo OTP incorrecto',
       };
       return NextResponse.json(
-        { error: messages[result.status] || 'Codigo OTP invalido', attemptsRemaining: result.attempts_remaining },
-        { status: result.status === 'LOCKED' ? 429 : 400 },
+        {
+          error: messages[result.status] || 'Codigo OTP invalido',
+          attemptsRemaining: result.attempts_remaining,
+        },
+        { status: result.status === 'LOCKED' ? 429 : 400 }
       );
     }
 
     await appendOtpEvent({
-      documentId, userId: user.id, userEmail: user.email,
-      eventType: 'SIGNATURE_OTP_VERIFIED', eventResult: 'SUCCESS',
+      documentId,
+      userId: user.id,
+      userEmail: user.email,
+      eventType: 'SIGNATURE_OTP_VERIFIED',
+      eventResult: 'SUCCESS',
       documentSha256: document.file_hash_sha256,
       payload: { challenge_id: result.challenge_id, method: 'EMAIL_OTP' },
       idempotencyKey: `otp-verified:${result.challenge_id}`,
     });
     return NextResponse.json({ success: true, verified: true, challengeId: result.challenge_id });
   } catch (error) {
-    console.error('[signature-otp] Verify failed:', error instanceof Error ? error.message : 'unknown');
+    console.error(
+      '[signature-otp] Verify failed:',
+      error instanceof Error ? error.message : 'unknown'
+    );
     return NextResponse.json({ error: 'No se pudo verificar el codigo' }, { status: 500 });
   }
 }

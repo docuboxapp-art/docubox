@@ -31,6 +31,47 @@ const DASHBOARD_PARTICIPATION_SELECT = `
   participantes
 `;
 
+const FULL_PARTICIPATION_SELECT = `
+  id,
+  documento_id,
+  owner_id,
+  nombre,
+  descripcion,
+  estado,
+  priority,
+  es_urgente,
+  fecha_vencimiento,
+  tiene_vencimiento,
+  created_at,
+  updated_at,
+  fecha_completado,
+  cancelado_at,
+  cancelacion_motivo,
+  cancelacion_descripcion,
+  en_espera_motivo,
+  en_espera_descripcion,
+  participantes,
+  campos_solicitados,
+  source_template_id,
+  legal_hold,
+  legal_hold_status,
+  tipo_documento_id,
+  tipo_documento:tipo_documento_id ( nombre )
+`;
+
+const LEGACY_FULL_PARTICIPATION_SELECT = FULL_PARTICIPATION_SELECT.replace(
+  '  source_template_id,\n',
+  ''
+);
+
+function isTemplateOriginColumnMissing(error: { code?: string; message?: string } | null) {
+  return Boolean(
+    error &&
+    /source_template_id/i.test(error.message || '') &&
+    (error.code === 'PGRST204' || /schema cache|does not exist|column/i.test(error.message || ''))
+  );
+}
+
 function isTerminalSubEstado(sub: string): boolean {
   const lower = (sub ?? '').toLowerCase();
   return TERMINAL_SUB_ESTADOS.includes(lower) || TERMINAL_STATUSES_CAPITALIZED.includes(sub ?? '');
@@ -131,43 +172,23 @@ export async function GET(request: NextRequest) {
 
     // RLS admits only owner, authorized workspace administrator or participant rows.
     // The participant filter below preserves this endpoint's narrower response contract.
-    let query = supabase
-      .from('documentos')
-      .select(
-        dashboardSummary
-          ? DASHBOARD_PARTICIPATION_SELECT
-          : `
-        id,
-        documento_id,
-        owner_id,
-        nombre,
-        descripcion,
-        estado,
-        priority,
-        es_urgente,
-        fecha_vencimiento,
-        tiene_vencimiento,
-        created_at,
-        updated_at,
-        fecha_completado,
-        cancelado_at,
-        cancelacion_motivo,
-        cancelacion_descripcion,
-        en_espera_motivo,
-        en_espera_descripcion,
-        participantes,
-        campos_solicitados,
-        legal_hold,
-        legal_hold_status,
-        tipo_documento_id,
-        tipo_documento:tipo_documento_id ( nombre )
-      `
-      )
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false });
-    if (excludeOwned) query = query.neq('owner_id', userId);
+    const buildQuery = (columns: string) => {
+      let query = supabase
+        .from('documentos')
+        .select(columns)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+      if (excludeOwned) query = query.neq('owner_id', userId);
+      return query;
+    };
 
-    const { data: docs, error } = await query;
+    let result = await buildQuery(
+      dashboardSummary ? DASHBOARD_PARTICIPATION_SELECT : FULL_PARTICIPATION_SELECT
+    );
+    if (!dashboardSummary && isTemplateOriginColumnMissing(result.error)) {
+      result = await buildQuery(LEGACY_FULL_PARTICIPATION_SELECT);
+    }
+    const { data: docs, error } = result;
 
     if (error) {
       console.error('[mis-participaciones] DB error:', error.message);
@@ -349,6 +370,7 @@ export async function GET(request: NextRequest) {
         historicalParticipation: myEntry?.historical_participation === true,
         camposSolicitados: myCampos,
         legalHoldActive: doc.legal_hold === true || doc.legal_hold_status === 'ACTIVE',
+        sourceTemplateId: doc.source_template_id ?? null,
       };
     });
 

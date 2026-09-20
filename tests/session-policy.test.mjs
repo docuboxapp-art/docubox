@@ -24,15 +24,9 @@ test('server session policy distinguishes ordinary and privileged limits', () =>
 });
 
 test('standard session inactivity timeout is twenty minutes', () => {
-  assert.match(
-    twentyMinuteTimeoutMigration,
-    /CASE WHEN v_is_privileged THEN 600 ELSE 1200 END/
-  );
+  assert.match(twentyMinuteTimeoutMigration, /CASE WHEN v_is_privileged THEN 600 ELSE 1200 END/);
   assert.match(twentyMinuteTimeoutMigration, /inactividad \(20 minutos\)/);
-  assert.match(
-    twentyMinuteTimeoutMigration,
-    /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/
-  );
+  assert.match(twentyMinuteTimeoutMigration, /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/);
 });
 
 test('only explicit human interactions can extend the inactivity window', () => {
@@ -86,10 +80,7 @@ test('timeout modal actions close only explicitly invalid browser sessions', () 
 });
 
 test('temporary policy or permission errors do not erase an otherwise valid session', () => {
-  assert.doesNotMatch(
-    middleware,
-    /permission denied for function enforce_docubox_session_policy/
-  );
+  assert.doesNotMatch(middleware, /permission denied for function enforce_docubox_session_policy/);
   assert.match(middleware, /Tu sesión continúa activa\. La conexión tardó más de lo esperado\./);
   assert.match(middleware, /status: 503/);
   assert.match(middleware, /Retry-After': '5'/);
@@ -105,6 +96,15 @@ test('a transient PostgREST schema-cache miss receives one bounded retry', () =>
   assert.match(middleware, /persistent failure still blocks protected traffic/);
 });
 
+test('concurrent requests from one session share only the policy validation in progress', () => {
+  assert.match(middleware, /getSessionIdFromClaims/);
+  assert.match(middleware, /inFlightSessionPolicyValidations\.get\(sessionId\)/);
+  assert.match(middleware, /inFlightSessionPolicyValidations\.set\(sessionId, validation\)/);
+  assert.match(middleware, /void validation\.then\(clearValidation, clearValidation\)/);
+  assert.match(middleware, /inFlightSessionPolicyValidations\.delete\(sessionId\)/);
+  assert.doesNotMatch(middleware, /SESSION_POLICY_SUCCESS_CACHE_TTL/);
+});
+
 test('temporary auth gateway failures receive one bounded retry without trusting the session', () => {
   assert.match(middleware, /TRANSIENT_SESSION_HTTP_STATUSES = new Set\(\[0, 502, 503, 504\]\)/);
   assert.match(middleware, /error\.name === 'AuthRetryableFetchError'/);
@@ -115,10 +115,7 @@ test('temporary auth gateway failures receive one bounded retry without trusting
     /let result = await supabase\.auth\.getClaims\(accessToken\);[\s\S]*if \(isTransientSessionPolicyError\(result\.error\)\)[\s\S]*result = await supabase\.auth\.getClaims\(accessToken\);/
   );
   assert.match(middleware, /unavailableSessionPolicyResponse\(response, isApiRequest\)/);
-  assert.doesNotMatch(
-    middleware,
-    /if \(claimsError\)[\s\S]{0,500}NextResponse\.next\(\)/
-  );
+  assert.doesNotMatch(middleware, /if \(claimsError\)[\s\S]{0,500}NextResponse\.next\(\)/);
 });
 
 test('session expiry is auditable and protected from direct table access', () => {

@@ -34,6 +34,7 @@ import {
   ChevronDown,
   ScrollText,
   Fingerprint,
+  LayoutTemplate,
   type LucideIcon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -50,6 +51,20 @@ import type {
 } from './types';
 import type { PreProcessedFile } from '../page';
 import { createNotification } from '@/lib/notificationsInApp';
+import {
+  serializeSupplementalDocument,
+  type SupplementalDocumentDraft,
+} from '@/lib/document-package/types';
+import {
+  getEffectiveTimeZone,
+  getTimeZoneOffsetLabel,
+  zonedDateTimeToUtcIso,
+} from '@/lib/datetime';
+import { getTemplatePageCount, type PublishedTemplateDocument } from '@/lib/templates/preview';
+import {
+  createTemplateDocumentFile,
+  TEMPLATE_DOCUMENT_MIME_TYPE,
+} from '@/lib/templates/document-flow';
 
 async function computeSHA256(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
@@ -210,6 +225,7 @@ export const StepEnviar = forwardRef<
   StepEnviarHandle,
   {
     file: File | null;
+    templateSource?: PublishedTemplateDocument | null;
     participants: Participant[];
     settings: DocumentSettings;
     docConfig: DocumentConfig;
@@ -231,10 +247,13 @@ export const StepEnviar = forwardRef<
     } | null;
     /** Version exacta elegida desde el repositorio interno de Docubox. */
     docuboxSource?: DocuboxSourceSelection | null;
+    supplementalResources: SupplementalDocumentDraft[];
+    onDeliveryModeChange?: (mode: 'now' | 'scheduled') => void;
   }
 >(function StepEnviar(
   {
     file,
+    templateSource,
     participants,
     settings,
     docConfig,
@@ -248,6 +267,8 @@ export const StepEnviar = forwardRef<
     preProcessedFile,
     pdfMetadata,
     docuboxSource,
+    supplementalResources,
+    onDeliveryModeChange,
   },
   ref
 ) {
@@ -258,6 +279,11 @@ export const StepEnviar = forwardRef<
   const [sent, setSent] = useState(false);
   const [invitationResult, setInvitationResult] = useState({ attempted: 0, sent: 0, failed: 0 });
   const [countdown, setCountdown] = useState(5);
+  const [deliveryMode, setDeliveryMode] = useState<'now' | 'scheduled'>('now');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [scheduleTimezone, setScheduleTimezone] = useState('UTC');
+  const [scheduledResult, setScheduledResult] = useState(false);
   const [carpetaNombre, setCarpetaNombre] = useState<string>('Carpeta Principal');
   const [documentTypeLabel, setDocumentTypeLabel] = useState('No especificado');
   const [selectedTags, setSelectedTags] = useState<
@@ -282,7 +308,9 @@ export const StepEnviar = forwardRef<
       try {
         const { data } = await supabase
           .from('document_security_settings')
-          .select('vencimiento_enabled,fecha_vencimiento,recordatorio_frecuencia,codigo_acceso_enabled,proteccion_adicional_enabled,legal_hold_enabled,impedir_impresion,evitar_copia_texto,impedir_modificacion,impedir_extraccion,evitar_montaje')
+          .select(
+            'vencimiento_enabled,fecha_vencimiento,recordatorio_frecuencia,codigo_acceso_enabled,proteccion_adicional_enabled,legal_hold_enabled,impedir_impresion,evitar_copia_texto,impedir_modificacion,impedir_extraccion,evitar_montaje'
+          )
           .eq('documento_id', documentoId)
           .maybeSingle();
         if (data) {
@@ -310,6 +338,21 @@ export const StepEnviar = forwardRef<
   }, [documentoId]);
 
   const effectiveSecurity = securitySettings ?? localSecurity;
+  const sourceDisplayName = templateSource?.nombre || file?.name || 'Sin nombre';
+  const sourceDisplayDetail = templateSource
+    ? 'Plantilla publicada de Docubox'
+    : file
+      ? `${file.name} · ${formatFileSize(file.size)}`
+      : 'Archivo no disponible';
+
+  useEffect(() => {
+    setScheduleTimezone(getEffectiveTimeZone());
+  }, []);
+
+  const selectDeliveryMode = (mode: 'now' | 'scheduled') => {
+    setDeliveryMode(mode);
+    onDeliveryModeChange?.(mode);
+  };
 
   // Load folder name if ruta is a UUID
   useEffect(() => {
@@ -406,11 +449,20 @@ export const StepEnviar = forwardRef<
   }, [sent, countdown, invitationResult.failed]);
 
   const handleEnviar = async () => {
-    if (!file) return;
+    if (!file && !templateSource) return;
     setSending(true);
     setSendError(null);
     setScanState('uploading');
     try {
+      const fileToSend = templateSource ? createTemplateDocumentFile(templateSource) : file;
+      if (!fileToSend) throw new Error('El documento no está disponible.');
+
+      if (deliveryMode === 'scheduled') {
+        const scheduledAt = zonedDateTimeToUtcIso(scheduleDate, scheduleTime, scheduleTimezone);
+        if (!scheduledAt || new Date(scheduledAt).getTime() <= Date.now() + 60_000) {
+          throw new Error('Selecciona una fecha y hora futura válida para programar el envío.');
+        }
+      }
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -425,7 +477,12 @@ export const StepEnviar = forwardRef<
       let uploadContentType: string;
       let detectedMime: string | null;
 
-      if (!docuboxSource && preProcessedFile && preProcessedFile.status !== 'ready') {
+      if (
+        !docuboxSource &&
+        !templateSource &&
+        preProcessedFile &&
+        preProcessedFile.status !== 'ready'
+      ) {
         if (preProcessedFile.status === 'error_grande') {
           setScanState('error_grande');
           throw new Error('El archivo supera el límite de 25MB.');
@@ -443,24 +500,32 @@ export const StepEnviar = forwardRef<
       }
 
       if (docuboxSource) {
-        if (file.size > MAX_FILE_SIZE_BYTES) {
+        if (fileToSend.size > MAX_FILE_SIZE_BYTES) {
           setScanState('error_grande');
           throw new Error('El archivo supera el límite de 25MB.');
         }
-        detectedMime = await validateMimeByMagicBytes(file);
+        detectedMime = await validateMimeByMagicBytes(fileToSend);
         if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
           setScanState('error_tipo');
           throw new Error('La versión seleccionada tiene un tipo de archivo no permitido.');
         }
-        uploadContentType = docuboxSource.fileType || file.type || detectedMime;
-        uploadBlob = file;
-      } else if (preProcessedFile && preProcessedFile.status === 'ready') {
+        uploadContentType = docuboxSource.fileType || fileToSend.type || detectedMime;
+        uploadBlob = fileToSend;
+      } else if (templateSource) {
+        if (fileToSend.size > MAX_FILE_SIZE_BYTES) {
+          setScanState('error_grande');
+          throw new Error('La plantilla supera el límite de 25MB.');
+        }
+        detectedMime = TEMPLATE_DOCUMENT_MIME_TYPE;
+        uploadContentType = TEMPLATE_DOCUMENT_MIME_TYPE;
+        uploadBlob = fileToSend;
+      } else if (!templateSource && preProcessedFile && preProcessedFile.status === 'ready') {
         console.log('[DOCUBOX][security] Usando pipeline pre-ejecutado (sin reprocesar)');
         detectedMime = preProcessedFile.mime;
         uploadContentType =
           preProcessedFile.mime === 'application/pdf'
             ? 'application/pdf'
-            : file.type || 'application/octet-stream';
+            : fileToSend.type || 'application/octet-stream';
         const uploadBytes = new Uint8Array(preProcessedFile.bytes.byteLength);
         uploadBytes.set(preProcessedFile.bytes);
         uploadBlob = new Blob([uploadBytes.buffer], { type: uploadContentType });
@@ -468,21 +533,21 @@ export const StepEnviar = forwardRef<
         console.log(
           '[DOCUBOX][security] Pre-procesamiento no disponible, ejecutando pipeline ahora'
         );
-        if (file.size > MAX_FILE_SIZE_BYTES) {
+        if (fileToSend.size > MAX_FILE_SIZE_BYTES) {
           setScanState('error_grande');
           throw new Error('El archivo supera el límite de 25MB.');
         }
-        detectedMime = await validateMimeByMagicBytes(file);
+        detectedMime = await validateMimeByMagicBytes(fileToSend);
         if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
           setScanState('error_tipo');
           throw new Error(
             'Tipo de archivo no permitido. Solo se aceptan PDF, Word, Excel, PNG y JPG.'
           );
         }
-        uploadContentType = file.type || 'application/octet-stream';
+        uploadContentType = fileToSend.type || 'application/octet-stream';
         if (detectedMime === 'application/pdf') {
           try {
-            const sanitizedBytes = await sanitizePDFClient(file);
+            const sanitizedBytes = await sanitizePDFClient(fileToSend);
             const uploadBytes = new Uint8Array(sanitizedBytes.byteLength);
             uploadBytes.set(sanitizedBytes);
             uploadBlob = new Blob([uploadBytes.buffer], { type: 'application/pdf' });
@@ -492,12 +557,12 @@ export const StepEnviar = forwardRef<
             throw new Error('El PDF está dañado o no es válido.');
           }
         } else {
-          uploadBlob = file;
+          uploadBlob = fileToSend;
         }
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      const hash = await computeSHA256(file);
+      const hash = await computeSHA256(fileToSend);
       if (docuboxSource && hash.toLowerCase() !== docuboxSource.sourceSha256.toLowerCase()) {
         setScanState('error_invalido');
         throw new Error(
@@ -518,7 +583,7 @@ export const StepEnviar = forwardRef<
         return {
           id: p.id,
           // Store user_id for registered platform users so they can find their documents
-          user_id: isRegisteredUser ? p.id : null,
+          user_id: p.id === 'current-user' ? user.id : isRegisteredUser ? p.id : null,
           name: p.name,
           email: p.email,
           phone: p.phone || null,
@@ -528,6 +593,22 @@ export const StepEnviar = forwardRef<
           tipoNotificacion: p.tipoNotificacion || [],
           mensajePersonalizado: p.mensajePersonalizado || null,
           fechaVencimientoParticipacion: p.fechaVencimientoParticipacion || null,
+          delivery_mode: p.deliveryMode || 'remote',
+          routing_mode: p.routingMode || 'immediate',
+          routing_delay_amount: p.routingDelayAmount || null,
+          routing_delay_unit: p.routingDelayUnit || null,
+          routing_activate_at:
+            p.routingMode === 'date_time' && p.routingDate && p.routingTime
+              ? zonedDateTimeToUtcIso(
+                  p.routingDate,
+                  p.routingTime,
+                  p.routingTimezone || getEffectiveTimeZone()
+                )
+              : null,
+          routing_timezone: p.routingTimezone || null,
+          routing_after_event: p.routingAfterEvent || null,
+          requirements: p.requirements || [],
+          visible_resource_ids: p.visibleResourceIds || [],
           isCurrentUser: p.id === 'current-user',
         };
       });
@@ -558,6 +639,7 @@ export const StepEnviar = forwardRef<
             };
             return {
               id: f.id,
+              valueKey: f.valueKey || f.id,
               tipo: (f as any).tipo || tipoMap[f.label] || 'texto',
               label: f.label,
               participantId: f.participantId || null,
@@ -585,18 +667,18 @@ export const StepEnviar = forwardRef<
       if (!docuboxSource) {
         uploadFormData.append(
           'file',
-          new File([uploadBlob], sanitizeFileName(file.name), { type: uploadContentType })
+          new File([uploadBlob], sanitizeFileName(fileToSend.name), { type: uploadContentType })
         );
       }
       uploadFormData.append(
         'meta',
         JSON.stringify({
           documentoId: docId,
-          fileName: sanitizeFileName(file.name),
-          fileSize: file.size,
+          fileName: sanitizeFileName(fileToSend.name),
+          fileSize: fileToSend.size,
           fileType: uploadContentType,
           fileHashSha256: hash,
-          nombre: docConfig.nombre || file.name.replace(/\.[^/.]+$/, ''),
+          nombre: docConfig.nombre || fileToSend.name.replace(/\.[^/.]+$/, ''),
           descripcion: docConfig.descripcion || null,
           numeroOficio: docConfig.numeroOficio || null,
           grupotipoId: docConfig.grupotipoId || null,
@@ -639,6 +721,7 @@ export const StepEnviar = forwardRef<
           urgente: effectiveSecurity?.urgente ?? false,
           metadatosAdicionales: effectiveSecurity?.metadatosAdicionales ?? false,
           additionalMetadata: docConfig.additionalMetadata || [],
+          sourceTemplateId: templateSource?.id || null,
           docuboxSource: docuboxSource
             ? {
                 workspaceId: docuboxSource.workspaceId,
@@ -649,8 +732,22 @@ export const StepEnviar = forwardRef<
                 relationType: docuboxSource.relationType,
               }
             : null,
+          supplementalResources: supplementalResources.map(serializeSupplementalDocument),
+          deliveryTiming:
+            deliveryMode === 'scheduled'
+              ? {
+                  mode: 'scheduled',
+                  date: scheduleDate,
+                  time: scheduleTime,
+                  timezone: scheduleTimezone,
+                }
+              : { mode: 'now' },
         })
       );
+
+      supplementalResources.forEach((resource) => {
+        uploadFormData.append(`supplemental:${resource.id}`, resource.file, resource.file.name);
+      });
 
       const enviarRes = await fetch('/api/documentos/enviar', {
         method: 'POST',
@@ -667,7 +764,8 @@ export const StepEnviar = forwardRef<
         throw new Error(enviarJson.error || 'Error al guardar el documento');
       }
 
-      const { dbDocumentId, invitations } = enviarJson;
+      const { dbDocumentId, invitations, scheduled } = enviarJson;
+      setScheduledResult(scheduled === true);
       setInvitationResult({
         attempted: Number(invitations?.attempted || 0),
         sent: Number(invitations?.sent || 0),
@@ -678,12 +776,14 @@ export const StepEnviar = forwardRef<
 
       // ── Insertar notificación in-app para el dueño del documento ─────────
       try {
-        const docName = docConfig.nombre || file?.name.replace(/\.[^/.]+$/, '') || 'Documento';
+        const docName = docConfig.nombre || fileToSend.name.replace(/\.[^/.]+$/, '') || 'Documento';
         await createNotification({
           userId: user.id,
           type: 'document',
-          title: 'Documento enviado exitosamente',
-          description: `El documento "${docName}" fue enviado a ${participants.length} participante${participants.length !== 1 ? 's' : ''} para su firma.`,
+          title: scheduled ? 'Envío programado correctamente' : 'Documento enviado exitosamente',
+          description: scheduled
+            ? `El documento "${docName}" se enviará en la fecha programada.`
+            : `El documento "${docName}" fue enviado a ${participants.length} participante${participants.length !== 1 ? 's' : ''} para su firma.`,
           priority: 'media',
           metadata: { documentoId: dbDocumentId, docName },
         });
@@ -701,10 +801,12 @@ export const StepEnviar = forwardRef<
           },
           body: JSON.stringify({
             documentos_id: dbDocumentId,
-            file_name: file.name,
-            file_size: file.size,
-            mime_type: detectedMime || file.type || 'application/octet-stream',
-            page_count: pdfMetadata?.pageCount ?? null,
+            file_name: fileToSend.name,
+            file_size: fileToSend.size,
+            mime_type: detectedMime || fileToSend.type || 'application/octet-stream',
+            page_count: templateSource
+              ? getTemplatePageCount(templateSource)
+              : (pdfMetadata?.pageCount ?? null),
             pdf_title: pdfMetadata?.title ?? null,
             pdf_author: pdfMetadata?.author ?? null,
             pdf_creation_date: pdfMetadata?.creationDate ?? null,
@@ -768,11 +870,15 @@ export const StepEnviar = forwardRef<
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
-          <h1 className="text-2xl font-700 text-slate-950">Documento enviado</h1>
+          <h1 className="text-2xl font-700 text-slate-950">
+            {scheduledResult ? 'Envío programado' : 'Documento enviado'}
+          </h1>
           <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
-            {invitationResult.failed > 0
-              ? 'El documento se creó correctamente, pero algunas invitaciones por correo no pudieron enviarse.'
-              : 'El proceso se inició correctamente y los participantes recibirán sus notificaciones.'}
+            {scheduledResult
+              ? 'El documento quedó preparado y se enviará automáticamente en la fecha seleccionada.'
+              : invitationResult.failed > 0
+                ? 'El documento se creó correctamente, pero algunas invitaciones por correo no pudieron enviarse.'
+                : 'El proceso se inició correctamente y los participantes recibirán sus notificaciones.'}
           </p>
           {invitationResult.failed > 0 && (
             <div className="mt-5 flex w-full items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-left">
@@ -935,6 +1041,69 @@ export const StepEnviar = forwardRef<
         </div>
       </div>
 
+      <section className="mb-4 overflow-hidden rounded-lg border border-slate-200/90 bg-white">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-base font-700 text-slate-950">Momento del envío</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Elige si deseas iniciar el proceso ahora o en una fecha posterior.
+          </p>
+        </div>
+        <div className="p-5">
+          <div
+            className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1"
+            role="radiogroup"
+            aria-label="Momento del envío"
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={deliveryMode === 'now'}
+              onClick={() => selectDeliveryMode('now')}
+              className={`flex h-10 items-center justify-center gap-2 rounded-md text-sm font-600 transition-colors ${deliveryMode === 'now' ? 'bg-white text-primary shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              <Mail size={15} /> Enviar ahora
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={deliveryMode === 'scheduled'}
+              onClick={() => selectDeliveryMode('scheduled')}
+              className={`flex h-10 items-center justify-center gap-2 rounded-md text-sm font-600 transition-colors ${deliveryMode === 'scheduled' ? 'bg-white text-primary shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              <Clock size={15} /> Programar envío
+            </button>
+          </div>
+          {deliveryMode === 'scheduled' && (
+            <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_1.4fr]">
+              <label className="text-xs font-600 text-slate-700">
+                Fecha
+                <input
+                  type="date"
+                  value={scheduleDate}
+                  onChange={(event) => setScheduleDate(event.target.value)}
+                  className="mt-1 block h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary"
+                />
+              </label>
+              <label className="text-xs font-600 text-slate-700">
+                Hora
+                <input
+                  type="time"
+                  value={scheduleTime}
+                  onChange={(event) => setScheduleTime(event.target.value)}
+                  className="mt-1 block h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary"
+                />
+              </label>
+              <label className="text-xs font-600 text-slate-700">
+                Zona horaria
+                <div className="mt-1 flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                  {scheduleTimezone} ({getTimeZoneOffsetLabel(scheduleTimezone)})
+                </div>
+              </label>
+            </div>
+          )}
+        </div>
+      </section>
+
       {sendError && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <AlertTriangle size={16} className="text-red-500 shrink-0" />
@@ -1031,16 +1200,18 @@ export const StepEnviar = forwardRef<
         </div>
         <div className="p-5">
           <div className="flex min-w-0 items-center gap-3 border-b border-slate-100 pb-5">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-primary">
-              <FileText size={20} />
+            <div
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-primary"
+              title={templateSource ? 'Documento creado desde una plantilla' : 'Documento'}
+              aria-label={templateSource ? 'Documento creado desde una plantilla' : 'Documento'}
+            >
+              {templateSource ? <LayoutTemplate size={20} /> : <FileText size={20} />}
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-700 text-slate-950">
-                {docConfig.nombre || (file?.name.replace(/\.[^/.]+$/, '') ?? 'Sin nombre')}
+                {docConfig.nombre || sourceDisplayName.replace(/\.[^/.]+$/, '')}
               </p>
-              <p className="mt-1 truncate text-xs text-slate-500">
-                {file ? `${file.name} · ${formatFileSize(file.size)}` : 'Archivo no disponible'}
-              </p>
+              <p className="mt-1 truncate text-xs text-slate-500">{sourceDisplayDetail}</p>
             </div>
             <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-600 text-emerald-700">
               <CheckCircle2 size={12} />

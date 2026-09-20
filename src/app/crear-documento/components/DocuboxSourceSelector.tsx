@@ -11,7 +11,6 @@ import {
   Loader2,
   Search,
   ShieldCheck,
-  X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -243,7 +242,7 @@ export function DocuboxSourceSelector({ open, onClose, onSelect }: Props) {
       aria-label="Seleccionar documento desde Docubox"
     >
       <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
-        <header className="flex min-h-16 items-center justify-between gap-4 border-b border-slate-200 px-5 py-3 sm:px-6">
+        <header className="min-h-16 border-b border-slate-200 px-5 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             {versionDocument ? (
               <button
@@ -266,14 +265,6 @@ export function DocuboxSourceSelector({ open, onClose, onSelect }: Props) {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-            title="Cerrar"
-          >
-            <X size={19} />
-          </button>
         </header>
 
         {!versionDocument ? (
@@ -521,6 +512,16 @@ export function DocuboxSourceSelector({ open, onClose, onSelect }: Props) {
             </div>
           </div>
         )}
+        <footer className="flex shrink-0 justify-end border-t border-slate-200 px-5 py-3 sm:px-6">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={Boolean(loadingKey)}
+            className="h-9 rounded-md border border-slate-200 bg-white px-4 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Cerrar
+          </button>
+        </footer>
       </div>
     </div>
   );

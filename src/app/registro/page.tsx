@@ -3,10 +3,33 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
+import { NumberedWizardNav } from '@/components/ui/NumberedWizardNav';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
 import { normalizeWorkspaceSlug, isValidWorkspaceSlug } from '@/lib/workspaces/slug';
-import { Mail, Phone, Lock, Eye, EyeOff, User, Building2, UserCheck, Shield, Upload, CheckCircle2, QrCode, ArrowRight, ArrowLeft, FileKey, Check, AlertCircle, RefreshCw, Loader2, XCircle, Clock } from 'lucide-react';
+import {
+  Mail,
+  Phone,
+  Lock,
+  Eye,
+  EyeOff,
+  User,
+  Building2,
+  UserCheck,
+  Shield,
+  Upload,
+  CheckCircle2,
+  QrCode,
+  ArrowRight,
+  ArrowLeft,
+  FileKey,
+  Check,
+  AlertCircle,
+  RefreshCw,
+  Loader2,
+  XCircle,
+  Clock,
+} from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,10 +135,17 @@ function getPasswordStrength(password: string): { score: number; label: string; 
 // ─── File Upload Zone ─────────────────────────────────────────────────────────
 
 function FileUploadZone({
-  label, accept, file, onFile, icon,
+  label,
+  accept,
+  file,
+  onFile,
+  icon,
 }: {
-  label: string; accept: string; file: File | null;
-  onFile: (f: File) => void; icon: React.ReactNode;
+  label: string;
+  accept: string;
+  file: File | null;
+  onFile: (f: File) => void;
+  icon: React.ReactNode;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -123,7 +153,8 @@ function FileUploadZone({
       onClick={() => inputRef.current?.click()}
       className={`relative flex w-full max-w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-md border-2 border-dashed p-4 transition-colors ${
         file
-          ? 'border-emerald-400 bg-emerald-50' :'border-border hover:border-primary/50 hover:bg-primary/5 bg-muted/30'
+          ? 'border-emerald-400 bg-emerald-50'
+          : 'border-border hover:border-primary/50 hover:bg-primary/5 bg-muted/30'
       }`}
     >
       <input
@@ -131,7 +162,9 @@ function FileUploadZone({
         type="file"
         accept={accept}
         className="hidden"
-        onChange={(e) => { if (e.target.files?.[0]) onFile(e.target.files[0]); }}
+        onChange={(e) => {
+          if (e.target.files?.[0]) onFile(e.target.files[0]);
+        }}
       />
       {file ? (
         <>
@@ -194,8 +227,13 @@ async function parseCerFile(file: File): Promise<{
         try {
           const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
           const hashArray = Array.from(new Uint8Array(hashBuffer));
-          sha256 = hashArray.map(b => b.toString(16).padStart(2, '0')).join(':').toUpperCase();
-        } catch { /* ignore */ }
+          sha256 = hashArray
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join(':')
+            .toUpperCase();
+        } catch {
+          /* ignore */
+        }
 
         // ── ASN.1 DER minimal parser helpers ──────────────────────────────
         let pos = 0;
@@ -257,7 +295,7 @@ async function parseCerFile(file: File): Promise<{
 
         // Convert serial bytes to hex string
         const serialHex = Array.from(serialBytes)
-          .map(b => b.toString(16).padStart(2, '0'))
+          .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
 
         // Convert hex → ASCII (each pair of hex digits = one ASCII char)
@@ -272,7 +310,12 @@ async function parseCerFile(file: File): Promise<{
         // Clean and validate: must be exactly 20 numeric characters
         noCertificado = noCertificado.replace(/\s/g, '');
         if (!/^\d{20}$/.test(noCertificado)) {
-          console.warn('[parseCerFile] noCertificado no cumple 20 dígitos numéricos:', noCertificado, '| serialHex:', serialHex);
+          console.warn(
+            '[parseCerFile] noCertificado no cumple 20 dígitos numéricos:',
+            noCertificado,
+            '| serialHex:',
+            serialHex
+          );
           // Fallback: try raw hex as-is if it looks numeric and is 20 chars
           if (/^\d{20}$/.test(serialHex)) {
             noCertificado = serialHex;
@@ -341,7 +384,9 @@ async function parseCerFile(file: File): Promise<{
 /** Convert ASN.1 UTCTime or GeneralizedTime bytes to ISO string */
 function parseAsn1Time(value: Uint8Array): string {
   try {
-    const str = Array.from(value).map(b => String.fromCharCode(b)).join('');
+    const str = Array.from(value)
+      .map((b) => String.fromCharCode(b))
+      .join('');
     // UTCTime: YYMMDDHHMMSSZ  (13 chars)
     // GeneralizedTime: YYYYMMDDHHMMSSZ (15 chars)
     if (str.length === 13) {
@@ -370,7 +415,10 @@ function extractDNString(bytes: Uint8Array): string {
 
   while (i < bytes.length) {
     // SET
-    if (bytes[i] !== 0x31) { i++; continue; }
+    if (bytes[i] !== 0x31) {
+      i++;
+      continue;
+    }
     i++;
     const setLen = derReadLen(bytes, i);
     i += derLenSize(bytes, i) + 1;
@@ -453,7 +501,9 @@ function EfirmaValidationCard({
     <div className="space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${isExpired ? 'bg-red-100' : 'bg-emerald-100'}`}>
+        <div
+          className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${isExpired ? 'bg-red-100' : 'bg-emerald-100'}`}
+        >
           {isExpired ? (
             <AlertCircle size={22} className="text-red-600" />
           ) : (
@@ -479,8 +529,9 @@ function EfirmaValidationCard({
           <div>
             <p className="text-sm font-bold text-red-700">e.Firma vencida</p>
             <p className="text-xs text-red-600 mt-0.5">
-              La vigencia de tu e.Firma expiró el {serialResult?.fecha_fin || result.vigenciaFin || '—'}. 
-              Para renovarla, visita el SAT o una oficina de atención al contribuyente.
+              La vigencia de tu e.Firma expiró el{' '}
+              {serialResult?.fecha_fin || result.vigenciaFin || '—'}. Para renovarla, visita el SAT
+              o una oficina de atención al contribuyente.
             </p>
           </div>
         </div>
@@ -491,9 +542,12 @@ function EfirmaValidationCard({
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
           <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-700">Firma electrónica de persona moral no permitida</p>
+            <p className="text-sm font-bold text-red-700">
+              Firma electrónica de persona moral no permitida
+            </p>
             <p className="text-xs text-red-600 mt-0.5">
-              El RFC detectado ({result.rfc}) corresponde a una persona moral (12 dígitos). Este registro solo acepta e.Firma de persona física (RFC de 13 caracteres).
+              El RFC detectado ({result.rfc}) corresponde a una persona moral (12 dígitos). Este
+              registro solo acepta e.Firma de persona física (RFC de 13 caracteres).
             </p>
           </div>
         </div>
@@ -506,7 +560,10 @@ function EfirmaValidationCard({
           <div>
             <p className="text-sm font-bold text-red-700">Tipo de certificado no válido</p>
             <p className="text-xs text-red-600 mt-0.5">
-              El certificado detectado es de tipo <span className="font-semibold">{serialResult?.tipo}</span>. Solo se acepta e.Firma tipo <span className="font-semibold">FIEL</span>. Los certificados de tipo Sello (CSD) no están permitidos para este registro.
+              El certificado detectado es de tipo{' '}
+              <span className="font-semibold">{serialResult?.tipo}</span>. Solo se acepta e.Firma
+              tipo <span className="font-semibold">FIEL</span>. Los certificados de tipo Sello (CSD)
+              no están permitidos para este registro.
             </p>
           </div>
         </div>
@@ -520,20 +577,34 @@ function EfirmaValidationCard({
           </div>
           <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">NOMBRE</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                NOMBRE
+              </p>
               <p className="text-sm font-semibold text-foreground">{curpResult.nombre || '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">APELLIDO PATERNO</p>
-              <p className="text-sm font-semibold text-foreground">{curpResult.apellidoPaterno || '—'}</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                APELLIDO PATERNO
+              </p>
+              <p className="text-sm font-semibold text-foreground">
+                {curpResult.apellidoPaterno || '—'}
+              </p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">APELLIDO MATERNO</p>
-              <p className="text-sm font-semibold text-foreground">{curpResult.apellidoMaterno || '—'}</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                APELLIDO MATERNO
+              </p>
+              <p className="text-sm font-semibold text-foreground">
+                {curpResult.apellidoMaterno || '—'}
+              </p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">CURP</p>
-              <p className="text-sm font-semibold text-foreground font-mono">{curpResult.curp || result.curp || '—'}</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                CURP
+              </p>
+              <p className="text-sm font-semibold text-foreground font-mono">
+                {curpResult.curp || result.curp || '—'}
+              </p>
             </div>
           </div>
         </div>
@@ -547,43 +618,71 @@ function EfirmaValidationCard({
         <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
           {/* RFC */}
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">RFC</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              RFC
+            </p>
             <p className="text-sm font-semibold text-foreground font-mono">{result.rfc || '—'}</p>
           </div>
           {/* Estado */}
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">ESTADO</p>
-            <p className={`text-sm font-bold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}>
-              {isExpired ? 'Vencido' : (serialResult?.estado || '—')}
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              ESTADO
+            </p>
+            <p
+              className={`text-sm font-bold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}
+            >
+              {isExpired ? 'Vencido' : serialResult?.estado || '—'}
             </p>
           </div>
           {/* Número de Serie */}
           <div className="col-span-2">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">NÚMERO DE SERIE</p>
-            <p className="text-sm font-semibold text-foreground font-mono break-all">{result.serial || '—'}</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              NÚMERO DE SERIE
+            </p>
+            <p className="text-sm font-semibold text-foreground font-mono break-all">
+              {result.serial || '—'}
+            </p>
           </div>
           {/* Tipo de Certificado */}
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">TIPO DE CERTIFICADO</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              TIPO DE CERTIFICADO
+            </p>
             <p className="text-sm font-semibold text-foreground">{serialResult?.tipo || '—'}</p>
           </div>
           {/* Inicio Vigencia */}
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">INICIO VIGENCIA</p>
-            <p className="text-sm font-semibold text-foreground">{serialResult?.fecha_inicio || '—'}</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              INICIO VIGENCIA
+            </p>
+            <p className="text-sm font-semibold text-foreground">
+              {serialResult?.fecha_inicio || '—'}
+            </p>
           </div>
           {/* Fin Vigencia */}
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">FIN VIGENCIA</p>
-            <p className={`text-sm font-semibold ${isExpired ? 'text-red-500 font-bold' : 'text-foreground'}`}>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              FIN VIGENCIA
+            </p>
+            <p
+              className={`text-sm font-semibold ${isExpired ? 'text-red-500 font-bold' : 'text-foreground'}`}
+            >
               {serialResult?.fecha_fin || result.vigenciaFin || '—'}
-              {isExpired && <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">VENCIDO</span>}
+              {isExpired && (
+                <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">
+                  VENCIDO
+                </span>
+              )}
             </p>
           </div>
           {/* Código de Validación */}
           <div className="col-span-2">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">CÓDIGO DE VALIDACIÓN</p>
-            <p className="text-sm font-semibold text-foreground font-mono">{serialResult?.codigo_validacion || '—'}</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              CÓDIGO DE VALIDACIÓN
+            </p>
+            <p className="text-sm font-semibold text-foreground font-mono">
+              {serialResult?.codigo_validacion || '—'}
+            </p>
           </div>
         </div>
       </div>
@@ -598,9 +697,14 @@ function EfirmaValidationCard({
         }`}
       >
         {isLoading ? (
-          <><Loader2 size={15} className="animate-spin" /> Registrando...</>
+          <>
+            <Loader2 size={15} className="animate-spin" /> Registrando...
+          </>
         ) : (
-          <><CheckCircle2 size={15} />Confirmar datos y registrar usuario</>
+          <>
+            <CheckCircle2 size={15} />
+            Confirmar datos y registrar usuario
+          </>
         )}
       </button>
       {registrationError && !isExpired && !hasBlockingError && (
@@ -669,7 +773,9 @@ function EfirmaMoralValidationCard({
     <div className="space-y-4 animate-fade-in">
       {/* Header — same as EfirmaValidationCard */}
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${hasBlockingError ? 'bg-red-100' : 'bg-emerald-100'}`}>
+        <div
+          className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${hasBlockingError ? 'bg-red-100' : 'bg-emerald-100'}`}
+        >
           {hasBlockingError ? (
             <AlertCircle size={22} className="text-red-600" />
           ) : (
@@ -677,17 +783,25 @@ function EfirmaMoralValidationCard({
           )}
         </div>
         <div>
-          <h3 className={`text-lg font-bold ${hasBlockingError ? 'text-red-600' : 'text-foreground'}`}>
-            {isExpired ? 'e.Firma Vencida' : isNotFiel ? 'Tipo de Certificado Inválido' : isInactiveStatus ? 'Certificado Inactivo' : 'Validación Exitosa'}
+          <h3
+            className={`text-lg font-bold ${hasBlockingError ? 'text-red-600' : 'text-foreground'}`}
+          >
+            {isExpired
+              ? 'e.Firma Vencida'
+              : isNotFiel
+                ? 'Tipo de Certificado Inválido'
+                : isInactiveStatus
+                  ? 'Certificado Inactivo'
+                  : 'Validación Exitosa'}
           </h3>
           <p className="text-xs text-muted-foreground">
             {isExpired
               ? 'La e.Firma de la empresa ha vencido. Renuévala en el SAT para continuar.'
               : isNotFiel
-              ? 'El certificado detectado no es de tipo FIEL. Solo se aceptan certificados FIEL.'
-              : isInactiveStatus
-              ? 'El certificado no se encuentra en estado Activo. Verifica su estado en el SAT.'
-              : 'El certificado de la empresa ha sido validado correctamente ante los servicios del SAT.'}
+                ? 'El certificado detectado no es de tipo FIEL. Solo se aceptan certificados FIEL.'
+                : isInactiveStatus
+                  ? 'El certificado no se encuentra en estado Activo. Verifica su estado en el SAT.'
+                  : 'El certificado de la empresa ha sido validado correctamente ante los servicios del SAT.'}
           </p>
         </div>
       </div>
@@ -699,8 +813,8 @@ function EfirmaMoralValidationCard({
           <div>
             <p className="text-sm font-bold text-red-700">e.Firma empresarial vencida</p>
             <p className="text-xs text-red-600 mt-0.5">
-              La vigencia expiró el {serialResult?.fecha_fin || result.vigenciaFin || '—'}.
-              Para renovarla, visita el SAT o una oficina de atención al contribuyente.
+              La vigencia expiró el {serialResult?.fecha_fin || result.vigenciaFin || '—'}. Para
+              renovarla, visita el SAT o una oficina de atención al contribuyente.
             </p>
           </div>
         </div>
@@ -713,7 +827,10 @@ function EfirmaMoralValidationCard({
           <div>
             <p className="text-sm font-bold text-red-700">Tipo de certificado no permitido</p>
             <p className="text-xs text-red-600 mt-0.5">
-              El certificado detectado es de tipo <span className="font-semibold">{serialResult?.tipo}</span>. Solo se acepta e.Firma tipo <span className="font-semibold">FIEL</span>. Los certificados de tipo Sello (CSD) no están permitidos para este registro.
+              El certificado detectado es de tipo{' '}
+              <span className="font-semibold">{serialResult?.tipo}</span>. Solo se acepta e.Firma
+              tipo <span className="font-semibold">FIEL</span>. Los certificados de tipo Sello (CSD)
+              no están permitidos para este registro.
             </p>
           </div>
         </div>
@@ -726,7 +843,10 @@ function EfirmaMoralValidationCard({
           <div>
             <p className="text-sm font-bold text-red-700">Certificado no activo</p>
             <p className="text-xs text-red-600 mt-0.5">
-              El estado del certificado es <span className="font-semibold">{serialResult?.estado}</span>. Solo se aceptan certificados con estado <span className="font-semibold">Activo</span>. Verifica el estado de tu e.Firma en el portal del SAT.
+              El estado del certificado es{' '}
+              <span className="font-semibold">{serialResult?.estado}</span>. Solo se aceptan
+              certificados con estado <span className="font-semibold">Activo</span>. Verifica el
+              estado de tu e.Firma en el portal del SAT.
             </p>
           </div>
         </div>
@@ -739,15 +859,23 @@ function EfirmaMoralValidationCard({
         </div>
         <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
           <div className="col-span-2">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">NOMBRE / DENOMINACIÓN SOCIAL</p>
-            <p className="text-sm font-semibold text-foreground">{result.denominacionSocial || result.razonSocial || '—'}</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              NOMBRE / DENOMINACIÓN SOCIAL
+            </p>
+            <p className="text-sm font-semibold text-foreground">
+              {result.denominacionSocial || result.razonSocial || '—'}
+            </p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">RFC (EMPRESA)</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              RFC (EMPRESA)
+            </p>
             <p className="text-sm font-semibold text-foreground font-mono">{result.rfc || '—'}</p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">CURP (REPRESENTANTE LEGAL)</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              CURP (REPRESENTANTE LEGAL)
+            </p>
             <p className="text-sm font-semibold text-foreground font-mono">{result.curp || '—'}</p>
           </div>
         </div>
@@ -757,24 +885,40 @@ function EfirmaMoralValidationCard({
       {curpResult && (
         <div className="border border-border rounded-xl overflow-hidden">
           <div className="bg-muted/40 px-4 py-3 border-b border-border">
-            <p className="text-sm font-bold text-foreground">Representante Legal vinculado a la e.Firma</p>
+            <p className="text-sm font-bold text-foreground">
+              Representante Legal vinculado a la e.Firma
+            </p>
           </div>
           <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">NOMBRE</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                NOMBRE
+              </p>
               <p className="text-sm font-semibold text-foreground">{curpResult.nombre || '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">APELLIDO PATERNO</p>
-              <p className="text-sm font-semibold text-foreground">{curpResult.apellidoPaterno || '—'}</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                APELLIDO PATERNO
+              </p>
+              <p className="text-sm font-semibold text-foreground">
+                {curpResult.apellidoPaterno || '—'}
+              </p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">APELLIDO MATERNO</p>
-              <p className="text-sm font-semibold text-foreground">{curpResult.apellidoMaterno || '—'}</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                APELLIDO MATERNO
+              </p>
+              <p className="text-sm font-semibold text-foreground">
+                {curpResult.apellidoMaterno || '—'}
+              </p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">CURP (REPRESENTANTE)</p>
-              <p className="text-sm font-semibold text-foreground font-mono">{result.curp || '—'}</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                CURP (REPRESENTANTE)
+              </p>
+              <p className="text-sm font-semibold text-foreground font-mono">
+                {result.curp || '—'}
+              </p>
             </div>
           </div>
         </div>
@@ -788,7 +932,10 @@ function EfirmaMoralValidationCard({
         <div className="space-y-1">
           <p className="text-sm font-bold text-blue-800">Acreditación de identidad requerida</p>
           <p className="text-xs text-blue-700 leading-relaxed">
-            Para validar correctamente la empresa, el representante legal vinculado debe <span className="font-semibold">acreditar su identidad</span>. Una vez acreditado, podrá <span className="font-semibold">cambiar o designar nuevos representantes legales</span> vinculados a la empresa.
+            Para validar correctamente la empresa, el representante legal vinculado debe{' '}
+            <span className="font-semibold">acreditar su identidad</span>. Una vez acreditado, podrá{' '}
+            <span className="font-semibold">cambiar o designar nuevos representantes legales</span>{' '}
+            vinculados a la empresa.
           </p>
         </div>
       </div>
@@ -796,38 +943,66 @@ function EfirmaMoralValidationCard({
       {/* Certificate Info Card */}
       <div className="border border-border rounded-xl overflow-hidden">
         <div className="bg-muted/40 px-4 py-3 border-b border-border">
-          <p className="text-sm font-bold text-foreground">Información del Certificado Empresarial</p>
+          <p className="text-sm font-bold text-foreground">
+            Información del Certificado Empresarial
+          </p>
         </div>
         <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">ESTADO</p>
-            <p className={`text-sm font-bold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}>
-              {isExpired ? 'Vencido' : (serialResult?.estado || '—')}
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              ESTADO
+            </p>
+            <p
+              className={`text-sm font-bold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}
+            >
+              {isExpired ? 'Vencido' : serialResult?.estado || '—'}
             </p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">TIPO DE CERTIFICADO</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              TIPO DE CERTIFICADO
+            </p>
             <p className="text-sm font-semibold text-foreground">{serialResult?.tipo || '—'}</p>
           </div>
           <div className="col-span-2">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">NÚMERO DE SERIE</p>
-            <p className="text-sm font-semibold text-foreground font-mono break-all">{result.serial || '—'}</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              NÚMERO DE SERIE
+            </p>
+            <p className="text-sm font-semibold text-foreground font-mono break-all">
+              {result.serial || '—'}
+            </p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">INICIO VIGENCIA</p>
-            <p className="text-sm font-semibold text-foreground">{serialResult?.fecha_inicio || '—'}</p>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              INICIO VIGENCIA
+            </p>
+            <p className="text-sm font-semibold text-foreground">
+              {serialResult?.fecha_inicio || '—'}
+            </p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">FIN VIGENCIA</p>
-            <p className={`text-sm font-semibold ${isExpired ? 'text-red-500 font-bold' : 'text-foreground'}`}>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+              FIN VIGENCIA
+            </p>
+            <p
+              className={`text-sm font-semibold ${isExpired ? 'text-red-500 font-bold' : 'text-foreground'}`}
+            >
               {serialResult?.fecha_fin || result.vigenciaFin || '—'}
-              {isExpired && <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">VENCIDO</span>}
+              {isExpired && (
+                <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">
+                  VENCIDO
+                </span>
+              )}
             </p>
           </div>
           {serialResult?.codigo_validacion && (
             <div className="col-span-2">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">CÓDIGO DE VALIDACIÓN</p>
-              <p className="text-sm font-semibold text-foreground font-mono">{serialResult.codigo_validacion}</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                CÓDIGO DE VALIDACIÓN
+              </p>
+              <p className="text-sm font-semibold text-foreground font-mono">
+                {serialResult.codigo_validacion}
+              </p>
             </div>
           )}
         </div>
@@ -843,9 +1018,14 @@ function EfirmaMoralValidationCard({
         }`}
       >
         {isLoading ? (
-          <><Loader2 size={15} className="animate-spin" /> Registrando...</>
+          <>
+            <Loader2 size={15} className="animate-spin" /> Registrando...
+          </>
         ) : (
-          <><CheckCircle2 size={15} />Confirmar datos y registrar usuario</>
+          <>
+            <CheckCircle2 size={15} />
+            Confirmar datos y registrar usuario
+          </>
         )}
       </button>
       {registrationError && !isExpired && !hasBlockingError && (
@@ -882,9 +1062,12 @@ export default function RegistroPage() {
   const [efirmaValidated, setEfirmaValidated] = useState(false);
   const [biometricoValidated, setBiometricoValidated] = useState(false);
   const [efirmaMoralValidated, setEfirmaMoralValidated] = useState(false);
-  const [efirmaMoralValidationResult, setEfirmaMoralValidationResult] = useState<EfirmaMoralValidationResult | null>(null);
+  const [efirmaMoralValidationResult, setEfirmaMoralValidationResult] =
+    useState<EfirmaMoralValidationResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [selectedIdentityMethod, setSelectedIdentityMethod] = useState<'efirma' | 'biometrico' | null>(null);
+  const [selectedIdentityMethod, setSelectedIdentityMethod] = useState<
+    'efirma' | 'biometrico' | null
+  >(null);
 
   // Moral e.Firma file state
   const [moralCerFile, setMoralCerFile] = useState<File | null>(null);
@@ -913,14 +1096,24 @@ export default function RegistroPage() {
     tipoIdentificacion: string;
   } | null>(null);
   const sessionIdRef = useRef<string>('');
-  const realtimeChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
-  const realtimeResultsChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
+  const realtimeChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(
+    null
+  );
+  const realtimeResultsChannelRef = useRef<ReturnType<
+    ReturnType<typeof createClient>['channel']
+  > | null>(null);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Step 1 duplicate check state
-  const [emailCheckStatus, setEmailCheckStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
-  const [phoneCheckStatus, setPhoneCheckStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
-  const [workspaceSlugStatus, setWorkspaceSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'unavailable'>('idle');
+  const [emailCheckStatus, setEmailCheckStatus] = useState<
+    'idle' | 'checking' | 'available' | 'taken'
+  >('idle');
+  const [phoneCheckStatus, setPhoneCheckStatus] = useState<
+    'idle' | 'checking' | 'available' | 'taken'
+  >('idle');
+  const [workspaceSlugStatus, setWorkspaceSlugStatus] = useState<
+    'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'unavailable'
+  >('idle');
   const [workspaceSlugManuallyEdited, setWorkspaceSlugManuallyEdited] = useState(false);
   const emailDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phoneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1131,7 +1324,10 @@ export default function RegistroPage() {
       const result = await res.json();
 
       if (!result.success) {
-        setErrors((prev) => ({ ...prev, biometrico: 'Error al generar el código QR. Intenta nuevamente.' }));
+        setErrors((prev) => ({
+          ...prev,
+          biometrico: 'Error al generar el código QR. Intenta nuevamente.',
+        }));
         setQrLoading(false);
         return;
       }
@@ -1144,9 +1340,7 @@ export default function RegistroPage() {
         const normalized = rawExpiry.replace(' ', 'T').replace(/([^Z])$/, '$1Z');
         const parsed = new Date(normalized);
         // Validate the parsed date
-        expiresAtDate = isNaN(parsed.getTime())
-          ? new Date(Date.now() + 10 * 60 * 1000)
-          : parsed;
+        expiresAtDate = isNaN(parsed.getTime()) ? new Date(Date.now() + 10 * 60 * 1000) : parsed;
       } catch {
         expiresAtDate = new Date(Date.now() + 10 * 60 * 1000);
       }
@@ -1189,7 +1383,8 @@ export default function RegistroPage() {
         update({
           validatedData: {
             nombre: [enrollData.nombre, enrollData.apellidoPaterno, enrollData.apellidoMaterno]
-              .filter(Boolean).join(' '),
+              .filter(Boolean)
+              .join(' '),
             rfc: enrollData.rfc,
             curp: enrollData.curp,
             vigencia: 'Verificado biométricamente',
@@ -1281,9 +1476,12 @@ export default function RegistroPage() {
           return;
         }
         try {
-          const response = await fetch(`/api/enrollment/status?token=${encodeURIComponent(result.token)}&session_id=${encodeURIComponent(sessionId)}`, {
-            cache: 'no-store',
-          });
+          const response = await fetch(
+            `/api/enrollment/status?token=${encodeURIComponent(result.token)}&session_id=${encodeURIComponent(sessionId)}`,
+            {
+              cache: 'no-store',
+            }
+          );
           const status = await response.json();
           if (response.ok && status.result) {
             if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
@@ -1323,14 +1521,12 @@ export default function RegistroPage() {
     if (currentStep === 1) {
       if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email))
         newErrors.email = 'Ingresa un correo electrónico válido';
-      if (emailCheckStatus === 'taken')
-        newErrors.email = 'Este correo ya está registrado';
+      if (emailCheckStatus === 'taken') newErrors.email = 'Este correo ya está registrado';
       if (data.phone && data.phone.replace(/\D/g, '').length !== 10)
         newErrors.phone = 'Ingresa un número de teléfono de 10 dígitos';
       if (data.phone && phoneCheckStatus === 'taken')
         newErrors.phone = 'Este número de teléfono ya está registrado';
-      if (!data.acceptTerms)
-        newErrors.terms = 'Debes aceptar los términos y condiciones';
+      if (!data.acceptTerms) newErrors.terms = 'Debes aceptar los términos y condiciones';
     }
     if (currentStep === 2) {
       if (!data.password || data.password.length < 8)
@@ -1348,9 +1544,10 @@ export default function RegistroPage() {
       if (!isValidWorkspaceSlug(data.workspaceSlug)) {
         newErrors.workspaceSlug = 'Usa entre 3 y 48 caracteres: minúsculas, números y guiones.';
       } else if (workspaceSlugStatus !== 'available') {
-        newErrors.workspaceSlug = workspaceSlugStatus === 'taken'
-          ? 'Este identificador ya está en uso.'
-          : 'Espera a que se confirme la disponibilidad.';
+        newErrors.workspaceSlug =
+          workspaceSlugStatus === 'taken'
+            ? 'Este identificador ya está en uso.'
+            : 'Espera a que se confirme la disponibilidad.';
       }
     }
     if (currentStep === 4 && !data.personalidadJuridica)
@@ -1418,7 +1615,8 @@ export default function RegistroPage() {
         if (keyValidation.errorCode === 'CORRUPTED_FILE') {
           userMessage = 'El archivo .key está corrupto o dañado. Verifica el archivo.';
         } else if (keyValidation.errorCode === 'UNSUPPORTED_FORMAT') {
-          userMessage = 'El formato de la llave privada no es compatible. Verifica que sea un archivo .key del SAT.';
+          userMessage =
+            'El formato de la llave privada no es compatible. Verifica que sea un archivo .key del SAT.';
         } else if (keyValidation.errorCode === 'PARSE_ERROR') {
           userMessage = 'No se pudo procesar el archivo .key. El archivo podría estar dañado.';
         } else if (keyValidation.errorCode === 'MISSING_KEY_FILE') {
@@ -1444,7 +1642,8 @@ export default function RegistroPage() {
       if (!serial) {
         setErrors((prev) => ({
           ...prev,
-          efirma: 'No se pudo extraer el número de serie del certificado. Verifica que el archivo .cer sea válido.',
+          efirma:
+            'No se pudo extraer el número de serie del certificado. Verifica que el archivo .cer sea válido.',
         }));
         setIsValidating(false);
         return;
@@ -1564,7 +1763,10 @@ export default function RegistroPage() {
           body: keyFormData,
         });
       } catch {
-        setErrors((prev) => ({ ...prev, efirmaMoral: 'Error de red al validar la llave privada. Intenta nuevamente.' }));
+        setErrors((prev) => ({
+          ...prev,
+          efirmaMoral: 'Error de red al validar la llave privada. Intenta nuevamente.',
+        }));
         setIsValidatingMoral(false);
         return;
       }
@@ -1598,7 +1800,11 @@ export default function RegistroPage() {
       const notAfter = parsed?.notAfter || '';
 
       if (!serial) {
-        setErrors((prev) => ({ ...prev, efirmaMoral: 'No se pudo extraer el número de serie del certificado. Verifica que el archivo .cer sea válido.' }));
+        setErrors((prev) => ({
+          ...prev,
+          efirmaMoral:
+            'No se pudo extraer el número de serie del certificado. Verifica que el archivo .cer sea válido.',
+        }));
         setIsValidatingMoral(false);
         return;
       }
@@ -1620,7 +1826,9 @@ export default function RegistroPage() {
         try {
           const expiryDate = new Date(notAfter.replace(' ', 'T') + 'Z');
           isCertExpired = expiryDate < new Date();
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
 
       // Step 5: Validate serial with Nubarium
@@ -1637,9 +1845,13 @@ export default function RegistroPage() {
             try {
               const nubariumExpiry = new Date(serialResult.fecha_fin.replace(' ', 'T'));
               if (nubariumExpiry < new Date()) isCertExpired = true;
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           }
-        } catch { /* continue without serial result */ }
+        } catch {
+          /* continue without serial result */
+        }
       }
 
       // Step 6: Extract CURP of the legal representative from the certificate
@@ -1656,7 +1868,9 @@ export default function RegistroPage() {
             body: JSON.stringify({ curp: curpRepresentante }),
           });
           curpResult = await curpRes.json();
-        } catch { /* continue without curp result */ }
+        } catch {
+          /* continue without curp result */
+        }
       }
 
       // Step 8: Extract denominación social from subject
@@ -1666,7 +1880,10 @@ export default function RegistroPage() {
       const subjectStr = parsed?.subject || '';
       let denominacionSocial = '';
       if (subjectStr) {
-        const parts = subjectStr.split(',').map((p: string) => p.trim()).filter(Boolean);
+        const parts = subjectStr
+          .split(',')
+          .map((p: string) => p.trim())
+          .filter(Boolean);
         // Find the part that is NOT the RFC (12 chars) and NOT the CURP (18 chars)
         // and NOT a short code — typically the company name is the longest meaningful part
         const rfcPattern = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
@@ -1676,7 +1893,8 @@ export default function RegistroPage() {
           return !rfcPattern.test(clean) && !curpPattern.test(clean) && p.length > 3;
         });
         // Pick the longest candidate as the denominación social
-        denominacionSocial = candidates.sort((a: string, b: string) => b.length - a.length)[0] || subjectStr;
+        denominacionSocial =
+          candidates.sort((a: string, b: string) => b.length - a.length)[0] || subjectStr;
       }
 
       // RFC of the representative (13 chars) may be derivable from CURP result or not present
@@ -1710,7 +1928,10 @@ export default function RegistroPage() {
         },
       });
     } catch {
-      setErrors((prev) => ({ ...prev, efirmaMoral: 'Error al procesar el certificado. Verifica que los archivos sean válidos.' }));
+      setErrors((prev) => ({
+        ...prev,
+        efirmaMoral: 'Error al procesar el certificado. Verifica que los archivos sean válidos.',
+      }));
     } finally {
       setIsValidatingMoral(false);
     }
@@ -1798,7 +2019,10 @@ export default function RegistroPage() {
         const ev = data.efirmaValidationResult;
         efirmaRfc = ev.rfc || null;
         efirmaSerial = ev.serial || null;
-        efirmaNombre = [nombre, apellidoPaterno, apellidoMaterno].filter(Boolean).join(' ') || ev.curpResult?.nombre || null;
+        efirmaNombre =
+          [nombre, apellidoPaterno, apellidoMaterno].filter(Boolean).join(' ') ||
+          ev.curpResult?.nombre ||
+          null;
         efirmaVigenciaFin = ev.vigenciaFin || ev.serialResult?.fecha_fin || null;
       } else if (data.personalidadJuridica === 'moral' && efirmaMoralValidationResult) {
         const ev = efirmaMoralValidationResult;
@@ -1819,7 +2043,8 @@ export default function RegistroPage() {
           organizationName: data.organizationName.trim() || null,
           workspaceSlug: data.accountType === 'empresarial' ? data.workspaceSlug : null,
           personalidadJuridica: data.personalidadJuridica,
-          identityMethod: data.identityMethod || (data.personalidadJuridica === 'moral' ? 'efirma_moral' : null),
+          identityMethod:
+            data.identityMethod || (data.personalidadJuridica === 'moral' ? 'efirma_moral' : null),
           fullName,
           rfc,
           curp,
@@ -1928,20 +2153,30 @@ export default function RegistroPage() {
                 Correo electrónico
               </label>
               <div className="relative">
-                <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Mail
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
                 <input
                   type="email"
                   placeholder="tu@correo.com"
                   value={data.email}
                   onChange={(e) => handleEmailChange(e.target.value)}
                   className={`h-10 w-full rounded-md border bg-background pl-9 pr-10 text-sm outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
-                    errors.email || emailCheckStatus === 'taken' ?'border-red-400'
-                      : emailCheckStatus === 'available' ?'border-emerald-400' :'border-border'
+                    errors.email || emailCheckStatus === 'taken'
+                      ? 'border-red-400'
+                      : emailCheckStatus === 'available'
+                        ? 'border-emerald-400'
+                        : 'border-border'
                   }`}
                 />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  {emailCheckStatus === 'checking' && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
-                  {emailCheckStatus === 'available' && <CheckCircle2 size={14} className="text-emerald-500" />}
+                  {emailCheckStatus === 'checking' && (
+                    <Loader2 size={14} className="animate-spin text-muted-foreground" />
+                  )}
+                  {emailCheckStatus === 'available' && (
+                    <CheckCircle2 size={14} className="text-emerald-500" />
+                  )}
                   {emailCheckStatus === 'taken' && <XCircle size={14} className="text-red-500" />}
                 </div>
               </div>
@@ -1969,7 +2204,10 @@ export default function RegistroPage() {
                 <span className="font-normal text-muted-foreground">(opcional)</span>
               </label>
               <div className="relative">
-                <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Phone
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
                 <input
                   type="tel"
                   placeholder="10 dígitos"
@@ -1977,13 +2215,20 @@ export default function RegistroPage() {
                   onChange={(e) => handlePhoneChange(e.target.value)}
                   maxLength={10}
                   className={`h-10 w-full rounded-md border bg-background pl-9 pr-10 text-sm outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
-                    errors.phone || phoneCheckStatus === 'taken' ?'border-red-400'
-                      : phoneCheckStatus === 'available' ?'border-emerald-400' :'border-border'
+                    errors.phone || phoneCheckStatus === 'taken'
+                      ? 'border-red-400'
+                      : phoneCheckStatus === 'available'
+                        ? 'border-emerald-400'
+                        : 'border-border'
                   }`}
                 />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  {phoneCheckStatus === 'checking' && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
-                  {phoneCheckStatus === 'available' && <CheckCircle2 size={14} className="text-emerald-500" />}
+                  {phoneCheckStatus === 'checking' && (
+                    <Loader2 size={14} className="animate-spin text-muted-foreground" />
+                  )}
+                  {phoneCheckStatus === 'available' && (
+                    <CheckCircle2 size={14} className="text-emerald-500" />
+                  )}
                   {phoneCheckStatus === 'taken' && <XCircle size={14} className="text-red-500" />}
                 </div>
               </div>
@@ -2022,7 +2267,8 @@ export default function RegistroPage() {
                       data.acceptTerms
                         ? 'bg-primary border-primary'
                         : errors.terms
-                        ? 'border-red-400 bg-background' :'border-border bg-background group-hover:border-primary/50'
+                          ? 'border-red-400 bg-background'
+                          : 'border-border bg-background group-hover:border-primary/50'
                     }`}
                   >
                     {data.acceptTerms && <Check size={12} className="text-white" strokeWidth={3} />}
@@ -2058,7 +2304,10 @@ export default function RegistroPage() {
                 Contraseña
               </label>
               <div className="relative">
-                <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Lock
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   placeholder="Mínimo 8 caracteres"
@@ -2106,7 +2355,10 @@ export default function RegistroPage() {
                 Confirmar contraseña
               </label>
               <div className="relative">
-                <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Lock
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
                 <input
                   type={showConfirmPassword ? 'text' : 'password'}
                   placeholder="Repite tu contraseña"
@@ -2145,8 +2397,15 @@ export default function RegistroPage() {
                 { label: 'Al menos un número', met: /[0-9]/.test(data.password) },
                 { label: 'Al menos un símbolo', met: /[^A-Za-z0-9]/.test(data.password) },
               ].map((req) => (
-                <p key={req.label} className={`text-xs flex items-center gap-1.5 ${req.met ? 'text-emerald-600' : 'text-muted-foreground'}`}>
-                  {req.met ? <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" /> : <span className="w-3 h-3 rounded-full border border-muted-foreground/40 flex-shrink-0 inline-block" />}
+                <p
+                  key={req.label}
+                  className={`text-xs flex items-center gap-1.5 ${req.met ? 'text-emerald-600' : 'text-muted-foreground'}`}
+                >
+                  {req.met ? (
+                    <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
+                  ) : (
+                    <span className="w-3 h-3 rounded-full border border-muted-foreground/40 flex-shrink-0 inline-block" />
+                  )}
                   {req.label}
                 </p>
               ))}
@@ -2193,18 +2452,35 @@ export default function RegistroPage() {
                   opt.disabled
                     ? 'border-border bg-muted/30 opacity-50 cursor-not-allowed'
                     : data.accountType === opt.value
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border bg-background hover:border-primary/30 hover:bg-primary/5'
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border bg-background hover:border-primary/30 hover:bg-primary/5'
                 }`}
               >
-                <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md bg-muted ${
-                  opt.disabled ? 'bg-muted' : data.accountType === opt.value ? 'bg-primary/10' : 'bg-muted'
-                }`}>
-                  <opt.icon size={22} className={opt.disabled ? 'text-muted-foreground/50' : data.accountType === opt.value ? 'text-primary' : 'text-muted-foreground'} />
+                <div
+                  className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md bg-muted ${
+                    opt.disabled
+                      ? 'bg-muted'
+                      : data.accountType === opt.value
+                        ? 'bg-primary/10'
+                        : 'bg-muted'
+                  }`}
+                >
+                  <opt.icon
+                    size={22}
+                    className={
+                      opt.disabled
+                        ? 'text-muted-foreground/50'
+                        : data.accountType === opt.value
+                          ? 'text-primary'
+                          : 'text-muted-foreground'
+                    }
+                  />
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <p className={`font-bold text-base ${opt.disabled ? 'text-muted-foreground' : 'text-foreground'}`}>
+                    <p
+                      className={`font-bold text-base ${opt.disabled ? 'text-muted-foreground' : 'text-foreground'}`}
+                    >
                       {opt.title}
                     </p>
                     {opt.disabled && (
@@ -2216,9 +2492,13 @@ export default function RegistroPage() {
                   <p className="text-sm text-muted-foreground mt-0.5">{opt.desc}</p>
                 </div>
                 {!opt.disabled && (
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${
-                    data.accountType === opt.value ? 'border-primary' : 'border-muted-foreground/40'
-                  }`}>
+                  <div
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${
+                      data.accountType === opt.value
+                        ? 'border-primary'
+                        : 'border-muted-foreground/40'
+                    }`}
+                  >
                     {data.accountType === opt.value && (
                       <div className="w-2.5 h-2.5 rounded-full bg-primary" />
                     )}
@@ -2232,11 +2512,13 @@ export default function RegistroPage() {
                   <Shield size={17} className="mt-0.5 flex-shrink-0 text-primary" />
                   <div className="space-y-1 text-xs leading-5 text-muted-foreground">
                     <p>
-                      Esta cuenta será la administradora principal del espacio de trabajo de la organización.
+                      Esta cuenta será la administradora principal del espacio de trabajo de la
+                      organización.
                     </p>
                     <p>
-                      Después de darla de alta, podrás completar la configuración, definir roles y permisos,
-                      e invitar miembros desde <span className="font-medium text-foreground">Configuración → Equipo</span>.
+                      Después de darla de alta, podrás completar la configuración, definir roles y
+                      permisos, e invitar miembros desde{' '}
+                      <span className="font-medium text-foreground">Configuración → Equipo</span>.
                     </p>
                   </div>
                 </div>
@@ -2251,7 +2533,10 @@ export default function RegistroPage() {
 
                   <div className="space-y-4">
                     <div>
-                      <label htmlFor="organization-name" className="mb-1.5 block text-sm font-medium text-foreground">
+                      <label
+                        htmlFor="organization-name"
+                        className="mb-1.5 block text-sm font-medium text-foreground"
+                      >
                         Nombre de la organización <span className="text-red-500">*</span>
                       </label>
                       <input
@@ -2261,7 +2546,9 @@ export default function RegistroPage() {
                         placeholder="Ej. Comercializadora del Pacífico"
                         autoComplete="organization"
                         className={`h-10 w-full rounded-md border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
-                          errors.organizationName ? 'border-red-400' : 'border-border focus:border-primary'
+                          errors.organizationName
+                            ? 'border-red-400'
+                            : 'border-border focus:border-primary'
                         }`}
                       />
                       {errors.organizationName && (
@@ -2275,10 +2562,17 @@ export default function RegistroPage() {
                     </div>
 
                     <div>
-                      <label htmlFor="workspace-slug" className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <label
+                        htmlFor="workspace-slug"
+                        className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground"
+                      >
                         Identificador del espacio de trabajo
-                        {workspaceSlugStatus === 'checking' && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
-                        {workspaceSlugStatus === 'available' && <CheckCircle2 size={13} className="text-emerald-600" />}
+                        {workspaceSlugStatus === 'checking' && (
+                          <Loader2 size={13} className="animate-spin text-muted-foreground" />
+                        )}
+                        {workspaceSlugStatus === 'available' && (
+                          <CheckCircle2 size={13} className="text-emerald-600" />
+                        )}
                       </label>
                       <input
                         id="workspace-slug"
@@ -2287,7 +2581,9 @@ export default function RegistroPage() {
                         placeholder="comercializadora-del-pacifico"
                         spellCheck={false}
                         className={`h-10 w-full rounded-md border bg-muted/30 px-3 font-mono text-sm text-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/20 ${
-                          errors.workspaceSlug || workspaceSlugStatus === 'taken' || workspaceSlugStatus === 'invalid'
+                          errors.workspaceSlug ||
+                          workspaceSlugStatus === 'taken' ||
+                          workspaceSlugStatus === 'invalid'
                             ? 'border-red-400'
                             : workspaceSlugStatus === 'available'
                               ? 'border-emerald-400'
@@ -2295,18 +2591,29 @@ export default function RegistroPage() {
                         }`}
                       />
                       <div className="mt-1.5 min-h-4 text-xs">
-                        {workspaceSlugStatus === 'available' && <span className="text-emerald-600">Disponible.</span>}
-                        {workspaceSlugStatus === 'taken' && <span className="text-red-500">Este identificador ya está en uso.</span>}
-                        {workspaceSlugStatus === 'unavailable' && <span className="text-amber-600">No fue posible validar la disponibilidad.</span>}
-                        {workspaceSlugStatus !== 'available' && workspaceSlugStatus !== 'taken' && workspaceSlugStatus !== 'unavailable' && errors.workspaceSlug && (
-                          <span className="text-red-500">{errors.workspaceSlug}</span>
+                        {workspaceSlugStatus === 'available' && (
+                          <span className="text-emerald-600">Disponible.</span>
                         )}
+                        {workspaceSlugStatus === 'taken' && (
+                          <span className="text-red-500">Este identificador ya está en uso.</span>
+                        )}
+                        {workspaceSlugStatus === 'unavailable' && (
+                          <span className="text-amber-600">
+                            No fue posible validar la disponibilidad.
+                          </span>
+                        )}
+                        {workspaceSlugStatus !== 'available' &&
+                          workspaceSlugStatus !== 'taken' &&
+                          workspaceSlugStatus !== 'unavailable' &&
+                          errors.workspaceSlug && (
+                            <span className="text-red-500">{errors.workspaceSlug}</span>
+                          )}
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Minúsculas, números y guiones. Es único en Docubox y podrás editarlo antes de continuar.
+                        Minúsculas, números y guiones. Es único en Docubox y podrás editarlo antes
+                        de continuar.
                       </p>
                     </div>
-
                   </div>
                 </section>
               </div>
@@ -2344,21 +2651,32 @@ export default function RegistroPage() {
                 onClick={() => update({ personalidadJuridica: opt.value })}
                 className={`group flex w-full items-start gap-4 rounded-md border-2 p-5 text-left transition-colors ${
                   data.personalidadJuridica === opt.value
-                    ? 'border-primary bg-primary/5' :'border-border bg-background hover:border-primary/40 hover:bg-primary/5'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-background hover:border-primary/40 hover:bg-primary/5'
                 }`}
               >
-                <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md transition-colors ${
-                  data.personalidadJuridica === opt.value ? 'bg-primary/10' : 'bg-muted group-hover:bg-primary/10'
-                }`}>
-                  <opt.icon size={22} className={`transition-colors ${data.personalidadJuridica === opt.value ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'}`} />
+                <div
+                  className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md transition-colors ${
+                    data.personalidadJuridica === opt.value
+                      ? 'bg-primary/10'
+                      : 'bg-muted group-hover:bg-primary/10'
+                  }`}
+                >
+                  <opt.icon
+                    size={22}
+                    className={`transition-colors ${data.personalidadJuridica === opt.value ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'}`}
+                  />
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <p className="font-bold text-base text-foreground">{opt.title}</p>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                      data.personalidadJuridica === opt.value
-                        ? 'bg-primary/15 text-primary' :'bg-muted text-muted-foreground'
-                    }`}>
+                    <span
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        data.personalidadJuridica === opt.value
+                          ? 'bg-primary/15 text-primary'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
                       {opt.tag}
                     </span>
                   </div>
@@ -2366,9 +2684,13 @@ export default function RegistroPage() {
                 </div>
                 {/* Radio circle on the right */}
                 <div className="flex-shrink-0 mt-0.5">
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                    data.personalidadJuridica === opt.value ? 'border-primary' : 'border-muted-foreground/40'
-                  }`}>
+                  <div
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      data.personalidadJuridica === opt.value
+                        ? 'border-primary'
+                        : 'border-muted-foreground/40'
+                    }`}
+                  >
                     {data.personalidadJuridica === opt.value && (
                       <div className="w-2.5 h-2.5 rounded-full bg-primary" />
                     )}
@@ -2388,7 +2710,14 @@ export default function RegistroPage() {
             return (
               <div className="space-y-4 animate-fade-in">
                 <button
-                  onClick={() => { setEfirmaMoralValidated(false); setEfirmaMoralValidationResult(null); setMoralCerFile(null); setMoralKeyFile(null); setMoralEfirmaPassword(''); setCurrentStep(4); }}
+                  onClick={() => {
+                    setEfirmaMoralValidated(false);
+                    setEfirmaMoralValidationResult(null);
+                    setMoralCerFile(null);
+                    setMoralKeyFile(null);
+                    setMoralEfirmaPassword('');
+                    setCurrentStep(4);
+                  }}
                   className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <ArrowLeft size={14} /> Volver a cargar archivos
@@ -2407,15 +2736,28 @@ export default function RegistroPage() {
           return (
             <div className="space-y-4 animate-fade-in">
               <button
-                onClick={() => { update({ personalidadJuridica: null, identityMethod: null }); setEfirmaMoralValidated(false); setEfirmaMoralValidationResult(null); setMoralCerFile(null); setMoralKeyFile(null); setMoralEfirmaPassword(''); setCurrentStep(4); }}
+                onClick={() => {
+                  update({ personalidadJuridica: null, identityMethod: null });
+                  setEfirmaMoralValidated(false);
+                  setEfirmaMoralValidationResult(null);
+                  setMoralCerFile(null);
+                  setMoralKeyFile(null);
+                  setMoralEfirmaPassword('');
+                  setCurrentStep(4);
+                }}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 <ArrowLeft size={14} /> Cambiar método
               </button>
-              <div className="flex flex-col items-center gap-3 mx-auto" style={{ width: '500px', maxWidth: '100%' }}>
+              <div
+                className="flex flex-col items-center gap-3 mx-auto"
+                style={{ width: '500px', maxWidth: '100%' }}
+              >
                 <div className="flex items-center gap-2 w-full justify-center">
                   <FileKey size={16} className="text-primary" />
-                  <h3 className="text-sm font-bold text-foreground">Archivos e.Firma Empresarial</h3>
+                  <h3 className="text-sm font-bold text-foreground">
+                    Archivos e.Firma Empresarial
+                  </h3>
                 </div>
 
                 <FileUploadZone
@@ -2437,7 +2779,10 @@ export default function RegistroPage() {
                     Contraseña de la llave privada
                   </label>
                   <div className="relative">
-                    <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Lock
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    />
                     <input
                       type="password"
                       placeholder="Contraseña e.Firma empresarial"
@@ -2457,7 +2802,9 @@ export default function RegistroPage() {
                 )}
                 <button
                   onClick={handleValidateEfirmaMoral}
-                  disabled={!moralCerFile || !moralKeyFile || !moralEfirmaPassword || isValidatingMoral}
+                  disabled={
+                    !moralCerFile || !moralKeyFile || !moralEfirmaPassword || isValidatingMoral
+                  }
                   className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
                 >
                   {isValidatingMoral ? (
@@ -2509,18 +2856,26 @@ export default function RegistroPage() {
                     onClick={() => setSelectedIdentityMethod(opt.value)}
                     className={`group flex w-full items-start gap-4 rounded-md border-2 p-5 text-left transition-colors ${
                       isSelected
-                        ? 'border-primary bg-primary/5' :'border-border bg-background hover:border-primary/40 hover:bg-primary/5'
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border bg-background hover:border-primary/40 hover:bg-primary/5'
                     }`}
                   >
-                    <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md transition-colors ${
-                      isSelected ? 'bg-primary/10' : 'bg-muted group-hover:bg-primary/10'
-                    }`}>
-                      <opt.icon size={22} className={`transition-colors ${isSelected ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'}`} />
+                    <div
+                      className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md transition-colors ${
+                        isSelected ? 'bg-primary/10' : 'bg-muted group-hover:bg-primary/10'
+                      }`}
+                    >
+                      <opt.icon
+                        size={22}
+                        className={`transition-colors ${isSelected ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'}`}
+                      />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <p className="font-bold text-base text-foreground">{opt.title}</p>
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${opt.badgeColor}`}>
+                        <span
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${opt.badgeColor}`}
+                        >
                           {opt.badge}
                         </span>
                       </div>
@@ -2528,12 +2883,12 @@ export default function RegistroPage() {
                     </div>
                     {/* Radio circle on the right */}
                     <div className="flex-shrink-0 mt-0.5">
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        isSelected ? 'border-primary' : 'border-muted-foreground/40'
-                      }`}>
-                        {isSelected && (
-                          <div className="w-2.5 h-2.5 rounded-full bg-primary" />
-                        )}
+                      <div
+                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                          isSelected ? 'border-primary' : 'border-muted-foreground/40'
+                        }`}
+                      >
+                        {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
                       </div>
                     </div>
                   </button>
@@ -2548,7 +2903,12 @@ export default function RegistroPage() {
           return (
             <div className="space-y-3 animate-fade-in">
               <button
-                onClick={() => { update({ identityMethod: null }); setEfirmaValidated(false); setEfirmaMoralValidated(false); setEfirmaMoralValidationResult(null); }}
+                onClick={() => {
+                  update({ identityMethod: null });
+                  setEfirmaValidated(false);
+                  setEfirmaMoralValidated(false);
+                  setEfirmaMoralValidationResult(null);
+                }}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 <ArrowLeft size={14} /> Cambiar método
@@ -2564,7 +2924,10 @@ export default function RegistroPage() {
                   registrationError={registrationError}
                 />
               ) : (
-                <div className="flex flex-col items-center gap-3 mx-auto" style={{ width: '500px', maxWidth: '100%' }}>
+                <div
+                  className="flex flex-col items-center gap-3 mx-auto"
+                  style={{ width: '500px', maxWidth: '100%' }}
+                >
                   <div className="flex items-center gap-2 w-full justify-center">
                     <FileKey size={16} className="text-primary" />
                     <h3 className="text-sm font-bold text-foreground">Archivos e.Firma</h3>
@@ -2588,7 +2951,10 @@ export default function RegistroPage() {
                       Contraseña de la llave privada
                     </label>
                     <div className="relative">
-                      <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Lock
+                        size={14}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      />
                       <input
                         type="password"
                         placeholder="Contraseña e.Firma"
@@ -2608,7 +2974,9 @@ export default function RegistroPage() {
                   )}
                   <button
                     onClick={handleValidateEfirma}
-                    disabled={!data.cerFile || !data.keyFile || !data.efirmaPassword || isValidating}
+                    disabled={
+                      !data.cerFile || !data.keyFile || !data.efirmaPassword || isValidating
+                    }
                     className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
                   >
                     {isValidating ? (
@@ -2669,7 +3037,10 @@ export default function RegistroPage() {
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-foreground">Validación Exitosa</h3>
-                    <p className="text-xs text-muted-foreground">Tu identidad ha sido verificada correctamente mediante enrolamiento biométrico.</p>
+                    <p className="text-xs text-muted-foreground">
+                      Tu identidad ha sido verificada correctamente mediante enrolamiento
+                      biométrico.
+                    </p>
                   </div>
                 </div>
 
@@ -2680,37 +3051,73 @@ export default function RegistroPage() {
                   </div>
                   <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
                     <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">NOMBRE</p>
-                      <p className="text-sm font-semibold text-foreground">{enrollmentResult.nombre || '—'}</p>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                        NOMBRE
+                      </p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {enrollmentResult.nombre || '—'}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">APELLIDO PATERNO</p>
-                      <p className="text-sm font-semibold text-foreground">{enrollmentResult.apellidoPaterno || '—'}</p>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                        APELLIDO PATERNO
+                      </p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {enrollmentResult.apellidoPaterno || '—'}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">APELLIDO MATERNO</p>
-                      <p className="text-sm font-semibold text-foreground">{enrollmentResult.apellidoMaterno || '—'}</p>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                        APELLIDO MATERNO
+                      </p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {enrollmentResult.apellidoMaterno || '—'}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">CURP</p>
-                      <p className="text-sm font-semibold text-foreground font-mono">{enrollmentResult.curp || '—'}</p>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                        CURP
+                      </p>
+                      <p className="text-sm font-semibold text-foreground font-mono">
+                        {enrollmentResult.curp || '—'}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">FECHA NACIMIENTO</p>
-                      <p className="text-sm font-semibold text-foreground">{enrollmentResult.fechaNacimiento || '—'}</p>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                        FECHA NACIMIENTO
+                      </p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {enrollmentResult.fechaNacimiento || '—'}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">SEXO</p>
-                      <p className="text-sm font-semibold text-foreground">{enrollmentResult.sexo === 'M' ? 'Masculino' : enrollmentResult.sexo === 'F' ? 'Femenino' : '—'}</p>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                        SEXO
+                      </p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {enrollmentResult.sexo === 'M'
+                          ? 'Masculino'
+                          : enrollmentResult.sexo === 'F'
+                            ? 'Femenino'
+                            : '—'}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">TIPO DE ID</p>
-                      <p className="text-sm font-semibold text-foreground">{enrollmentResult.tipoIdentificacion || '—'}</p>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                        TIPO DE ID
+                      </p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {enrollmentResult.tipoIdentificacion || '—'}
+                      </p>
                     </div>
                     {enrollmentResult.rfc && (
                       <div>
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">RFC</p>
-                        <p className="text-sm font-semibold text-foreground font-mono">{enrollmentResult.rfc}</p>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                          RFC
+                        </p>
+                        <p className="text-sm font-semibold text-foreground font-mono">
+                          {enrollmentResult.rfc}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -2722,9 +3129,14 @@ export default function RegistroPage() {
                   className="w-full py-3 rounded-xl bg-emerald-500 text-white text-sm font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isRegistering ? (
-                    <><Loader2 size={16} className="animate-spin" /> Registrando...</>
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Registrando...
+                    </>
                   ) : (
-                    <><CheckCircle2 size={16} />Confirmar datos y registrar usuario</>
+                    <>
+                      <CheckCircle2 size={16} />
+                      Confirmar datos y registrar usuario
+                    </>
                   )}
                 </button>
                 {registrationError && (
@@ -2778,29 +3190,33 @@ export default function RegistroPage() {
                   ) : qrExpired ? (
                     <div className="w-44 h-44 flex flex-col items-center justify-center gap-3">
                       <AlertCircle size={32} className="text-red-400" />
-                      <p className="text-xs text-red-500 font-semibold text-center">Código expirado</p>
+                      <p className="text-xs text-red-500 font-semibold text-center">
+                        Código expirado
+                      </p>
                     </div>
                   ) : qrUrl ? (
                     <div className="p-2 bg-white rounded-lg border border-border">
-                      <QRCodeSVG
-                        value={qrUrl}
-                        size={160}
-                        level="M"
-                        includeMargin={false}
-                      />
+                      <QRCodeSVG value={qrUrl} size={160} level="M" includeMargin={false} />
                     </div>
                   ) : (
                     <div className="w-44 h-44 flex flex-col items-center justify-center gap-3 border-2 border-dashed border-border rounded-xl">
                       <QrCode size={32} className="text-muted-foreground/40" />
-                      <p className="text-xs text-muted-foreground text-center">Genera el código QR para comenzar</p>
+                      <p className="text-xs text-muted-foreground text-center">
+                        Genera el código QR para comenzar
+                      </p>
                     </div>
                   )}
 
                   {/* Timer */}
                   {qrUrl && !qrExpired && (
                     <div className="flex items-center gap-2">
-                      <Clock size={13} className={qrTimeLeft < 60 ? 'text-red-500' : 'text-muted-foreground'} />
-                      <span className={`text-xs font-mono font-semibold ${qrTimeLeft < 60 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                      <Clock
+                        size={13}
+                        className={qrTimeLeft < 60 ? 'text-red-500' : 'text-muted-foreground'}
+                      />
+                      <span
+                        className={`text-xs font-mono font-semibold ${qrTimeLeft < 60 ? 'text-red-500' : 'text-muted-foreground'}`}
+                      >
                         Válido por {timeStr}
                       </span>
                     </div>
@@ -2814,11 +3230,17 @@ export default function RegistroPage() {
                       className="w-full py-2 rounded-lg bg-primary text-white text-xs font-semibold disabled:opacity-50 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
                     >
                       {qrLoading ? (
-                        <><Loader2 size={12} className="animate-spin" /> Generando...</>
+                        <>
+                          <Loader2 size={12} className="animate-spin" /> Generando...
+                        </>
                       ) : qrExpired ? (
-                        <><RefreshCw size={12} /> Generar nuevo código</>
+                        <>
+                          <RefreshCw size={12} /> Generar nuevo código
+                        </>
                       ) : (
-                        <><QrCode size={12} /> Generar código QR</>
+                        <>
+                          <QrCode size={12} /> Generar código QR
+                        </>
                       )}
                     </button>
                   )}
@@ -2827,7 +3249,9 @@ export default function RegistroPage() {
                   {qrUrl && !qrExpired && (
                     <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 w-full">
                       <Loader2 size={13} className="text-blue-500 animate-spin flex-shrink-0" />
-                      <span className="text-xs text-blue-600 font-medium">Esperando enrolamiento, no cierres esta pantalla</span>
+                      <span className="text-xs text-blue-600 font-medium">
+                        Esperando enrolamiento, no cierres esta pantalla
+                      </span>
                     </div>
                   )}
                 </div>
@@ -2849,7 +3273,9 @@ export default function RegistroPage() {
                   '4. Toma fotos de tu ID y una selfie',
                   '5. Los datos se validarán automáticamente aquí',
                 ].map((step) => (
-                  <p key={step} className="text-[11px] text-blue-600">{step}</p>
+                  <p key={step} className="text-[11px] text-blue-600">
+                    {step}
+                  </p>
                 ))}
               </div>
             </div>
@@ -2866,140 +3292,136 @@ export default function RegistroPage() {
   const stepTitles: Record<number, { title: string; subtitle: string }> = {
     1: { title: 'Datos de contacto', subtitle: 'Ingresa tu correo; el teléfono es opcional' },
     2: { title: 'Crear contraseña', subtitle: 'Elige una contraseña segura para tu cuenta' },
-    3: { title: '¿Cómo usarás DocuBox?', subtitle: 'Selecciona el tipo de cuenta que mejor se adapte a ti' },
-    4: { title: 'Define tu Personalidad Jurídica', subtitle: 'Esto determina cómo firmarás y serás identificado legalmente' },
+    3: {
+      title: '¿Cómo usarás DocuBox?',
+      subtitle: 'Selecciona el tipo de cuenta que mejor se adapte a ti',
+    },
+    4: {
+      title: 'Define tu Personalidad Jurídica',
+      subtitle: 'Esto determina cómo firmarás y serás identificado legalmente',
+    },
     5: { title: 'Acredita tu Identidad', subtitle: 'Verifica tu identidad para activar tu cuenta' },
   };
+  const activeStepTitle = stepTitles[currentStep] ?? stepTitles[1];
 
-  const isStep5WithMethod = currentStep === 5 && (data.identityMethod !== null || data.personalidadJuridica === 'moral');
-  const isStep5Wide = currentStep === 5 && (
-    (biometricoValidated && !!enrollmentResult) ||
-    (data.personalidadJuridica === 'moral' && (efirmaMoralValidated))
-  );
+  const isStep5WithMethod =
+    currentStep === 5 && (data.identityMethod !== null || data.personalidadJuridica === 'moral');
+  const isStep5Wide =
+    currentStep === 5 &&
+    ((biometricoValidated && !!enrollmentResult) ||
+      (data.personalidadJuridica === 'moral' && efirmaMoralValidated));
 
-  const isStep5Efirma = currentStep === 5 && (
-    data.identityMethod === 'efirma' ||
-    data.identityMethod === 'biometrico' ||
-    (data.personalidadJuridica === 'moral' && !efirmaMoralValidated)
-  );
+  const isStep5Efirma =
+    currentStep === 5 &&
+    (data.identityMethod === 'efirma' ||
+      data.identityMethod === 'biometrico' ||
+      (data.personalidadJuridica === 'moral' && !efirmaMoralValidated));
   const isBusinessAccountStep = currentStep === 3 && data.accountType === 'empresarial';
 
   return (
-    <div className="min-h-screen bg-muted/30 flex flex-col">
-      {/* Header */}
-      <header className="flex min-h-16 items-center justify-between border-b border-border bg-background px-5 py-3 sm:px-8">
-        <AppLogo size={32} />
-        <div className="flex items-center gap-3">
-          <span className="hidden text-sm text-muted-foreground sm:inline">¿Ya tienes cuenta?</span>
+    <div className="flex h-screen flex-col bg-slate-50 text-slate-950">
+      <header className="flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
+        <div className="flex min-w-0 flex-1 items-center">
+          <AppLogo size={34} />
+        </div>
+
+        <div className="hidden xl:block">
+          <NumberedWizardNav
+            steps={STEPS}
+            currentStep={currentStep}
+            onStepSelect={setCurrentStep}
+          />
+        </div>
+
+        <div className="flex flex-1 items-center justify-end gap-3">
+          <span className="hidden text-sm text-slate-500 sm:inline">¿Ya tienes cuenta?</span>
           <button
             onClick={() => router.push('/login')}
-            className="inline-flex h-9 items-center whitespace-nowrap rounded-md border border-border bg-background px-3 text-sm font-medium text-primary transition-colors hover:bg-muted"
+            className="inline-flex h-9 items-center whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-primary transition-colors hover:bg-slate-50"
           >
             Iniciar sesión
           </button>
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="flex-1 flex items-start justify-center px-4 py-6 sm:py-8">
-        <div className={`w-full transition-all duration-300 ${isStep5Wide || isBusinessAccountStep ? 'max-w-3xl' : isStep5Efirma ? 'max-w-[500px]' : 'max-w-md'}`}>
-          {/* Step indicator */}
-          <div className="mb-5 flex items-center justify-center gap-0 overflow-x-auto pb-1">
-            {STEPS.map((step, idx) => (
-              <React.Fragment key={step.id}>
-                <div className="flex flex-col items-center gap-1">
-                  <div
-                    className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold transition-colors ${
-                      step.id < currentStep
-                        ? 'border-primary bg-primary text-white'
-                        : step.id === currentStep
-                        ? 'border-primary bg-primary text-white ring-2 ring-primary/15' :'border-border bg-background text-muted-foreground'
-                    }`}
-                  >
-                    {step.id < currentStep ? (
-                      <Check size={14} strokeWidth={3} />
-                    ) : (
-                      step.id
-                    )}
-                  </div>
-                  <span className={`whitespace-nowrap text-[10px] font-medium ${
-                    step.id === currentStep ? 'text-primary' : 'text-muted-foreground'
-                  }`}>
-                    {step.label}
-                  </span>
-                </div>
-                {idx < STEPS.length - 1 && (
-                  <div className={`mx-1 mb-3.5 h-px w-8 transition-colors sm:w-10 ${
-                    step.id < currentStep ? 'bg-primary' : 'bg-border'
-                  }`} />
-                )}
-              </React.Fragment>
-            ))}
-          </div>
+      <div className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-4 py-2 xl:hidden">
+        <NumberedWizardNav
+          steps={STEPS}
+          currentStep={currentStep}
+          onStepSelect={setCurrentStep}
+          className="mx-auto"
+        />
+      </div>
 
-          {/* Card */}
-          <div className="overflow-hidden rounded-md border border-border bg-background shadow-sm">
-            {/* Card header */}
-            <div className="border-b border-border px-6 py-5">
-              <h1 className="text-lg font-semibold text-foreground">
-                {stepTitles[currentStep]?.title}
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                {stepTitles[currentStep]?.subtitle}
-              </p>
-            </div>
-
-            {/* Card body */}
-            <div className="px-6 py-5">
-              {renderStep()}
-            </div>
-
-            {/* Card footer — hide when step 5 has method selected */}
-            {!isStep5WithMethod && (
-              <div className="flex items-center justify-between gap-3 px-6 pb-6">
-                <button
-                  onClick={currentStep === 1 ? () => router.push('/login') : handleBack}
-                  className="flex h-10 items-center gap-2 rounded-md border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <ArrowLeft size={15} />
-                  {currentStep === 1 ? 'Cancelar' : 'Anterior'}
-                </button>
-                {currentStep < 5 && (
-                  <button
-                    onClick={handleNext}
-                    disabled={isCurrentStepNextDisabled}
-                    className="flex h-10 items-center gap-2 rounded-md bg-primary px-6 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Siguiente
-                    <ArrowRight size={15} />
-                  </button>
-                )}
-                {currentStep === 5 && !data.identityMethod && (
-                  <button
-                    onClick={() => {
-                      if (!selectedIdentityMethod) {
-                        setErrors((prev) => ({ ...prev, identityMethod: 'Selecciona un método de acreditación' }));
-                        return;
-                      }
-                      setErrors((prev) => ({ ...prev, identityMethod: '' }));
-                      update({ identityMethod: selectedIdentityMethod });
-                    }}
-                    className="flex h-10 items-center gap-2 rounded-md bg-primary px-6 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Continuar
-                    <ArrowRight size={15} />
-                  </button>
-                )}
+      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-5 lg:px-6 lg:py-6">
+        <div
+          className={`mx-auto w-full transition-all duration-300 ${
+            isStep5Wide || isBusinessAccountStep
+              ? 'max-w-3xl'
+              : isStep5Efirma
+                ? 'max-w-[500px]'
+                : 'max-w-md'
+          }`}
+        >
+          <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-lg font-600 text-slate-950">{activeStepTitle.title}</h1>
+                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 text-slate-600">
+                  Paso {currentStep} de {STEPS.length}
+                </span>
               </div>
-            )}
+              <p className="mt-1 text-sm text-slate-500">{activeStepTitle.subtitle}</p>
+            </div>
+            <div className="px-6 py-5">{renderStep()}</div>
           </div>
-
-          {/* Progress text */}
-          <p className="text-center text-xs text-muted-foreground mt-4">
-            Paso {currentStep} de {STEPS.length}
-          </p>
         </div>
       </main>
+
+      <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 lg:px-6">
+        <div className="mx-auto flex w-full max-w-[1120px] items-center justify-between gap-3">
+          <button
+            onClick={currentStep === 1 ? () => router.push('/login') : handleBack}
+            className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+          >
+            <ArrowLeft size={16} />
+            {currentStep === 1 ? 'Cancelar' : 'Atrás'}
+          </button>
+
+          {currentStep < STEPS.length && (
+            <button
+              onClick={handleNext}
+              disabled={isCurrentStepNextDisabled}
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Siguiente
+              <ArrowRight size={16} />
+            </button>
+          )}
+
+          {currentStep === STEPS.length && !isStep5WithMethod && (
+            <button
+              onClick={() => {
+                if (!selectedIdentityMethod) {
+                  setErrors((prev) => ({
+                    ...prev,
+                    identityMethod: 'Selecciona un método de acreditación',
+                  }));
+                  return;
+                }
+                setErrors((prev) => ({ ...prev, identityMethod: '' }));
+                update({ identityMethod: selectedIdentityMethod });
+              }}
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white transition-colors hover:bg-primary/90"
+            >
+              Continuar
+              <ArrowRight size={16} />
+            </button>
+          )}
+
+          {currentStep === STEPS.length && isStep5WithMethod && <div />}
+        </div>
+      </footer>
     </div>
   );
 }

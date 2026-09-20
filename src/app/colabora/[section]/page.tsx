@@ -382,9 +382,27 @@ function CreatePanel({
       if (section === 'automatizaciones')
         body = {
           ...body,
-          trigger_definition: { event: values.trigger_event || 'task.created' },
-          conditions: [],
-          actions: [{ type: 'notify', target: 'owner' }],
+          trigger_definition: { event_type: values.trigger_event || 'document.completed' },
+          conditions: values.condition_field
+            ? [{
+                field: values.condition_field,
+                operator: values.condition_operator || 'equals',
+                ...(!['exists', 'not_exists'].includes(String(values.condition_operator))
+                  ? { value: values.condition_value }
+                  : {}),
+              }]
+            : [],
+          actions: values.action_type === 'activity'
+            ? [{ type: 'activity', summary: values.action_message || 'Automatización documental ejecutada.' }]
+            : values.action_type === 'webhook'
+              ? [{ type: 'webhook' }]
+              : values.action_type === 'document_metadata'
+                ? [{ type: 'document_metadata', name: values.metadata_name, value: values.metadata_value }]
+                : values.action_type === 'create_task'
+                  ? [{ type: 'create_task', title: values.action_message || 'Revisar documento', assigned_to: 'owner' }]
+                  : values.action_type === 'request_nom151'
+                    ? [{ type: 'request_nom151' }]
+                    : [{ type: 'notify', target: 'owner', title: values.action_message || undefined, channels: [values.notification_channel || 'in_app'], delivery_policy: 'single' }],
         };
       if (section === 'negociacion')
         body = {
@@ -744,17 +762,45 @@ function CreatePanel({
             </>
           )}
           {section === 'automatizaciones' && (
-            <label className="block text-sm font-medium">
-              Evento
-              <select
-                name="trigger_event"
-                className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3"
-              >
-                <option value="task.created">Tarea creada</option>
-                <option value="review.approved">Revision aprobada</option>
-                <option value="request.completed">Solicitud completada</option>
-              </select>
-            </label>
+            <div className="space-y-4">
+              <label className="block text-sm font-medium">CUANDO
+                <select name="trigger_event" className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3">
+                  <option value="document.sent">Documento enviado</option>
+                  <option value="participant.completion_committed">Participante completó su acción</option>
+                  <option value="document.completed">Documento completado</option>
+                  <option value="document.cancelled">Documento cancelado</option>
+                  <option value="document.expired">Documento vencido</option>
+                </select>
+              </label>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="block text-sm font-medium">SI (opcional)
+                  <select name="condition_field" className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3"><option value="">Sin condición</option><option value="document.status">Estado del documento</option><option value="document.type_id">Tipo de documento</option><option value="metadata.classification">Metadata: classification</option><option value="package.status">Estado del paquete</option></select>
+                </label>
+                <label className="block text-sm font-medium">Operador
+                  <select name="condition_operator" className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3"><option value="equals">Es igual a</option><option value="not_equals">No es igual a</option><option value="exists">Existe</option><option value="not_exists">No existe</option><option value="contains">Contiene</option></select>
+                </label>
+                <label className="block text-sm font-medium">Valor
+                  <input name="condition_value" className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3" />
+                </label>
+              </div>
+              <label className="block text-sm font-medium">ENTONCES
+                <select name="action_type" className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3"><option value="notify">Notificar</option><option value="activity">Registrar actividad</option><option value="webhook">Enviar webhook</option><option value="document_metadata">Asignar metadata de gestión</option><option value="create_task">Crear tarea</option><option value="request_nom151">Solicitar NOM-151</option></select>
+              </label>
+              <label className="block text-sm font-medium">Mensaje o título
+                <input name="action_message" maxLength={180} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3" />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-medium">Canal de notificación
+                  <select name="notification_channel" className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3"><option value="in_app">Docubox</option><option value="email">Correo electrónico</option><option value="sms">SMS</option></select>
+                </label>
+                <label className="block text-sm font-medium">Nombre de metadata
+                  <input name="metadata_name" maxLength={120} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3" />
+                </label>
+              </div>
+              <label className="block text-sm font-medium">Valor de metadata
+                <input name="metadata_value" maxLength={2000} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3" />
+              </label>
+            </div>
           )}
           {section === 'negociacion' && (
             <>

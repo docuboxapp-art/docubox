@@ -2,20 +2,69 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, AlertTriangle, BadgeCheck, BellRing, Building2, Check, CheckCircle2,
-  CircleAlert, Clipboard, CloudCog, Code2, Copy, CreditCard, Database, FileKey2,
-  Eye, EyeOff, Fingerprint, Globe2, KeyRound, Laptop, Link2, Loader2, LockKeyhole, Mail,
-  Network, Palette, Plus, ReceiptText, RefreshCw, Save, ScrollText, Send,
-  ServerCog, ShieldCheck, Smartphone, Trash2, Users, Webhook, X,
+  Activity,
+  AlertTriangle,
+  BadgeCheck,
+  BellRing,
+  Building2,
+  Check,
+  CheckCircle2,
+  CircleAlert,
+  Clipboard,
+  CloudCog,
+  Code2,
+  Copy,
+  CreditCard,
+  Database,
+  FileKey2,
+  Eye,
+  EyeOff,
+  Fingerprint,
+  Globe2,
+  KeyRound,
+  Laptop,
+  Link2,
+  Loader2,
+  LockKeyhole,
+  Mail,
+  Network,
+  Palette,
+  Plus,
+  ReceiptText,
+  RefreshCw,
+  Save,
+  ScrollText,
+  Send,
+  ServerCog,
+  ShieldCheck,
+  Smartphone,
+  Trash2,
+  Users,
+  Webhook,
+  X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { OrganizationRetentionPolicies } from '@/components/organization/OrganizationRetentionPolicies';
+import { OrganizationDelegationPolicy } from '@/components/organization/OrganizationDelegationPolicy';
 
-export type AdvancedSection = 'seguridad' | 'certificados' | 'integraciones' | 'marca-comunicaciones' | 'plan-consumo' | 'auditoria';
+export type AdvancedSection =
+  | 'seguridad'
+  | 'certificados'
+  | 'integraciones'
+  | 'marca-comunicaciones'
+  | 'plan-consumo'
+  | 'auditoria';
 type Row = Record<string, any>;
 type SensitiveAction = {
-  action: 'save_security_settings' | 'save_network' | 'save_alert' | 'revoke_session' | 'create_certificate' | 'integration_request';
+  action:
+    | 'save_security_settings'
+    | 'save_network'
+    | 'save_alert'
+    | 'revoke_session'
+    | 'create_certificate'
+    | 'integration_request';
   scope: 'security.manage' | 'certificates.manage' | 'integrations.manage';
   payload: Row;
   success: string;
@@ -24,13 +73,40 @@ type SensitiveAction = {
   revealSecret?: boolean;
 };
 
-const sectionMeta: Record<AdvancedSection, { title: string; description: string; icon: typeof ShieldCheck }> = {
-  seguridad: { title: 'Seguridad', description: 'Acceso, sesiones, restricciones y alertas de la organización.', icon: ShieldCheck },
-  certificados: { title: 'Certificados e infraestructura', description: 'Metadatos públicos, vigencias y estado criptográfico verificable.', icon: ScrollText },
-  integraciones: { title: 'Integraciones y API', description: 'Aplicaciones, credenciales y webhooks autorizados.', icon: Network },
-  'marca-comunicaciones': { title: 'Marca y comunicaciones', description: 'Identidad visual, remitentes y mensajes organizacionales.', icon: Palette },
-  'plan-consumo': { title: 'Plan, consumo y centros de costo', description: 'Uso auditable, límites y distribución económica.', icon: ReceiptText },
-  auditoria: { title: 'Auditoría organizacional', description: 'Eventos administrativos y de seguridad sin capacidad de edición.', icon: Activity },
+const sectionMeta: Record<
+  AdvancedSection,
+  { title: string; description: string; icon: typeof ShieldCheck }
+> = {
+  seguridad: {
+    title: 'Seguridad',
+    description: 'Acceso, sesiones, restricciones y alertas de la organización.',
+    icon: ShieldCheck,
+  },
+  certificados: {
+    title: 'Certificados e infraestructura',
+    description: 'Metadatos públicos, vigencias y estado criptográfico verificable.',
+    icon: ScrollText,
+  },
+  integraciones: {
+    title: 'Integraciones y API',
+    description: 'Aplicaciones, credenciales y webhooks autorizados.',
+    icon: Network,
+  },
+  'marca-comunicaciones': {
+    title: 'Marca y comunicaciones',
+    description: 'Identidad visual, remitentes y mensajes organizacionales.',
+    icon: Palette,
+  },
+  'plan-consumo': {
+    title: 'Plan, consumo y centros de costo',
+    description: 'Uso auditable, límites y distribución económica.',
+    icon: ReceiptText,
+  },
+  auditoria: {
+    title: 'Auditoría organizacional',
+    description: 'Eventos administrativos y de seguridad sin capacidad de edición.',
+    icon: Activity,
+  },
 };
 
 const permissionFor: Record<AdvancedSection, { read: string; manage?: string }> = {
@@ -43,62 +119,276 @@ const permissionFor: Record<AdvancedSection, { read: string; manage?: string }> 
 };
 
 const signatureMethods = [
-  ['totp', 'TOTP'], ['webauthn', 'Passkey / WebAuthn'], ['otp_email', 'OTP por correo'],
+  ['totp', 'TOTP'],
+  ['webauthn', 'Passkey / WebAuthn'],
+  ['otp_email', 'OTP por correo'],
 ] as const;
-const apiScopes = ['documents.read', 'documents.write', 'signatures.read', 'signatures.write', 'forms.read', 'cases.read', 'identity.read', 'webhooks.manage'];
-const webhookEvents = ['document.created', 'document.sent', 'document.viewed', 'document.rejected', 'document.cancelled', 'document.completed', 'signature.started', 'signature.completed', 'identity.completed', 'identity.review_required', 'case.opened', 'case.closed', 'certificate.expiring', 'member.invited', 'member.activated', 'member.suspended'];
+const apiScopes = [
+  'documents.read',
+  'documents.write',
+  'documents.send',
+  'documents.schedule',
+  'evidence.read',
+  'signatures.read',
+  'signatures.write',
+  'forms.read',
+  'cases.read',
+  'identity.read',
+  'webhooks.manage',
+];
+const webhookEvents = [
+  'document.created',
+  'document.sent',
+  'document.viewed',
+  'document.rejected',
+  'document.cancelled',
+  'document.completed',
+  'signature.started',
+  'signature.completed',
+  'participant.completion_committed',
+  'signing_group.completed',
+  'participant.delegation.completed',
+  'group_member.delegation_created',
+  'group_member.delegation_revoked',
+  'group_member.delegation_completed',
+  'witness.completed',
+  'document.custody_transferred',
+  'custody.transfer_requested',
+  'custody.transfer_accepted',
+  'custody.transfer_rejected',
+  'custody.transfer_cancelled',
+  'custody.transfer_expired',
+  'custody.transferred',
+  'document.retention_applied',
+  'identity.completed',
+  'identity.review_required',
+  'case.opened',
+  'case.closed',
+  'certificate.expiring',
+  'member.invited',
+  'member.activated',
+  'member.suspended',
+];
 
 function formatDate(value?: string | null, dateOnly = false) {
   if (!value) return '—';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '—';
-  return new Intl.DateTimeFormat('es-MX', dateOnly ? { dateStyle: 'medium' } : { dateStyle: 'medium', timeStyle: 'short' }).format(parsed);
+  return new Intl.DateTimeFormat(
+    'es-MX',
+    dateOnly ? { dateStyle: 'medium' } : { dateStyle: 'medium', timeStyle: 'short' }
+  ).format(parsed);
 }
 
 function humanize(value?: string | null) {
   const labels: Record<string, string> = {
-    active: 'Activo', valid: 'Válido', pending: 'Pendiente', connected: 'Conectado',
-    sandbox: 'Sandbox', production: 'Producción', degraded: 'Degradado', disabled: 'Deshabilitado',
-    revoked: 'Revocado', expired: 'Vencido', expiring: 'Próximo a vencer', invalid: 'Inválido',
-    failed: 'Fallido', delivered: 'Entregado', normal: 'Normal', stale: 'Sin actividad',
-    success: 'Correcto', denied: 'Denegado', partial: 'Parcial', verified: 'Verificado',
-    metadata_only: 'Solo metadatos', local_temporary: 'Local temporal', not_configured: 'No configurado',
+    active: 'Activo',
+    valid: 'Válido',
+    pending: 'Pendiente',
+    connected: 'Conectado',
+    sandbox: 'Sandbox',
+    production: 'Producción',
+    degraded: 'Degradado',
+    disabled: 'Deshabilitado',
+    revoked: 'Revocado',
+    expired: 'Vencido',
+    expiring: 'Próximo a vencer',
+    invalid: 'Inválido',
+    failed: 'Fallido',
+    delivered: 'Entregado',
+    normal: 'Normal',
+    stale: 'Sin actividad',
+    success: 'Correcto',
+    denied: 'Denegado',
+    partial: 'Parcial',
+    verified: 'Verificado',
+    metadata_only: 'Solo metadatos',
+    local_temporary: 'Local temporal',
+    not_configured: 'No configurado',
   };
   return labels[value || ''] || value?.replaceAll('_', ' ') || 'Sin estado';
 }
 
 function Status({ value }: { value?: string | null }) {
-  const good = ['active', 'valid', 'connected', 'delivered', 'normal', 'success', 'verified'].includes(value || '');
-  const warning = ['pending', 'sandbox', 'expiring', 'stale', 'partial', 'degraded'].includes(value || '');
-  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${good ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300' : warning ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300' : 'border-border bg-muted text-muted-foreground'}`}><span className={`h-1.5 w-1.5 rounded-full ${good ? 'bg-emerald-500' : warning ? 'bg-amber-500' : 'bg-muted-foreground'}`} />{humanize(value)}</span>;
+  const good = [
+    'active',
+    'valid',
+    'connected',
+    'delivered',
+    'normal',
+    'success',
+    'verified',
+  ].includes(value || '');
+  const warning = ['pending', 'sandbox', 'expiring', 'stale', 'partial', 'degraded'].includes(
+    value || ''
+  );
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${good ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300' : warning ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300' : 'border-border bg-muted text-muted-foreground'}`}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${good ? 'bg-emerald-500' : warning ? 'bg-amber-500' : 'bg-muted-foreground'}`}
+      />
+      {humanize(value)}
+    </span>
+  );
 }
 
 function Header({ section, actions }: { section: AdvancedSection; actions?: React.ReactNode }) {
   const meta = sectionMeta[section];
-  return <div className="flex flex-col gap-3 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-2xl font-medium text-foreground">{meta.title}</h2><p className="mt-1 text-sm text-muted-foreground">{meta.description}</p></div>{actions}</div>;
+  return (
+    <div className="flex flex-col gap-3 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h2 className="text-2xl font-medium text-foreground">{meta.title}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{meta.description}</p>
+      </div>
+      {actions}
+    </div>
+  );
 }
 
-function Tabs({ items, value, onChange }: { items: [string, string][]; value: string; onChange: (value: string) => void }) {
-  return <div className="flex gap-1 overflow-x-auto border-b border-border" role="tablist">{items.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={value === key} onClick={() => onChange(key)} className={`whitespace-nowrap border-b-2 px-3 py-3 text-sm transition-colors ${value === key ? 'border-primary text-primary font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>{label}</button>)}</div>;
+function Tabs({
+  items,
+  value,
+  onChange,
+}: {
+  items: [string, string][];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex gap-1 overflow-x-auto border-b border-border" role="tablist">
+      {items.map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          aria-selected={value === key}
+          onClick={() => onChange(key)}
+          className={`whitespace-nowrap border-b-2 px-3 py-3 text-sm transition-colors ${value === key ? 'border-primary text-primary font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
-function Empty({ icon: Icon, title, text }: { icon: typeof ShieldCheck; title: string; text: string }) {
-  return <div className="px-5 py-14 text-center"><Icon size={28} className="mx-auto text-muted-foreground" /><p className="mt-3 text-sm font-medium text-foreground">{title}</p><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{text}</p></div>;
+function Empty({
+  icon: Icon,
+  title,
+  text,
+}: {
+  icon: typeof ShieldCheck;
+  title: string;
+  text: string;
+}) {
+  return (
+    <div className="px-5 py-14 text-center">
+      <Icon size={28} className="mx-auto text-muted-foreground" />
+      <p className="mt-3 text-sm font-medium text-foreground">{title}</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{text}</p>
+    </div>
+  );
 }
 
 function Notice({ error, success }: { error: string; success: string }) {
-  return <>{error && <div role="alert" className="flex gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"><CircleAlert size={17} className="shrink-0" />{error}</div>}{success && <div className="flex gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"><Check size={17} className="shrink-0" />{success}</div>}</>;
+  return (
+    <>
+      {error && (
+        <div
+          role="alert"
+          className="flex gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+        >
+          <CircleAlert size={17} className="shrink-0" />
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="flex gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <Check size={17} className="shrink-0" />
+          {success}
+        </div>
+      )}
+    </>
+  );
 }
 
-function Toggle({ checked, disabled, onChange, title, description }: { checked: boolean; disabled?: boolean; onChange: (value: boolean) => void; title: string; description?: string }) {
-  return <label className="flex cursor-pointer items-start gap-3 px-5 py-4"><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" /><span className="mt-0.5 flex h-5 w-9 shrink-0 rounded-full bg-muted p-0.5 transition peer-checked:bg-primary peer-disabled:opacity-50"><span className={`h-4 w-4 rounded-full bg-white shadow-sm transition ${checked ? 'translate-x-4' : ''}`} /></span><span><span className="block text-sm font-medium text-foreground">{title}</span>{description && <span className="mt-0.5 block text-sm text-muted-foreground">{description}</span>}</span></label>;
+function Toggle({
+  checked,
+  disabled,
+  onChange,
+  title,
+  description,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (value: boolean) => void;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 px-5 py-4">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="peer sr-only"
+      />
+      <span className="mt-0.5 flex h-5 w-9 shrink-0 rounded-full bg-muted p-0.5 transition peer-checked:bg-primary peer-disabled:opacity-50">
+        <span
+          className={`h-4 w-4 rounded-full bg-white shadow-sm transition ${checked ? 'translate-x-4' : ''}`}
+        />
+      </span>
+      <span>
+        <span className="block text-sm font-medium text-foreground">{title}</span>
+        {description && (
+          <span className="mt-0.5 block text-sm text-muted-foreground">{description}</span>
+        )}
+      </span>
+    </label>
+  );
 }
 
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  return <div className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true"><div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-border bg-background shadow-xl"><div className="sticky top-0 z-10 flex items-center border-b border-border bg-background px-5 py-4"><h3 className="flex-1 text-lg font-medium">{title}</h3><button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-md text-muted-foreground hover:bg-muted" aria-label="Cerrar"><X size={18} /></button></div>{children}</div></div>;
+function Modal({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-border bg-background shadow-xl">
+        <div className="sticky top-0 z-10 flex items-center border-b border-border bg-background px-5 py-4">
+          <h3 className="flex-1 text-lg font-medium">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-9 w-9 place-items-center rounded-md text-muted-foreground hover:bg-muted"
+            aria-label="Cerrar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
 }
 
-export default function OrganizationAdvancedAdministration({ section }: { section: AdvancedSection }) {
+export default function OrganizationAdvancedAdministration({
+  section,
+}: {
+  section: AdvancedSection;
+}) {
   const supabase = useMemo(() => createClient(), []);
   const { activeWorkspace } = useWorkspace();
   const { user, session } = useAuth();
@@ -312,18 +602,16 @@ export default function OrganizationAdvancedAdministration({ section }: { sectio
     payload: Row = {}
   ) => {
     if (!activeWorkspace?.id || !user?.id) return;
-    await supabase
-      .from('organization_audit_events')
-      .insert({
-        workspace_id: activeWorkspace.id,
-        actor_user_id: user.id,
-        event_type: eventType,
-        resource_type: resourceType,
-        resource_id: resourceId,
-        summary,
-        payload,
-        module: section,
-      });
+    await supabase.from('organization_audit_events').insert({
+      workspace_id: activeWorkspace.id,
+      actor_user_id: user.id,
+      event_type: eventType,
+      resource_type: resourceType,
+      resource_id: resourceId,
+      summary,
+      payload,
+      module: section,
+    });
   };
 
   const finish = async (message: string) => {
@@ -563,6 +851,50 @@ export default function OrganizationAdvancedAdministration({ section }: { sectio
     });
   };
 
+  const configureSso = () => {
+    if (!activeWorkspace?.id || !canManage) return;
+    requestSensitiveAction({
+      action: 'integration_request',
+      scope: 'integrations.manage',
+      endpoint: '/api/organizacion/sso',
+      method: 'POST',
+      payload: {
+        action: 'configure',
+        display_name: String(form.sso_display_name || '').trim(),
+        provider_id: String(form.sso_provider_id || '').trim(),
+        domain: String(form.sso_domain || '').trim(),
+        protocol: form.sso_protocol === 'oidc' ? 'oidc' : 'saml',
+      },
+      success: 'Proveedor SSO guardado. Completa una prueba antes de exigirlo.',
+    });
+  };
+
+  const beginSsoTest = async (integration: Row) => {
+    if (!activeWorkspace?.id || !canManage) return;
+    setSaving(true);
+    setError('');
+    try {
+      const result = await api('/api/organizacion/sso', {
+        method: 'POST',
+        body: JSON.stringify({
+          workspace_id: activeWorkspace.id,
+          action: 'begin_test',
+          integration_id: integration.id,
+        }),
+      });
+      const redirectTo = `${window.location.origin}/auth/sso/callback?test=${encodeURIComponent(result.test_token)}&next=${encodeURIComponent('/organizacion?section=seguridad&tab=sso')}`;
+      const started = await supabase.auth.signInWithSSO({
+        providerId: result.provider_id,
+        options: { redirectTo },
+      });
+      if (started.error || !started.data.url) throw started.error || new Error('SSO_TEST_FAILED');
+      window.location.assign(started.data.url);
+    } catch (cause) {
+      fail(cause);
+      setSaving(false);
+    }
+  };
+
   const actOnSecret = async (kind: 'api-key' | 'webhook', id: string, action: string) => {
     if (!activeWorkspace?.id || !canManage) return;
     if (
@@ -777,6 +1109,8 @@ export default function OrganizationAdvancedAdministration({ section }: { sectio
             ['restrictions', 'Restricciones'],
             ['sso', 'SSO y aprovisionamiento'],
             ['alerts', 'Alertas'],
+            ['delegation', 'Delegación'],
+            ['retention', 'Retención'],
           ]}
         />
         {common}
@@ -1014,6 +1348,16 @@ export default function OrganizationAdvancedAdministration({ section }: { sectio
                         </p>
                       </div>
                       <Status value={item.status} />
+                      {canManage && (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => beginSsoTest(item)}
+                          className="h-9 rounded-md border border-border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+                        >
+                          Probar
+                        </button>
+                      )}
                     </div>
                   ))
                 ) : (
@@ -1046,6 +1390,82 @@ export default function OrganizationAdvancedAdministration({ section }: { sectio
                   Guardar configuración
                 </button>
               </div>
+            </section>
+            <section className="rounded-lg border border-border bg-background p-5 lg:col-span-2">
+              <div className="flex items-start gap-3">
+                <Building2 size={20} className="mt-0.5 text-primary" />
+                <div>
+                  <h3 className="font-medium">Configurar proveedor estándar</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Registra el identificador ya provisionado en Supabase Auth. Docubox no almacena
+                    secretos del proveedor.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <label className="text-sm">
+                  Nombre
+                  <input
+                    disabled={!canManage}
+                    value={form.sso_display_name || ''}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sso_display_name: event.target.value }))
+                    }
+                    placeholder="Ej. Acceso corporativo"
+                    className="mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3"
+                  />
+                </label>
+                <label className="text-sm">
+                  Dominio empresarial
+                  <input
+                    disabled={!canManage}
+                    value={form.sso_domain || ''}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sso_domain: event.target.value }))
+                    }
+                    placeholder="empresa.com"
+                    className="mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3"
+                  />
+                </label>
+                <label className="text-sm">
+                  Protocolo
+                  <select
+                    disabled={!canManage}
+                    value={form.sso_protocol || 'saml'}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sso_protocol: event.target.value }))
+                    }
+                    className="mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3"
+                  >
+                    <option value="saml">SAML</option>
+                    <option value="oidc">OIDC</option>
+                  </select>
+                </label>
+                <label className="text-sm">
+                  ID del proveedor Supabase
+                  <input
+                    disabled={!canManage}
+                    value={form.sso_provider_id || ''}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sso_provider_id: event.target.value }))
+                    }
+                    placeholder="Proveedor configurado en Auth"
+                    className="mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3"
+                  />
+                </label>
+              </div>
+              {canManage && (
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={configureSso}
+                    disabled={!form.sso_display_name || !form.sso_domain || !form.sso_provider_id}
+                    className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    Guardar configuración
+                  </button>
+                </div>
+              )}
             </section>
           </div>
         )}
@@ -1092,6 +1512,12 @@ export default function OrganizationAdvancedAdministration({ section }: { sectio
               </div>
             </section>
           </div>
+        )}
+        {!loading && currentTab === 'retention' && activeWorkspace?.id && (
+          <OrganizationRetentionPolicies workspaceId={activeWorkspace.id} canManage={canManage} />
+        )}
+        {!loading && currentTab === 'delegation' && activeWorkspace?.id && (
+          <OrganizationDelegationPolicy workspaceId={activeWorkspace.id} canManage={canManage} />
         )}
         {(modal === 'network' || modal === 'alert') && (
           <Modal
@@ -2268,15 +2694,21 @@ export default function OrganizationAdvancedAdministration({ section }: { sectio
               <CloudCog size={20} className="text-primary" />
               <p className="mt-3 text-sm text-muted-foreground">Complementos</p>
               <p className="mt-1 text-2xl font-medium">
-                {addonSubscriptions.filter((item) => ['trialing', 'active'].includes(item.status)).length}
+                {
+                  addonSubscriptions.filter((item) => ['trialing', 'active'].includes(item.status))
+                    .length
+                }
               </p>
               <p className="mt-2 text-sm text-muted-foreground">
-                {addonSubscriptions.map((item) => {
-                  const product = Array.isArray(item.addon_products)
-                    ? item.addon_products[0]
-                    : item.addon_products;
-                  return product?.name;
-                }).filter(Boolean).join(', ') || 'Sin complementos activos'}
+                {addonSubscriptions
+                  .map((item) => {
+                    const product = Array.isArray(item.addon_products)
+                      ? item.addon_products[0]
+                      : item.addon_products;
+                    return product?.name;
+                  })
+                  .filter(Boolean)
+                  .join(', ') || 'Sin complementos activos'}
               </p>
             </section>
             <section className="rounded-lg border border-border bg-background p-5">

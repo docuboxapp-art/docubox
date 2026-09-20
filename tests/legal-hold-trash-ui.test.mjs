@@ -23,6 +23,7 @@ const trashRoute = await read('../src/app/api/documentos/papelera/route.ts');
 const purgeRoute = await read('../src/app/api/internal/document-purge/route.ts');
 const listRoute = await read('../src/app/api/documentos/listar/route.ts');
 const viewer = await read('../src/app/visor-documento/[id]/page.tsx');
+const viewerSelect = await read('../src/lib/documents/viewer-select.ts');
 const participationsRoute = await read('../src/app/api/documentos/mis-participaciones/route.ts');
 const participationsPage = await read('../src/app/mis-participaciones/page.tsx');
 const documentsPage = await read('../src/app/mis-documentos/page.tsx');
@@ -87,6 +88,7 @@ test('a historical trashed document with Legal Hold never becomes an automatic p
 });
 
 test('viewer receives Legal Hold state and renders the shared compact badge', () => {
-  assert.match(viewer, /legal_hold, legal_hold_status/);
+  assert.match(viewer, /DOCUMENT_VIEWER_SELECT/);
+  assert.match(viewerSelect, /legal_hold, legal_hold_status/);
   assert.match(viewer, /<LegalHoldBadge/);
 });

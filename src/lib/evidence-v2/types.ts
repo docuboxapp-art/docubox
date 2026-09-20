@@ -48,17 +48,60 @@ export type EvidenceParticipant = {
   };
 };
 
+export type EvidenceSignatureMethod =
+  'efirma_sat' | 'autografa_digital' | 'firma_simple' | 'firma_biometrica' | 'certificado_digital';
+
+export type EvidenceParticipationContext = {
+  mode: 'remote' | 'in_person';
+  participantReference: string;
+  authentication: {
+    method: 'authenticated_session' | 'email_otp' | 'totp' | 'efirma_sat';
+    result: 'verified';
+    verifiedAt: string;
+    evidenceRef: string;
+  };
+  signingMethod: EvidenceSignatureMethod;
+  consentRef?: string | null;
+  completion: {
+    attemptRef: string;
+    correlationId: string;
+    committedAt: string;
+    responseRef?: string | null;
+    canonicalEventRef: string;
+  };
+  inPersonSession?: {
+    sessionRef: string;
+    status: 'completed';
+    createdAt: string;
+    startedAt: string;
+    completedAt: string;
+  };
+  governance?: {
+    signingGroupRef?: string | null;
+    groupMemberSlotRef?: string | null;
+    completionPolicy?: 'ALL' | 'ANY_ONE' | null;
+    delegationRef?: string | null;
+    effectiveActorRef?: string | null;
+    actionRole?: 'signature' | 'approval' | 'witness' | null;
+    eligibleParticipantRefs?: string[];
+    winnerParticipantRef?: string | null;
+    originalParticipantRef?: string | null;
+    delegateUserRef?: string | null;
+    delegateParticipantRef?: string | null;
+    delegationCreatedByRef?: string | null;
+    delegationPolicy?: 'ORGANIZATION_ONLY' | 'AUTHORIZED_MEMBERS' | null;
+    delegationReason?: string | null;
+    delegationCreatedAt?: string | null;
+    delegationCompletedAt?: string | null;
+  };
+};
+
 export type EvidenceSignature = {
   signatureRef: string;
   participantRef: string;
   participantId?: string | null;
   documentVersionRef?: string | null;
-  method:
-    | 'efirma_sat'
-    | 'autografa_digital'
-    | 'firma_simple'
-    | 'firma_biometrica'
-    | 'certificado_digital';
+  method: EvidenceSignatureMethod;
   signedObjectHash: string | null;
   capturedAt: string | null;
   signedAt?: string | null;
@@ -84,6 +127,7 @@ export type EvidenceSignature = {
     accepted: boolean;
     acceptedAt: string;
   };
+  participation?: EvidenceParticipationContext;
   autograph?: {
     captureId?: string | null;
     strokesHash?: string | null;

@@ -111,7 +111,10 @@ test('dashboard loads shared document data once and widgets only render that sha
   assert.match(participationsSource, /if \(pendingOwnedDocuments\.get\(userId\) === request\)/);
   assert.match(participationsSource, /view=dashboard&exclude_owned=true/);
   assert.match(dashboardSource, /const \[ownedDocuments, participations\] = await Promise\.all\(/);
-  assert.match(dashboardSource, /useDocumentRealtime\(user\?\.id, refreshDashboardDocuments, 'documents-dashboard'\)/);
+  assert.match(
+    dashboardSource,
+    /useDocumentRealtime\(user\?\.id, refreshDashboardDocuments, 'documents-dashboard'\)/
+  );
   for (const source of [
     estadoSource,
     estadoParticipacionesSource,
@@ -156,4 +159,10 @@ test('login loads alternative methods on demand and the server checks requiremen
   assert.match(loginOptionsRouteSource, /await Promise\.all\(\[/);
   assert.match(loginOptionsRouteSource, /user_verification_status/);
   assert.match(loginOptionsRouteSource, /webauthn_credentials/);
+});
+
+test('login does not expose the deferred SSO entry point', () => {
+  assert.doesNotMatch(loginSource, /Continuar con SSO empresarial/);
+  assert.doesNotMatch(loginSource, /signInWithSSO/);
+  assert.doesNotMatch(loginSource, /handleSsoLogin/);
 });

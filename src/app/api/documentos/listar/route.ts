@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAnonClient } from '@/lib/supabase/server';
 import { classifyTrashRetention } from '@/lib/documents/trash-retention';
-import { evaluateDocumentDisposition } from '@/lib/documents/lifecycle-policy';
+import {
+  evaluateDocumentDisposition,
+  type DocumentLifecycleRecord,
+} from '@/lib/documents/lifecycle-policy';
 import { getTrashCountdown } from '@/lib/documents/trash-countdown';
 
 const DOC_SELECT =
-  'id, nombre, descripcion, estado, etiquetas_ids, file_size, updated_at, ultimo_paso, is_favorite, fecha_vencimiento, file_url, scan_status, scan_threat, carpeta_id, created_at, fecha_completado, numero_oficio, folio_interno, ruta_guardado, priority, es_urgente, participantes, tipo_documento_id, tipo_documento:tipo_documento_id(nombre), deleted_at, owner_id, legal_hold, legal_hold_status, retention_status, retention_until, lifecycle_status, trashed_at, trashed_by, restore_until';
+  'id, nombre, descripcion, estado, etiquetas_ids, file_size, updated_at, ultimo_paso, is_favorite, fecha_vencimiento, scan_status, scan_threat, carpeta_id, created_at, fecha_completado, numero_oficio, folio_interno, ruta_guardado, priority, es_urgente, participantes, tipo_documento_id, tipo_documento:tipo_documento_id(nombre), source_template_id, deleted_at, owner_id, tiene_codigo_acceso, legal_hold, legal_hold_status, retention_status, retention_until, lifecycle_status, trashed_at, trashed_by, restore_until';
+const LEGACY_DOC_SELECT = DOC_SELECT.replace(', source_template_id', '');
+
+type ListedDocumentRow = DocumentLifecycleRecord & {
+  id: string;
+  [key: string]: unknown;
+};
+
+function isTemplateOriginColumnMissing(error: { code?: string; message?: string } | null) {
+  return Boolean(
+    error &&
+    /source_template_id/i.test(error.message || '') &&
+    (error.code === 'PGRST204' || /schema cache|does not exist|column/i.test(error.message || ''))
+  );
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,29 +48,37 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const tipo = searchParams.get('tipo') || 'todos';
 
-    let query = anonClient.from('documentos').select(DOC_SELECT).eq('owner_id', user.id);
+    const buildQuery = (columns: string) => {
+      let query = anonClient.from('documentos').select(columns).eq('owner_id', user.id);
 
-    if (tipo === 'papelera') {
-      query = query.not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
-    } else if (tipo === 'favoritos') {
-      query = query
-        .eq('is_favorite', true)
-        .is('deleted_at', null)
-        .order('updated_at', { ascending: false });
-    } else if (tipo === 'por_vencer') {
-      const now = new Date();
-      const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
-      query = query
-        .is('deleted_at', null)
-        .not('fecha_vencimiento', 'is', null)
-        .lte('fecha_vencimiento', in72h.toISOString())
-        .gte('fecha_vencimiento', now.toISOString())
-        .order('fecha_vencimiento', { ascending: true });
-    } else {
-      query = query.is('deleted_at', null).order('updated_at', { ascending: false });
+      if (tipo === 'papelera') {
+        return query.not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
+      }
+      if (tipo === 'favoritos') {
+        return query
+          .eq('is_favorite', true)
+          .is('deleted_at', null)
+          .order('updated_at', { ascending: false });
+      }
+      if (tipo === 'por_vencer') {
+        const now = new Date();
+        const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+        return query
+          .is('deleted_at', null)
+          .not('fecha_vencimiento', 'is', null)
+          .lte('fecha_vencimiento', in72h.toISOString())
+          .gte('fecha_vencimiento', now.toISOString())
+          .order('fecha_vencimiento', { ascending: true });
+      }
+      return query.is('deleted_at', null).order('updated_at', { ascending: false });
+    };
+
+    let result = await buildQuery(DOC_SELECT);
+    if (isTemplateOriginColumnMissing(result.error)) {
+      result = await buildQuery(LEGACY_DOC_SELECT);
     }
-
-    const { data, error } = await query;
+    const data = result.data as ListedDocumentRow[] | null;
+    const error = result.error;
 
     if (error) {
       console.error(

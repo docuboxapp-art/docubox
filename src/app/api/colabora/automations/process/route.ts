@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from 'crypto';
 import { createServiceClient } from '@/lib/supabase/server';
-import { processCollaborationAutomationQueue } from '@/lib/collaboration/automation';
+import { processPhaseCOrchestration } from '@/lib/orchestration/processor';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -31,10 +31,10 @@ async function processQueue(request: Request) {
   }
 
   try {
-    const result = await processCollaborationAutomationQueue(createServiceClient());
+    const result = await processPhaseCOrchestration(createServiceClient());
     console.info(
       JSON.stringify({
-        scope: 'colabora.automation.scheduler',
+        scope: 'phase-c.orchestration.scheduler',
         event: 'batch.completed',
         request_id: requestId,
         ...result,
@@ -42,16 +42,11 @@ async function processQueue(request: Request) {
         at: new Date().toISOString(),
       })
     );
-    return Response.json(
-      { success: result.deadLettered === 0, ...result, request_id: requestId },
-      {
-        status: result.deadLettered > 0 ? 207 : 200,
-      }
-    );
+    return Response.json({ success: true, ...result, request_id: requestId }, { status: 200 });
   } catch (cause) {
     console.error(
       JSON.stringify({
-        scope: 'colabora.automation.scheduler',
+        scope: 'phase-c.orchestration.scheduler',
         event: 'batch.failed',
         request_id: requestId,
         duration_ms: Date.now() - startedAt,

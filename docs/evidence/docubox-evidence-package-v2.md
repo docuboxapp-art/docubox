@@ -4,7 +4,7 @@
 
 Evidence Package v2 es un paquete de evidencia cerrado y versionado. El PDF final sigue siendo el documento juridico principal; el XML describe la identidad del PDF, la secuencia probatoria, los actos de firma y los artefactos de certificacion disponibles. No contiene una copia del PDF.
 
-El namespace es `https://docubox.com.mx/schema/evidence/v2`, con `version="2.0"` y `schemaVersion="2.0"`. El XSD se distribuye en `src/lib/evidence-v2/schema/docubox-evidence-v2.xsd`. El generador lo valida con libxml2/WASM antes de almacenar el XML; una validacion estructural defensiva adicional rechaza DTD y entidades.
+El namespace es `https://docubox.com.mx/schema/evidence/v2`, con perfiles `2.0` y `2.1`. Los XSD se distribuyen en `src/lib/evidence-v2/schema/`. El generador valida el XML con libxml2/WASM antes de almacenarlo; una validacion estructural defensiva adicional rechaza DTD y entidades.
 
 ## Canonicalizacion e integridad
 
@@ -30,9 +30,19 @@ root_hash = ultimo chained_hash, o genesis si no hay eventos
 - Una firma autografa incluye hashes de trazo e imagen cuando fueron capturados. Ambos archivos se anexan al ZIP y se comparan con las huellas inmutables del XML. No se presenta como certificado X.509.
 - Una e.firma SAT genera un paquete privado `docubox-efirma-evidence-bundle-v1` con el payload firmado, la firma, el certificado publico y el resultado de validacion ocurrido al firmar. El verificador comprueba nuevamente hashes, vigencia del certificado y firma RSA. El paquete nunca contiene la clave privada ni su contrasena.
 
+## Contexto de participacion en v2.1
+
+Las firmas nuevas que atraviesan el boundary atomico de finalizacion pueden incluir un nodo opcional `Participation`. El nodo distingue `remote` de `in_person` y correlaciona el acto con la referencia estable del participante, el intento de finalizacion, su evento canonico y, solo para modalidad presencial, una sesion kiosk completada.
+
+`Participation` forma parte de la firma canonicalizada. Por ello queda cubierto por `SignaturesDigest`, `EvidenceRoot`, `EvidencePackageDigest`, `HashXML` y el sello Docubox actual. No cambia algoritmos ni crea una version mayor del paquete.
+
+La autenticacion registrada es el hecho tecnico comprobable utilizado por el boundary. Actualmente es `authenticated_session`; OTP o TOTP no se infieren si no existe una correlacion persistida con el acto. El metodo de firma se toma de la evidencia final real. Los timestamps proceden de filas persistidas y se normalizan a UTC.
+
+Los paquetes v2.0/v2.1 historicos sin `Participation` siguen siendo validos. No se regeneran ni migran. Una sesion cancelada, expirada o no completada no puede producir metadata de firma presencial.
+
 ## Privacidad y almacenamiento
 
-El paquete usa referencias internas para participantes y actores. El generador no incorpora correo, IP, GPS, tokens de sesion, contrasenas ni claves privadas. La ubicacion, IP y datos extendidos permanecen en la evidencia privada existente, accesible solo con autorizacion.
+El paquete usa referencias internas para correlacionar participantes y actores. El perfil v2.1 existente puede contener snapshots de identidad y contexto tecnico cuando fueron capturados por el flujo autorizado. La extension de participacion no agrega nuevos datos de dispositivo o ubicacion y nunca incorpora token kiosk, cookie, OTP, bearer token, contrasena ni clave privada.
 
 Los XML v2 se guardan en el bucket privado `evidence-v2-artifacts`, con una ruta que contiene el identificador inmutable del paquete. No se utiliza `upsert` y los clientes no tienen acceso directo al bucket: las descargas pasan por el API autorizado. La tabla `evidence_packages` bloquea la modificacion o eliminacion de paquetes cerrados; los artefactos posteriores se agregan como referencias inmutables separadas.
 

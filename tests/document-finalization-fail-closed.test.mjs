@@ -31,13 +31,12 @@ test('KMS or PAdES failure cannot reach TSA, NOM-151 or completion email', () =>
 
 test('a signed participation response is persisted only after evidence consolidation', () => {
   const consolidation = signingPage.indexOf("fetch('/api/firma/finalize-evidence'");
-  const responseUpsert = signingPage.indexOf(
-    ".upsert(responsePayload, { onConflict: 'documento_id,participante_email' })"
-  );
-  const participantState = signingPage.indexOf("supabase.rpc('update_participante_sub_estado'");
+  const completionCommit = signingPage.indexOf("fetch('/api/firma/completion'", consolidation);
   assert.ok(consolidation >= 0);
-  assert.ok(responseUpsert > consolidation);
-  assert.ok(participantState > responseUpsert);
+  assert.ok(completionCommit > consolidation);
+  assert.match(signingPage.slice(completionCommit), /action: 'commit'/);
+  assert.match(signingPage.slice(completionCommit), /response: responsePayload/);
+  assert.doesNotMatch(signingPage, /update_participante_sub_estado/);
 });
 
 test('PDF security infrastructure details are not exposed to the signer', () => {

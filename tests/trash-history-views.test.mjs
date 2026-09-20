@@ -47,7 +47,7 @@ test('trash has filter, ordering, list and card views, with icon-only row action
 
 test('bulk trash selection distinguishes purge-ready documents from retained documents', () => {
   assert.match(trashPage, /listo\(s\) para eliminación permanente/);
-  assert.match(trashPage, /retenido\(s\) por recuperación, retención o Legal\s+Hold/);
+  assert.match(trashPage, /retenido\(s\) por recuperación, retención o\s+Legal\s+Hold/);
   assert.match(trashPage, /Eliminar \{selectedTrashEligible\.length \|\| ''\} seleccionados/);
   assert.match(trashPage, /openConfirmSelectedPurge/);
   assert.match(trashRoute, /document_ids\?: string\[\]/);

@@ -17,6 +17,7 @@ const parser = new XMLParser({
       'DocuboxEvidencePackage.BitacoraProbatoria.Evento',
       'DocuboxEvidencePackage.EstampasTiempo.Estampa',
       'DocuboxEvidencePackage.Documento.Relaciones.Relacion',
+      'DocuboxEvidencePackage.Firmas.Firma.Participation.Governance.EligibleParticipantRefs.ParticipantRef',
     ].includes(String(path)),
 });
 
@@ -26,6 +27,22 @@ function record(value: unknown): XmlRecord {
 
 function list(value: unknown) {
   return Array.isArray(value) ? value.map(record) : value ? [record(value)] : [];
+}
+
+function textList(value: unknown) {
+  const values = Array.isArray(value)
+    ? value
+    : value === undefined || value === null
+      ? []
+      : [value];
+  return values
+    .map((item) => {
+      if (item && typeof item === 'object') {
+        return String(record(item)['#text'] || '').trim();
+      }
+      return String(item || '').trim();
+    })
+    .filter(Boolean);
 }
 
 function value(source: unknown, key: string) {
@@ -199,6 +216,11 @@ export function parseEvidenceV2Xml(xml: string): EvidenceV2Package {
       const context = record(item.Contexto);
       const geolocation = record(context.Geolocalizacion);
       const signatureConsent = record(item.Consentimiento);
+      const participation = record(item.Participation);
+      const authentication = record(participation.Authentication);
+      const completion = record(participation.Completion);
+      const inPersonSession = record(participation.InPersonSession);
+      const governance = record(participation.Governance);
       return {
         signatureRef: attr(item, 'ref') || '',
         participantRef: attr(item, 'firmanteRef') || '',
@@ -211,6 +233,75 @@ export function parseEvidenceV2Xml(xml: string): EvidenceV2Package {
         signedAt: value(item, 'SignedAt'),
         evidenceRole:
           value(item, 'EvidenceRole') === 'FINAL_SIGNATURE' ? 'FINAL_SIGNATURE' : undefined,
+        participation: Object.keys(participation).length
+          ? {
+              mode: (attr(participation, 'mode') || 'remote') as NonNullable<
+                EvidenceV2Package['signatures'][number]['participation']
+              >['mode'],
+              participantReference: value(participation, 'ParticipantReference') || '',
+              authentication: {
+                method: (attr(authentication, 'method') || 'authenticated_session') as NonNullable<
+                  EvidenceV2Package['signatures'][number]['participation']
+                >['authentication']['method'],
+                result: (attr(authentication, 'result') || 'verified') as 'verified',
+                verifiedAt: value(authentication, 'VerifiedAt') || '',
+                evidenceRef: value(authentication, 'EvidenceRef') || '',
+              },
+              signingMethod: (value(participation, 'SigningMethod') ||
+                attr(item, 'metodo') ||
+                'firma_simple') as NonNullable<
+                EvidenceV2Package['signatures'][number]['participation']
+              >['signingMethod'],
+              consentRef: value(participation, 'ConsentRef'),
+              completion: {
+                attemptRef: attr(completion, 'attemptRef') || '',
+                correlationId: attr(completion, 'correlationId') || '',
+                committedAt: value(completion, 'CommittedAt') || '',
+                responseRef: value(completion, 'ResponseRef'),
+                canonicalEventRef: value(completion, 'CanonicalEventRef') || '',
+              },
+              inPersonSession: Object.keys(inPersonSession).length
+                ? {
+                    sessionRef: attr(inPersonSession, 'ref') || '',
+                    status: (attr(inPersonSession, 'status') || 'completed') as 'completed',
+                    createdAt: value(inPersonSession, 'CreatedAt') || '',
+                    startedAt: value(inPersonSession, 'StartedAt') || '',
+                    completedAt: value(inPersonSession, 'CompletedAt') || '',
+                  }
+                : undefined,
+              ...(Object.keys(governance).length
+                ? {
+                    governance: {
+                      signingGroupRef: value(governance, 'SigningGroupRef'),
+                      ...(value(governance, 'GroupMemberSlotRef')
+                        ? { groupMemberSlotRef: value(governance, 'GroupMemberSlotRef') }
+                        : {}),
+                      completionPolicy: value(governance, 'CompletionPolicy') as
+                        'ALL' | 'ANY_ONE' | null,
+                      delegationRef: value(governance, 'DelegationRef'),
+                      effectiveActorRef: value(governance, 'EffectiveActorRef'),
+                      actionRole: value(governance, 'ActionRole') as
+                        'signature' | 'approval' | 'witness' | null,
+                      eligibleParticipantRefs: textList(
+                        record(governance.EligibleParticipantRefs).ParticipantRef
+                      ),
+                      winnerParticipantRef: value(governance, 'WinnerParticipantRef'),
+                      originalParticipantRef: value(governance, 'OriginalParticipantRef'),
+                      delegateUserRef: value(governance, 'DelegateUserRef'),
+                      ...(value(governance, 'DelegateParticipantRef')
+                        ? { delegateParticipantRef: value(governance, 'DelegateParticipantRef') }
+                        : {}),
+                      delegationCreatedByRef: value(governance, 'DelegationCreatedByRef'),
+                      delegationPolicy: value(governance, 'DelegationPolicy') as
+                        'ORGANIZATION_ONLY' | 'AUTHORIZED_MEMBERS' | null,
+                      delegationReason: value(governance, 'DelegationReason'),
+                      delegationCreatedAt: value(governance, 'DelegationCreatedAt'),
+                      delegationCompletedAt: value(governance, 'DelegationCompletedAt'),
+                    },
+                  }
+                : {}),
+            }
+          : undefined,
         context: Object.keys(context).length
           ? {
               ipStatus: (attr(context.IP, 'status') || 'unavailable') as NonNullable<

@@ -21,6 +21,9 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import OrganizationWorkflowBuilder from '@/components/organization/OrganizationWorkflowBuilder';
+import type { WorkflowBuilderCapabilities } from '@/components/organization/OrganizationWorkflowBuilder';
+import { OrganizationCustodyInbox } from '@/components/organization/OrganizationCustodyInbox';
 
 export type GovernanceSection =
   'directorio' | 'facultades' | 'flujos' | 'politicas-firma' | 'recursos';
@@ -1032,10 +1035,19 @@ const workflowStepTypes = [
 ];
 
 function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
+  const { session } = useAuth();
+  const accessToken = session?.access_token;
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [builderEnabled, setBuilderEnabled] = useState(false);
+  const [builderCapabilities, setBuilderCapabilities] = useState<WorkflowBuilderCapabilities>({
+    notification_channels: ['in_app', 'email'],
+    action_types: ['activity'],
+    webhooks: [],
+  });
+  const [editingWorkflow, setEditingWorkflow] = useState<Row | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState<Row>({ mode: 'sequential', step_type: 'review' });
@@ -1046,15 +1058,28 @@ function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
   ]);
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await supabase
-      .from('organization_approval_workflows')
-      .select('*')
-      .eq('workspace_id', workspaceId)
-      .order('updated_at', { ascending: false });
+    const [result, capability] = await Promise.all([
+      supabase
+        .from('organization_approval_workflows')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .order('updated_at', { ascending: false }),
+      accessToken
+        ? fetch(`/api/organizacion/workflows?workspace_id=${encodeURIComponent(workspaceId)}`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            cache: 'no-store',
+          })
+        : Promise.resolve(null),
+    ]);
     if (result.error) setError(result.error.message);
     else setRows(result.data || []);
+    if (capability?.ok) {
+      const payload = await capability.json().catch(() => ({}));
+      setBuilderEnabled(payload.builder_enabled === true);
+      if (payload.builder_capabilities) setBuilderCapabilities(payload.builder_capabilities);
+    }
     setLoading(false);
-  }, [supabase, workspaceId]);
+  }, [accessToken, supabase, workspaceId]);
   useEffect(() => {
     load();
   }, [load]);
@@ -1111,6 +1136,28 @@ function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
   };
   const call = async (fn: string, item: Row, successMessage: string) => {
     setError('');
+    if (builderEnabled && accessToken) {
+      const response = await fetch('/api/organizacion/workflows', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action: fn.includes('version') ? 'new_version' : 'publish',
+          workspace_id: workspaceId,
+          workflow_id: item.id,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(payload.error || 'No se pudo actualizar el flujo.');
+        return;
+      }
+      setSuccess(successMessage);
+      await load();
+      return;
+    }
     const result = await supabase.rpc(fn, {
       ws_id: workspaceId,
       [fn.includes('version') ? 'source_workflow_id' : 'target_workflow_id']: item.id,
@@ -1121,6 +1168,29 @@ function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
       await load();
     }
   };
+  const archiveWorkflow = async (item: Row) => {
+    if (!accessToken) return;
+    setError('');
+    const response = await fetch('/api/organizacion/workflows', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        action: 'archive',
+        workspace_id: workspaceId,
+        workflow_id: item.id,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setError(payload.error || 'No se pudo archivar el flujo.');
+      return;
+    }
+    setSuccess('Flujo archivado para nuevas instancias.');
+    await load();
+  };
   return (
     <div className="max-w-[1400px] mx-auto space-y-5">
       <Header
@@ -1128,7 +1198,10 @@ function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
         action={
           canManage && (
             <button
-              onClick={() => setShowForm((value) => !value)}
+              onClick={() => {
+                setEditingWorkflow(null);
+                setShowForm((value) => !value);
+              }}
               className="h-10 px-4 rounded-md bg-primary text-white text-sm font-medium inline-flex items-center gap-2"
             >
               <Plus size={16} /> Nuevo flujo
@@ -1143,7 +1216,25 @@ function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
         rows={rows}
         canManage={canManage}
       />
-      {showForm && (
+      {showForm && builderEnabled && (
+        <OrganizationWorkflowBuilder
+          key={editingWorkflow?.id || 'new-workflow'}
+          workspaceId={workspaceId}
+          workflow={editingWorkflow}
+          capabilities={builderCapabilities}
+          onCancel={() => {
+            setShowForm(false);
+            setEditingWorkflow(null);
+          }}
+          onSaved={async (message) => {
+            setShowForm(false);
+            setEditingWorkflow(null);
+            setSuccess(message);
+            await load();
+          }}
+        />
+      )}
+      {showForm && !builderEnabled && (
         <form
           onSubmit={create}
           className="grid lg:grid-cols-[360px_minmax(0,1fr)] gap-5 items-start"
@@ -1303,14 +1394,27 @@ function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
                 {canManage && (
                   <div className="flex gap-3 text-sm">
                     {item.status === 'draft' && (
-                      <button
-                        onClick={() =>
-                          call('publish_organization_workflow', item, 'Flujo publicado.')
-                        }
-                        className="text-primary"
-                      >
-                        Publicar
-                      </button>
+                      <>
+                        {builderEnabled && (
+                          <button
+                            onClick={() => {
+                              setEditingWorkflow(item);
+                              setShowForm(true);
+                            }}
+                            className="text-foreground"
+                          >
+                            Editar
+                          </button>
+                        )}
+                        <button
+                          onClick={() =>
+                            call('publish_organization_workflow', item, 'Flujo publicado.')
+                          }
+                          className="text-primary"
+                        >
+                          Publicar
+                        </button>
+                      </>
                     )}
                     {item.status !== 'draft' && (
                       <button
@@ -1324,6 +1428,16 @@ function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
                         className="text-primary inline-flex items-center gap-1"
                       >
                         <Copy size={14} /> Nueva versión
+                      </button>
+                    )}
+                    {builderEnabled && item.status !== 'archived' && (
+                      <button
+                        onClick={() => archiveWorkflow(item)}
+                        aria-label={`Archivar ${item.name}`}
+                        title="Archivar flujo"
+                        className="text-muted-foreground"
+                      >
+                        <Archive size={15} />
                       </button>
                     )}
                   </div>
@@ -1796,6 +1910,7 @@ function ResourcesView({ workspaceId, userId, canManage, audit }: ViewProps) {
         }
       />
       <Notices error={error} success={success} />
+      <OrganizationCustodyInbox workspaceId={workspaceId} />
       {showForm && (
         <form
           onSubmit={create}

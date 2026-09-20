@@ -28,9 +28,32 @@ export async function assertBulkWorkspaceAccess(workspaceId: string, userId: str
     .select('role')
     .eq('workspace_id', workspaceId)
     .eq('user_id', userId)
+    .eq('status', 'active')
     .maybeSingle();
   if (!data) throw new BulkSignatureError('No tienes acceso a este espacio de trabajo.', 403);
   return data.role as string;
+}
+
+export async function assertBulkWorkspacePermission(
+  request: NextRequest,
+  workspaceId: string,
+  permission:
+    | 'bulk_signatures.read'
+    | 'bulk_signatures.create'
+    | 'bulk_signatures.execute'
+    | 'bulk_signatures.cancel'
+) {
+  const authorization = request.headers.get('authorization') || '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+  if (!token) throw new BulkSignatureError('Debes iniciar sesion.', 401);
+  const userClient = createAnonClient(token);
+  const result = await userClient.rpc('has_organization_permission', {
+    ws_id: workspaceId,
+    requested_permission: permission,
+  });
+  if (result.error || result.data !== true) {
+    throw new BulkSignatureError('No tienes permiso para realizar esta operacion.', 403);
+  }
 }
 
 export async function appendBulkCampaignEvent(input: {
@@ -39,6 +62,7 @@ export async function appendBulkCampaignEvent(input: {
   eventType: string;
   actorId?: string | null;
   metadata?: Record<string, unknown>;
+  eventKey?: string;
   request?: NextRequest;
 }) {
   const correlationId = input.request?.headers.get('x-correlation-id') || randomUUID();
@@ -48,13 +72,14 @@ export async function appendBulkCampaignEvent(input: {
       campaign_id: input.campaignId,
       workspace_id: input.workspaceId,
       event_type: input.eventType,
+      event_key: input.eventKey || null,
       actor_id: input.actorId || null,
       correlation_id: correlationId,
       ip_address: input.request?.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
       user_agent: input.request?.headers.get('user-agent') || null,
       metadata: input.metadata || {},
     });
-  if (error)
+  if (error && error.code !== '23505')
     throw new BulkSignatureError(`No se pudo registrar la auditoria: ${error.message}`, 500);
   return correlationId;
 }

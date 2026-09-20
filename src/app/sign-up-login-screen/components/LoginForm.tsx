@@ -206,9 +206,12 @@ function AccordionItem({
 export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props) {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const emailFromQuery = searchParams?.get('email')?.trim() || '';
 
   // ── Step 1: email ──────────────────────────────────────────────────────
-  const [emailValue, setEmailValue] = useState('');
+  const [emailValue, setEmailValue] = useState(() =>
+    /^\S+@\S+\.\S+$/.test(emailFromQuery) ? emailFromQuery : ''
+  );
   const [emailError, setEmailError] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
@@ -795,7 +798,22 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                         Contraseña <span className="text-red-500">*</span>
                       </label>
                       <Link
-                        href="/olvide-contrasena"
+                        href={
+                          /^\S+@\S+\.\S+$/.test(emailValue.trim())
+                            ? `/olvide-contrasena?email=${encodeURIComponent(emailValue.trim())}`
+                            : '/olvide-contrasena'
+                        }
+                        onClick={() => {
+                          const recoveryEmail = emailValue.trim();
+                          if (/^\S+@\S+\.\S+$/.test(recoveryEmail)) {
+                            window.sessionStorage.setItem(
+                              'docubox:password-recovery-email',
+                              recoveryEmail
+                            );
+                          } else {
+                            window.sessionStorage.removeItem('docubox:password-recovery-email');
+                          }
+                        }}
                         tabIndex={-1}
                         className="text-xs text-primary hover:underline font-500"
                       >

@@ -388,6 +388,13 @@ deno_version = 2
 [functions.send-email-notifications]
 verify_jwt = true
 
+# These signing functions validate the Bearer token explicitly with auth.getUser.
+[functions.capture-signature]
+verify_jwt = false
+
+[functions.sign-efirma]
+verify_jwt = false
+
 [functions.form-submit]
 verify_jwt = false
 

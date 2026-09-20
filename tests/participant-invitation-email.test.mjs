@@ -14,6 +14,10 @@ const reminderRoute = await readFile(
   new URL('../src/app/api/documentos/send-reminder/route.ts', import.meta.url),
   'utf8'
 );
+const documentViewer = await readFile(
+  new URL('../src/app/visor-documento/[id]/page.tsx', import.meta.url),
+  'utf8'
+);
 const emailService = await readFile(
   new URL('../src/lib/emailNotifications.ts', import.meta.url),
   'utf8'
@@ -22,10 +26,7 @@ const emailFunction = await readFile(
   new URL('../supabase/functions/send-email-notifications/index.ts', import.meta.url),
   'utf8'
 );
-const supabaseConfig = await readFile(
-  new URL('../supabase/config.toml', import.meta.url),
-  'utf8'
-);
+const supabaseConfig = await readFile(new URL('../supabase/config.toml', import.meta.url), 'utf8');
 const publicUrl = await readFile(new URL('../src/lib/publicAppUrl.ts', import.meta.url), 'utf8');
 
 test('email-selected participants receive an individual participant portal link', () => {
@@ -54,7 +55,10 @@ test('email delivery keeps the per-participant URL through the provider template
     emailFunction,
     /const ctaUrl = documentUrl \|\| `\$\{APP_URL\}\/mis-participaciones`;/
   );
-  assert.match(emailFunction, /creatorIsParticipant \? "Completar mi participaci\\u00f3n" : "Revisar documento"/);
+  assert.match(
+    emailFunction,
+    /creatorIsParticipant \? "Completar mi participaci\\u00f3n" : "Revisar documento"/
+  );
 });
 
 test('a creator who is also a participant receives a dedicated participation template', () => {
@@ -75,6 +79,16 @@ test('participant emails use the sender full name from user_profiles', () => {
   }
 });
 
+test('the creator is not reminded when they are the only participant', () => {
+  assert.match(reminderRoute, /const isCreatorOnlyParticipant/);
+  assert.match(reminderRoute, /activeParticipants\.length === 1/);
+  assert.match(
+    reminderRoute,
+    /No se envían recordatorios cuando el creador es el único participante/
+  );
+  assert.match(documentViewer, /!isCreatorOnlyParticipant/);
+});
+
 test('participant invitations embed a centered white mail icon instead of an emoji', () => {
   assert.doesNotMatch(emailFunction, /&#9993;/);
   assert.doesNotMatch(emailFunction, /&#x2709;&#xFE0E;/);
@@ -93,9 +107,6 @@ test('email aliases used by the participant form remain accepted', () => {
 });
 
 test('email delivery requires a cryptographically verified server token', () => {
-  assert.match(
-    supabaseConfig,
-    /\[functions\.send-email-notifications\]\s+verify_jwt\s*=\s*true/
-  );
+  assert.match(supabaseConfig, /\[functions\.send-email-notifications\]\s+verify_jwt\s*=\s*true/);
   assert.match(emailFunction, /getJwtRole\(authorization\) !== "service_role"/);
 });

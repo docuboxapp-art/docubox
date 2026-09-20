@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { useRouter } from 'next/navigation';
 
-import { Send, Search, User, Calendar, Clock, CheckCircle2, XCircle, List, LayoutGrid, CalendarDays, ChevronLeft, ChevronRight, Inbox, ChevronDown, Eye, Users, ChevronUp, Mail, AlertTriangle, Ban, AlertCircle, ArrowUpDown, PauseCircle, FileText, UserCheck, UserMinus } from 'lucide-react';
+import { Send, Search, User, Calendar, Clock, CheckCircle2, XCircle, LayoutList, LayoutGrid, CalendarDays, ChevronLeft, ChevronRight, Inbox, ChevronDown, Eye, Users, ChevronUp, Mail, AlertTriangle, Ban, AlertCircle, ArrowUpDown, PauseCircle, FileText, UserCheck, UserMinus } from 'lucide-react';
 
 interface ParticipantListItem {
   id?: string | null;
@@ -2174,7 +2174,7 @@ export default function ParticipationRequestsPage() {
               onClick={() => setViewMode('lista')}
               className={`flex h-8 items-center gap-1.5 rounded px-3 text-sm font-600 transition-colors ${viewMode === 'lista' ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]' : 'text-slate-500 hover:text-slate-800'}`}
             >
-              <List size={15} />
+              <LayoutList size={15} />
               Lista
             </button>
             <button
@@ -2282,7 +2282,7 @@ export default function ParticipationRequestsPage() {
                   className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${listLayout === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
                   title="Vista lista"
                 >
-                  <List size={16} />
+                  <LayoutList size={16} />
                 </button>
                 <button
                   onClick={() => setListLayout('grid')}

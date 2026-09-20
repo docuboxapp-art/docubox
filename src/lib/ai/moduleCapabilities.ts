@@ -1152,6 +1152,7 @@ const deterministicVerification = defineModule(
   [
     '/verificar-documento',
     '/verificar-documento/[identifier]',
+    '/verificar-evidencia/[id]',
     '/verificar-certificacion',
     '/verificar-certificacion/[verificationUuid]',
     '/verificar-certificacion/c/[token]',
@@ -1280,6 +1281,9 @@ const disabledSystemPages = defineModule(
     '/auth/passkey-verification',
     '/auth/totp-enrollment',
     '/auth/totp-verification',
+    '/firma-presencial/[token]',
+    '/firma-presencial/finalizada/[sessionId]',
+    '/firma-presencial/recuperar/[sessionId]',
     '/registro',
     '/olvide-contrasena',
     '/verificar-correo',

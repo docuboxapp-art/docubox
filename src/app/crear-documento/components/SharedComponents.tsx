@@ -21,13 +21,19 @@ async function fetchFavoritesFromDB(userId: string, storageKey: string): Promise
 
 async function addFavoriteToDB(userId: string, storageKey: string, itemId: string): Promise<void> {
   const supabase = createClient();
-  await supabase.from('user_favorites').upsert(
-    { user_id: userId, storage_key: storageKey, item_id: itemId },
-    { onConflict: 'user_id,storage_key,item_id' }
-  );
+  await supabase
+    .from('user_favorites')
+    .upsert(
+      { user_id: userId, storage_key: storageKey, item_id: itemId },
+      { onConflict: 'user_id,storage_key,item_id' }
+    );
 }
 
-async function removeFavoriteFromDB(userId: string, storageKey: string, itemId: string): Promise<void> {
+async function removeFavoriteFromDB(
+  userId: string,
+  storageKey: string,
+  itemId: string
+): Promise<void> {
   const supabase = createClient();
   await supabase
     .from('user_favorites')
@@ -47,6 +53,7 @@ export function FavoriteSearchableSelect({
   disabled,
   storageKey,
   userId,
+  menuMaxHeightClass = 'max-h-52',
 }: {
   options: { id: string; label: string }[];
   value: string;
@@ -55,6 +62,7 @@ export function FavoriteSearchableSelect({
   disabled?: boolean;
   storageKey: string;
   userId?: string;
+  menuMaxHeightClass?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -74,9 +82,7 @@ export function FavoriteSearchableSelect({
       if (!userId) return;
       const isFav = favorites.includes(id);
       // Optimistic update
-      setFavoritesState((prev) =>
-        isFav ? prev.filter((f) => f !== id) : [...prev, id]
-      );
+      setFavoritesState((prev) => (isFav ? prev.filter((f) => f !== id) : [...prev, id]));
       if (isFav) {
         await removeFavoriteFromDB(userId, storageKey, id);
       } else {
@@ -89,9 +95,10 @@ export function FavoriteSearchableSelect({
   // Sort: favorites first (preserving their order), then alphabetical
   const sortedOptions = React.useMemo(() => {
     const favSet = new Set(favorites);
-    const favItems = favorites
-      .map((fid) => options.find((o) => o.id === fid))
-      .filter(Boolean) as { id: string; label: string }[];
+    const favItems = favorites.map((fid) => options.find((o) => o.id === fid)).filter(Boolean) as {
+      id: string;
+      label: string;
+    }[];
     const rest = options
       .filter((o) => !favSet.has(o.id))
       .sort((a, b) => a.label.localeCompare(b.label, 'es'));
@@ -123,10 +130,13 @@ export function FavoriteSearchableSelect({
           disabled
             ? 'opacity-50 cursor-not-allowed bg-gray-50 border-gray-200'
             : hasFavorites && !value
-            ? 'border-amber-300 hover:border-amber-400 cursor-pointer ring-1 ring-amber-200' :'border-gray-200 hover:border-gray-300 cursor-pointer'
+              ? 'border-amber-300 hover:border-amber-400 cursor-pointer ring-1 ring-amber-200'
+              : 'border-gray-200 hover:border-gray-300 cursor-pointer'
         }`}
       >
-        <span className={`flex items-center gap-1.5 ${selected ? 'text-gray-800' : 'text-gray-400'}`}>
+        <span
+          className={`flex items-center gap-1.5 ${selected ? 'text-gray-800' : 'text-gray-400'}`}
+        >
           {selected && favorites.includes(selected.id) && (
             <Star size={12} className="text-amber-400 fill-amber-400 shrink-0" />
           )}
@@ -136,17 +146,24 @@ export function FavoriteSearchableSelect({
           {hasFavorites && !value && (
             <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">
               <Star size={9} className="fill-amber-400 text-amber-400" />
-              {favorites.filter((fid) => options.some((o) => o.id === fid)).length} favorito{favorites.filter((fid) => options.some((o) => o.id === fid)).length !== 1 ? 's' : ''}
+              {favorites.filter((fid) => options.some((o) => o.id === fid)).length} favorito
+              {favorites.filter((fid) => options.some((o) => o.id === fid)).length !== 1 ? 's' : ''}
             </span>
           )}
-          <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          <ChevronDown
+            size={14}
+            className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
         </div>
       </button>
       {open && (
         <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
           <div className="p-2 border-b border-gray-100">
             <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search
+                size={13}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 autoFocus
                 type="text"
@@ -161,10 +178,12 @@ export function FavoriteSearchableSelect({
           {!search && favorites.filter((fid) => options.some((o) => o.id === fid)).length > 0 && (
             <div className="px-3 py-1.5 bg-amber-50 border-b border-amber-100 flex items-center gap-1.5">
               <Star size={11} className="text-amber-400 fill-amber-400" />
-              <span className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">Favoritos</span>
+              <span className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">
+                Favoritos
+              </span>
             </div>
           )}
-          <div className="max-h-52 overflow-y-auto">
+          <div className={`${menuMaxHeightClass} overflow-y-auto overscroll-contain`}>
             {filtered.length === 0 ? (
               <div className="px-4 py-3 text-sm text-gray-400 text-center">Sin resultados</div>
             ) : (
@@ -182,9 +201,15 @@ export function FavoriteSearchableSelect({
                     >
                       <span
                         className="flex items-center gap-2 flex-1 min-w-0 py-0.5"
-                        onClick={() => { onChange(o.id); setOpen(false); setSearch(''); }}
+                        onClick={() => {
+                          onChange(o.id);
+                          setOpen(false);
+                          setSearch('');
+                        }}
                       >
-                        {isFav && <Star size={12} className="text-amber-400 fill-amber-400 shrink-0" />}
+                        {isFav && (
+                          <Star size={12} className="text-amber-400 fill-amber-400 shrink-0" />
+                        )}
                         <span className="truncate">{o.label}</span>
                       </span>
                       {userId && (
@@ -194,7 +219,8 @@ export function FavoriteSearchableSelect({
                           title={isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}
                           className={`ml-2 shrink-0 p-1 rounded-md transition-colors ${
                             isFav
-                              ? 'text-amber-400 hover:text-amber-500 hover:bg-amber-50' :'text-gray-300 hover:text-amber-400 hover:bg-amber-50'
+                              ? 'text-amber-400 hover:text-amber-500 hover:bg-amber-50'
+                              : 'text-gray-300 hover:text-amber-400 hover:bg-amber-50'
                           }`}
                         >
                           <Star size={13} className={isFav ? 'fill-amber-400' : ''} />
@@ -248,14 +274,22 @@ export function SearchableSelect({
         onClick={() => !disabled && setOpen((v) => !v)}
         className={`w-full flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white transition-colors ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:border-gray-300 cursor-pointer'}`}
       >
-        <span className={selected ? 'text-gray-800' : 'text-gray-400'}>{selected ? selected.label : placeholder}</span>
-        <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className={selected ? 'text-gray-800' : 'text-gray-400'}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <ChevronDown
+          size={14}
+          className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
       {open && (
         <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
           <div className="p-2 border-b border-gray-100">
             <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search
+                size={13}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 autoFocus
                 type="text"
@@ -274,7 +308,11 @@ export function SearchableSelect({
                 <button
                   key={o.id}
                   type="button"
-                  onClick={() => { onChange(o.id); setOpen(false); setSearch(''); }}
+                  onClick={() => {
+                    onChange(o.id);
+                    setOpen(false);
+                    setSearch('');
+                  }}
                   className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors ${value === o.id ? 'text-primary font-medium bg-primary/5' : 'text-gray-700'}`}
                 >
                   {o.label}
@@ -338,7 +376,10 @@ export function EtiquetasMultiSelect({
               {e.nombre}
               <button
                 type="button"
-                onClick={(ev) => { ev.stopPropagation(); toggle(e.id); }}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  toggle(e.id);
+                }}
                 className="hover:opacity-70 transition-opacity"
               >
                 <X size={10} />
@@ -346,13 +387,19 @@ export function EtiquetasMultiSelect({
             </span>
           ))
         )}
-        <ChevronDown size={14} className={`text-gray-400 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={14}
+          className={`text-gray-400 ml-auto transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </div>
       {open && (
         <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
           <div className="p-2 border-b border-gray-100">
             <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search
+                size={13}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 autoFocus
                 type="text"
@@ -374,9 +421,14 @@ export function EtiquetasMultiSelect({
                   onClick={() => toggle(e.id)}
                   className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors ${selectedIds.includes(e.id) ? 'bg-primary/5' : ''}`}
                 >
-                  <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: e.color || '#6B7280' }} />
+                  <span
+                    className="w-3 h-3 rounded-full shrink-0"
+                    style={{ backgroundColor: e.color || '#6B7280' }}
+                  />
                   <span className="flex-1 text-left text-gray-700">{e.nombre}</span>
-                  {selectedIds.includes(e.id) && <CheckCircle2 size={14} className="text-primary shrink-0" />}
+                  {selectedIds.includes(e.id) && (
+                    <CheckCircle2 size={14} className="text-primary shrink-0" />
+                  )}
                 </button>
               ))
             )}
@@ -434,7 +486,12 @@ export function FavoriteEtiquetasMultiSelect({
       .order('created_at', { ascending: true })
       .then(({ data, error }) => {
         // DEBUG: log raw Supabase query result
-        console.log('[FavoriteEtiquetasMultiSelect] Supabase query result — data:', data, '| error:', error);
+        console.log(
+          '[FavoriteEtiquetasMultiSelect] Supabase query result — data:',
+          data,
+          '| error:',
+          error
+        );
         if (data) setFavorites(data.map((r: { item_id: string }) => r.item_id));
       });
   }, [userId]);
@@ -452,7 +509,14 @@ export function FavoriteEtiquetasMultiSelect({
     e.stopPropagation();
     e.preventDefault();
     // DEBUG: log star click
-    console.log('[FavoriteEtiquetasMultiSelect] star clicked — itemId:', itemId, '| userId:', userId, '| currentFavorites:', favoritesRef.current);
+    console.log(
+      '[FavoriteEtiquetasMultiSelect] star clicked — itemId:',
+      itemId,
+      '| userId:',
+      userId,
+      '| currentFavorites:',
+      favoritesRef.current
+    );
     if (!userId) {
       console.warn('[FavoriteEtiquetasMultiSelect] star click ignored — userId is falsy');
       return;
@@ -504,9 +568,7 @@ export function FavoriteEtiquetasMultiSelect({
   const filtered = useMemo(
     () =>
       search
-        ? sortedEtiquetas.filter((e) =>
-            e.nombre.toLowerCase().includes(search.toLowerCase())
-          )
+        ? sortedEtiquetas.filter((e) => e.nombre.toLowerCase().includes(search.toLowerCase()))
         : sortedEtiquetas,
     [sortedEtiquetas, search]
   );
@@ -536,7 +598,8 @@ export function FavoriteEtiquetasMultiSelect({
         onKeyDown={(e) => e.key === 'Enter' && setOpen((v) => !v)}
         className={`min-h-[42px] w-full flex flex-wrap gap-1.5 items-center border rounded-lg px-3 py-2 cursor-pointer transition-colors bg-white ${
           hasFavorites && selected.length === 0
-            ? 'border-amber-300 hover:border-amber-400 ring-1 ring-amber-200' :'border-gray-200 hover:border-gray-300'
+            ? 'border-amber-300 hover:border-amber-400 ring-1 ring-amber-200'
+            : 'border-gray-200 hover:border-gray-300'
         }`}
       >
         {selected.length === 0 ? (
@@ -557,7 +620,10 @@ export function FavoriteEtiquetasMultiSelect({
               {e.nombre}
               <button
                 type="button"
-                onClick={(ev) => { ev.stopPropagation(); onChange(selectedIds.filter((x) => x !== e.id)); }}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  onChange(selectedIds.filter((x) => x !== e.id));
+                }}
                 className="hover:opacity-70 transition-opacity ml-0.5"
               >
                 <X size={10} />
@@ -585,7 +651,10 @@ export function FavoriteEtiquetasMultiSelect({
           {/* Search */}
           <div className="p-2 border-b border-gray-100">
             <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search
+                size={13}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 autoFocus
                 type="text"
@@ -634,9 +703,7 @@ export function FavoriteEtiquetasMultiSelect({
                         style={{ backgroundColor: e.color || '#6B7280' }}
                       />
                       <span className="flex-1 text-left text-gray-700">{e.nombre}</span>
-                      {isSelected && (
-                        <CheckCircle2 size={14} className="text-primary shrink-0" />
-                      )}
+                      {isSelected && <CheckCircle2 size={14} className="text-primary shrink-0" />}
                       {/* Star button — always visible; disabled state when no userId */}
                       <button
                         type="button"
@@ -644,7 +711,8 @@ export function FavoriteEtiquetasMultiSelect({
                         title={isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}
                         className={`shrink-0 p-1 rounded-md transition-colors ${
                           isFav
-                            ? 'text-amber-400 hover:text-amber-500 hover:bg-amber-50' :'text-gray-300 hover:text-amber-400 hover:bg-amber-50'
+                            ? 'text-amber-400 hover:text-amber-500 hover:bg-amber-50'
+                            : 'text-gray-300 hover:text-amber-400 hover:bg-amber-50'
                         }`}
                       >
                         <Star size={13} className={isFav ? 'fill-amber-400' : ''} />
@@ -674,10 +742,7 @@ export function InfoTooltip({
   const [showFromParent, setShowFromParent] = useState(false);
 
   useEffect(() => {
-    if (!showOnParentHover) {
-      setShowFromParent(false);
-      return;
-    }
+    if (!showOnParentHover) return;
 
     const option = rootRef.current?.closest('label');
     if (!option) return;
@@ -702,11 +767,14 @@ export function InfoTooltip({
     return () => {
       option.removeEventListener('pointerenter', scheduleParentHover);
       option.removeEventListener('pointerleave', clearParentHover);
-      clearParentHover();
+      if (parentHoverTimerRef.current !== null) {
+        window.clearTimeout(parentHoverTimerRef.current);
+        parentHoverTimerRef.current = null;
+      }
     };
   }, [showOnParentHover]);
 
-  const isVisible = show || showFromParent;
+  const isVisible = show || (showOnParentHover && showFromParent);
 
   return (
     <span ref={rootRef} className="relative inline-flex items-center">
@@ -723,7 +791,7 @@ export function InfoTooltip({
       </button>
       {(isVisible || showOnParentHover) && (
         <span
-          className={`absolute right-5 top-1/2 z-50 w-52 -translate-y-1/2 rounded-lg bg-gray-900 px-3 py-2 text-xs leading-relaxed text-white shadow-lg pointer-events-none transition-opacity duration-150 ${isVisible ? 'visible opacity-100' : 'invisible opacity-0'}`}
+          className={`pointer-events-none absolute right-5 top-1/2 z-50 w-52 -translate-y-1/2 rounded-lg bg-gray-900 px-3 py-2 text-[12px] font-normal leading-4 tracking-normal text-white shadow-lg transition-opacity duration-150 ${isVisible ? 'visible opacity-100' : 'invisible opacity-0'}`}
         >
           {text}
           <span className="absolute left-full top-1/2 -translate-y-1/2 border-4 border-transparent border-l-gray-900" />

@@ -29,6 +29,12 @@ import {
 } from './documentIntelligenceSchemas';
 import { createServiceClient } from '@/lib/supabase/server';
 import { isDocumentIntelligenceEnabled } from './documentIntelligenceFeature';
+import {
+  CONTRACTUAL_ANALYSIS_JSON_SCHEMA,
+  contractualAnalysisSchema,
+  type ContractualAnalysis,
+} from './contractIntelligenceSchemas';
+import { isPhaseEFeatureEnabled, PHASE_E_FEATURES } from '@/lib/phase-e/feature-flags';
 
 export const DOCUMENT_INTELLIGENCE_ANALYSIS_TYPES = [
   'profile',
@@ -37,6 +43,7 @@ export const DOCUMENT_INTELLIGENCE_ANALYSIS_TYPES = [
   'obligations',
   'completeness',
   'metadata_suggestions',
+  'contractual',
 ] as const;
 
 export type DocumentIntelligenceAnalysisType =
@@ -63,6 +70,7 @@ type DocumentSource = {
     id: string;
     nombre: string | null;
     workspace_id: string;
+    estado: string | null;
     file_hash_sha256: string | null;
     updated_at: string | null;
   };
@@ -90,11 +98,12 @@ export class DocumentIntelligenceError extends Error {
       | 'VERSION_NOT_FOUND'
       | 'SCHEMA_UNAVAILABLE'
       | 'DOCUMENT_INTELLIGENCE_DISABLED'
+      | 'DOCUMENT_NOT_COMPLETED'
       | 'INSUFFICIENT_EVIDENCE'
       | 'INVALID_MODEL_OUTPUT'
       | 'AI_PROVIDER_ERROR',
     public readonly status: number,
-    message = code
+    message: string = code
   ) {
     super(message);
   }
@@ -140,7 +149,7 @@ async function loadDocumentSource(
   const service = serviceFor(context);
   const { data: document, error: documentError } = await service
     .from('documentos')
-    .select('id,nombre,workspace_id,file_hash_sha256,updated_at')
+    .select('id,nombre,workspace_id,estado,file_hash_sha256,updated_at')
     .eq('id', documentId)
     .eq('workspace_id', workspaceId)
     .is('deleted_at', null)
@@ -276,7 +285,12 @@ async function createJob(
   source: DocumentSource,
   workspaceId: string,
   userId: string,
-  jobType: string
+  jobType: string,
+  options: {
+    runKey?: string | null;
+    configurationHash?: string | null;
+    requestedEventId?: string | null;
+  } = {}
 ) {
   const { data, error } = await service
     .from('ai_document_processing_jobs')
@@ -285,6 +299,10 @@ async function createJob(
       document_id: source.document.id,
       document_version_id: profileKey(source),
       job_type: jobType,
+      run_key: options.runKey || null,
+      configuration_hash: options.configurationHash || null,
+      requested_by_event_id: options.requestedEventId || null,
+      provider_metadata: { model: LUCIA_MODEL, schema_version: 1 },
       status: 'processing',
       started_at: new Date().toISOString(),
       created_by: userId,
@@ -584,6 +602,214 @@ export async function detectDocumentObligations(
   });
 }
 
+const CONTRACTUAL_SCHEMA_VERSION = 'docubox-contractual-v1';
+
+export async function analyzeContractualDocument(
+  documentId: string,
+  workspaceId: string,
+  userId: string,
+  unsafeContext?: IntelligenceContext,
+  options: { requestedEventId?: string | null } = {}
+): Promise<ContractualAnalysis & { analysis_run_id: string; reused: boolean }> {
+  const context = assertContext(documentId, workspaceId, userId, unsafeContext);
+  const service = serviceFor(context);
+  if (!(await isPhaseEFeatureEnabled(service, PHASE_E_FEATURES.contractualIntelligence))) {
+    throw new DocumentIntelligenceError('DOCUMENT_INTELLIGENCE_DISABLED', 503);
+  }
+  const source = await loadDocumentSource(documentId, workspaceId, context);
+  if (!['completado', 'completed'].includes(String(source.document.estado || '').toLowerCase())) {
+    throw new DocumentIntelligenceError(
+      'DOCUMENT_NOT_COMPLETED',
+      409,
+      'CONTRACTUAL_ANALYSIS_REQUIRES_COMPLETED_DOCUMENT'
+    );
+  }
+  const configurationHash = createHash('sha256').update(CONTRACTUAL_SCHEMA_VERSION).digest('hex');
+  const runKey = `contractual:${documentId}:${profileKey(source) || 'legacy'}:${configurationHash}`;
+  const existing = await service
+    .from('ai_document_processing_jobs')
+    .select('id,status,provider_metadata')
+    .eq('workspace_id', workspaceId)
+    .eq('run_key', runKey)
+    .maybeSingle();
+  if (existing.error && !schemaError(existing.error)) throw existing.error;
+  if (existing.data?.status === 'completed') {
+    const [fields, obligations] = await Promise.all([
+      service
+        .from('ai_document_extracted_fields')
+        .select('*')
+        .eq('analysis_run_id', existing.data.id)
+        .order('created_at'),
+      service
+        .from('ai_document_obligations')
+        .select('*')
+        .eq('analysis_run_id', existing.data.id)
+        .order('created_at'),
+    ]);
+    if (fields.error || obligations.error) throw fields.error || obligations.error;
+    const facts = (fields.data || [])
+      .filter((row) => !String(row.field_key).startsWith('contract_risk_'))
+      .map((row) => ({
+        category: String(row.field_key).split('_')[1] || 'clause',
+        field_key: String(row.field_key).replace(/^contract_/, ''),
+        field_label: row.field_label,
+        field_value: row.field_value,
+        normalized_value: row.normalized_value,
+        value_type: row.value_type,
+        source_kind:
+          row.extraction_method === 'llm_contractual_inference' ? 'inference' : 'explicit',
+        confidence: Number(row.confidence),
+        chunk_id: row.chunk_id,
+        page_number: row.page_number,
+        evidence_text: row.evidence_text,
+      }));
+    const risks = (fields.data || [])
+      .filter((row) => String(row.field_key).startsWith('contract_risk_'))
+      .map((row) => ({
+        risk_key: String(row.field_key).replace(/^contract_risk_/, ''),
+        title: row.field_label,
+        description: row.field_value,
+        severity: row.normalized_value,
+        source_kind:
+          row.extraction_method === 'llm_contractual_inference' ? 'inference' : 'explicit',
+        confidence: Number(row.confidence),
+        chunk_id: row.chunk_id,
+        page_number: row.page_number,
+        evidence_text: row.evidence_text,
+      }));
+    const metadata = existing.data.provider_metadata as Record<string, unknown> | null;
+    const restored = contractualAnalysisSchema.parse({
+      applicability: metadata?.applicability || {
+        is_contract: true,
+        confidence: 1,
+        reason: 'Analisis contractual persistido.',
+        evidence: [],
+      },
+      facts,
+      obligations: (obligations.data || []).map((row) => ({
+        obligation_type: row.obligation_type,
+        obligated_party: row.obligated_party || '',
+        beneficiary_party: row.beneficiary_party || '',
+        description: row.description,
+        due_date: row.due_date,
+        recurrence_rule: row.recurrence_rule,
+        priority: row.priority,
+        confidence: Number(row.confidence),
+        chunk_id: row.chunk_id,
+        page_number: row.page_number,
+        evidence_text: row.evidence_text,
+        suggested_task: row.suggested_task,
+      })),
+      risks,
+      not_found: Array.isArray(metadata?.not_found) ? metadata.not_found : [],
+    });
+    return { ...restored, analysis_run_id: existing.data.id, reused: true };
+  }
+  if (existing.data?.status === 'processing') {
+    throw new DocumentIntelligenceError(
+      'AI_PROVIDER_ERROR',
+      409,
+      'CONTRACTUAL_ANALYSIS_IN_PROGRESS'
+    );
+  }
+
+  const jobId = await createJob(service, source, workspaceId, userId, 'contractual_analysis', {
+    runKey,
+    configurationHash,
+    requestedEventId: options.requestedEventId,
+  });
+  try {
+    const generated = await strictJson({
+      name: 'contractual_analysis',
+      schema: CONTRACTUAL_ANALYSIS_JSON_SCHEMA,
+      validator: contractualAnalysisSchema,
+      instruction:
+        'Determina primero si el documento es contractual. Extrae solo hechos, obligaciones y riesgos respaldados por una fuente. Distingue explicit de inference. No emitas consejo legal, no inventes datos y enumera en not_found los datos contractuales importantes ausentes.',
+      material: sourceMaterial(source),
+    });
+    const ids = evidenceIds(source);
+    const data: ContractualAnalysis = {
+      ...generated.data,
+      facts: generated.data.facts.filter((item) => ids.has(item.chunk_id)),
+      obligations: generated.data.obligations.filter((item) => ids.has(item.chunk_id)),
+      risks: generated.data.risks.filter((item) => ids.has(item.chunk_id)),
+    };
+    const factRows = data.facts.map((fact) => ({
+      ...commonRow(source, workspaceId),
+      field_key: `contract_${fact.category}_${fact.field_key}`.slice(0, 120),
+      field_label: fact.field_label,
+      field_value: fact.field_value,
+      normalized_value: fact.normalized_value,
+      value_type: fact.value_type,
+      confidence: fact.confidence,
+      page_number: fact.page_number,
+      chunk_id: fact.chunk_id,
+      evidence_text: fact.evidence_text,
+      extraction_method:
+        fact.source_kind === 'inference' ? 'llm_contractual_inference' : 'llm_contractual_explicit',
+      status: 'extracted',
+      analysis_run_id: jobId,
+    }));
+    const riskRows = data.risks.map((risk, index) => ({
+      ...commonRow(source, workspaceId),
+      field_key: `contract_risk_${risk.risk_key}_${index + 1}`.slice(0, 120),
+      field_label: risk.title,
+      field_value: risk.description,
+      normalized_value: risk.severity,
+      value_type: 'text',
+      confidence: risk.confidence,
+      page_number: risk.page_number,
+      chunk_id: risk.chunk_id,
+      evidence_text: risk.evidence_text,
+      extraction_method:
+        risk.source_kind === 'inference' ? 'llm_contractual_inference' : 'llm_contractual_explicit',
+      status: 'extracted',
+      analysis_run_id: jobId,
+    }));
+    if (factRows.length || riskRows.length) {
+      const inserted = await service
+        .from('ai_document_extracted_fields')
+        .insert([...factRows, ...riskRows]);
+      if (inserted.error) throw inserted.error;
+    }
+    if (data.obligations.length) {
+      const inserted = await service.from('ai_document_obligations').insert(
+        data.obligations.map((item) => ({
+          ...commonRow(source, workspaceId),
+          ...item,
+          status: 'detected',
+          analysis_run_id: jobId,
+        }))
+      );
+      if (inserted.error) throw inserted.error;
+    }
+    await service
+      .from('ai_document_processing_jobs')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        provider_metadata: {
+          model: LUCIA_MODEL,
+          schema_version: CONTRACTUAL_SCHEMA_VERSION,
+          applicability: data.applicability,
+          not_found: data.not_found,
+          input_tokens: generated.usage.inputTokens,
+          output_tokens: generated.usage.outputTokens,
+        },
+      })
+      .eq('id', jobId);
+    return { ...data, analysis_run_id: jobId, reused: false };
+  } catch (error) {
+    await finishJob(
+      service,
+      jobId,
+      'failed',
+      error instanceof DocumentIntelligenceError ? error.code : 'PROCESSING_FAILED'
+    );
+    throw error;
+  }
+}
+
 export async function checkDocumentCompleteness(
   documentId: string,
   workspaceId: string,
@@ -835,7 +1061,14 @@ export async function getDocumentIntelligenceSummary(
       : query.is('document_version_id', null);
     return query;
   };
-  const [profile, fields, entities, obligations, classifications, completeness, jobs] =
+  const contractualEnabled = await isPhaseEFeatureEnabled(
+    service,
+    PHASE_E_FEATURES.contractualIntelligence
+  );
+  const reviewsQuery = contractualEnabled
+    ? scoped('ai_document_fact_reviews').order('reviewed_at', { ascending: false }).limit(200)
+    : Promise.resolve({ data: [], error: null });
+  const [profile, fields, entities, obligations, classifications, completeness, jobs, reviews] =
     await Promise.all([
       scoped('ai_document_profiles').maybeSingle(),
       scoped('ai_document_extracted_fields'),
@@ -846,6 +1079,7 @@ export async function getDocumentIntelligenceSummary(
       scoped('ai_document_processing_jobs', 'id,job_type,status,error_code,created_at,completed_at')
         .order('created_at', { ascending: false })
         .limit(20),
+      reviewsQuery,
     ]);
   for (const result of [
     profile,
@@ -855,6 +1089,7 @@ export async function getDocumentIntelligenceSummary(
     classifications,
     completeness,
     jobs,
+    reviews,
   ]) {
     if (schemaError(result.error)) throw new DocumentIntelligenceError('SCHEMA_UNAVAILABLE', 503);
     if (result.error) throw result.error;
@@ -865,6 +1100,10 @@ export async function getDocumentIntelligenceSummary(
       new Date(profile.data.updated_at).getTime() <
         new Date(source.document.updated_at || 0).getTime())
   );
+  const latestContractualRun =
+    (jobs.data || []).find(
+      (job: any) => job.job_type === 'contractual_analysis' && job.status === 'completed'
+    ) || null;
   return {
     document_id: documentId,
     document_version_id: versionId,
@@ -880,6 +1119,18 @@ export async function getDocumentIntelligenceSummary(
     classifications: classifications.data || [],
     completeness_checks: completeness.data || [],
     jobs: jobs.data || [],
+    reviews: reviews.data || [],
+    contractual: {
+      fields: (fields.data || []).filter(
+        (field: any) =>
+          String(field.field_key).startsWith('contract_') &&
+          field.analysis_run_id === latestContractualRun?.id
+      ),
+      obligations: (obligations.data || []).filter(
+        (item: any) => item.analysis_run_id === latestContractualRun?.id
+      ),
+      latest_run: latestContractualRun,
+    },
     evidence_sources: source.chunks.map((chunk) => ({
       claim: 'Fuente documental disponible',
       source_type: 'document_chunk',

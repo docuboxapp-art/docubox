@@ -1,10 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  assertKioskDocumentScope,
+  kioskParticipantMatchesUser,
+} from '@/lib/in-person/kiosk-session.server';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function resolveParticipantRecordId(
+  participant: Record<string, unknown> | undefined,
+  authenticatedUserId: string
+) {
+  const candidates = [participant?.user_id, participant?.id, authenticatedUserId];
+  return (
+    candidates
+      .map((candidate) => String(candidate || '').trim())
+      .find((candidate) => UUID_PATTERN.test(candidate)) || authenticatedUserId
+  );
+}
 
 function toNullableInteger(value: unknown) {
   const numericValue = Number(value);
@@ -57,6 +75,14 @@ export async function POST(req: NextRequest) {
 
     if (!documentId) {
       return NextResponse.json({ error: 'documentId requerido' }, { status: 400 });
+    }
+
+    const kioskSession = await assertKioskDocumentScope(req, documentId);
+    if (kioskSession) {
+      const identity = await kioskParticipantMatchesUser(supabaseAdmin, kioskSession, user);
+      if (!identity.matches) {
+        return NextResponse.json({ error: 'KIOSK_PARTICIPANT_MISMATCH' }, { status: 403 });
+      }
     }
 
     const latitude = Number(sessionEvidence?.geo?.latitude);
@@ -235,7 +261,7 @@ export async function POST(req: NextRequest) {
       participant_name: userName ?? null,
       participant_email: userEmail ?? user.email ?? null,
       participant_role: participantRole,
-      participant_record_id: participantEntry?.id ?? participantEntry?.user_id ?? user.id,
+      participant_record_id: resolveParticipantRecordId(participantEntry, user.id),
       image_storage_bucket: 'signatures',
       strokes_storage_bucket: 'evidence',
       context_ip_status: ipAddress && ipAddress !== 'unknown' ? 'available' : 'unavailable',
@@ -250,7 +276,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!evidenceId) {
-      return NextResponse.json({ error: 'CaptureID requerido', code: 'CAPTURE_ID_REQUIRED' }, { status: 422 });
+      return NextResponse.json(
+        { error: 'CaptureID requerido', code: 'CAPTURE_ID_REQUIRED' },
+        { status: 422 }
+      );
     }
     const { data: insertedEvidence, error: evidenceError } = await supabaseAdmin
       .from('signature_evidence')
@@ -280,8 +309,11 @@ export async function POST(req: NextRequest) {
     // participant or document state after the user explicitly confirms the action.
     const { error: signatureLogError } = await supabaseAdmin.from('document_activity_log').insert({
       documento_id: documentId,
-      user_id: user.id,
+      actor_id: user.id,
+      actor_nombre: user.user_metadata?.full_name || user.email || 'Participante',
+      actor_email: user.email || null,
       action: 'autografa_capturada',
+      category: 'participantes',
       details: {
         evidence_id: insertedEvidence?.id || evidenceId,
         otp_verified: otpVerified,
@@ -290,7 +322,10 @@ export async function POST(req: NextRequest) {
       },
     });
     if (signatureLogError) {
-      console.warn('[persist-evidence] No se pudo registrar la captura:', signatureLogError.message);
+      console.warn(
+        '[persist-evidence] No se pudo registrar la captura:',
+        signatureLogError.message
+      );
     }
 
     return NextResponse.json({

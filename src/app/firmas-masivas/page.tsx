@@ -16,12 +16,11 @@ import {
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { createClient } from '@/lib/supabase/client';
+import { bulkSignatureApiFetch } from '@/lib/bulk-signatures/client';
 import {
   BULK_TYPE_LABELS,
   DEMO_BULK_CAMPAIGNS,
   mapBulkCampaignRow,
-  readLocalBulkCampaigns,
   type BulkCampaignSummary,
 } from '@/lib/bulk-signatures/schema';
 import { DEVELOPMENT_DEMO_DATA_ENABLED } from '@/lib/product/developmentModules';
@@ -46,27 +45,23 @@ export default function BulkSignaturesPage() {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
-      const { data, error } = await createClient()
-        .from('bulk_signature_campaigns')
-        .select('*')
-        .eq('workspace_id', activeWorkspace.id)
-        .order('updated_at', { ascending: false });
-      if (cancelled) return;
-      if (error) {
-        const local = DEVELOPMENT_DEMO_DATA_ENABLED ? readLocalBulkCampaigns() : [];
-        setCampaigns(
-          DEVELOPMENT_DEMO_DATA_ENABLED
-            ? local.length
-              ? [...local, ...DEMO_BULK_CAMPAIGNS]
-              : DEMO_BULK_CAMPAIGNS
-            : []
+      try {
+        const response = await bulkSignatureApiFetch(
+          `/api/bulk-signatures?workspaceId=${encodeURIComponent(activeWorkspace.id)}`
         );
-        setDemoMode(DEVELOPMENT_DEMO_DATA_ENABLED);
-      } else {
-        setCampaigns((data || []).map(mapBulkCampaignRow));
+        const payload = await response.json();
+        if (!response.ok)
+          throw new Error(payload.error || 'No se pudieron consultar las campanas.');
+        if (cancelled) return;
+        setCampaigns((payload.data || []).map(mapBulkCampaignRow));
         setDemoMode(false);
+      } catch {
+        if (cancelled) return;
+        setCampaigns(DEVELOPMENT_DEMO_DATA_ENABLED ? DEMO_BULK_CAMPAIGNS : []);
+        setDemoMode(DEVELOPMENT_DEMO_DATA_ENABLED);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     };
     load();
     return () => {

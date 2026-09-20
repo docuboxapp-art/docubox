@@ -22,6 +22,55 @@ function status(name: string, value: VerificationStatus) {
   return `<${name} status="${esc(value)}"/>`;
 }
 
+function renderParticipation(value: EvidenceV2Package['signatures'][number]['participation']) {
+  if (!value) return '';
+  return `<Participation mode="${esc(value.mode)}">
+        ${tag('ParticipantReference', value.participantReference)}
+        <Authentication method="${esc(value.authentication.method)}" result="${esc(value.authentication.result)}">
+          ${tag('VerifiedAt', value.authentication.verifiedAt)}
+          ${tag('EvidenceRef', value.authentication.evidenceRef)}
+        </Authentication>
+        ${tag('SigningMethod', value.signingMethod)}
+        ${tag('ConsentRef', value.consentRef)}
+        <Completion attemptRef="${esc(value.completion.attemptRef)}" correlationId="${esc(value.completion.correlationId)}">
+          ${tag('CommittedAt', value.completion.committedAt)}
+          ${tag('ResponseRef', value.completion.responseRef)}
+          ${tag('CanonicalEventRef', value.completion.canonicalEventRef)}
+        </Completion>
+        ${
+          value.inPersonSession
+            ? `<InPersonSession ref="${esc(value.inPersonSession.sessionRef)}" status="${esc(value.inPersonSession.status)}">
+          ${tag('CreatedAt', value.inPersonSession.createdAt)}
+          ${tag('StartedAt', value.inPersonSession.startedAt)}
+          ${tag('CompletedAt', value.inPersonSession.completedAt)}
+        </InPersonSession>`
+            : ''
+        }
+        ${
+          value.governance
+            ? `<Governance>
+          ${tag('SigningGroupRef', value.governance.signingGroupRef)}
+          ${tag('GroupMemberSlotRef', value.governance.groupMemberSlotRef)}
+          ${tag('CompletionPolicy', value.governance.completionPolicy)}
+          ${tag('DelegationRef', value.governance.delegationRef)}
+          ${tag('EffectiveActorRef', value.governance.effectiveActorRef)}
+          ${tag('ActionRole', value.governance.actionRole)}
+          ${(value.governance.eligibleParticipantRefs || []).length ? `<EligibleParticipantRefs>${(value.governance.eligibleParticipantRefs || []).map((ref) => tag('ParticipantRef', ref)).join('')}</EligibleParticipantRefs>` : ''}
+          ${tag('WinnerParticipantRef', value.governance.winnerParticipantRef)}
+          ${tag('OriginalParticipantRef', value.governance.originalParticipantRef)}
+          ${tag('DelegateUserRef', value.governance.delegateUserRef)}
+          ${tag('DelegateParticipantRef', value.governance.delegateParticipantRef)}
+          ${tag('DelegationCreatedByRef', value.governance.delegationCreatedByRef)}
+          ${tag('DelegationPolicy', value.governance.delegationPolicy)}
+          ${tag('DelegationReason', value.governance.delegationReason)}
+          ${tag('DelegationCreatedAt', value.governance.delegationCreatedAt)}
+          ${tag('DelegationCompletedAt', value.governance.delegationCompletedAt)}
+        </Governance>`
+            : ''
+        }
+      </Participation>`;
+}
+
 function renderParticipants(value: EvidenceV2Package['participants'], isV21: boolean) {
   return value
     .map(
@@ -65,6 +114,7 @@ function renderSignatures(value: EvidenceV2Package['signatures'], isV21: boolean
       ${tag('FechaCaptura', signature.capturedAt)}
       ${isV21 ? tag('SignedAt', signature.signedAt) : ''}
       ${isV21 && signature.evidenceRole ? tag('EvidenceRole', signature.evidenceRole) : ''}
+      ${isV21 ? renderParticipation(signature.participation) : ''}
       ${
         isV21 && signature.context
           ? `<Contexto>

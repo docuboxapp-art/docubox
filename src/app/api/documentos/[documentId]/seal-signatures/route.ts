@@ -189,6 +189,60 @@ export async function POST(
     const user = await authenticatedUser(request);
     if (!user) return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
 
+    let suppliedTemplatePdf: Uint8Array | null = null;
+    let suppliedFieldMeasurements: Array<{
+      id: string;
+      page: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }> = [];
+    if ((request.headers.get('content-type') || '').includes('multipart/form-data')) {
+      const form = await request.formData();
+      const templatePdf = form.get('templatePdf');
+      if (templatePdf instanceof File) {
+        if (templatePdf.size <= 0 || templatePdf.size > 25 * 1024 * 1024) {
+          return NextResponse.json(
+            { error: 'La materialización de la plantilla no es válida.' },
+            { status: 400 }
+          );
+        }
+        suppliedTemplatePdf = new Uint8Array(await templatePdf.arrayBuffer());
+        if (Buffer.from(suppliedTemplatePdf.subarray(0, 5)).toString('ascii') !== '%PDF-') {
+          suppliedTemplatePdf.fill(0);
+          return NextResponse.json(
+            { error: 'La materialización de la plantilla no es un PDF válido.' },
+            { status: 400 }
+          );
+        }
+      }
+      try {
+        const rawMeasurements = JSON.parse(String(form.get('templateFieldMeasurements') || '[]'));
+        if (Array.isArray(rawMeasurements)) {
+          suppliedFieldMeasurements = rawMeasurements.filter((measurement) => {
+            if (!measurement || typeof measurement !== 'object') return false;
+            const values = [
+              measurement.page,
+              measurement.x,
+              measurement.y,
+              measurement.width,
+              measurement.height,
+            ].map(Number);
+            return (
+              typeof measurement.id === 'string' &&
+              measurement.id.length > 0 &&
+              values.every(Number.isFinite) &&
+              values[0] >= 1 &&
+              values.slice(1).every((value) => value >= 0 && value <= 100)
+            );
+          });
+        }
+      } catch {
+        suppliedFieldMeasurements = [];
+      }
+    }
+
     const { documentId } = await context.params;
     const service = createServiceClient();
     const documentResult = await service
@@ -344,13 +398,20 @@ export async function POST(
         { error: 'El documento original no está disponible.' },
         { status: 409 }
       );
-    if (document.file_type && document.file_type !== 'application/pdf')
+    const isTemplateDocument =
+      document.file_type === 'application/vnd.docubox.template+json';
+    if (isTemplateDocument && !suppliedTemplatePdf)
+      return NextResponse.json(
+        { error: 'No fue posible materializar el documento de plantilla.' },
+        { status: 422 }
+      );
+    if (document.file_type && document.file_type !== 'application/pdf' && !isTemplateDocument)
       return NextResponse.json(
         { error: 'La estampa solo está disponible para documentos PDF.' },
         { status: 422 }
       );
     const encryptionEnabled = documentEncryptionPolicy().enabled;
-    const original = encryptionEnabled
+    const original = !suppliedTemplatePdf && encryptionEnabled
       ? await readDocumentStorageObject({
           service,
           storageBucket: 'documents',
@@ -360,7 +421,9 @@ export async function POST(
           requestId: request.headers.get('x-request-id'),
         })
       : null;
-    const originalBytes = original
+    const originalBytes = suppliedTemplatePdf
+      ? suppliedTemplatePdf
+      : original
       ? new Uint8Array(original.plaintext)
       : await (async () => {
           const downloaded = await service.storage.from('documents').download(storagePath);
@@ -368,8 +431,15 @@ export async function POST(
             throw downloaded.error || new Error('No se pudo abrir el documento original.');
           return new Uint8Array(await downloaded.data.arrayBuffer());
         })();
-    const originalHash = createHash('sha256').update(originalBytes).digest('hex');
-    if (document.file_hash_sha256 && normalize(document.file_hash_sha256) !== originalHash) {
+    const renderedInputHash = createHash('sha256').update(originalBytes).digest('hex');
+    const originalHash = suppliedTemplatePdf
+      ? normalize(document.file_hash_sha256) || renderedInputHash
+      : renderedInputHash;
+    if (
+      !suppliedTemplatePdf &&
+      document.file_hash_sha256 &&
+      normalize(document.file_hash_sha256) !== renderedInputHash
+    ) {
       return NextResponse.json(
         {
           error:
@@ -564,11 +634,27 @@ export async function POST(
     // Historic documents persisted the creator as the logical participant
     // `current-user`. Resolve only that reserved identifier to the immutable
     // owner UUID; regular participant IDs remain untouched.
-    const resolvedSignatureFields = signatureFields.map((field) =>
-      normalize(field.participantId) === 'current-user'
-        ? { ...field, participantId: document.owner_id }
-        : field
+    const measuredFields = new Map(
+      suppliedFieldMeasurements.map((measurement) => [measurement.id, measurement])
     );
+    const resolvedSignatureFields = signatureFields.map((field) => {
+      const measurement = field.id ? measuredFields.get(field.id) : null;
+      return {
+        ...field,
+        ...(measurement
+          ? {
+              page: measurement.page,
+              x: measurement.x,
+              y: measurement.y,
+              width: measurement.width,
+              height: measurement.height,
+            }
+          : {}),
+        ...(normalize(field.participantId) === 'current-user'
+          ? { participantId: document.owner_id }
+          : {}),
+      };
+    });
 
     let visualPdfBytes: Uint8Array;
     let visualPdfSha256: string;
@@ -665,6 +751,7 @@ export async function POST(
       category: 'firma',
       details: {
         original_sha256: originalHash,
+        template_materialized_pdf_sha256: suppliedTemplatePdf ? renderedInputHash : null,
         visual_pdf_sha256: visualPdfSha256,
         sealed_sha256: pades.sha256,
         signatures: stampsApplied,

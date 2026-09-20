@@ -1,19 +1,22 @@
-const ENVIA_SMS_TOKEN = process.env.ENVIA_SMS_TOKEN || '7b75c189-f537-45b9-b3bb-4af3b1af4843';
-const ENVIA_SMS_BASE_URL = 'https://envia-sms.com/api/sms/send';
-const ENVIA_SMS_PROJECT = process.env.ENVIA_SMS_PROJECT || '822486';
+import 'server-only';
 
-// Template IDs — configure via ENVIA_SMS_TEMPLATE_ID environment variable
-// or set the default here. Must match a template created in your envia-sms.com panel.
-const TEMPLATE_SIGNATURE_REQUEST =
-  process.env.ENVIA_SMS_TEMPLATE_ID ?? '01';
+const ENVIA_SMS_BASE_URL = 'https://envia-sms.com/api/sms/send';
+
+export class SmsConfigurationError extends Error {
+  constructor() {
+    super('SMS_NOT_CONFIGURED');
+    this.name = 'SmsConfigurationError';
+  }
+}
 
 export interface SendSmsParams {
-  phone: string;       // e.g. "+52 55 1234 5678" or "5215512345678"
+  phone: string; // e.g. "+52 55 1234 5678" or "5215512345678"
   recipientName?: string;
   documentName?: string;
   message?: string;
   templateId?: string;
   scheduledAt?: string; // YYYY-MM-DD HH:MM:SS (GMT-5)
+  testMode?: boolean;
 }
 
 export interface SmsApiResponse {
@@ -34,21 +37,31 @@ export interface SmsApiResponse {
  * prefix (country code) + number, no spaces or symbols.
  * Example: "+52 55 1234 5678" → prefix="52", number="5512345678"
  */
-function parsePhone(phone: string): { prefix: string; number: string } | null {
-  // Remove all non-digit characters except leading +
-  const cleaned = phone.replace(/[^\d+]/g, '');
-  // If starts with +, strip it
-  const digits = cleaned.startsWith('+') ? cleaned.slice(1) : cleaned;
+export function normalizeSmsPhone(phone: string): string | null {
+  let digits = phone.replace(/\D/g, '');
+  if (digits.length === 13 && digits.startsWith('521')) digits = `52${digits.slice(3)}`;
+  if (digits.length === 10) digits = `52${digits}`;
+  if (!/^52\d{10}$/.test(digits)) return null;
+  return `+${digits}`;
+}
 
-  if (digits.length < 10) return null;
-
-  // Mexico default: country code 52, rest is the number
-  if (digits.startsWith('52') && digits.length >= 12) {
-    return { prefix: '52', number: digits.slice(2) };
+function smsConfiguration(templateId?: string) {
+  const token = process.env.ENVIA_SMS_TOKEN?.trim() || '';
+  const project = process.env.ENVIA_SMS_PROJECT?.trim() || '';
+  const template = templateId?.trim() || process.env.ENVIA_SMS_TEMPLATE_ID?.trim() || '';
+  if (token.length < 20 || !/^\d{1,20}$/.test(project) || !/^[a-zA-Z0-9_-]{1,40}$/.test(template)) {
+    throw new SmsConfigurationError();
   }
+  return { token, project, template };
+}
 
-  // Fallback: assume first 2 digits are country code
-  return { prefix: digits.slice(0, 2), number: digits.slice(2) };
+export function isSmsConfigured() {
+  try {
+    smsConfiguration();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -56,23 +69,23 @@ function parsePhone(phone: string): { prefix: string; number: string } | null {
  * Returns the API response or throws on network error.
  */
 export async function sendSms(params: SendSmsParams): Promise<SmsApiResponse> {
-  const parsed = parsePhone(params.phone);
-  if (!parsed) {
+  const normalizedPhone = normalizeSmsPhone(params.phone);
+  if (!normalizedPhone) {
     return {
       error: true,
       codigo_error: 'INVALID_PHONE',
-      mensaje_error: `Número de teléfono inválido: ${params.phone}`,
+      mensaje_error: 'Número de teléfono inválido.',
     };
   }
 
-  const templateId = params.templateId ?? TEMPLATE_SIGNATURE_REQUEST;
-  const numeroParam = `${parsed.prefix},${parsed.number}`;
+  const config = smsConfiguration(params.templateId);
+  const numeroParam = `52,${normalizedPhone.slice(3)}`;
 
   const url = new URL(ENVIA_SMS_BASE_URL);
-  url.searchParams.set('plantilla', templateId);
-  url.searchParams.set('token', ENVIA_SMS_TOKEN);
+  url.searchParams.set('plantilla', config.template);
+  url.searchParams.set('token', params.testMode ? `pruebas_${config.token}` : config.token);
   url.searchParams.set('numero', numeroParam);
-  url.searchParams.set('proyecto', ENVIA_SMS_PROJECT);
+  url.searchParams.set('proyecto', config.project);
 
   // Pass template variables if provided
   if (params.recipientName) {

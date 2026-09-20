@@ -41,6 +41,7 @@ export type EmitDomainEventInput = {
   deduplicationKey?: string | null;
   expiresAt?: string | null;
   channels?: NotificationChannel[];
+  deliveryPolicy?: 'single' | 'fallback' | 'multidelivery';
   requestId?: string | null;
 };
 
@@ -85,7 +86,7 @@ function preferenceAllows(
   if (!preference) return true;
   if (channel === 'in_app') return preference.in_app_enabled;
   if (channel === 'email') return preference.email_enabled;
-  return false;
+  return true;
 }
 
 async function appendEvent(
@@ -142,6 +143,12 @@ export async function emitDomainEvent(input: EmitDomainEventInput) {
         : requestedChannels
     ),
   ];
+  const deliveryPolicy = input.deliveryPolicy || 'single';
+  const externalChannels = channels.filter(
+    (channel): channel is Exclude<NotificationChannel, 'in_app'> => channel !== 'in_app'
+  );
+  const fallbackPrimary = deliveryPolicy === 'fallback' ? externalChannels[0] : null;
+  const fallbackChannel = deliveryPolicy === 'fallback' ? externalChannels[1] || null : null;
   const recipients = [
     ...new Map(
       input.recipients
@@ -261,6 +268,9 @@ export async function emitDomainEvent(input: EmitDomainEventInput) {
 
     for (const channel of channels) {
       if (!preferenceAllows(preference, channel, category, severity)) continue;
+      if (deliveryPolicy === 'fallback' && channel !== 'in_app' && channel !== fallbackPrimary) {
+        continue;
+      }
       const delivery = await service.from('notification_deliveries').insert({
         notification_id: notificationId,
         channel,
@@ -271,6 +281,8 @@ export async function emitDomainEvent(input: EmitDomainEventInput) {
             ? sha256(recipient.email.trim().toLowerCase())
             : null,
         delivered_at: channel === 'in_app' ? now : null,
+        delivery_policy: channel === 'in_app' ? 'single' : deliveryPolicy,
+        fallback_channel: channel === fallbackPrimary ? fallbackChannel : null,
       });
       if (delivery.error && delivery.error.code !== '23505') throw delivery.error;
       await appendEvent(service, {

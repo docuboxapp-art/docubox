@@ -28,6 +28,7 @@ export interface BulkCampaignSummary {
   pendingItems: number;
   failedItems: number;
   participantCount: number;
+  scheduledAt?: string;
   expiresAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -43,11 +44,19 @@ export interface BulkCampaignDraft {
   expiresAt: string;
   timezone: string;
   sourceName: string;
+  sourceDocumentId: string;
+  sourceVersionId: string | null;
+  sourceVariant: 'original' | 'version' | 'certified';
+  sourceSha256: string;
+  sourceDocumentName: string;
+  sourceVersionLabel: string;
   recipientCount: number;
   signatureMethod: 'autograph_otp' | 'efirma' | 'click_sign' | 'biometric';
   workflowType: 'parallel' | 'sequential';
   requireIdentity: boolean;
   sendReminders: boolean;
+  deliveryMode: 'draft' | 'now' | 'scheduled';
+  scheduledAt: string;
 }
 
 export interface BulkCampaignItem {
@@ -57,7 +66,20 @@ export interface BulkCampaignItem {
   participantName: string;
   participantEmail: string;
   status:
-    'pending' | 'generating' | 'sent' | 'viewed' | 'signed' | 'rejected' | 'expired' | 'failed';
+    | 'pending'
+    | 'validating'
+    | 'generating'
+    | 'ready'
+    | 'queued'
+    | 'sending'
+    | 'sent'
+    | 'viewed'
+    | 'signing'
+    | 'signed'
+    | 'rejected'
+    | 'expired'
+    | 'cancelled'
+    | 'failed';
   progress: number;
   errorMessage?: string;
   updatedAt: string;
@@ -138,14 +160,15 @@ export const DEMO_BULK_CAMPAIGNS: BulkCampaignSummary[] = [
   },
 ];
 
-export function mapBulkCampaignRow(row: any): BulkCampaignSummary {
+export function mapBulkCampaignRow(row: Record<string, unknown>): BulkCampaignSummary {
+  const metadata = (row.metadata || {}) as Record<string, unknown>;
   return {
-    id: row.id,
-    name: row.name || 'Campana sin nombre',
-    description: row.description || '',
-    campaignType: row.campaign_type || 'multiple_documents',
-    ownerName: row.owner_name || row.metadata?.ownerName || 'Responsable del espacio',
-    status: row.status || 'draft',
+    id: String(row.id),
+    name: String(row.name || 'Campana sin nombre'),
+    description: String(row.description || ''),
+    campaignType: (row.campaign_type || 'multiple_documents') as BulkCampaignType,
+    ownerName: String(row.owner_name || metadata.ownerName || 'Responsable del espacio'),
+    status: (row.status || 'draft') as BulkCampaignStatus,
     totalItems: Number(row.total_items || 0),
     completedItems: Number(row.completed_items || 0),
     pendingItems: Number(
@@ -159,9 +182,10 @@ export function mapBulkCampaignRow(row: any): BulkCampaignSummary {
     ),
     failedItems: Number(row.failed_items || 0),
     participantCount: Number(row.participant_count || 0),
-    expiresAt: row.expires_at || undefined,
-    createdAt: row.created_at || new Date().toISOString(),
-    updatedAt: row.updated_at || new Date().toISOString(),
+    scheduledAt: typeof row.scheduled_at === 'string' ? row.scheduled_at : undefined,
+    expiresAt: typeof row.expires_at === 'string' ? row.expires_at : undefined,
+    createdAt: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : new Date().toISOString(),
   };
 }
 
@@ -171,25 +195,8 @@ export function campaignProgress(campaign: BulkCampaignSummary) {
     : 0;
 }
 
-const LOCAL_STORAGE_KEY = 'docubox_bulk_signature_campaigns';
-
-export function readLocalBulkCampaigns(): BulkCampaignSummary[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    return JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-export function saveLocalBulkCampaign(campaign: BulkCampaignSummary) {
-  if (typeof window === 'undefined') return;
-  const campaigns = readLocalBulkCampaigns().filter((item) => item.id !== campaign.id);
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify([campaign, ...campaigns]));
-}
-
 export function findBulkCampaign(id: string) {
-  return [...readLocalBulkCampaigns(), ...DEMO_BULK_CAMPAIGNS].find((item) => item.id === id);
+  return DEMO_BULK_CAMPAIGNS.find((item) => item.id === id);
 }
 
 export function createDemoItems(campaign: BulkCampaignSummary): BulkCampaignItem[] {

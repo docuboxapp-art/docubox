@@ -3,13 +3,68 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, Save, CheckCircle, AlertCircle, Info, ArrowLeft, ArrowRight, X, CheckCircle2, FileText, Settings, Send, Tag, Search, Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Type, Strikethrough, Link, Indent, Outdent, Highlighter, Minus, Star, Layers, Image as ImageIcon, Table as TableIcon, Hash, Columns, Layout, Maximize2 } from 'lucide-react';
+import {
+  Eye,
+  Save,
+  CheckCircle,
+  AlertCircle,
+  Info,
+  ArrowLeft,
+  ArrowRight,
+  X,
+  CheckCircle2,
+  FileText,
+  Settings,
+  Send,
+  Tag,
+  Search,
+  Bold,
+  Italic,
+  Underline as UnderlineIcon,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  List,
+  ListOrdered,
+  Type,
+  Strikethrough,
+  Link,
+  Indent,
+  Outdent,
+  Highlighter,
+  Minus,
+  Plus,
+  Star,
+  Layers,
+  Image as ImageIcon,
+  Table as TableIcon,
+  Hash,
+  Columns,
+  Layout,
+  Maximize2,
+  FileUp,
+  FilePlus2,
+  Upload,
+  Loader2,
+  Pencil,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 import { FieldsSidebar } from '../components/FieldsSidebar';
 import { FieldPropertiesSidebar, InsertedField } from '../components/FieldPropertiesSidebar';
-import { MultiPageEditor, MultiPageEditorHandle, PaperSize, PageOrientation, PageMargins } from '../components/DocumentPaginator';
+import {
+  MultiPageEditor,
+  MultiPageEditorHandle,
+  PaperSize,
+  PageOrientation,
+  PageMargins,
+  cmToPx,
+  getPageDimensions,
+} from '../components/DocumentPaginator';
 import AppLogo from '@/components/ui/AppLogo';
 import { TemplateDocumentSettingsPanel } from '@/components/templates/TemplateDocumentSettingsPanel';
 import {
@@ -18,6 +73,12 @@ import {
   type TemplateDocumentSettings,
   type TemplatePaperSize,
 } from '@/lib/templates/document-settings';
+import { templateApiFetch } from '@/lib/templates/client';
+import {
+  readTemplateImportSession,
+  removeTemplateImportSession,
+} from '@/lib/template-import/client-session';
+import type { TemplateDocxImportResult } from '@/lib/template-import/types';
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
@@ -60,15 +121,38 @@ interface InfoGeneralData {
 }
 
 interface PublicacionData {
-  publicacionOpcion: 'borrador' | 'publicar' | 'aprobacion' | 'version';
+  publicacionOpcion: 'borrador' | 'publicar' | 'aprobacion' | 'actualizar' | 'version';
   comentarioPublicacion: string;
   estadoPlantilla: string;
   versionPublicada: string;
 }
 
-const AREAS = ['Comercial', 'Legal', 'Recursos Humanos', 'Finanzas', 'Operaciones', 'Dirección General'];
-const TIPOS_PLANTILLA = ['Externa (para firmar por clientes)', 'Interna (uso interno)', 'Mixta'];
-const ESTADOS_PLANTILLA = ['Borrador', 'En revisión', 'Publicada', 'Archivada'];
+type TemplateOrigin = 'word' | 'scratch';
+type TemplateImportStage = 'uploading' | 'processing' | 'preparing' | null;
+
+interface TemplatePublicationContext {
+  workspaceType: 'personal' | 'business';
+  workspaceName: string;
+  role: string;
+  policy: 'DIRECT_PUBLISH' | 'APPROVAL_REQUIRED';
+  approvalWorkflow: { id: string; name: string; version: number } | null;
+  permissions: {
+    canSaveDraft: boolean;
+    canPublish: boolean;
+    canSubmitApproval: boolean;
+    canCreateVersion: boolean;
+  };
+  template: {
+    id: string;
+    status: string | null;
+    displayStatus: string | null;
+    currentVersion: string;
+    nextVersion: string;
+  } | null;
+  areas: Array<{ id: string; name: string }>;
+  templateTypes: Array<{ id: string; nombre: string }>;
+}
+
 function normalizeTemplateHtml(html?: string | null) {
   const content = html?.trim() || '<p><br></p>';
   const withoutLegacyBrand = content.replace(
@@ -79,121 +163,221 @@ function normalizeTemplateHtml(html?: string | null) {
   return withoutLegacyBrand.trim() || '<p><br></p>';
 }
 
-const PUBLICACION_OPTIONS = [
-  { id: 'borrador', title: 'Guardar como borrador', desc: 'Guarda sin publicar' },
-  { id: 'publicar', title: 'Publicar plantilla', desc: 'Publica y hace disponible la plantilla' },
-  { id: 'aprobacion', title: 'Enviar a aprobación', desc: 'Envía para revisión y aprobación' },
-  { id: 'version', title: 'Duplicar como nueva versión', desc: 'Crea una nueva versión basada en esta plantilla' },
-] as const;
+interface TemplatePreviewSnapshot {
+  pages: string[];
+  headerHtml: string;
+  footerHtml: string;
+}
+
+const TEMPLATE_PREVIEW_CONTENT_CSS = `
+  .template-preview-content { font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif; font-size:11pt; line-height:1.6; overflow-wrap:break-word; word-break:break-word; color:#111827; }
+  .template-preview-content h1 { font-size:28px; font-weight:700; line-height:1.25; margin:16px 0 8px; }
+  .template-preview-content h2 { font-size:22px; font-weight:600; line-height:1.3; margin:14px 0 8px; }
+  .template-preview-content h3 { font-size:18px; font-weight:600; line-height:1.35; margin:12px 0 6px; }
+  .template-preview-content h4 { font-size:16px; font-weight:600; line-height:1.4; margin:10px 0 6px; }
+  .template-preview-content h5 { font-size:14px; font-weight:600; line-height:1.4; margin:8px 0 4px; }
+  .template-preview-content p { font-size:12px; line-height:1.5; margin:0 0 8px; }
+  .template-preview-content ul { list-style-type:disc; padding-left:2em; margin:8px 0; }
+  .template-preview-content ol { list-style-type:decimal; padding-left:2em; margin:8px 0; }
+  .template-preview-content li { display:list-item; margin:2px 0; }
+  .template-preview-content table { border-collapse:collapse; width:100%; margin:8px 0; }
+  .template-preview-content td, .template-preview-content th { border:1px solid #d1d5db; padding:6px 8px; min-width:40px; vertical-align:top; }
+  .template-preview-content img { max-width:100%; height:auto; }
+  .template-preview-content [data-docubox-page-break] { display:none; }
+  .template-preview-zone { font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif; font-size:10pt; color:#374151; overflow:hidden; }
+  .template-preview-zone p { margin:0; }
+`;
+
+function cleanPreviewContent(element: Element): string {
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone
+    .querySelectorAll('[data-signature-resize-handle], .docubox-resize-handle')
+    .forEach((control) => control.remove());
+  clone.querySelectorAll('[data-selected="true"]').forEach((selected) => {
+    selected.removeAttribute('data-selected');
+    (selected as HTMLElement).style.removeProperty('outline');
+  });
+  return clone.innerHTML;
+}
+
+function splitSerializedTemplateHtml(html: string): TemplatePreviewSnapshot {
+  const parser = new DOMParser();
+  const documentModel = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+  const root = documentModel.body.firstElementChild as HTMLElement | null;
+  if (!root) return { pages: ['<p><br></p>'], headerHtml: '', footerHtml: '' };
+
+  const header = root.querySelector('[data-header-zone="true"]');
+  const footer = root.querySelector('[data-footer-zone="true"]');
+  const headerHtml = header?.innerHTML || '';
+  const footerHtml = footer?.innerHTML || '';
+  header?.remove();
+  footer?.remove();
+
+  const pages: string[] = [];
+  let currentPage: Node[] = [];
+  Array.from(root.childNodes).forEach((node) => {
+    const isPageBreak = node instanceof HTMLElement && node.hasAttribute('data-docubox-page-break');
+    if (isPageBreak) {
+      const page = documentModel.createElement('div');
+      currentPage.forEach((item) => page.appendChild(item.cloneNode(true)));
+      pages.push(page.innerHTML || '<p><br></p>');
+      currentPage = [];
+      return;
+    }
+    currentPage.push(node);
+  });
+  const lastPage = documentModel.createElement('div');
+  currentPage.forEach((item) => lastPage.appendChild(item.cloneNode(true)));
+  if (lastPage.innerHTML || pages.length === 0) pages.push(lastPage.innerHTML || '<p><br></p>');
+
+  return { pages, headerHtml, footerHtml };
+}
+
+function resolvePreviewZoneHtml(html: string, pageIndex: number): string {
+  if (!html) return '';
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+  const root = parsed.body.firstElementChild as HTMLElement | null;
+  if (!root) return html;
+
+  root.querySelectorAll('[data-page-number="true"]').forEach((element) => {
+    const pageNumber = element as HTMLElement;
+    const startFrom = Number(pageNumber.getAttribute('data-page-number-start') || 1);
+    pageNumber.textContent = `— ${startFrom + pageIndex} —`;
+    pageNumber.style.removeProperty('display');
+  });
+  root.querySelectorAll('[data-hide-first-page="true"]').forEach((element) => {
+    (element as HTMLElement).style.display = pageIndex === 0 ? 'none' : '';
+  });
+  return root.innerHTML;
+}
+
+function escapePrintTitle(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    };
+    return entities[character];
+  });
+}
 
 // ─── Simple formatting toolbar ────────────────────────────────────────────────
 
 const EDITOR_FONT_FAMILIES = [
-  'Arial', 'Arial Black', 'Times New Roman', 'Georgia', 'Garamond', 'Courier New', 'Verdana',
-  'Tahoma', 'Trebuchet MS', 'Impact', 'Helvetica', 'Palatino',
-  'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Raleway', 'Nunito', 'Poppins',
-  'Source Sans 3', 'Merriweather', 'Playfair Display', 'Oswald', 'PT Sans', 'PT Serif',
-  'Ubuntu', 'Noto Sans', 'Libre Baskerville', 'Crimson Text', 'EB Garamond',
-  'Josefin Sans', 'Quicksand', 'Mulish', 'Barlow', 'Inter', 'DM Sans', 'Fira Sans',
-  'Cabin', 'Exo 2', 'Titillium Web', 'Zilla Slab', 'Spectral', 'Cormorant Garamond',
-  'Alegreya', 'Lora', 'Arvo', 'Bitter', 'Karla', 'Rubik', 'Work Sans', 'Manrope',
-  'Space Grotesk', 'Plus Jakarta Sans', 'Sora', 'Outfit', 'Figtree', 'Lexend', 'Jost',
-  'Urbanist', 'Archivo', 'Asap', 'Heebo', 'Hind', 'Varela Round', 'Comfortaa',
-  'Pacifico', 'Dancing Script', 'Caveat', 'Sacramento', 'Great Vibes', 'Satisfy',
-  'Kaushan Script', 'Lobster', 'Righteous', 'Fredoka One', 'Boogaloo', 'Indie Flower',
-  'Patrick Hand', 'Shadows Into Light', 'Amatic SC', 'Permanent Marker', 'Rock Salt',
-  'Special Elite', 'Courier Prime', 'Source Code Pro', 'Fira Code', 'Space Mono',
-  'Inconsolata', 'Anonymous Pro', 'Share Tech Mono',
+  'Arial',
+  'Arial Black',
+  'Times New Roman',
+  'Georgia',
+  'Garamond',
+  'Courier New',
+  'Verdana',
+  'Tahoma',
+  'Trebuchet MS',
+  'Impact',
+  'Helvetica',
+  'Palatino',
+  'Roboto',
+  'Open Sans',
+  'Lato',
+  'Montserrat',
+  'Raleway',
+  'Nunito',
+  'Poppins',
+  'Source Sans 3',
+  'Merriweather',
+  'Playfair Display',
+  'Oswald',
+  'PT Sans',
+  'PT Serif',
+  'Ubuntu',
+  'Noto Sans',
+  'Libre Baskerville',
+  'Crimson Text',
+  'EB Garamond',
+  'Josefin Sans',
+  'Quicksand',
+  'Mulish',
+  'Barlow',
+  'Inter',
+  'DM Sans',
+  'Fira Sans',
+  'Cabin',
+  'Exo 2',
+  'Titillium Web',
+  'Zilla Slab',
+  'Spectral',
+  'Cormorant Garamond',
+  'Alegreya',
+  'Lora',
+  'Arvo',
+  'Bitter',
+  'Karla',
+  'Rubik',
+  'Work Sans',
+  'Manrope',
+  'Space Grotesk',
+  'Plus Jakarta Sans',
+  'Sora',
+  'Outfit',
+  'Figtree',
+  'Lexend',
+  'Jost',
+  'Urbanist',
+  'Archivo',
+  'Asap',
+  'Heebo',
+  'Hind',
+  'Varela Round',
+  'Comfortaa',
+  'Pacifico',
+  'Dancing Script',
+  'Caveat',
+  'Sacramento',
+  'Great Vibes',
+  'Satisfy',
+  'Kaushan Script',
+  'Lobster',
+  'Righteous',
+  'Fredoka One',
+  'Boogaloo',
+  'Indie Flower',
+  'Patrick Hand',
+  'Shadows Into Light',
+  'Amatic SC',
+  'Permanent Marker',
+  'Rock Salt',
+  'Special Elite',
+  'Courier Prime',
+  'Source Code Pro',
+  'Fira Code',
+  'Space Mono',
+  'Inconsolata',
+  'Anonymous Pro',
+  'Share Tech Mono',
 ];
 
-const EDITOR_FONT_SIZES = ['8pt', '9pt', '10pt', '11pt', '12pt', '14pt', '16pt', '18pt', '20pt', '24pt', '28pt', '32pt', '36pt', '48pt', '60pt', '72pt'];
-
-// ─── Contact Picker Modal ─────────────────────────────────────────────────────
-interface Contact {
-  id: string;
-  nombre: string;
-  email: string;
-}
-
-function ContactPickerModal({
-  onSelect,
-  onClose,
-}: {
-  onSelect: (contact: Contact) => void;
-  onClose: () => void;
-}) {
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const supabase = createClient();
-        const { data } = await supabase
-          .from('contacts')
-          .select('id, nombre:full_name, email')
-          .order('full_name');
-        if (data) setContacts(data as Contact[]);
-      } catch { /* silent */ } finally { setLoading(false); }
-    };
-    load();
-  }, []);
-
-  const filtered = contacts.filter(
-    (c) =>
-      c.nombre?.toLowerCase().includes(search.toLowerCase()) ||
-      c.email?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden flex flex-col" style={{ maxHeight: '80vh' }}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold text-gray-900">Seleccionar contacto para aprobación</h3>
-          <button type="button" onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded"><X size={18} /></button>
-        </div>
-        <div className="px-5 pt-4 pb-3">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar contacto..."
-              autoFocus
-              className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 bg-gray-50"
-            />
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto border-t border-gray-100">
-          {loading ? (
-            <div className="px-5 py-10 text-center text-sm text-gray-400">Cargando contactos...</div>
-          ) : filtered.length === 0 ? (
-            <div className="px-5 py-10 text-center text-sm text-gray-400">No se encontraron contactos</div>
-          ) : (
-            filtered.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => onSelect(c)}
-                className="w-full text-left px-5 py-3.5 hover:bg-gray-50 transition-colors flex items-center gap-3 border-b border-gray-50 last:border-0"
-              >
-                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold text-sm shrink-0">
-                  {(c.nombre || c.email || '?')[0].toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{c.nombre || '—'}</p>
-                  <p className="text-xs text-gray-500 truncate">{c.email}</p>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+const EDITOR_FONT_SIZES = [
+  '8pt',
+  '9pt',
+  '10pt',
+  '11pt',
+  '12pt',
+  '14pt',
+  '16pt',
+  '18pt',
+  '20pt',
+  '24pt',
+  '28pt',
+  '32pt',
+  '36pt',
+  '48pt',
+  '60pt',
+  '72pt',
+];
 
 // ─── Image Size Modal ─────────────────────────────────────────────────────────
 function ImageSizeModal({
@@ -211,7 +395,9 @@ function ImageSizeModal({
 }) {
   const aspectRatio = originalHeight > 0 && originalWidth > 0 ? originalHeight / originalWidth : 1;
   const [width, setWidth] = useState(currentWidth || originalWidth || 300);
-  const [height, setHeight] = useState(Math.round((currentWidth || originalWidth || 300) * aspectRatio));
+  const [height, setHeight] = useState(
+    Math.round((currentWidth || originalWidth || 300) * aspectRatio)
+  );
   const [lockAspect, setLockAspect] = useState(true);
 
   const handleWidthChange = (v: number) => {
@@ -228,7 +414,9 @@ function ImageSizeModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
         <div className="px-6 py-5">
           <h3 className="text-base font-semibold text-gray-900 mb-1">Tamaño de imagen</h3>
-          <p className="text-xs text-gray-500 mb-4">Tamaño original: {originalWidth} × {originalHeight} px</p>
+          <p className="text-xs text-gray-500 mb-4">
+            Tamaño original: {originalWidth} × {originalHeight} px
+          </p>
           <div className="space-y-3 mb-4">
             <div className="flex items-center gap-3">
               <label className="text-xs font-medium text-gray-700 w-16">Ancho (px)</label>
@@ -253,13 +441,30 @@ function ImageSizeModal({
               />
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={lockAspect} onChange={(e) => setLockAspect(e.target.checked)} className="rounded text-blue-600" />
+              <input
+                type="checkbox"
+                checked={lockAspect}
+                onChange={(e) => setLockAspect(e.target.checked)}
+                className="rounded text-blue-600"
+              />
               <span className="text-xs text-gray-700">Mantener proporción</span>
             </label>
           </div>
           <div className="flex gap-3 justify-end">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-full transition-colors">Cancelar</button>
-            <button type="button" onClick={() => onApply(width, height)} className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors">Aplicar</button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => onApply(width, height)}
+              className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors"
+            >
+              Aplicar
+            </button>
           </div>
         </div>
       </div>
@@ -272,7 +477,11 @@ function ToolbarDivider() {
 }
 
 function TBtn({
-  onMouseDown, title, children, active, disabled,
+  onMouseDown,
+  title,
+  children,
+  active,
+  disabled,
 }: {
   onMouseDown: (e: React.MouseEvent) => void;
   title: string;
@@ -298,7 +507,11 @@ function SimplePageNumbersModal({
   onApply,
   onClose,
 }: {
-  onApply: (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => void;
+  onApply: (opts: {
+    position: 'header' | 'footer';
+    showOnFirst: boolean;
+    startFrom: number;
+  }) => void;
   onClose: () => void;
 }) {
   const [position, setPosition] = useState<'header' | 'footer'>('header');
@@ -313,15 +526,32 @@ function SimplePageNumbersModal({
           <div className="mb-4">
             <p className="text-xs font-medium text-gray-700 mb-2">Posición</p>
             <label className="flex items-center gap-2 mb-2 cursor-pointer">
-              <input type="radio" name="sp-position" checked={position === 'header'} onChange={() => setPosition('header')} className="text-blue-600" />
+              <input
+                type="radio"
+                name="sp-position"
+                checked={position === 'header'}
+                onChange={() => setPosition('header')}
+                className="text-blue-600"
+              />
               <span className="text-sm text-gray-700">Encabezado</span>
             </label>
             <label className="flex items-center gap-2 mb-2 cursor-pointer">
-              <input type="radio" name="sp-position" checked={position === 'footer'} onChange={() => setPosition('footer')} className="text-blue-600" />
+              <input
+                type="radio"
+                name="sp-position"
+                checked={position === 'footer'}
+                onChange={() => setPosition('footer')}
+                className="text-blue-600"
+              />
               <span className="text-sm text-gray-700">Pie de página</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={showOnFirst} onChange={(e) => setShowOnFirst(e.target.checked)} className="rounded text-blue-600" />
+              <input
+                type="checkbox"
+                checked={showOnFirst}
+                onChange={(e) => setShowOnFirst(e.target.checked)}
+                className="rounded text-blue-600"
+              />
               <span className="text-sm text-gray-700">Mostrar en la primera página</span>
             </label>
           </div>
@@ -330,7 +560,13 @@ function SimplePageNumbersModal({
             <label className="flex items-center gap-2 mb-2 cursor-pointer">
               <input type="radio" name="sp-numbering" defaultChecked className="text-blue-600" />
               <span className="text-sm text-gray-700">Empezar en</span>
-              <input type="number" min={1} value={startFrom} onChange={(e) => setStartFrom(Number(e.target.value))} className="w-16 text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 text-center" />
+              <input
+                type="number"
+                min={1}
+                value={startFrom}
+                onChange={(e) => setStartFrom(Number(e.target.value))}
+                className="w-16 text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 text-center"
+              />
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="radio" name="sp-numbering" className="text-blue-600" />
@@ -338,8 +574,20 @@ function SimplePageNumbersModal({
             </label>
           </div>
           <div className="flex gap-3 justify-end">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-full transition-colors">Cancelar</button>
-            <button type="button" onClick={() => onApply({ position, showOnFirst, startFrom })} className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors">Aplicar</button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => onApply({ position, showOnFirst, startFrom })}
+              className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors"
+            >
+              Aplicar
+            </button>
           </div>
         </div>
       </div>
@@ -352,7 +600,11 @@ function NumeroPaginaDropdownContent({
   onApply,
   onClose,
 }: {
-  onApply: (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => void;
+  onApply: (opts: {
+    position: 'header' | 'footer';
+    showOnFirst: boolean;
+    startFrom: number;
+  }) => void;
   onClose: () => void;
 }) {
   const [position, setPosition] = useState<'header' | 'footer'>('header');
@@ -364,15 +616,32 @@ function NumeroPaginaDropdownContent({
       <div className="mb-3">
         <p className="text-xs font-medium text-gray-700 mb-2">Posición</p>
         <label className="flex items-center gap-2 mb-2 cursor-pointer">
-          <input type="radio" name="np-position" checked={position === 'header'} onChange={() => setPosition('header')} className="text-blue-600" />
+          <input
+            type="radio"
+            name="np-position"
+            checked={position === 'header'}
+            onChange={() => setPosition('header')}
+            className="text-blue-600"
+          />
           <span className="text-xs text-gray-700">Encabezado</span>
         </label>
         <label className="flex items-center gap-2 mb-2 cursor-pointer">
-          <input type="radio" name="np-position" checked={position === 'footer'} onChange={() => setPosition('footer')} className="text-blue-600" />
+          <input
+            type="radio"
+            name="np-position"
+            checked={position === 'footer'}
+            onChange={() => setPosition('footer')}
+            className="text-blue-600"
+          />
           <span className="text-xs text-gray-700">Pie de página</span>
         </label>
         <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={showOnFirst} onChange={(e) => setShowOnFirst(e.target.checked)} className="rounded text-blue-600" />
+          <input
+            type="checkbox"
+            checked={showOnFirst}
+            onChange={(e) => setShowOnFirst(e.target.checked)}
+            className="rounded text-blue-600"
+          />
           <span className="text-xs text-gray-700">Mostrar en la primera página</span>
         </label>
       </div>
@@ -390,8 +659,20 @@ function NumeroPaginaDropdownContent({
         </div>
       </div>
       <div className="flex gap-2">
-        <button type="button" onClick={() => onApply({ position, showOnFirst, startFrom })} className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium">Aplicar</button>
-        <button type="button" onClick={onClose} className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200">Cancelar</button>
+        <button
+          type="button"
+          onClick={() => onApply({ position, showOnFirst, startFrom })}
+          className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium"
+        >
+          Aplicar
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200"
+        >
+          Cancelar
+        </button>
       </div>
     </div>
   );
@@ -404,7 +685,11 @@ function SimpleTableGrid({ onSelect }: { onSelect: (rows: number, cols: number) 
   return (
     <div className="p-3">
       <p className="text-xs font-semibold text-gray-700 mb-2">Elementos de creación</p>
-      <div className="grid gap-0.5" style={{ gridTemplateColumns: `repeat(${MAX}, 18px)` }} onMouseLeave={() => setHovered({ rows: 0, cols: 0 })}>
+      <div
+        className="grid gap-0.5"
+        style={{ gridTemplateColumns: `repeat(${MAX}, 18px)` }}
+        onMouseLeave={() => setHovered({ rows: 0, cols: 0 })}
+      >
         {Array.from({ length: MAX }).map((_, r) =>
           Array.from({ length: MAX }).map((_, c) => (
             <div
@@ -416,7 +701,9 @@ function SimpleTableGrid({ onSelect }: { onSelect: (rows: number, cols: number) 
           ))
         )}
       </div>
-      <p className="text-xs text-center text-gray-500 mt-2">{hovered.rows > 0 && hovered.cols > 0 ? `${hovered.rows} × ${hovered.cols}` : '1 × 1'}</p>
+      <p className="text-xs text-center text-gray-500 mt-2">
+        {hovered.rows > 0 && hovered.cols > 0 ? `${hovered.rows} × ${hovered.cols}` : '1 × 1'}
+      </p>
     </div>
   );
 }
@@ -447,7 +734,12 @@ function SimpleEditorToolbar({
 }: {
   selectedChipId?: string | null;
   infoData?: { hojaTamano: string; hojaOrientacion: 'vertical' | 'horizontal' };
-  onInfoChange?: (updates: { hojaTamano?: string; hojaOrientacion?: 'vertical' | 'horizontal'; columnas?: number; margenes?: { top: number; bottom: number; left: number; right: number } }) => void;
+  onInfoChange?: (updates: {
+    hojaTamano?: string;
+    hojaOrientacion?: 'vertical' | 'horizontal';
+    columnas?: number;
+    margenes?: { top: number; bottom: number; left: number; right: number };
+  }) => void;
   showRulers?: boolean;
   onToggleRulers?: () => void;
   showHeader?: boolean;
@@ -459,7 +751,11 @@ function SimpleEditorToolbar({
   margenes?: { top: number; bottom: number; left: number; right: number };
   onMargenesChange?: (m: { top: number; bottom: number; left: number; right: number }) => void;
   onShowNumerosModal?: () => void;
-  onApplyPageNumbers?: (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => void;
+  onApplyPageNumbers?: (opts: {
+    position: 'header' | 'footer';
+    showOnFirst: boolean;
+    startFrom: number;
+  }) => void;
   showFindReplace?: boolean;
   onToggleFindReplace?: () => void;
   wordCount?: number;
@@ -488,10 +784,17 @@ function SimpleEditorToolbar({
   // Modals
   const [showNumerosModal, setShowNumerosModal] = useState(false);
   const [showImageSizeModal, setShowImageSizeModal] = useState(false);
-  const [imageSizeModalData, setImageSizeModalData] = useState<{ originalWidth: number; originalHeight: number; currentWidth: number; figure: HTMLElement | null }>({ originalWidth: 300, originalHeight: 200, currentWidth: 300, figure: null });
+  const [imageSizeModalData, setImageSizeModalData] = useState<{
+    originalWidth: number;
+    originalHeight: number;
+    currentWidth: number;
+    figure: HTMLElement | null;
+  }>({ originalWidth: 300, originalHeight: 200, currentWidth: 300, figure: null });
 
   // Local margins state (cm) — synced from prop
-  const [localMargenes, setLocalMargenes] = useState(margenes || { top: 2.54, bottom: 2.54, left: 3.17, right: 3.17 });
+  const [localMargenes, setLocalMargenes] = useState(
+    margenes || { top: 2.54, bottom: 2.54, left: 3.17, right: 3.17 }
+  );
   // Columns state
   const [numColumnas, setNumColumnas] = useState(1);
   // Header/footer local state (for the dropdown UI only)
@@ -505,8 +808,13 @@ function SimpleEditorToolbar({
   const updateWordCount = useCallback(() => {
     const pages = document.querySelectorAll('[data-page-content]');
     let text = '';
-    pages.forEach((p) => { text += (p as HTMLElement).innerText + ' '; });
-    const words = text.trim().split(/\s+/).filter((w) => w.length > 0);
+    pages.forEach((p) => {
+      text += (p as HTMLElement).innerText + ' ';
+    });
+    const words = text
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 0);
     // no-op: word count is managed by parent
   }, []);
 
@@ -522,7 +830,9 @@ function SimpleEditorToolbar({
 
   useEffect(() => {
     if (selectedChipId) {
-      const chip = document.querySelector(`[data-field-id="${selectedChipId}"]`) as HTMLElement | null;
+      const chip = document.querySelector(
+        `[data-field-id="${selectedChipId}"]`
+      ) as HTMLElement | null;
       if (chip) {
         const cs = window.getComputedStyle(chip);
         const ff = chip.style.fontFamily || cs.fontFamily;
@@ -536,7 +846,12 @@ function SimpleEditorToolbar({
             setCurrentSize(fs);
           }
         }
-        setIsBold(chip.style.fontWeight === 'bold' || parseInt(chip.style.fontWeight) >= 700 || cs.fontWeight === 'bold' || parseInt(cs.fontWeight) >= 700);
+        setIsBold(
+          chip.style.fontWeight === 'bold' ||
+            parseInt(chip.style.fontWeight) >= 700 ||
+            cs.fontWeight === 'bold' ||
+            parseInt(cs.fontWeight) >= 700
+        );
         setIsItalic(chip.style.fontStyle === 'italic' || cs.fontStyle === 'italic');
         setIsUnderline((chip.style.textDecoration || cs.textDecoration).includes('underline'));
         setIsStrike((chip.style.textDecoration || cs.textDecoration).includes('line-through'));
@@ -560,12 +875,30 @@ function SimpleEditorToolbar({
         if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
         while (node && node !== document.body) {
           const tag = (node as HTMLElement).tagName?.toLowerCase();
-          if (tag === 'h1') { setCurrentParaStyle('h1'); return; }
-          if (tag === 'h2') { setCurrentParaStyle('h2'); return; }
-          if (tag === 'h3') { setCurrentParaStyle('h3'); return; }
-          if (tag === 'h4') { setCurrentParaStyle('h4'); return; }
-          if (tag === 'h5') { setCurrentParaStyle('h5'); return; }
-          if (tag === 'p' || tag === 'div') { setCurrentParaStyle('p'); return; }
+          if (tag === 'h1') {
+            setCurrentParaStyle('h1');
+            return;
+          }
+          if (tag === 'h2') {
+            setCurrentParaStyle('h2');
+            return;
+          }
+          if (tag === 'h3') {
+            setCurrentParaStyle('h3');
+            return;
+          }
+          if (tag === 'h4') {
+            setCurrentParaStyle('h4');
+            return;
+          }
+          if (tag === 'h5') {
+            setCurrentParaStyle('h5');
+            return;
+          }
+          if (tag === 'p' || tag === 'div') {
+            setCurrentParaStyle('p');
+            return;
+          }
           node = node.parentNode;
         }
         setCurrentParaStyle('p');
@@ -590,19 +923,34 @@ function SimpleEditorToolbar({
         case 'underline': {
           const hasUnderline = chip.style.textDecoration.includes('underline');
           const hasStrike = chip.style.textDecoration.includes('line-through');
-          chip.style.textDecoration = hasUnderline ? (hasStrike ? 'line-through' : 'none') : (hasStrike ? 'underline line-through' : 'underline');
+          chip.style.textDecoration = hasUnderline
+            ? hasStrike
+              ? 'line-through'
+              : 'none'
+            : hasStrike
+              ? 'underline line-through'
+              : 'underline';
           setIsUnderline(!hasUnderline);
           break;
         }
         case 'strikeThrough': {
           const hasStrike2 = chip.style.textDecoration.includes('line-through');
           const hasUnderline2 = chip.style.textDecoration.includes('underline');
-          chip.style.textDecoration = hasStrike2 ? (hasUnderline2 ? 'underline' : 'none') : (hasUnderline2 ? 'underline line-through' : 'line-through');
+          chip.style.textDecoration = hasStrike2
+            ? hasUnderline2
+              ? 'underline'
+              : 'none'
+            : hasUnderline2
+              ? 'underline line-through'
+              : 'line-through';
           setIsStrike(!hasStrike2);
           break;
         }
         case 'fontName':
-          if (value) { chip.style.fontFamily = value; setCurrentFont(value); }
+          if (value) {
+            chip.style.fontFamily = value;
+            setCurrentFont(value);
+          }
           break;
         case 'foreColor':
           if (value) chip.style.color = value;
@@ -709,7 +1057,11 @@ function SimpleEditorToolbar({
       const editorEl = focused || targetPage;
       // If no selection inside editor, place cursor at end
       const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0 || !editorEl.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      if (
+        !sel ||
+        sel.rangeCount === 0 ||
+        !editorEl.contains(sel.getRangeAt(0).commonAncestorContainer)
+      ) {
         editorEl.focus();
         const range = document.createRange();
         range.selectNodeContents(editorEl);
@@ -718,7 +1070,18 @@ function SimpleEditorToolbar({
         sel?.addRange(range);
       }
     }
-    const html = `<table style="border-collapse:collapse;width:100%;margin:8px 0"><tbody>${Array.from({ length: rows }).map(() => `<tr>${Array.from({ length: cols }).map(() => '<td style="border:1px solid #ccc;padding:6px 8px;min-width:40px">&nbsp;</td>').join('')}</tr>`).join('')}</tbody></table><p><br></p>`;
+    const html = `<table style="border-collapse:collapse;width:100%;margin:8px 0"><tbody>${Array.from(
+      { length: rows }
+    )
+      .map(
+        () =>
+          `<tr>${Array.from({ length: cols })
+            .map(
+              () => '<td style="border:1px solid #ccc;padding:6px 8px;min-width:40px">&nbsp;</td>'
+            )
+            .join('')}</tr>`
+      )
+      .join('')}</tbody></table><p><br></p>`;
     document.execCommand('insertHTML', false, html);
     if (onSetOpenDropdown) onSetOpenDropdown(null);
   };
@@ -729,7 +1092,11 @@ function SimpleEditorToolbar({
     if (onSetOpenDropdown) onSetOpenDropdown(null);
   };
 
-  const applyPageNumbers = (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => {
+  const applyPageNumbers = (opts: {
+    position: 'header' | 'footer';
+    showOnFirst: boolean;
+    startFrom: number;
+  }) => {
     if (onApplyPageNumbers) {
       onApplyPageNumbers(opts);
     }
@@ -765,7 +1132,13 @@ function SimpleEditorToolbar({
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
     let node: Node | null = range.commonAncestorContainer;
-    while (node && node.nodeName !== 'P' && node.nodeName !== 'LI' && node.nodeName !== 'DIV' && node !== document.body) {
+    while (
+      node &&
+      node.nodeName !== 'P' &&
+      node.nodeName !== 'LI' &&
+      node.nodeName !== 'DIV' &&
+      node !== document.body
+    ) {
       node = node.parentNode;
     }
     if (node && node !== document.body) {
@@ -802,7 +1175,10 @@ function SimpleEditorToolbar({
           range.setStart(textNode, idx);
           range.setEnd(textNode, idx + findText.length);
           const sel = window.getSelection();
-          if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
         }
       });
     });
@@ -857,10 +1233,21 @@ function SimpleEditorToolbar({
             className={`p-1.5 rounded transition-colors flex-shrink-0 ${showRulers ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-700'}`}
             title={showRulers ? 'Ocultar regla' : 'Mostrar regla'}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="7" width="20" height="10" rx="1"/>
-              <line x1="6" y1="7" x2="6" y2="12"/><line x1="10" y1="7" x2="10" y2="10"/>
-              <line x1="14" y1="7" x2="14" y2="12"/><line x1="18" y1="7" x2="18" y2="10"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="2" y="7" width="20" height="10" rx="1" />
+              <line x1="6" y1="7" x2="6" y2="12" />
+              <line x1="10" y1="7" x2="10" y2="10" />
+              <line x1="14" y1="7" x2="14" y2="12" />
+              <line x1="18" y1="7" x2="18" y2="10" />
             </svg>
           </button>
 
@@ -873,10 +1260,21 @@ function SimpleEditorToolbar({
             className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-700 flex-shrink-0"
             title="Márgenes"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="1"/>
-              <line x1="7" y1="3" x2="7" y2="21"/><line x1="17" y1="3" x2="17" y2="21"/>
-              <line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="17" x2="21" y2="17"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="1" />
+              <line x1="7" y1="3" x2="7" y2="21" />
+              <line x1="17" y1="3" x2="17" y2="21" />
+              <line x1="3" y1="7" x2="21" y2="7" />
+              <line x1="3" y1="17" x2="21" y2="17" />
             </svg>
           </button>
 
@@ -896,9 +1294,33 @@ function SimpleEditorToolbar({
             title={`Orientación: ${infoData?.hojaOrientacion === 'horizontal' ? 'Horizontal' : 'Vertical'} — clic para cambiar`}
           >
             {infoData?.hojaOrientacion === 'horizontal' ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="1"/><path d="M16 10l4 2-4 2" strokeWidth="1.5"/></svg>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="2" y="6" width="20" height="12" rx="1" />
+                <path d="M16 10l4 2-4 2" strokeWidth="1.5" />
+              </svg>
             ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="2" width="12" height="20" rx="1"/><path d="M10 16l2 4 2-4" strokeWidth="1.5"/></svg>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="6" y="2" width="12" height="20" rx="1" />
+                <path d="M10 16l2 4 2-4" strokeWidth="1.5" />
+              </svg>
             )}
           </button>
 
@@ -911,7 +1333,21 @@ function SimpleEditorToolbar({
             className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-700 flex-shrink-0"
             title="Tamaño de página"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="1"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="13" y2="14"/></svg>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="4" y="2" width="16" height="20" rx="1" />
+              <line x1="8" y1="6" x2="16" y2="6" />
+              <line x1="8" y1="10" x2="16" y2="10" />
+              <line x1="8" y1="14" x2="13" y2="14" />
+            </svg>
           </button>
 
           <div className="w-px h-5 bg-gray-200 mx-0.5 flex-shrink-0" />
@@ -931,7 +1367,9 @@ function SimpleEditorToolbar({
           {/* Tabla con grid */}
           <button
             type="button"
-            onClick={(e) => { if (!chipSelected) openMenu('tabla', e); }}
+            onClick={(e) => {
+              if (!chipSelected) openMenu('tabla', e);
+            }}
             disabled={chipSelected}
             className={`p-1.5 rounded transition-colors flex-shrink-0 ${chipSelected ? 'opacity-40 cursor-not-allowed text-gray-400' : 'hover:bg-gray-100 text-gray-700'}`}
             title="Insertar tabla"
@@ -944,7 +1382,10 @@ function SimpleEditorToolbar({
           {/* Imagen */}
           <button
             type="button"
-            onMouseDown={(e) => { e.preventDefault(); if (!chipSelected) imageInputRef.current?.click(); }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!chipSelected) imageInputRef.current?.click();
+            }}
             disabled={chipSelected}
             className={`p-1.5 rounded transition-colors flex-shrink-0 ${chipSelected ? 'opacity-40 cursor-not-allowed text-gray-400' : 'hover:bg-gray-100 text-gray-700'}`}
             title="Insertar imagen"
@@ -990,7 +1431,9 @@ function SimpleEditorToolbar({
           {/* Encabezado y pie de página */}
           <button
             type="button"
-            onClick={(e) => { if (!chipSelected) openMenu('encabezado', e); }}
+            onClick={(e) => {
+              if (!chipSelected) openMenu('encabezado', e);
+            }}
             disabled={chipSelected}
             className={`p-1.5 rounded transition-colors flex-shrink-0 ${chipSelected ? 'opacity-40 cursor-not-allowed text-gray-400' : 'hover:bg-gray-100 text-gray-700'}`}
             title="Encabezado y pie de página"
@@ -1003,7 +1446,9 @@ function SimpleEditorToolbar({
           {/* Números de página */}
           <button
             type="button"
-            onClick={(e) => { if (!chipSelected) openMenu('numeroPagina', e); }}
+            onClick={(e) => {
+              if (!chipSelected) openMenu('numeroPagina', e);
+            }}
             disabled={chipSelected}
             className={`p-1.5 rounded transition-colors flex-shrink-0 ${chipSelected ? 'opacity-40 cursor-not-allowed text-gray-400' : openDropdown === 'numeroPagina' ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-700'}`}
             title="Números de página"
@@ -1055,12 +1500,24 @@ function SimpleEditorToolbar({
             style={{ minWidth: '120px' }}
           >
             <option value="p">Texto normal</option>
-            <option value="h1" style={{ fontWeight: 'bold', fontSize: '1.2em' }}>Título</option>
-            <option value="h2" style={{ color: '#6b7280' }}>Subtítulo</option>
-            <option value="h3" style={{ fontWeight: 'bold' }}>Encabezado 1</option>
+            <option value="h1" style={{ fontWeight: 'bold', fontSize: '1.2em' }}>
+              Título
+            </option>
+            <option value="h2" style={{ color: '#6b7280' }}>
+              Subtítulo
+            </option>
+            <option value="h3" style={{ fontWeight: 'bold' }}>
+              Encabezado 1
+            </option>
             <option value="h4">Encabezado 2</option>
             <option value="h5">Encabezado 3</option>
-            <option value="opciones" disabled style={{ color: '#9ca3af', borderTop: '1px solid #e5e7eb' }}>Opciones ▶</option>
+            <option
+              value="opciones"
+              disabled
+              style={{ color: '#9ca3af', borderTop: '1px solid #e5e7eb' }}
+            >
+              Opciones ▶
+            </option>
           </select>
 
           <ToolbarDivider />
@@ -1099,7 +1556,9 @@ function SimpleEditorToolbar({
             title="Fuente"
           >
             {EDITOR_FONT_FAMILIES.map((f) => (
-              <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+              <option key={f} value={f} style={{ fontFamily: f }}>
+                {f}
+              </option>
             ))}
           </select>
 
@@ -1107,7 +1566,14 @@ function SimpleEditorToolbar({
 
           {/* Font size */}
           <div className="flex items-center gap-0.5 flex-shrink-0">
-            <button type="button" onMouseDown={decreaseSize} className="w-5 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 rounded text-sm font-medium" title="Reducir tamaño">−</button>
+            <button
+              type="button"
+              onMouseDown={decreaseSize}
+              className="w-5 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 rounded text-sm font-medium"
+              title="Reducir tamaño"
+            >
+              −
+            </button>
             <select
               onMouseDown={(e) => {
                 e.stopPropagation();
@@ -1123,104 +1589,255 @@ function SimpleEditorToolbar({
               title="Tamaño de fuente"
             >
               {EDITOR_FONT_SIZES.map((s) => (
-                <option key={s} value={s}>{s.replace('pt', '')}</option>
+                <option key={s} value={s}>
+                  {s.replace('pt', '')}
+                </option>
               ))}
             </select>
-            <button type="button" onMouseDown={increaseSize} className="w-5 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 rounded text-sm font-medium" title="Aumentar tamaño">+</button>
+            <button
+              type="button"
+              onMouseDown={increaseSize}
+              className="w-5 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 rounded text-sm font-medium"
+              title="Aumentar tamaño"
+            >
+              +
+            </button>
           </div>
 
           <ToolbarDivider />
 
           {/* Bold, Italic, Underline, Strike */}
-          <TBtn onMouseDown={(e) => { e.preventDefault(); execCmd('bold'); }} title="Negrita (Ctrl+B)" active={isBold}><Bold size={14} /></TBtn>
-          <TBtn onMouseDown={(e) => { e.preventDefault(); execCmd('italic'); }} title="Cursiva (Ctrl+I)" active={isItalic}><Italic size={14} /></TBtn>
-          <TBtn onMouseDown={(e) => { e.preventDefault(); execCmd('underline'); }} title="Subrayado (Ctrl+U)" active={isUnderline}><UnderlineIcon size={14} /></TBtn>
-          <TBtn onMouseDown={(e) => { e.preventDefault(); execCmd('strikeThrough'); }} title="Tachado" active={isStrike}><Strikethrough size={14} /></TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              execCmd('bold');
+            }}
+            title="Negrita (Ctrl+B)"
+            active={isBold}
+          >
+            <Bold size={14} />
+          </TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              execCmd('italic');
+            }}
+            title="Cursiva (Ctrl+I)"
+            active={isItalic}
+          >
+            <Italic size={14} />
+          </TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              execCmd('underline');
+            }}
+            title="Subrayado (Ctrl+U)"
+            active={isUnderline}
+          >
+            <UnderlineIcon size={14} />
+          </TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              execCmd('strikeThrough');
+            }}
+            title="Tachado"
+            active={isStrike}
+          >
+            <Strikethrough size={14} />
+          </TBtn>
 
           <ToolbarDivider />
 
           {/* Text color */}
-          <label className="flex flex-col items-center cursor-pointer p-1 rounded hover:bg-gray-100 relative flex-shrink-0" title="Color de texto">
+          <label
+            className="flex flex-col items-center cursor-pointer p-1 rounded hover:bg-gray-100 relative flex-shrink-0"
+            title="Color de texto"
+          >
             <Type size={13} className="text-gray-700" />
-            <input type="color" className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" onChange={(e) => execCmd('foreColor', e.target.value)} title="Color de texto" />
+            <input
+              type="color"
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              onChange={(e) => execCmd('foreColor', e.target.value)}
+              title="Color de texto"
+            />
           </label>
 
           {/* Highlight */}
-          <label className="flex flex-col items-center cursor-pointer p-1 rounded hover:bg-gray-100 relative flex-shrink-0" title="Resaltado">
+          <label
+            className="flex flex-col items-center cursor-pointer p-1 rounded hover:bg-gray-100 relative flex-shrink-0"
+            title="Resaltado"
+          >
             <Highlighter size={13} className="text-gray-700" />
-            <input type="color" defaultValue="#ffff00" className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" onChange={(e) => execCmd('hiliteColor', e.target.value)} title="Color de resaltado" />
+            <input
+              type="color"
+              defaultValue="#ffff00"
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              onChange={(e) => execCmd('hiliteColor', e.target.value)}
+              title="Color de resaltado"
+            />
           </label>
 
           <ToolbarDivider />
 
           {/* Alignment */}
-          <TBtn onMouseDown={(e) => { e.preventDefault(); if (!selectedChipId) document.execCommand('justifyLeft'); }} title="Alinear izquierda" disabled={chipSelected}><AlignLeft size={14} /></TBtn>
-          <TBtn onMouseDown={(e) => { e.preventDefault(); if (!selectedChipId) document.execCommand('justifyCenter'); }} title="Centrar" disabled={chipSelected}><AlignCenter size={14} /></TBtn>
-          <TBtn onMouseDown={(e) => { e.preventDefault(); if (!selectedChipId) document.execCommand('justifyRight'); }} title="Alinear derecha" disabled={chipSelected}><AlignRight size={14} /></TBtn>
-          <TBtn onMouseDown={(e) => { e.preventDefault(); if (!selectedChipId) document.execCommand('justifyFull'); }} title="Justificar" disabled={chipSelected}><AlignJustify size={14} /></TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!selectedChipId) document.execCommand('justifyLeft');
+            }}
+            title="Alinear izquierda"
+            disabled={chipSelected}
+          >
+            <AlignLeft size={14} />
+          </TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!selectedChipId) document.execCommand('justifyCenter');
+            }}
+            title="Centrar"
+            disabled={chipSelected}
+          >
+            <AlignCenter size={14} />
+          </TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!selectedChipId) document.execCommand('justifyRight');
+            }}
+            title="Alinear derecha"
+            disabled={chipSelected}
+          >
+            <AlignRight size={14} />
+          </TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!selectedChipId) document.execCommand('justifyFull');
+            }}
+            title="Justificar"
+            disabled={chipSelected}
+          >
+            <AlignJustify size={14} />
+          </TBtn>
 
           <ToolbarDivider />
 
           {/* Line spacing dropdown */}
           <button
             type="button"
-            onClick={(e) => { if (!chipSelected) openMenu('lineSpacing', e); }}
+            onClick={(e) => {
+              if (!chipSelected) openMenu('lineSpacing', e);
+            }}
             disabled={chipSelected}
             className={`p-1.5 rounded transition-colors flex-shrink-0 flex items-center gap-0.5 ${chipSelected ? 'opacity-40 cursor-not-allowed text-gray-400' : 'hover:bg-gray-100 text-gray-700'}`}
             title="Interlineado"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/><path d="M8 3l-4 3 4 3"/><path d="M8 15l-4 3 4 3"/></svg>
-            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+              <path d="M8 3l-4 3 4 3" />
+              <path d="M8 15l-4 3 4 3" />
+            </svg>
+            <svg
+              width="8"
+              height="8"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
 
           <ToolbarDivider />
 
           {/* Lists */}
-          <TBtn onMouseDown={(e) => {
-            e.preventDefault();
-            if (!selectedChipId) {
-              // Save selection before button steals focus, then restore and execute
-              const sel = window.getSelection();
-              if (sel && sel.rangeCount > 0) {
-                savedRangeRef.current = sel.getRangeAt(0).cloneRange();
-              }
-              requestAnimationFrame(() => {
-                if (savedRangeRef.current) {
-                  const s = window.getSelection();
-                  if (s) { s.removeAllRanges(); s.addRange(savedRangeRef.current); }
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!selectedChipId) {
+                // Save selection before button steals focus, then restore and execute
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                  savedRangeRef.current = sel.getRangeAt(0).cloneRange();
                 }
-                document.execCommand('insertUnorderedList');
-                savedRangeRef.current = null;
-              });
-            }
-          }} title="Lista con viñetas" disabled={chipSelected}><List size={14} /></TBtn>
+                requestAnimationFrame(() => {
+                  if (savedRangeRef.current) {
+                    const s = window.getSelection();
+                    if (s) {
+                      s.removeAllRanges();
+                      s.addRange(savedRangeRef.current);
+                    }
+                  }
+                  document.execCommand('insertUnorderedList');
+                  savedRangeRef.current = null;
+                });
+              }
+            }}
+            title="Lista con viñetas"
+            disabled={chipSelected}
+          >
+            <List size={14} />
+          </TBtn>
           {/* Bullet style picker */}
           <button
             type="button"
-            onClick={(e) => { if (!chipSelected) openMenu('bulletStyle', e); }}
+            onClick={(e) => {
+              if (!chipSelected) openMenu('bulletStyle', e);
+            }}
             disabled={chipSelected}
             className={`p-1 rounded transition-colors flex-shrink-0 flex items-center ${chipSelected ? 'opacity-40 cursor-not-allowed text-gray-400' : 'hover:bg-gray-100 text-gray-700'}`}
             title="Estilo de viñeta"
           >
-            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+            <svg
+              width="8"
+              height="8"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
-          <TBtn onMouseDown={(e) => {
-            e.preventDefault();
-            if (!selectedChipId) {
-              const sel = window.getSelection();
-              if (sel && sel.rangeCount > 0) {
-                savedRangeRef.current = sel.getRangeAt(0).cloneRange();
-              }
-              requestAnimationFrame(() => {
-                if (savedRangeRef.current) {
-                  const s = window.getSelection();
-                  if (s) { s.removeAllRanges(); s.addRange(savedRangeRef.current); }
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!selectedChipId) {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                  savedRangeRef.current = sel.getRangeAt(0).cloneRange();
                 }
-                document.execCommand('insertOrderedList');
-                savedRangeRef.current = null;
-              });
-            }
-          }} title="Lista numerada" disabled={chipSelected}><ListOrdered size={14} /></TBtn>
+                requestAnimationFrame(() => {
+                  if (savedRangeRef.current) {
+                    const s = window.getSelection();
+                    if (s) {
+                      s.removeAllRanges();
+                      s.addRange(savedRangeRef.current);
+                    }
+                  }
+                  document.execCommand('insertOrderedList');
+                  savedRangeRef.current = null;
+                });
+              }
+            }}
+            title="Lista numerada"
+            disabled={chipSelected}
+          >
+            <ListOrdered size={14} />
+          </TBtn>
           {/* Ordered list style picker */}
           <button
             type="button"
@@ -1236,19 +1853,58 @@ function SimpleEditorToolbar({
             className={`p-1 rounded transition-colors flex-shrink-0 flex items-center ${chipSelected ? 'opacity-40 cursor-not-allowed text-gray-400' : 'hover:bg-gray-100 text-gray-700'}`}
             title="Estilo de lista numerada"
           >
-            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+            <svg
+              width="8"
+              height="8"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
 
           <ToolbarDivider />
 
           {/* Indent */}
-          <TBtn onMouseDown={(e) => { e.preventDefault(); if (!chipSelected) applyIndent('increase'); }} title="Aumentar sangría" disabled={chipSelected}><Indent size={14} /></TBtn>
-          <TBtn onMouseDown={(e) => { e.preventDefault(); if (!chipSelected) applyIndent('decrease'); }} title="Reducir sangría" disabled={chipSelected}><Outdent size={14} /></TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!chipSelected) applyIndent('increase');
+            }}
+            title="Aumentar sangría"
+            disabled={chipSelected}
+          >
+            <Indent size={14} />
+          </TBtn>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!chipSelected) applyIndent('decrease');
+            }}
+            title="Reducir sangría"
+            disabled={chipSelected}
+          >
+            <Outdent size={14} />
+          </TBtn>
 
           <ToolbarDivider />
 
           {/* HR */}
-          <TBtn onMouseDown={(e) => { e.preventDefault(); if (!selectedChipId) document.execCommand('insertHTML', false, '<hr style="border:none;border-top:1px solid #ccc;margin:8px 0;" />'); }} title="Separador horizontal" disabled={chipSelected}>
+          <TBtn
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!selectedChipId)
+                document.execCommand(
+                  'insertHTML',
+                  false,
+                  '<hr style="border:none;border-top:1px solid #ccc;margin:8px 0;" />'
+                );
+            }}
+            title="Separador horizontal"
+            disabled={chipSelected}
+          >
             <Minus size={14} />
           </TBtn>
         </div>
@@ -1262,7 +1918,9 @@ function SimpleEditorToolbar({
             type="text"
             value={findText}
             onChange={(e) => setFindText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleFind(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleFind();
+            }}
             placeholder="Texto a buscar..."
             className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 w-40"
             autoFocus
@@ -1275,10 +1933,34 @@ function SimpleEditorToolbar({
             placeholder="Reemplazar con..."
             className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 w-40"
           />
-          <button type="button" onClick={handleFind} className="text-xs px-2 py-1 bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-700 font-medium">Buscar</button>
-          <button type="button" onClick={handleReplace} className="text-xs px-2 py-1 bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-700 font-medium">Reemplazar</button>
-          <button type="button" onClick={handleReplaceAll} className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">Reemplazar todo</button>
-          <button type="button" onClick={() => { if (onToggleFindReplace) onToggleFindReplace(); }} className="ml-auto text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
+          <button
+            type="button"
+            onClick={handleFind}
+            className="text-xs px-2 py-1 bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-700 font-medium"
+          >
+            Buscar
+          </button>
+          <button
+            type="button"
+            onClick={handleReplace}
+            className="text-xs px-2 py-1 bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-700 font-medium"
+          >
+            Reemplazar
+          </button>
+          <button
+            type="button"
+            onClick={handleReplaceAll}
+            className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
+          >
+            Reemplazar todo
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (onToggleFindReplace) onToggleFindReplace();
+            }}
+            className="ml-auto text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100"
+          >
             <X size={14} />
           </button>
         </div>
@@ -1288,62 +1970,154 @@ function SimpleEditorToolbar({
 
       {/* Márgenes */}
       {openDropdown === 'margenes' && (
-        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-4 w-64" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-4 w-64"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           <p className="text-xs font-semibold text-gray-800 mb-3">Márgenes de página (cm)</p>
           {(['top', 'bottom', 'left', 'right'] as const).map((side) => (
             <div key={side} className="flex items-center gap-2 mb-2">
-              <label className="text-xs text-gray-600 w-20">{side === 'top' ? 'Superior' : side === 'bottom' ? 'Inferior' : side === 'left' ? 'Izquierdo' : 'Derecho'}:</label>
-              <input type="number" min={0} max={10} step={0.1} value={localMargenes[side]} onChange={(e) => setLocalMargenes((m) => ({ ...m, [side]: parseFloat(e.target.value) || 0 }))} className="w-20 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <label className="text-xs text-gray-600 w-20">
+                {side === 'top'
+                  ? 'Superior'
+                  : side === 'bottom'
+                    ? 'Inferior'
+                    : side === 'left'
+                      ? 'Izquierdo'
+                      : 'Derecho'}
+                :
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.1}
+                value={localMargenes[side]}
+                onChange={(e) =>
+                  setLocalMargenes((m) => ({ ...m, [side]: parseFloat(e.target.value) || 0 }))
+                }
+                className="w-20 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
               <span className="text-xs text-gray-400">cm</span>
             </div>
           ))}
           <div className="flex gap-2 mt-3">
-            <button type="button" onClick={applyMargenes} className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium">Aplicar</button>
-            <button type="button" onClick={() => { if (onSetOpenDropdown) onSetOpenDropdown(null); }} className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200">Cancelar</button>
+            <button
+              type="button"
+              onClick={applyMargenes}
+              className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium"
+            >
+              Aplicar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onSetOpenDropdown) onSetOpenDropdown(null);
+              }}
+              className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
 
       {/* Tamaño */}
       {openDropdown === 'tamano' && (
-        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3 w-52" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3 w-52"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           <p className="text-xs font-semibold text-gray-800 mb-2">Tamaño de página</p>
           {['Carta (Letter)', 'Oficio (Legal)', 'A4', 'A3', 'A5', 'Tabloide'].map((size) => (
-            <button key={size} type="button" onClick={() => { if (onInfoChange) onInfoChange({ hojaTamano: size }); if (onSetOpenDropdown) onSetOpenDropdown(null); }} className={`w-full text-left text-xs px-3 py-2 rounded-md mb-0.5 transition-colors ${infoData?.hojaTamano === size ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}>{size}</button>
+            <button
+              key={size}
+              type="button"
+              onClick={() => {
+                if (onInfoChange) onInfoChange({ hojaTamano: size });
+                if (onSetOpenDropdown) onSetOpenDropdown(null);
+              }}
+              className={`w-full text-left text-xs px-3 py-2 rounded-md mb-0.5 transition-colors ${infoData?.hojaTamano === size ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+            >
+              {size}
+            </button>
           ))}
         </div>
       )}
 
       {/* Columnas */}
       {openDropdown === 'columnas' && (
-        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3 w-44" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3 w-44"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           <p className="text-xs font-semibold text-gray-800 mb-2">Número de columnas</p>
           {[1, 2, 3].map((n) => (
-            <button key={n} type="button" onClick={() => setNumColumnas(n)} className={`w-full text-left text-xs px-3 py-2 rounded-md mb-0.5 transition-colors flex items-center gap-2 ${numColumnas === n ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}>
-              <span className="flex gap-0.5">{Array.from({ length: n }).map((_, i) => <span key={i} className="w-3 h-5 bg-current rounded-sm opacity-60" />)}</span>
+            <button
+              key={n}
+              type="button"
+              onClick={() => setNumColumnas(n)}
+              className={`w-full text-left text-xs px-3 py-2 rounded-md mb-0.5 transition-colors flex items-center gap-2 ${numColumnas === n ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+            >
+              <span className="flex gap-0.5">
+                {Array.from({ length: n }).map((_, i) => (
+                  <span key={i} className="w-3 h-5 bg-current rounded-sm opacity-60" />
+                ))}
+              </span>
               {n === 1 ? 'Una columna' : n === 2 ? 'Dos columnas' : 'Tres columnas'}
             </button>
           ))}
           <div className="flex gap-2 mt-2">
-            <button type="button" onClick={applyColumnas} className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium">Aplicar</button>
-            <button type="button" onClick={() => { if (onSetOpenDropdown) onSetOpenDropdown(null); }} className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200">Cancelar</button>
+            <button
+              type="button"
+              onClick={applyColumnas}
+              className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium"
+            >
+              Aplicar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onSetOpenDropdown) onSetOpenDropdown(null);
+              }}
+              className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
 
       {/* Tabla con grid visual */}
       {openDropdown === 'tabla' && (
-        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999]" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999]"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           <SimpleTableGrid onSelect={insertTable} />
         </div>
       )}
 
       {/* Interlineado */}
       {openDropdown === 'lineSpacing' && (
-        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] py-1 min-w-[160px]" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
-          {[{ label: 'Sencillo', value: '1' }, { label: '1,15', value: '1.15' }, { label: '1,5', value: '1.5' }, { label: 'Doble', value: '2' }].map((s) => (
-            <button key={s.value} type="button" onClick={() => applyLineSpacing(s.value)} className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-              <span className="w-4 text-blue-600">{s.value === '1.15' ? '✓' : ''}</span>{s.label}
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] py-1 min-w-[160px]"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
+          {[
+            { label: 'Sencillo', value: '1' },
+            { label: '1,15', value: '1.15' },
+            { label: '1,5', value: '1.5' },
+            { label: 'Doble', value: '2' },
+          ].map((s) => (
+            <button
+              key={s.value}
+              type="button"
+              onClick={() => applyLineSpacing(s.value)}
+              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <span className="w-4 text-blue-600">{s.value === '1.15' ? '✓' : ''}</span>
+              {s.label}
             </button>
           ))}
         </div>
@@ -1351,16 +2125,46 @@ function SimpleEditorToolbar({
 
       {/* Estilo de lista numerada */}
       {openDropdown === 'orderedStyle' && (
-        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           <p className="text-xs font-semibold text-gray-700 mb-2">Estilo de lista numerada</p>
           <div className="grid grid-cols-3 gap-2">
             {[
               { label: '1.\n2.\n3.', title: '1. 2. 3.', listType: 'decimal', css: 'decimal' },
-              { label: '1)\n2)\n3)', title: '1) 2) 3)', listType: 'decimal', css: 'decimal', suffix: ')' },
-              { label: 'a.\nb.\nc.', title: 'a. b. c.', listType: 'lower-alpha', css: 'lower-alpha' },
-              { label: 'a)\nb)\nc)', title: 'a) b) c)', listType: 'lower-alpha', css: 'lower-alpha', suffix: ')' },
-              { label: 'i.\nii.\niii.', title: 'i. ii. iii.', listType: 'lower-roman', css: 'lower-roman' },
-              { label: 'I.\nII.\nIII.', title: 'I. II. III.', listType: 'upper-roman', css: 'upper-roman' },
+              {
+                label: '1)\n2)\n3)',
+                title: '1) 2) 3)',
+                listType: 'decimal',
+                css: 'decimal',
+                suffix: ')',
+              },
+              {
+                label: 'a.\nb.\nc.',
+                title: 'a. b. c.',
+                listType: 'lower-alpha',
+                css: 'lower-alpha',
+              },
+              {
+                label: 'a)\nb)\nc)',
+                title: 'a) b) c)',
+                listType: 'lower-alpha',
+                css: 'lower-alpha',
+                suffix: ')',
+              },
+              {
+                label: 'i.\nii.\niii.',
+                title: 'i. ii. iii.',
+                listType: 'lower-roman',
+                css: 'lower-roman',
+              },
+              {
+                label: 'I.\nII.\nIII.',
+                title: 'I. II. III.',
+                listType: 'upper-roman',
+                css: 'upper-roman',
+              },
             ].map((opt) => (
               <button
                 key={opt.title}
@@ -1369,14 +2173,18 @@ function SimpleEditorToolbar({
                 onClick={() => {
                   if (savedRangeRef.current) {
                     const s = window.getSelection();
-                    if (s) { s.removeAllRanges(); s.addRange(savedRangeRef.current); }
+                    if (s) {
+                      s.removeAllRanges();
+                      s.addRange(savedRangeRef.current);
+                    }
                   }
                   document.execCommand('insertOrderedList');
                   requestAnimationFrame(() => {
                     const sel = window.getSelection();
                     if (sel && sel.rangeCount > 0) {
                       let node: Node | null = sel.getRangeAt(0).commonAncestorContainer;
-                      while (node && node.nodeName !== 'OL' && node !== document.body) node = node.parentNode;
+                      while (node && node.nodeName !== 'OL' && node !== document.body)
+                        node = node.parentNode;
                       if (node && node.nodeName === 'OL') {
                         const ol = node as HTMLElement;
                         ol.style.listStyleType = opt.css;
@@ -1398,7 +2206,9 @@ function SimpleEditorToolbar({
                 }}
                 className="flex flex-col items-center justify-center p-2 rounded-lg border border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer min-w-[60px]"
               >
-                <span className="text-[10px] text-gray-700 font-mono whitespace-pre leading-tight text-left">{opt.label}</span>
+                <span className="text-[10px] text-gray-700 font-mono whitespace-pre leading-tight text-left">
+                  {opt.label}
+                </span>
                 <span className="text-[9px] text-gray-400 mt-1">{opt.title}</span>
               </button>
             ))}
@@ -1407,7 +2217,11 @@ function SimpleEditorToolbar({
       )}
 
       {/* Estilo de viñeta */}
-      {openDropdown === 'bulletStyle' && (        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
+      {openDropdown === 'bulletStyle' && (
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           <p className="text-xs font-semibold text-gray-700 mb-2">Estilo de viñeta</p>
           <div className="grid grid-cols-3 gap-2">
             {[
@@ -1425,7 +2239,10 @@ function SimpleEditorToolbar({
                 onClick={() => {
                   if (savedRangeRef.current) {
                     const s = window.getSelection();
-                    if (s) { s.removeAllRanges(); s.addRange(savedRangeRef.current); }
+                    if (s) {
+                      s.removeAllRanges();
+                      s.addRange(savedRangeRef.current);
+                    }
                   }
                   if (opt.style !== 'none') {
                     document.execCommand('insertUnorderedList');
@@ -1434,8 +2251,10 @@ function SimpleEditorToolbar({
                       const sel = window.getSelection();
                       if (sel && sel.rangeCount > 0) {
                         let node: Node | null = sel.getRangeAt(0).commonAncestorContainer;
-                        while (node && node.nodeName !== 'UL' && node !== document.body) node = node.parentNode;
-                        if (node && node.nodeName === 'UL') (node as HTMLElement).style.listStyleType = opt.style;
+                        while (node && node.nodeName !== 'UL' && node !== document.body)
+                          node = node.parentNode;
+                        if (node && node.nodeName === 'UL')
+                          (node as HTMLElement).style.listStyleType = opt.style;
                       }
                     });
                   } else if (opt.char) {
@@ -1445,7 +2264,8 @@ function SimpleEditorToolbar({
                       const sel = window.getSelection();
                       if (sel && sel.rangeCount > 0) {
                         let node: Node | null = sel.getRangeAt(0).commonAncestorContainer;
-                        while (node && node.nodeName !== 'UL' && node !== document.body) node = node.parentNode;
+                        while (node && node.nodeName !== 'UL' && node !== document.body)
+                          node = node.parentNode;
                         if (node && node.nodeName === 'UL') {
                           const ul = node as HTMLElement;
                           ul.style.listStyleType = 'none';
@@ -1480,35 +2300,95 @@ function SimpleEditorToolbar({
 
       {/* Encabezado y pie de página */}
       {openDropdown === 'encabezado' && (
-        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] w-72 p-4" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] w-72 p-4"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           <p className="text-xs font-semibold text-gray-800 mb-3">Encabezado y pie de página</p>
           <div className="mb-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <input type="checkbox" id="s-header" checked={localShowHeader} onChange={(e) => { if (onShowHeaderChange) onShowHeaderChange(e.target.checked); }} className="rounded" />
-              <label htmlFor="s-header" className="text-xs font-medium text-gray-700">Mostrar encabezado</label>
+              <input
+                type="checkbox"
+                id="s-header"
+                checked={localShowHeader}
+                onChange={(e) => {
+                  if (onShowHeaderChange) onShowHeaderChange(e.target.checked);
+                }}
+                className="rounded"
+              />
+              <label htmlFor="s-header" className="text-xs font-medium text-gray-700">
+                Mostrar encabezado
+              </label>
             </div>
           </div>
           <div className="mb-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <input type="checkbox" id="s-footer" checked={localShowFooter} onChange={(e) => { if (onShowFooterChange) onShowFooterChange(e.target.checked); }} className="rounded" />
-              <label htmlFor="s-footer" className="text-xs font-medium text-gray-700">Mostrar pie de página</label>
+              <input
+                type="checkbox"
+                id="s-footer"
+                checked={localShowFooter}
+                onChange={(e) => {
+                  if (onShowFooterChange) onShowFooterChange(e.target.checked);
+                }}
+                className="rounded"
+              />
+              <label htmlFor="s-footer" className="text-xs font-medium text-gray-700">
+                Mostrar pie de página
+              </label>
             </div>
           </div>
           <div className="border-t border-gray-100 pt-2 mb-3">
             <p className="text-xs font-medium text-gray-500 mb-1">Opciones</p>
-            <button type="button" onClick={() => { if (onSetOpenDropdown) onSetOpenDropdown(null); if (onShowNumerosModal) onShowNumerosModal(); else setShowNumerosModal(true); }} className="w-full text-left text-xs px-2 py-1.5 text-gray-700 hover:bg-gray-50 rounded">Números de página</button>
-            <button type="button" onClick={() => { if (onShowHeaderChange) onShowHeaderChange(false); if (onShowFooterChange) onShowFooterChange(false); if (onSetOpenDropdown) onSetOpenDropdown(null); }} className="w-full text-left text-xs px-2 py-1.5 text-red-600 hover:bg-red-50 rounded">Quitar encabezado y pie</button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onSetOpenDropdown) onSetOpenDropdown(null);
+                if (onShowNumerosModal) onShowNumerosModal();
+                else setShowNumerosModal(true);
+              }}
+              className="w-full text-left text-xs px-2 py-1.5 text-gray-700 hover:bg-gray-50 rounded"
+            >
+              Números de página
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onShowHeaderChange) onShowHeaderChange(false);
+                if (onShowFooterChange) onShowFooterChange(false);
+                if (onSetOpenDropdown) onSetOpenDropdown(null);
+              }}
+              className="w-full text-left text-xs px-2 py-1.5 text-red-600 hover:bg-red-50 rounded"
+            >
+              Quitar encabezado y pie
+            </button>
           </div>
           <div className="flex gap-2">
-            <button type="button" onClick={applyEncabezadoPie} className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium">Aplicar</button>
-            <button type="button" onClick={() => { if (onSetOpenDropdown) onSetOpenDropdown(null); }} className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200">Cancelar</button>
+            <button
+              type="button"
+              onClick={applyEncabezadoPie}
+              className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium"
+            >
+              Aplicar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onSetOpenDropdown) onSetOpenDropdown(null);
+              }}
+              className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
 
       {/* Vínculo inline dropdown */}
       {openDropdown === 'vinculo' && (
-        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3 w-80" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-3 w-80"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           <p className="text-xs font-semibold text-gray-700 mb-2">Insertar vínculo</p>
           <div className="mb-2">
             <label className="block text-xs text-gray-600 mb-1">Texto del vínculo</label>
@@ -1528,27 +2408,53 @@ function SimpleEditorToolbar({
               onChange={(e) => setLinkUrl(e.target.value)}
               placeholder="https://ejemplo.com"
               className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              onKeyDown={(e) => { if (e.key === 'Enter') insertLink(); if (e.key === 'Escape') { if (onSetOpenDropdown) onSetOpenDropdown(null); } }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') insertLink();
+                if (e.key === 'Escape') {
+                  if (onSetOpenDropdown) onSetOpenDropdown(null);
+                }
+              }}
               autoFocus={!linkText}
             />
           </div>
           <div className="flex gap-2">
-            <button type="button" onClick={insertLink} className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium">Insertar</button>
-            <button type="button" onClick={() => { if (onSetOpenDropdown) onSetOpenDropdown(null); setLinkUrl(''); setLinkText(''); }} className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200">Cancelar</button>
+            <button
+              type="button"
+              onClick={insertLink}
+              className="flex-1 text-xs bg-blue-600 text-white rounded-md py-1.5 hover:bg-blue-700 font-medium"
+            >
+              Insertar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onSetOpenDropdown) onSetOpenDropdown(null);
+                setLinkUrl('');
+                setLinkText('');
+              }}
+              className="flex-1 text-xs bg-gray-100 text-gray-700 rounded-md py-1.5 hover:bg-gray-200"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
 
       {/* Números de página inline dropdown */}
       {openDropdown === 'numeroPagina' && (
-        <div className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-4 w-72" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
+        <div
+          className="fixed bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] p-4 w-72"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           <p className="text-xs font-semibold text-gray-800 mb-3">Números de página</p>
           <NumeroPaginaDropdownContent
             onApply={(opts) => {
               applyPageNumbers(opts);
               if (onSetOpenDropdown) onSetOpenDropdown(null);
             }}
-            onClose={() => { if (onSetOpenDropdown) onSetOpenDropdown(null); }}
+            onClose={() => {
+              if (onSetOpenDropdown) onSetOpenDropdown(null);
+            }}
           />
         </div>
       )}
@@ -1593,11 +2499,13 @@ function ExitConfirmModal({
   onExitWithoutSave,
   onCancel,
   isSaving,
+  createsNewVersion,
 }: {
   onSaveAndExit: () => void;
   onExitWithoutSave: () => void;
   onCancel: () => void;
   isSaving: boolean;
+  createsNewVersion: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
@@ -1605,19 +2513,32 @@ function ExitConfirmModal({
         <div className="p-6">
           <div className="flex items-start gap-4 mb-4">
             <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#D97706"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
               </svg>
             </div>
             <div>
               <h3 className="text-base font-semibold text-gray-900">¿Deseas salir?</h3>
-              <p className="text-sm text-gray-500 mt-0.5">Tienes cambios sin guardar en este documento.</p>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Tienes cambios sin guardar en esta plantilla.
+              </p>
             </div>
           </div>
           <p className="text-sm text-gray-600 mb-6">
-            Puedes guardar tu avance como borrador para continuar más tarde, o salir sin guardar y perder los cambios realizados.
+            {createsNewVersion
+              ? 'La plantilla publicada se conservará intacta. Puedes crear una nueva versión como borrador o salir sin guardar los cambios.'
+              : 'Puedes guardar tu avance como borrador para continuar más tarde, o salir sin guardar y perder los cambios realizados.'}
           </p>
           <div className="flex flex-col gap-2">
             <button
@@ -1626,12 +2547,25 @@ function ExitConfirmModal({
               disabled={isSaving}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-60"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-                <polyline points="17 21 17 13 7 13 7 21"/>
-                <polyline points="7 3 7 8 15 8"/>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
               </svg>
-              {isSaving ? 'Guardando...' : 'Guardar avance y salir'}
+              {isSaving
+                ? 'Guardando...'
+                : createsNewVersion
+                  ? 'Crear nueva versión y salir'
+                  : 'Guardar avance y salir'}
             </button>
             <button
               type="button"
@@ -1675,7 +2609,9 @@ function TipoDocumentoModal({
     try {
       const stored = localStorage.getItem('tipo_doc_favorites');
       return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch { return new Set(); }
+    } catch {
+      return new Set();
+    }
   });
   // For "Por grupo" tab: null = show group list, string = show types of that group
   const [drillGroupId, setDrillGroupId] = useState<string | null>(null);
@@ -1686,7 +2622,9 @@ function TipoDocumentoModal({
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      try { localStorage.setItem('tipo_doc_favorites', JSON.stringify([...next])); } catch {}
+      try {
+        localStorage.setItem('tipo_doc_favorites', JSON.stringify([...next]));
+      } catch {}
       return next;
     });
   };
@@ -1701,8 +2639,13 @@ function TipoDocumentoModal({
 
   // Filtered list for "Por tipo" and "Favoritos" tabs
   const filteredTipos = tiposDocumento.filter((t) => {
-    const matchSearch = t.nombre.toLowerCase().includes(search.toLowerCase()) ||
-      (grupos.find(g => g.id === t.grupo_id)?.nombre.toLowerCase().includes(search.toLowerCase()) ?? false);
+    const matchSearch =
+      t.nombre.toLowerCase().includes(search.toLowerCase()) ||
+      (grupos
+        .find((g) => g.id === t.grupo_id)
+        ?.nombre.toLowerCase()
+        .includes(search.toLowerCase()) ??
+        false);
     if (tab === 'tipo') return matchSearch;
     if (tab === 'favoritos') return favorites.has(t.id) && matchSearch;
     return false;
@@ -1746,7 +2689,11 @@ function TipoDocumentoModal({
           onClick={() => onSelect(t.id)}
           className="min-w-0 flex-1 px-5 py-3.5 text-left"
         >
-          <span className={`block text-sm font-semibold leading-snug ${selectedId === t.id ? 'text-blue-700' : 'text-gray-900'}`}>{t.nombre}</span>
+          <span
+            className={`block text-sm font-semibold leading-snug ${selectedId === t.id ? 'text-blue-700' : 'text-gray-900'}`}
+          >
+            {t.nombre}
+          </span>
           {grupo && <span className="mt-0.5 block text-xs text-gray-500">{grupo.nombre}</span>}
         </button>
         <button
@@ -1758,7 +2705,9 @@ function TipoDocumentoModal({
         >
           <Star
             size={16}
-            className={isFav ? 'text-amber-400 fill-amber-400' : 'text-gray-300 hover:text-amber-300'}
+            className={
+              isFav ? 'text-amber-400 fill-amber-400' : 'text-gray-300 hover:text-amber-300'
+            }
           />
         </button>
       </div>
@@ -1767,14 +2716,21 @@ function TipoDocumentoModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden flex flex-col" style={{ maxHeight: '85vh' }}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden flex flex-col"
+        style={{ maxHeight: '85vh' }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Layers size={18} className="text-blue-600" />
             <h3 className="text-base font-semibold text-gray-900">Tipo de documento</h3>
           </div>
-          <button type="button" onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors">
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors"
+          >
             <X size={18} />
           </button>
         </div>
@@ -1786,7 +2742,10 @@ function TipoDocumentoModal({
             <input
               type="text"
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setDrillGroupId(null); }}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setDrillGroupId(null);
+              }}
               placeholder="Buscar tipo o documento..."
               autoFocus
               className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 bg-gray-50"
@@ -1802,7 +2761,9 @@ function TipoDocumentoModal({
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${tab === 'tipo' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             Por tipo
-            <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tab === 'tipo' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tab === 'tipo' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}
+            >
               {tiposDocumento.length}
             </span>
           </button>
@@ -1813,7 +2774,9 @@ function TipoDocumentoModal({
           >
             <Star size={11} className={tab === 'favoritos' ? 'fill-white' : ''} />
             Favoritos
-            <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tab === 'favoritos' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tab === 'favoritos' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}
+            >
               {favCount}
             </span>
           </button>
@@ -1828,35 +2791,38 @@ function TipoDocumentoModal({
 
         {/* List area */}
         <div className="flex-1 overflow-y-auto border-t border-gray-100">
-
           {/* ── Por tipo tab ── */}
-          {tab === 'tipo' && (
-            filteredTipos.length === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-gray-400">No se encontraron tipos</div>
-            ) : (
-              filteredTipos.map((t) => renderTipoRow(t))
-            )
-          )}
-
-          {/* ── Favoritos tab ── */}
-          {tab === 'favoritos' && (
-            filteredTipos.length === 0 ? (
-              <div className="px-5 py-10 text-center">
-                <Star size={32} className="mx-auto mb-3 text-gray-200" />
-                <p className="text-sm text-gray-400 font-medium">No tienes favoritos aún</p>
-                <p className="text-xs text-gray-300 mt-1">Marca documentos con ★ para verlos aquí</p>
+          {tab === 'tipo' &&
+            (filteredTipos.length === 0 ? (
+              <div className="px-5 py-10 text-center text-sm text-gray-400">
+                No se encontraron tipos
               </div>
             ) : (
               filteredTipos.map((t) => renderTipoRow(t))
-            )
-          )}
+            ))}
+
+          {/* ── Favoritos tab ── */}
+          {tab === 'favoritos' &&
+            (filteredTipos.length === 0 ? (
+              <div className="px-5 py-10 text-center">
+                <Star size={32} className="mx-auto mb-3 text-gray-200" />
+                <p className="text-sm text-gray-400 font-medium">No tienes favoritos aún</p>
+                <p className="text-xs text-gray-300 mt-1">
+                  Marca documentos con ★ para verlos aquí
+                </p>
+              </div>
+            ) : (
+              filteredTipos.map((t) => renderTipoRow(t))
+            ))}
 
           {/* ── Por grupo tab ── */}
-          {tab === 'grupo' && (
-            drillGroupId === null ? (
+          {tab === 'grupo' &&
+            (drillGroupId === null ? (
               /* Group list view */
               filteredGrupos.length === 0 ? (
-                <div className="px-5 py-10 text-center text-sm text-gray-400">No se encontraron grupos</div>
+                <div className="px-5 py-10 text-center text-sm text-gray-400">
+                  No se encontraron grupos
+                </div>
               ) : (
                 filteredGrupos.map((g) => {
                   const count = countByGroup(g.id);
@@ -1870,7 +2836,9 @@ function TipoDocumentoModal({
                     >
                       <div>
                         <p className="text-sm font-semibold text-gray-900">{g.nombre}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{count} documento{count !== 1 ? 's' : ''}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {count} documento{count !== 1 ? 's' : ''}
+                        </p>
                       </div>
                       <ArrowRight size={16} className="text-gray-400 shrink-0" />
                     </button>
@@ -1891,16 +2859,19 @@ function TipoDocumentoModal({
                     Grupos
                   </button>
                   <span className="text-gray-300 text-xs">/</span>
-                  <span className="text-xs text-gray-700 font-semibold truncate">{drillGroup?.nombre}</span>
+                  <span className="text-xs text-gray-700 font-semibold truncate">
+                    {drillGroup?.nombre}
+                  </span>
                 </div>
                 {drillTipos.length === 0 ? (
-                  <div className="px-5 py-10 text-center text-sm text-gray-400">No se encontraron tipos en este grupo</div>
+                  <div className="px-5 py-10 text-center text-sm text-gray-400">
+                    No se encontraron tipos en este grupo
+                  </div>
                 ) : (
                   drillTipos.map((t) => renderTipoRow(t))
                 )}
               </div>
-            )
-          )}
+            ))}
         </div>
       </div>
     </div>
@@ -1927,7 +2898,9 @@ function EtiquetasModal({
     try {
       const stored = localStorage.getItem('etiqueta_favorites');
       return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch { return new Set(); }
+    } catch {
+      return new Set();
+    }
   });
 
   const toggleFavorite = (id: string, e: React.MouseEvent) => {
@@ -1936,15 +2909,15 @@ function EtiquetasModal({
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      try { localStorage.setItem('etiqueta_favorites', JSON.stringify([...next])); } catch {}
+      try {
+        localStorage.setItem('etiqueta_favorites', JSON.stringify([...next]));
+      } catch {}
       return next;
     });
   };
 
   const toggleSelect = (id: string) => {
-    setLocalSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setLocalSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const filtered = etiquetas.filter((e) => {
@@ -1957,11 +2930,18 @@ function EtiquetasModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden flex flex-col" style={{ maxHeight: '85vh' }}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden flex flex-col"
+        style={{ maxHeight: '85vh' }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-900">Etiquetas</h3>
-          <button type="button" onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors">
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors"
+          >
             <X size={18} />
           </button>
         </div>
@@ -2016,7 +2996,11 @@ function EtiquetasModal({
                   onClick={() => toggleSelect(e.id)}
                   className={`w-full text-left px-5 py-3 hover:bg-gray-50 transition-colors flex items-center justify-between group border-b border-gray-50 last:border-0 ${isSelected ? 'bg-blue-50/50' : ''}`}
                 >
-                  <span className={`text-sm ${isSelected ? 'text-blue-700 font-medium' : 'text-gray-700'}`}>{e.nombre}</span>
+                  <span
+                    className={`text-sm ${isSelected ? 'text-blue-700 font-medium' : 'text-gray-700'}`}
+                  >
+                    {e.nombre}
+                  </span>
                   <button
                     type="button"
                     onClick={(ev) => toggleFavorite(e.id, ev)}
@@ -2025,7 +3009,11 @@ function EtiquetasModal({
                   >
                     <Star
                       size={15}
-                      className={favorites.has(e.id) ? 'text-amber-400 fill-amber-400' : 'text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity'}
+                      className={
+                        favorites.has(e.id)
+                          ? 'text-amber-400 fill-amber-400'
+                          : 'text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity'
+                      }
                     />
                   </button>
                 </button>
@@ -2058,6 +3046,13 @@ function StepInfoGeneral({
   showRulers,
   onDocumentSettingsChange,
   showValidationErrors,
+  showOriginChoice,
+  templateOrigin,
+  onTemplateOriginChange,
+  onDocxImport,
+  importStage,
+  importError,
+  importedDocxName,
 }: {
   data: InfoGeneralData;
   onChange: (updates: Partial<InfoGeneralData>) => void;
@@ -2065,7 +3060,16 @@ function StepInfoGeneral({
   showRulers: boolean;
   onDocumentSettingsChange: (settings: TemplateDocumentSettings) => void;
   showValidationErrors?: boolean;
+  showOriginChoice: boolean;
+  templateOrigin: TemplateOrigin | null;
+  onTemplateOriginChange: (origin: TemplateOrigin | null) => void;
+  onDocxImport: (file: File) => void;
+  importStage: TemplateImportStage;
+  importError: string | null;
+  importedDocxName: string | null;
 }) {
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingDocx, setIsDraggingDocx] = useState(false);
   const [grupos, setGrupos] = useState<GrupoTipoDocumento[]>([]);
   const [tiposDocumento, setTiposDocumento] = useState<TipoDocumento[]>([]);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
@@ -2107,78 +3111,356 @@ function StepInfoGeneral({
   const selectedTipo = tiposDocumento.find((t) => t.id === data.tipoDocumentoId);
   const selectedEtiquetas = etiquetas.filter((e) => data.etiquetasIds.includes(e.id));
   const documentSettings: TemplateDocumentSettings = {
-    paperSize: (data.hojaTamano as TemplatePaperSize) || DEFAULT_TEMPLATE_DOCUMENT_SETTINGS.paperSize,
+    paperSize:
+      (data.hojaTamano as TemplatePaperSize) || DEFAULT_TEMPLATE_DOCUMENT_SETTINGS.paperSize,
     orientation: data.hojaOrientacion,
     margins: margenes,
     showRulers,
+  };
+  const isImporting = importStage !== null;
+  const importStageLabel = {
+    uploading: 'Subiendo documento Word...',
+    processing: 'Procesando contenido...',
+    preparing: 'Preparando la plantilla...',
+  }[importStage || 'uploading'];
+  const showTemplateConfiguration =
+    !showOriginChoice || templateOrigin === 'scratch' || Boolean(importedDocxName);
+
+  const handleDocxDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDraggingDocx(false);
+    if (isImporting) return;
+    const file = event.dataTransfer.files?.[0];
+    if (file) onDocxImport(file);
+  };
+
+  const openDocxPicker = () => {
+    if (!isImporting) importInputRef.current?.click();
   };
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-5 lg:px-6">
       <div className="mx-auto grid w-full max-w-[1480px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <div className="mb-5">
-            <h2 className="text-base font-700 leading-5 text-slate-950">
-              Propiedades de la plantilla
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Define la información y clasificación de la plantilla.
-            </p>
-          </div>
-          <div className="space-y-4">
+        {showOriginChoice && !templateOrigin && (
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] xl:col-span-2">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Nombre de la plantilla <span className="text-red-500">*</span></label>
-              <input type="text" value={data.nombre} onChange={(e) => onChange({ nombre: e.target.value })} placeholder="Nombre de la plantilla" className={`h-10 w-full rounded-lg border px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 ${showValidationErrors && !data.nombre.trim() ? 'border-red-300 bg-red-50/30' : 'border-slate-200'}`} />
-              {showValidationErrors && !data.nombre.trim() && <p className="mt-1 text-xs text-red-500">Este campo es obligatorio</p>}
+              <h2 className="text-base font-700 leading-5 text-slate-950">
+                ¿Cómo quieres comenzar?
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Elige el origen del contenido de tu nueva plantilla.
+              </p>
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Descripción</label>
-              <textarea value={data.descripcion} onChange={(e) => onChange({ descripcion: e.target.value })} placeholder="Añade un resumen o notas sobre el contenido de la plantilla." rows={3} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
-            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={isImporting}
+                onClick={() => onTemplateOriginChange('word')}
+                className="flex min-h-[150px] flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/[0.02] disabled:cursor-wait disabled:opacity-70"
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                  <FileUp size={22} />
+                </span>
+                <span className="min-w-0 text-center">
+                  <span className="block text-sm font-700 text-slate-900">Importar Word</span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-500">
+                    Usa un documento .docx existente como contenido inicial.
+                  </span>
+                </span>
+              </button>
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Número de oficio / documento</label>
-              <input type="text" value={data.numeroOficio} onChange={(e) => onChange({ numeroOficio: e.target.value })} placeholder="Ej. OF-2026-001" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              <button
+                type="button"
+                disabled={isImporting}
+                onClick={() => onTemplateOriginChange('scratch')}
+                className="flex min-h-[150px] flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/[0.02] disabled:cursor-wait disabled:opacity-70"
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                  <FilePlus2 size={22} />
+                </span>
+                <span className="min-w-0 text-center">
+                  <span className="block text-sm font-700 text-slate-900">Crear desde cero</span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-500">
+                    Comienza con una hoja en blanco y construye el contenido en el editor.
+                  </span>
+                </span>
+              </button>
             </div>
+          </section>
+        )}
 
-            <div>
-              <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700"><Layers size={14} className="text-slate-400" />Tipo de documento <span className="font-normal text-slate-400">(Opcional)</span></label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input type="text" readOnly value={selectedTipo?.nombre || ''} placeholder={loadingData ? 'Cargando...' : 'Seleccionar tipo de documento...'} disabled={loadingData} className="h-10 w-full cursor-default rounded-lg border border-slate-200 bg-white px-3 pr-8 text-sm outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-50 disabled:text-slate-400" />
-                  {data.tipoDocumentoId && <button type="button" onClick={() => onChange({ tipoDocumentoId: '', grupotipoId: '' })} aria-label="Quitar tipo de documento" title="Quitar tipo de documento" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"><X size={14} /></button>}
+        {showOriginChoice && templateOrigin && (
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] xl:col-span-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  {templateOrigin === 'word' ? <FileUp size={19} /> : <FilePlus2 size={19} />}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-400">Origen seleccionado</p>
+                  <p className="text-sm font-700 text-slate-900">
+                    {templateOrigin === 'word' ? 'Importar Word' : 'Crear desde cero'}
+                  </p>
                 </div>
-                <button type="button" onClick={() => setShowTipoModal(true)} disabled={loadingData} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"><Search size={14} />Buscar</button>
               </div>
+              <button
+                type="button"
+                onClick={() => onTemplateOriginChange(null)}
+                disabled={isImporting}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-primary/30 hover:bg-primary/[0.03] hover:text-primary disabled:cursor-wait disabled:opacity-60"
+              >
+                <Pencil size={14} />
+                Cambiar origen
+              </button>
             </div>
 
-            <div>
-              <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700"><Tag size={14} className="text-slate-400" />Etiquetas</label>
-              <div className="flex gap-2">
-                <div className="flex min-h-10 flex-1 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  {selectedEtiquetas.length === 0 ? <span className="text-slate-400">Seleccionar etiquetas...</span> : selectedEtiquetas.map((tag) => (
-                    <span key={tag.id} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: tag.color || '#6B7280' }}>
-                      {tag.nombre}<button type="button" onClick={() => onChange({ etiquetasIds: data.etiquetasIds.filter((id) => id !== tag.id) })} aria-label={`Quitar etiqueta ${tag.nombre}`} className="ml-0.5 transition-opacity hover:opacity-70"><X size={10} /></button>
-                    </span>
-                  ))}
+            {templateOrigin === 'word' && (
+              <div className="mt-4 border-t border-slate-100 pt-4">
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept="application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
+                  aria-label="Seleccionar documento Word .docx"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (file) onDocxImport(file);
+                  }}
+                />
+
+                {importedDocxName ? (
+                  <div className="flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3 sm:flex-row sm:items-center">
+                    <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-600 text-emerald-800">Documento Word importado</p>
+                      <p className="mt-0.5 truncate text-xs text-emerald-700">{importedDocxName}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={openDocxPicker}
+                      disabled={isImporting}
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-sm font-600 text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <FileUp size={15} />
+                      Cambiar archivo
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      role="button"
+                      tabIndex={isImporting ? -1 : 0}
+                      onClick={openDocxPicker}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          openDocxPicker();
+                        }
+                      }}
+                      onDrop={handleDocxDrop}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        if (!isImporting) setIsDraggingDocx(true);
+                      }}
+                      onDragLeave={() => setIsDraggingDocx(false)}
+                      className={`flex min-h-[150px] flex-col items-center justify-center rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${
+                        isImporting
+                          ? 'cursor-wait border-slate-200 bg-slate-50/70'
+                          : isDraggingDocx
+                            ? 'cursor-pointer border-primary bg-primary/5'
+                            : 'cursor-pointer border-slate-300 bg-slate-50/40 hover:border-primary/60 hover:bg-primary/[0.02]'
+                      }`}
+                    >
+                      {isImporting ? (
+                        <Loader2 size={28} className="mb-3 animate-spin text-primary" />
+                      ) : (
+                        <Upload size={30} className="mb-3 text-slate-400" />
+                      )}
+                      <p className="text-sm font-600 text-primary">
+                        {isImporting ? importStageLabel : 'Arrastra tu documento Word aquí'}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">Archivo .docx de hasta 15 MB.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={openDocxPicker}
+                      disabled={isImporting}
+                      className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <Upload size={15} />
+                      Elegir archivo .docx
+                    </button>
+                  </>
+                )}
+
+                {importError && (
+                  <p role="alert" className="mt-3 text-sm text-red-600">
+                    {importError}
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {showTemplateConfiguration && (
+          <>
+            <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div className="mb-5">
+                <h2 className="text-base font-700 leading-5 text-slate-950">
+                  Propiedades de la plantilla
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Define la información y clasificación de la plantilla.
+                </p>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Nombre de la plantilla <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={data.nombre}
+                    onChange={(e) => onChange({ nombre: e.target.value })}
+                    placeholder="Nombre de la plantilla"
+                    className={`h-10 w-full rounded-lg border px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 ${showValidationErrors && !data.nombre.trim() ? 'border-red-300 bg-red-50/30' : 'border-slate-200'}`}
+                  />
+                  {showValidationErrors && !data.nombre.trim() && (
+                    <p className="mt-1 text-xs text-red-500">Este campo es obligatorio</p>
+                  )}
                 </div>
-                <button type="button" onClick={() => setShowEtiquetasModal(true)} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50"><Search size={14} />Buscar</button>
-              </div>
-            </div>
-          </div>
-        </section>
 
-        <div className="h-fit xl:sticky xl:top-5">
-          <TemplateDocumentSettingsPanel
-            key={JSON.stringify(documentSettings)}
-            initialSettings={documentSettings}
-            onSave={(settings) => {
-              onChange({ hojaTamano: settings.paperSize, hojaOrientacion: settings.orientation });
-              onDocumentSettingsChange(settings);
-            }}
-          />
-        </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Descripción
+                  </label>
+                  <textarea
+                    value={data.descripcion}
+                    onChange={(e) => onChange({ descripcion: e.target.value })}
+                    placeholder="Añade un resumen o notas sobre el contenido de la plantilla."
+                    rows={3}
+                    className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Número de oficio / documento
+                  </label>
+                  <input
+                    type="text"
+                    value={data.numeroOficio}
+                    onChange={(e) => onChange({ numeroOficio: e.target.value })}
+                    placeholder="Ej. OF-2026-001"
+                    className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                    <Layers size={14} className="text-slate-400" />
+                    Tipo de documento <span className="font-normal text-slate-400">(Opcional)</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        readOnly
+                        value={selectedTipo?.nombre || ''}
+                        placeholder={
+                          loadingData ? 'Cargando...' : 'Seleccionar tipo de documento...'
+                        }
+                        disabled={loadingData}
+                        className="h-10 w-full cursor-default rounded-lg border border-slate-200 bg-white px-3 pr-8 text-sm outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                      {data.tipoDocumentoId && (
+                        <button
+                          type="button"
+                          onClick={() => onChange({ tipoDocumentoId: '', grupotipoId: '' })}
+                          aria-label="Quitar tipo de documento"
+                          title="Quitar tipo de documento"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowTipoModal(true)}
+                      disabled={loadingData}
+                      className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      <Search size={14} />
+                      Buscar
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                    <Tag size={14} className="text-slate-400" />
+                    Etiquetas
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="flex min-h-10 flex-1 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                      {selectedEtiquetas.length === 0 ? (
+                        <span className="text-slate-400">Seleccionar etiquetas...</span>
+                      ) : (
+                        selectedEtiquetas.map((tag) => (
+                          <span
+                            key={tag.id}
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white"
+                            style={{ backgroundColor: tag.color || '#6B7280' }}
+                          >
+                            {tag.nombre}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onChange({
+                                  etiquetasIds: data.etiquetasIds.filter((id) => id !== tag.id),
+                                })
+                              }
+                              aria-label={`Quitar etiqueta ${tag.nombre}`}
+                              className="ml-0.5 transition-opacity hover:opacity-70"
+                            >
+                              <X size={10} />
+                            </button>
+                          </span>
+                        ))
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowEtiquetasModal(true)}
+                      className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50"
+                    >
+                      <Search size={14} />
+                      Buscar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <div className="h-fit xl:sticky xl:top-5">
+              <TemplateDocumentSettingsPanel
+                key={JSON.stringify(documentSettings)}
+                initialSettings={documentSettings}
+                onSave={(settings) => {
+                  onChange({
+                    hojaTamano: settings.paperSize,
+                    hojaOrientacion: settings.orientation,
+                  });
+                  onDocumentSettingsChange(settings);
+                }}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Tipo de documento modal */}
@@ -2197,7 +3479,10 @@ function StepInfoGeneral({
         <EtiquetasModal
           etiquetas={etiquetas}
           selectedIds={data.etiquetasIds}
-          onConfirm={(ids) => { onChange({ etiquetasIds: ids }); setShowEtiquetasModal(false); }}
+          onConfirm={(ids) => {
+            onChange({ etiquetasIds: ids });
+            setShowEtiquetasModal(false);
+          }}
           onClose={() => setShowEtiquetasModal(false)}
         />
       )}
@@ -2210,142 +3495,169 @@ function StepInfoGeneral({
 function StepPublicacion({
   data,
   onChange,
-  infoData,
-  onInfoChange,
+  context,
+  loadingContext,
+  contextError,
 }: {
   data: PublicacionData;
   onChange: (updates: Partial<PublicacionData>) => void;
-  infoData: InfoGeneralData;
-  onInfoChange: (updates: Partial<InfoGeneralData>) => void;
+  context: TemplatePublicationContext | null;
+  loadingContext: boolean;
+  contextError: string | null;
 }) {
-  const [showContactModal, setShowContactModal] = useState(false);
-  const [selectedContact, setSelectedContact] = useState<{ id: string; nombre: string; email: string } | null>(null);
-
-  // Auto-set estadoPlantilla based on option
-  const estadoMap: Record<string, string> = {
+  const versionTargetAction: Exclude<
+    PublicacionData['publicacionOpcion'],
+    'actualizar' | 'version'
+  > = context?.permissions.canPublish
+    ? 'publicar'
+    : context?.permissions.canSubmitApproval
+      ? 'aprobacion'
+      : 'borrador';
+  const versionTargetStatus = {
     borrador: 'Borrador',
     publicar: 'Publicada',
     aprobacion: 'En revisión',
-    version: 'Publicada',
+  }[versionTargetAction];
+  const estadoMap: Record<PublicacionData['publicacionOpcion'], string> = {
+    borrador: 'Borrador',
+    publicar: 'Publicada',
+    aprobacion: 'En revisión',
+    actualizar: versionTargetStatus,
+    version: versionTargetStatus,
   };
 
   const handleOptionChange = (opt: PublicacionData['publicacionOpcion']) => {
     const nuevoEstado = estadoMap[opt] || 'Borrador';
     onChange({ publicacionOpcion: opt, estadoPlantilla: nuevoEstado });
-    if (opt === 'aprobacion') {
-      setShowContactModal(true);
-    }
   };
 
-  const publishButtonLabel: Record<string, string> = {
-    borrador: 'Guardar como borrador',
-    publicar: 'Publicar plantilla',
-    aprobacion: 'Enviar a aprobación',
-    version: 'Duplicar como nueva versión',
-  };
+  const isPersonal = context?.workspaceType === 'personal';
+  const isPublishedTemplate =
+    context?.template?.status === 'published' || context?.template?.displayStatus === 'Publicada';
+  const publicationOptions: Array<{
+    id: PublicacionData['publicacionOpcion'];
+    title: string;
+    desc: string;
+  }> = [];
+  if (isPublishedTemplate) {
+    if (context?.permissions.canCreateVersion) {
+      publicationOptions.push({
+        id: 'actualizar',
+        title: 'Actualizar la versión actual',
+        desc: `Conserva la versión ${context.template?.currentVersion || data.versionPublicada} y publica esta revisión como la vigente.`,
+      });
+      publicationOptions.push({
+        id: 'version',
+        title: 'Crear una nueva versión',
+        desc: `Avanza a la versión ${context.template?.nextVersion || 'siguiente'} y conserva la actual en el historial.`,
+      });
+    }
+  } else {
+    if (context?.permissions.canSaveDraft) {
+      publicationOptions.push({
+        id: 'borrador',
+        title: 'Guardar como borrador',
+        desc: 'Guarda la plantilla sin publicarla.',
+      });
+    }
+    if (context?.permissions.canPublish) {
+      publicationOptions.push({
+        id: 'publicar',
+        title: 'Publicar plantilla',
+        desc: 'Hace disponible la plantilla para utilizarla.',
+      });
+    }
+    if (context?.permissions.canSubmitApproval) {
+      publicationOptions.push({
+        id: 'aprobacion',
+        title: 'Enviar a aprobación',
+        desc: 'Envía la plantilla al flujo de revisión configurado.',
+      });
+    }
+  }
+
+  const versionValue =
+    data.publicacionOpcion === 'version'
+      ? context?.template?.nextVersion || data.versionPublicada
+      : context?.template?.currentVersion || data.versionPublicada;
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
       <div className="mx-auto w-full max-w-6xl space-y-5">
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <div className="flex items-center gap-3 border-b border-slate-200 px-6 py-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 text-primary">
-              <Layers size={17} />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-slate-950">Clasificación</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Define el uso y el área responsable de la plantilla.</p>
-            </div>
+        {loadingContext && (
+          <div className="rounded-md border border-slate-200 bg-white px-5 py-4 text-sm text-slate-500">
+            Cargando opciones de publicación...
           </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Área responsable</label>
-                <select
-                  value={infoData.areaResponsable}
-                  onChange={(e) => onInfoChange({ areaResponsable: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
-                >
-                  <option value="">Seleccionar...</option>
-                  {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Tipo de plantilla</label>
-                <select
-                  value={infoData.tipoPlantilla}
-                  onChange={(e) => onInfoChange({ tipoPlantilla: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
-                >
-                  <option value="">Seleccionar...</option>
-                  {TIPOS_PLANTILLA.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-            </div>
+        )}
+        {contextError && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
+            {contextError}
           </div>
-        </div>
+        )}
 
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <div className="flex items-center gap-3 border-b border-slate-200 px-6 py-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 text-primary">
-              <Send size={17} />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-slate-950">Publicación</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Selecciona el destino y registra los últimos detalles.</p>
-            </div>
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-sm font-medium text-slate-800">Publicación</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Revisa los últimos detalles y decide cómo guardar la plantilla.
+            </p>
           </div>
           <div className="p-6">
+            {context?.approvalWorkflow && (
+              <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3">
+                <p className="text-xs font-medium text-blue-800">Aprobación requerida</p>
+                <p className="mt-0.5 text-xs text-blue-700">
+                  Se utilizará {context.approvalWorkflow.name}, versión{' '}
+                  {context.approvalWorkflow.version}.
+                </p>
+              </div>
+            )}
 
-            <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {PUBLICACION_OPTIONS.map((opt) => (
+            <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {publicationOptions.map((opt) => (
                 <button
                   key={opt.id}
                   type="button"
                   onClick={() => handleOptionChange(opt.id)}
                   className={`min-h-[92px] rounded-md border p-4 text-left transition-all ${
-                    data.publicacionOpcion === opt.id ? 'border-primary bg-blue-50 ring-1 ring-primary/10' : 'border-slate-200 bg-white hover:border-primary/30 hover:bg-slate-50'
+                    data.publicacionOpcion === opt.id
+                      ? 'border-primary bg-blue-50 ring-1 ring-primary/10'
+                      : 'border-slate-200 bg-white hover:border-primary/30 hover:bg-slate-50'
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                      data.publicacionOpcion === opt.id ? 'border-blue-500' : 'border-gray-300'
-                    }`}>
-                      {data.publicacionOpcion === opt.id && <div className="w-2 h-2 rounded-full bg-blue-500" />}
+                    <div
+                      className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                        data.publicacionOpcion === opt.id ? 'border-blue-500' : 'border-gray-300'
+                      }`}
+                    >
+                      {data.publicacionOpcion === opt.id && (
+                        <div className="w-2 h-2 rounded-full bg-blue-500" />
+                      )}
                     </div>
-                    <span className={`text-xs font-semibold ${data.publicacionOpcion === opt.id ? 'text-blue-700' : 'text-gray-700'}`}>
+                    <span
+                      className={`!text-xs !font-normal ${data.publicacionOpcion === opt.id ? 'text-blue-700' : 'text-gray-700'}`}
+                    >
                       {opt.title}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 ml-5">{opt.desc}</p>
+                  <p className="ml-5 !text-xs !font-normal text-gray-500">{opt.desc}</p>
                 </button>
               ))}
             </div>
 
-            {/* Contact selected for aprobacion */}
-            {data.publicacionOpcion === 'aprobacion' && (
-              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-medium text-blue-800">Contacto para aprobación</p>
-                  {selectedContact ? (
-                    <p className="text-sm text-blue-700 font-semibold">{selectedContact.nombre} — {selectedContact.email}</p>
-                  ) : (
-                    <p className="text-xs text-blue-600 italic">No seleccionado</p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowContactModal(true)}
-                  className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-                >
-                  {selectedContact ? 'Cambiar' : 'Seleccionar'}
-                </button>
+            {!loadingContext && context && publicationOptions.length === 0 && (
+              <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                No tienes una acción de publicación disponible para el estado y los permisos
+                actuales.
               </div>
             )}
 
             <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
               <div className="lg:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Comentario de publicación</label>
+                <label className="mb-1 block text-xs font-medium text-gray-700">
+                  {isPersonal ? 'Comentario (opcional)' : 'Comentario de publicación (opcional)'}
+                </label>
                 <textarea
                   value={data.comentarioPublicacion}
                   onChange={(e) => onChange({ comentarioPublicacion: e.target.value })}
@@ -2354,12 +3666,14 @@ function StepPublicacion({
                   maxLength={500}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
                 />
-                <p className="text-xs text-gray-400 text-right mt-0.5">{data.comentarioPublicacion.length} / 500</p>
+                <p className="text-xs text-gray-400 text-right mt-0.5">
+                  {data.comentarioPublicacion.length} / 500
+                </p>
               </div>
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Estado de la plantilla <span className="text-red-500">*</span>
+                  <label className="mb-1 block text-xs font-medium text-gray-700">
+                    Estado de la plantilla
                   </label>
                   <input
                     type="text"
@@ -2369,40 +3683,27 @@ function StepPublicacion({
                     className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed"
                     placeholder="Se asigna automáticamente"
                   />
-                  {!data.estadoPlantilla && (
-                    <p className="text-xs text-red-500 mt-1">Selecciona una opción de publicación</p>
-                  )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Versión publicada</label>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Versión publicada
+                  </label>
                   <input
                     type="text"
-                    value={data.versionPublicada}
-                    onChange={(e) => onChange({ versionPublicada: e.target.value })}
-                    disabled={data.publicacionOpcion !== 'version'}
-                    className={`w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${data.publicacionOpcion !== 'version' ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : ''}`}
-                    placeholder="Ej. 1.0"
+                    value={versionValue}
+                    readOnly
+                    disabled
+                    className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600"
                   />
-                  {data.publicacionOpcion !== 'version' && (
-                    <p className="text-xs text-gray-400 mt-0.5">Solo editable al duplicar como nueva versión</p>
-                  )}
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    La versión se asigna automáticamente.
+                  </p>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-
-      {showContactModal && (
-        <ContactPickerModal
-          onSelect={(c) => {
-            setSelectedContact(c);
-            onChange({ estadoPlantilla: 'En revisión' });
-            setShowContactModal(false);
-          }}
-          onClose={() => setShowContactModal(false)}
-        />
-      )}
     </div>
   );
 }
@@ -2413,15 +3714,37 @@ function NuevaPlantillaPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { activeWorkspace } = useWorkspace();
+  const activeWorkspaceId = activeWorkspace?.id || null;
   const containerRef = useRef<HTMLDivElement>(null);
+  const previewScrollAreaRef = useRef<HTMLDivElement>(null);
+  const previewWheelLockUntilRef = useRef(0);
+  const previewScrollTargetRef = useRef<'start' | 'end'>('start');
   const templateId = searchParams?.get('id') || null;
+  const importSessionId = searchParams?.get('import') || null;
+  const previewRequested = searchParams?.get('preview') === '1';
+  const previewOpenedFromGallery = searchParams?.get('preview_origin') === 'gallery';
 
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(previewRequested ? 2 : 1);
   const [currentHtml, setCurrentHtml] = useState(() => normalizeTemplateHtml());
   const [showPreview, setShowPreview] = useState(false);
+  const [previewSnapshot, setPreviewSnapshot] = useState<TemplatePreviewSnapshot>({
+    pages: ['<p><br></p>'],
+    headerHtml: '',
+    footerHtml: '',
+  });
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewZoom, setPreviewZoom] = useState(100);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingTemplate, setIsLoadingTemplate] = useState(false);
-  const [toasts, setToasts] = useState<{ id: string; type: 'success' | 'error' | 'info'; message: string }[]>([]);
+  const [publicationContext, setPublicationContext] = useState<TemplatePublicationContext | null>(
+    null
+  );
+  const [isLoadingPublicationContext, setIsLoadingPublicationContext] = useState(false);
+  const [publicationContextError, setPublicationContextError] = useState<string | null>(null);
+  const [editorDocumentVersion, setEditorDocumentVersion] = useState(0);
+  const [toasts, setToasts] = useState<
+    { id: string; type: 'success' | 'error' | 'info'; message: string }[]
+  >([]);
   const [pageCount, setPageCount] = useState(1);
   const [activePage, setActivePage] = useState(1);
   const [zoom, setZoom] = useState(100);
@@ -2429,7 +3752,19 @@ function NuevaPlantillaPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [templateOrigin, setTemplateOrigin] = useState<TemplateOrigin | null>(
+    importSessionId ? 'word' : templateId ? 'scratch' : null
+  );
+  const [templateImportStage, setTemplateImportStage] = useState<TemplateImportStage>(null);
+  const [templateImportError, setTemplateImportError] = useState<string | null>(null);
+  const [importedDocx, setImportedDocx] = useState<{
+    filename: string;
+    suggestedName: string;
+  } | null>(null);
   const savedTemplateIdRef = useRef<string | null>(templateId);
+  const loadedTemplateIdRef = useRef<string | null>(null);
+  const openedPreviewTemplateRef = useRef<string | null>(null);
+  const appliedImportSessionRef = useRef<string | null>(null);
 
   // Editor state
   const [showRulers, setShowRulers] = useState(DEFAULT_TEMPLATE_DOCUMENT_SETTINGS.showRulers);
@@ -2437,7 +3772,12 @@ function NuevaPlantillaPage() {
   const [showFooter, setShowFooter] = useState(false);
   const [firstPageDifferent, setFirstPageDifferent] = useState(false);
   const [showNumerosModal, setShowNumerosModal] = useState(false);
-  const [imageSizeData, setImageSizeData] = useState<{ figure: HTMLElement; originalWidth: number; originalHeight: number; currentWidth: number } | null>(null);
+  const [imageSizeData, setImageSizeData] = useState<{
+    figure: HTMLElement;
+    originalWidth: number;
+    originalHeight: number;
+    currentWidth: number;
+  } | null>(null);
   const [margenes, setMargenes] = useState<PageMargins>(DEFAULT_TEMPLATE_DOCUMENT_SETTINGS.margins);
 
   // Toolbar shared state (lifted to avoid undefined refs in bottom bar)
@@ -2449,8 +3789,13 @@ function NuevaPlantillaPage() {
   const updateWordCount = useCallback(() => {
     const pages = document.querySelectorAll('[data-page-content]');
     let text = '';
-    pages.forEach((p) => { text += (p as HTMLElement).innerText + ' '; });
-    const words = text.trim().split(/\s+/).filter((w) => w.length > 0);
+    pages.forEach((p) => {
+      text += (p as HTMLElement).innerText + ' ';
+    });
+    const words = text
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 0);
     setWordCount(words.length);
   }, []);
 
@@ -2463,7 +3808,12 @@ function NuevaPlantillaPage() {
     showOnFirst: boolean;
     startFrom: number;
   } | null>(null);
-  const savedSelectionRef = useRef<{ node: Node; offset: number; pageEl: HTMLElement; pageIndex: number } | null>(null);
+  const savedSelectionRef = useRef<{
+    node: Node;
+    offset: number;
+    pageEl: HTMLElement;
+    pageIndex: number;
+  } | null>(null);
 
   const [infoData, setInfoData] = useState<InfoGeneralData>({
     nombre: '',
@@ -2484,6 +3834,11 @@ function NuevaPlantillaPage() {
     estadoPlantilla: 'Borrador',
     versionPublicada: '1.0',
   });
+  const isExistingPublishedTemplate = Boolean(
+    templateId &&
+    (publicationContext?.template?.status === 'published' ||
+      publicationContext?.template?.displayStatus === 'Publicada')
+  );
 
   useEffect(() => {
     if (templateId) return;
@@ -2533,12 +3888,20 @@ function NuevaPlantillaPage() {
 
   // Load existing template if editing
   useEffect(() => {
-    if (!templateId) return;
+    if (!templateId || !activeWorkspace?.id) return;
+    const controller = new AbortController();
     const loadTemplate = async () => {
+      loadedTemplateIdRef.current = null;
       setIsLoadingTemplate(true);
       try {
-        let res = await fetch(`/api/plantillas/${templateId}`);
-        if (!res.ok) return;
+        const res = await templateApiFetch(
+          `/api/plantillas/${templateId}?workspace_id=${encodeURIComponent(activeWorkspace.id)}`,
+          { signal: controller.signal }
+        );
+        if (!res.ok) {
+          const failure = await res.json().catch(() => null);
+          throw new Error(failure?.error || 'No se pudo cargar la plantilla.');
+        }
         const json = await res.json();
         const t = json.data;
         if (!t) return;
@@ -2557,13 +3920,15 @@ function NuevaPlantillaPage() {
         });
 
         setPubData({
-          publicacionOpcion: (t.publicacion_opcion as PublicacionData['publicacionOpcion']) || 'borrador',
+          publicacionOpcion:
+            (t.publicacion_opcion as PublicacionData['publicacionOpcion']) || 'borrador',
           comentarioPublicacion: t.comentario_publicacion || '',
           estadoPlantilla: t.estado_plantilla || 'Borrador',
           versionPublicada: t.version_publicada || '1.0',
         });
 
         setCurrentHtml(normalizeTemplateHtml(t.contenido_html));
+        setEditorDocumentVersion((current) => current + 1);
 
         // Restore editor layout state
         if (t.margenes) setMargenes(t.margenes);
@@ -2571,18 +3936,105 @@ function NuevaPlantillaPage() {
         if (typeof t.show_footer === 'boolean') setShowFooter(t.show_footer);
 
         if (Array.isArray(t.campos_insertados) && t.campos_insertados.length > 0) {
-          setInsertedFields(t.campos_insertados as InsertedField[]);
+          setInsertedFields(
+            (t.campos_insertados as InsertedField[]).map((field) => ({
+              ...field,
+              valueKey:
+                field.valueKey ||
+                `legacy:${field.scope || 'participant'}:${field.fieldType}:${(field.customName || field.label).trim().toLocaleLowerCase('es-MX')}`,
+            }))
+          );
         }
 
         savedTemplateIdRef.current = t.id;
-      } catch {
-        // silently fail
+        loadedTemplateIdRef.current = t.id;
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          setPublicationContextError((error as Error).message);
+        }
       } finally {
-        setIsLoadingTemplate(false);
+        if (!controller.signal.aborted) setIsLoadingTemplate(false);
       }
     };
-    loadTemplate();
-  }, [templateId]);
+    void loadTemplate();
+    return () => controller.abort();
+  }, [activeWorkspace?.id, templateId]);
+
+  useEffect(() => {
+    if (!activeWorkspace?.id) return;
+    const controller = new AbortController();
+    const loadPublicationContext = async () => {
+      setIsLoadingPublicationContext(true);
+      setPublicationContextError(null);
+      try {
+        const params = new URLSearchParams({ workspace_id: activeWorkspace.id });
+        if (templateId) params.set('template_id', templateId);
+        const response = await templateApiFetch(`/api/plantillas/publication-context?${params}`, {
+          signal: controller.signal,
+        });
+        const result = await response.json();
+        if (!response.ok)
+          throw new Error(result.error || 'No se pudo obtener la política de publicación.');
+        const nextContext = result as TemplatePublicationContext;
+        setPublicationContext(nextContext);
+
+        if (nextContext.workspaceType === 'personal') {
+          setInfoData((current) => ({ ...current, areaResponsable: '' }));
+        }
+
+        setPubData((current) => {
+          const publishedTemplate =
+            nextContext.template?.status === 'published' ||
+            nextContext.template?.displayStatus === 'Publicada';
+          const allowed: PublicacionData['publicacionOpcion'][] = publishedTemplate
+            ? nextContext.permissions.canCreateVersion
+              ? ['actualizar', 'version']
+              : []
+            : [
+                ...(nextContext.permissions.canSaveDraft ? (['borrador'] as const) : []),
+                ...(nextContext.permissions.canPublish ? (['publicar'] as const) : []),
+                ...(nextContext.permissions.canSubmitApproval ? (['aprobacion'] as const) : []),
+              ];
+          const publicacionOpcion = allowed.includes(current.publicacionOpcion)
+            ? current.publicacionOpcion
+            : allowed[0] || 'borrador';
+          const estadoPlantilla = {
+            borrador: 'Borrador',
+            publicar: 'Publicada',
+            aprobacion: 'En revisión',
+            actualizar: nextContext.permissions.canPublish
+              ? 'Publicada'
+              : nextContext.permissions.canSubmitApproval
+                ? 'En revisión'
+                : 'Borrador',
+            version: nextContext.permissions.canPublish
+              ? 'Publicada'
+              : nextContext.permissions.canSubmitApproval
+                ? 'En revisión'
+                : 'Borrador',
+          }[publicacionOpcion];
+          return {
+            ...current,
+            publicacionOpcion,
+            estadoPlantilla,
+            versionPublicada:
+              publicacionOpcion === 'version'
+                ? nextContext.template?.nextVersion || current.versionPublicada
+                : nextContext.template?.currentVersion || current.versionPublicada || '1.0',
+          };
+        });
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          setPublicationContext(null);
+          setPublicationContextError((error as Error).message);
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsLoadingPublicationContext(false);
+      }
+    };
+    void loadPublicationContext();
+    return () => controller.abort();
+  }, [activeWorkspace?.id, templateId]);
 
   // Track unsaved changes
   const handleInfoChange = useCallback((updates: Partial<InfoGeneralData>) => {
@@ -2595,6 +4047,154 @@ function NuevaPlantillaPage() {
     setToasts((prev) => [...prev, { id, type, message }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
   }, []);
+
+  const applyImportedTemplate = useCallback(
+    (imported: TemplateDocxImportResult, advanceToEditor: boolean) => {
+      setTemplateOrigin('word');
+      setImportedDocx({
+        filename: imported.originalFilename,
+        suggestedName: imported.suggestedName,
+      });
+      setInfoData((current) => ({
+        ...current,
+        nombre: current.nombre || imported.suggestedName,
+      }));
+      setCurrentHtml(normalizeTemplateHtml(imported.contentHtml));
+      setInsertedFields(imported.fields as InsertedField[]);
+      setEditorDocumentVersion((current) => current + 1);
+      setPageCount(1);
+      setActivePage(1);
+      if (advanceToEditor) setWizardStep(2);
+      setHasUnsavedChanges(true);
+    },
+    []
+  );
+
+  const handleDocxImport = useCallback(
+    async (file: File) => {
+      if (!activeWorkspaceId || templateImportStage) return;
+
+      setTemplateOrigin('word');
+      setTemplateImportError(null);
+      if (!file.name.toLowerCase().endsWith('.docx')) {
+        setTemplateImportError('Selecciona un archivo Microsoft Word con extensión .docx.');
+        return;
+      }
+      if (file.size <= 0 || file.size > 15 * 1024 * 1024) {
+        setTemplateImportError('El archivo debe contener información y no superar 15 MB.');
+        return;
+      }
+
+      setTemplateImportStage('uploading');
+      const processingTimer = window.setTimeout(() => setTemplateImportStage('processing'), 250);
+      try {
+        const formData = new FormData();
+        formData.set('file', file);
+        const response = await templateApiFetch(
+          `/api/plantillas/import-docx?workspace_id=${encodeURIComponent(activeWorkspaceId)}`,
+          { method: 'POST', body: formData }
+        );
+        const result = (await response.json()) as TemplateDocxImportResult & {
+          error?: string;
+        };
+        if (!response.ok) {
+          throw new Error(result.error || 'No fue posible importar el documento Word.');
+        }
+
+        window.clearTimeout(processingTimer);
+        setTemplateImportStage('preparing');
+        applyImportedTemplate(result, false);
+        addToast(
+          result.warnings.length > 0 ? 'info' : 'success',
+          result.warnings.length > 0
+            ? `Documento importado con ${result.warnings.length} aviso${result.warnings.length === 1 ? '' : 's'} de compatibilidad.`
+            : 'Documento Word importado. El contenido está listo en el editor.'
+        );
+      } catch (error) {
+        setTemplateImportError(
+          (error as Error).message || 'No fue posible importar el documento Word.'
+        );
+      } finally {
+        window.clearTimeout(processingTimer);
+        setTemplateImportStage(null);
+      }
+    },
+    [activeWorkspaceId, addToast, applyImportedTemplate, templateImportStage]
+  );
+
+  const handleTemplateOriginChange = useCallback(
+    (origin: TemplateOrigin | null) => {
+      if (templateImportStage) return;
+      setTemplateOrigin(origin);
+      setTemplateImportError(null);
+
+      if (origin === 'scratch' && importedDocx) {
+        setInfoData((current) => ({
+          ...current,
+          nombre: current.nombre === importedDocx.suggestedName ? '' : current.nombre,
+        }));
+        setImportedDocx(null);
+        setCurrentHtml(normalizeTemplateHtml());
+        setInsertedFields([]);
+        setSelectedFieldId(null);
+        setEditorDocumentVersion((current) => current + 1);
+        setPageCount(1);
+        setActivePage(1);
+        setHasUnsavedChanges(true);
+      }
+    },
+    [importedDocx, templateImportStage]
+  );
+
+  useEffect(() => {
+    if (
+      !importSessionId ||
+      templateId ||
+      !activeWorkspace?.id ||
+      appliedImportSessionRef.current === importSessionId
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const applyImportedDocument = async () => {
+      try {
+        const imported = await readTemplateImportSession(importSessionId);
+        if (cancelled) return;
+        if (!imported) {
+          addToast(
+            'error',
+            'La importación venció o ya no está disponible. Vuelve a importar el archivo.'
+          );
+          return;
+        }
+        if (imported.workspaceId !== activeWorkspace.id) {
+          await removeTemplateImportSession(importSessionId);
+          addToast('error', 'La importación pertenece a otro espacio de trabajo.');
+          return;
+        }
+
+        appliedImportSessionRef.current = importSessionId;
+        applyImportedTemplate(imported, true);
+        await removeTemplateImportSession(importSessionId);
+        addToast(
+          imported.warnings.length > 0 ? 'info' : 'success',
+          imported.warnings.length > 0
+            ? `Plantilla preparada con ${imported.warnings.length} aviso${imported.warnings.length === 1 ? '' : 's'} de compatibilidad.`
+            : 'Plantilla preparada. El contenido de Word ya puede editarse.'
+        );
+      } catch (error) {
+        if (!cancelled) {
+          addToast('error', (error as Error).message || 'No fue posible preparar la plantilla.');
+        }
+      }
+    };
+
+    void applyImportedDocument();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspace?.id, addToast, applyImportedTemplate, importSessionId, templateId]);
 
   const getPageIndexForNode = useCallback((node: Node): number => {
     let el: Node | null = node;
@@ -2626,6 +4226,9 @@ function NuevaPlantillaPage() {
       element.style.outline = '';
       element.style.outlineOffset = '';
       element.style.boxShadow = '';
+      element.style.borderColor =
+        element.getAttribute('data-field-type') === 'signature' ? '#60A5FA' : '#BFDBFE';
+      element.style.marginInline = '2px';
     });
   }, []);
 
@@ -2641,9 +4244,10 @@ function NuevaPlantillaPage() {
 
       clearInsertedFieldHighlights();
       fieldElement.setAttribute('data-field-selected', 'true');
-      fieldElement.style.outline = '2px solid #2563EB';
-      fieldElement.style.outlineOffset = '2px';
-      fieldElement.style.boxShadow = '0 0 0 4px rgba(37, 99, 235, 0.14)';
+      fieldElement.style.outline = '';
+      fieldElement.style.outlineOffset = '';
+      fieldElement.style.borderColor = '#2563EB';
+      fieldElement.style.boxShadow = '0 0 0 1px rgba(37, 99, 235, 0.12)';
       setSelectedFieldId(fieldId);
       if (scrollIntoView) {
         fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
@@ -2702,19 +4306,25 @@ function NuevaPlantillaPage() {
     [clearInsertedFieldHighlights, selectInsertedField]
   );
 
-  const handleUpdateField = useCallback((id: string, updates: Partial<InsertedField>) => {
-    setInsertedFields((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, ...updates } : f))
-    );
-    if (updates.customName !== undefined) {
-      const chip = document.querySelector(`[data-field-id="${id}"]`) as HTMLElement | null;
-      if (chip) {
-        chip.textContent = `{{${updates.customName}}}`;
-        chip.setAttribute('data-field-label', updates.customName);
-        notifyEditorMutation(chip);
+  const handleUpdateField = useCallback(
+    (id: string, updates: Partial<InsertedField>) => {
+      setInsertedFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
+      if (updates.customName !== undefined) {
+        const chip = document.querySelector(`[data-field-id="${id}"]`) as HTMLElement | null;
+        if (chip) {
+          const labelElement = chip.querySelector('[data-field-label-text]');
+          if (labelElement) {
+            labelElement.textContent = `{{${updates.customName}}}`;
+          } else {
+            chip.textContent = `{{${updates.customName}}}`;
+          }
+          chip.setAttribute('data-field-label', updates.customName);
+          notifyEditorMutation(chip);
+        }
       }
-    }
-  }, [notifyEditorMutation]);
+    },
+    [notifyEditorMutation]
+  );
 
   const handleDeleteField = useCallback(
     (fieldId: string) => {
@@ -2732,6 +4342,143 @@ function NuevaPlantillaPage() {
     [clearInsertedFieldHighlights, findInsertedFieldElement]
   );
 
+  const getInsertionFontSize = useCallback((node: Node, pageElement: HTMLElement): string => {
+    const element = node instanceof HTMLElement ? node : node.parentElement;
+    const formattedElement =
+      element && pageElement.contains(element) && !element.closest('[data-field-id]')
+        ? element
+        : pageElement;
+    return window.getComputedStyle(formattedElement).fontSize;
+  }, []);
+
+  const handleDuplicateField = useCallback(
+    (fieldId: string) => {
+      const fieldElement = findInsertedFieldElement(fieldId);
+      const pageElement = fieldElement?.closest('[data-page-content]') as HTMLElement | null;
+      if (!fieldElement || !pageElement) {
+        addToast('error', 'No fue posible localizar el campo para duplicarlo.');
+        return;
+      }
+
+      const duplicateId = `field-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const sourceField = insertedFields.find((field) => field.id === fieldId);
+      const sharedValueKey = sourceField?.valueKey || fieldElement.dataset.fieldValueKey || fieldId;
+      const duplicateElement = fieldElement.cloneNode(true) as HTMLElement;
+      duplicateElement.setAttribute('data-field-id', duplicateId);
+      duplicateElement.setAttribute('data-field-value-key', sharedValueKey);
+      fieldElement.setAttribute('data-field-value-key', sharedValueKey);
+      duplicateElement.removeAttribute('data-field-selected');
+      duplicateElement.style.outline = '';
+      duplicateElement.style.outlineOffset = '';
+      duplicateElement.style.boxShadow = '';
+      duplicateElement.style.marginInline = '2px';
+      if (!fieldElement.style.marginInline) fieldElement.style.marginInline = '2px';
+
+      const findEditablePage = (node: Node): HTMLElement | null => {
+        const element = node instanceof HTMLElement ? node : node.parentElement;
+        if (element?.closest('[data-field-id]')) return null;
+        return element?.closest('[data-page-content][contenteditable="true"]') ?? null;
+      };
+
+      let targetPage: HTMLElement | null = null;
+      let insertionRange: Range | null = null;
+      let targetFontSize = '';
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const currentRange = selection.getRangeAt(0);
+        targetPage = findEditablePage(currentRange.commonAncestorContainer);
+        if (targetPage) {
+          insertionRange = currentRange.cloneRange();
+          targetFontSize = getInsertionFontSize(currentRange.startContainer, targetPage);
+        }
+      }
+
+      if (!insertionRange) {
+        const saved = savedSelectionRef.current;
+        if (saved?.pageEl.isConnected && saved.node.isConnected) {
+          try {
+            targetPage = findEditablePage(saved.node);
+            if (targetPage) {
+              insertionRange = document.createRange();
+              insertionRange.setStart(saved.node, saved.offset);
+              insertionRange.collapse(true);
+              targetFontSize = getInsertionFontSize(saved.node, targetPage);
+            }
+          } catch {
+            insertionRange = null;
+            targetPage = null;
+          }
+        }
+      }
+
+      const insertedAtCursor = Boolean(insertionRange && targetPage);
+      if (insertionRange && targetPage) {
+        insertionRange.collapse(false);
+        insertionRange.insertNode(duplicateElement);
+      } else {
+        fieldElement.insertAdjacentElement('afterend', duplicateElement);
+        targetPage = pageElement;
+        targetFontSize = window.getComputedStyle(fieldElement).fontSize;
+      }
+      duplicateElement.style.fontSize = targetFontSize;
+
+      const pageIndex = getPageIndexForNode(duplicateElement);
+      setInsertedFields((current) => {
+        const sourceIndex = current.findIndex((field) => field.id === fieldId);
+        if (sourceIndex < 0) return current;
+
+        const source = current[sourceIndex];
+        const duplicate: InsertedField = {
+          ...source,
+          id: duplicateId,
+          valueKey: source.valueKey || source.id,
+          pageIndex,
+          options: [...source.options],
+        };
+        const linkedSource = { ...source, valueKey: source.valueKey || source.id };
+        return [
+          ...current.slice(0, sourceIndex),
+          linkedSource,
+          duplicate,
+          ...current.slice(sourceIndex + 1),
+        ];
+      });
+
+      if (selection) {
+        const range = document.createRange();
+        range.setStartAfter(duplicateElement);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        savedSelectionRef.current = {
+          node: range.startContainer,
+          offset: range.startOffset,
+          pageEl: targetPage,
+          pageIndex,
+        };
+      }
+
+      selectInsertedField(duplicateId, false);
+      notifyEditorMutation(duplicateElement);
+      setHasUnsavedChanges(true);
+      addToast(
+        'success',
+        insertedAtCursor
+          ? 'Campo duplicado en la posición del cursor.'
+          : 'Campo duplicado junto al original.'
+      );
+    },
+    [
+      addToast,
+      findInsertedFieldElement,
+      getPageIndexForNode,
+      getInsertionFontSize,
+      insertedFields,
+      notifyEditorMutation,
+      selectInsertedField,
+    ]
+  );
+
   const insertGeneralField = useCallback(
     (
       _editor: unknown,
@@ -2743,10 +4490,22 @@ function NuevaPlantillaPage() {
       const participantAttributes = options?.participantField
         ? ' data-field-scope="participant" data-participant-assignment="unassigned"'
         : ' data-field-scope="general"';
-      const requiredAttribute = options?.required ? ' data-field-required="true"' : '';
-      const chip = `<span contenteditable="false" data-field-id="${fieldId}" data-field-label="${label}" data-field-type="${fieldType}"${participantAttributes}${requiredAttribute} style="display:inline;background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;border-radius:4px;padding:1px 7px;font-size:inherit;font-family:inherit;line-height:inherit;user-select:none;cursor:pointer;white-space:nowrap;" title="Clic para editar propiedades">{{${label}}}</span>`;
+      const isSignatureField = fieldType === 'signature';
+      const isRequired = !isSignatureField && options?.required === true;
+      const requiredAttribute = isRequired ? ' data-field-required="true"' : '';
+      const fieldStyle = isSignatureField
+        ? 'display:inline-flex;align-items:center;justify-content:center;width:180px;height:72px;min-width:120px;min-height:48px;max-width:100%;resize:both;overflow:hidden;vertical-align:middle;box-sizing:border-box;background:#EFF6FF;color:#1D4ED8;border:1px dashed #60A5FA;border-radius:4px;margin:0 2px;padding:8px;font-size:12px;font-family:inherit;line-height:1.25;user-select:none;cursor:pointer;white-space:nowrap;'
+        : 'display:inline;background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;border-radius:4px;margin:0 2px;padding:1px 7px;font-size:inherit;font-family:inherit;line-height:inherit;user-select:none;cursor:pointer;white-space:nowrap;';
+      const fieldTitle = isSignatureField
+        ? 'Clic para editar. Arrastra la esquina inferior derecha para cambiar el tamaño.'
+        : 'Clic para editar propiedades';
+      const fieldContent = isSignatureField
+        ? `<span data-field-label-text="true">{{${label}}}</span><span data-signature-resize-handle="true" aria-hidden="true"></span>`
+        : `{{${label}}}`;
+      const chip = `<span contenteditable="false" data-field-id="${fieldId}" data-field-value-key="${fieldId}" data-field-label="${label}" data-field-type="${fieldType}"${participantAttributes}${requiredAttribute} style="${fieldStyle}" title="${fieldTitle}">${fieldContent}</span>`;
       const insertedField = (pageIndex: number): InsertedField => ({
         id: fieldId,
+        valueKey: fieldId,
         label,
         fieldType,
         customName: label,
@@ -2754,19 +4513,24 @@ function NuevaPlantillaPage() {
         options: [],
         pageIndex,
         scope: options?.participantField ? 'participant' : 'general',
-        required: options?.required === true,
+        required: isRequired,
         assignedParticipantId: null,
       });
 
       const sel = window.getSelection();
       let pageIndex = 0;
 
-      const commitInsertion = (targetPage: HTMLElement, targetPageIndex: number) => {
+      const commitInsertion = (
+        targetPage: HTMLElement,
+        targetPageIndex: number,
+        insertionFontSize: string
+      ) => {
         const fieldElement = findInsertedFieldElement(fieldId);
         if (!fieldElement) {
           addToast('error', 'No fue posible colocar el campo en el documento.');
           return false;
         }
+        fieldElement.style.fontSize = insertionFontSize;
         setInsertedFields((current) =>
           current.some((field) => field.id === fieldId)
             ? current
@@ -2794,6 +4558,7 @@ function NuevaPlantillaPage() {
         }
         if (pageEl) {
           pageIndex = getPageIndexForNode(range.startContainer);
+          const insertionFontSize = getInsertionFontSize(range.startContainer, pageEl);
           range.deleteContents();
           const fragment = range.createContextualFragment(chip);
           const lastNode = fragment.lastChild;
@@ -2811,7 +4576,7 @@ function NuevaPlantillaPage() {
               pageIndex,
             };
           }
-          if (commitInsertion(pageEl, pageIndex)) return;
+          if (commitInsertion(pageEl, pageIndex, insertionFontSize)) return;
         }
       }
 
@@ -2825,6 +4590,7 @@ function NuevaPlantillaPage() {
             const range = document.createRange();
             range.setStart(saved.node, saved.offset);
             range.collapse(true);
+            const insertionFontSize = getInsertionFontSize(saved.node, saved.pageEl);
             restoreSel.addRange(range);
             const fragment = range.createContextualFragment(chip);
             const lastNode = fragment.lastChild;
@@ -2835,7 +4601,7 @@ function NuevaPlantillaPage() {
               restoreSel.removeAllRanges();
               restoreSel.addRange(range);
             }
-            if (commitInsertion(saved.pageEl, saved.pageIndex)) return;
+            if (commitInsertion(saved.pageEl, saved.pageIndex, insertionFontSize)) return;
           }
         } catch {
           // fall through
@@ -2853,6 +4619,7 @@ function NuevaPlantillaPage() {
           const range = document.createRange();
           range.selectNodeContents(firstPage);
           range.collapse(false);
+          const insertionFontSize = getInsertionFontSize(firstPage, firstPage);
           fallbackSel.addRange(range);
           const fragment = range.createContextualFragment(chip);
           const lastNode = fragment.lastChild;
@@ -2863,7 +4630,7 @@ function NuevaPlantillaPage() {
             fallbackSel.removeAllRanges();
             fallbackSel.addRange(range);
           }
-          commitInsertion(firstPage, 0);
+          commitInsertion(firstPage, 0, insertionFontSize);
         }
       } else {
         addToast('error', 'No hay una página disponible para colocar el campo.');
@@ -2873,54 +4640,91 @@ function NuevaPlantillaPage() {
       addToast,
       findInsertedFieldElement,
       getPageIndexForNode,
+      getInsertionFontSize,
       notifyEditorMutation,
       selectInsertedField,
     ]
   );
 
-  const buildPayload = useCallback((estado: string, estadoPlantilla: string) => {
-    const html = normalizeTemplateHtml(multiPageEditorRef.current?.getHTML() ?? currentHtml);
-    return {
-      nombre: infoData.nombre || 'Nueva Plantilla',
-      descripcion: infoData.descripcion,
-      numeroOficio: infoData.numeroOficio,
-      areaResponsable: infoData.areaResponsable,
-      tipoPlantilla: infoData.tipoPlantilla,
-      etiquetasIds: infoData.etiquetasIds,
-      tipoDocumentoId: infoData.tipoDocumentoId || null,
-      grupotipoId: infoData.grupotipoId || null,
-      hojaTamano: infoData.hojaTamano,
-      hojaOrientacion: infoData.hojaOrientacion,
-      contenidoHtml: html,
-      camposInsertados: insertedFields,
-      publicacionOpcion: pubData.publicacionOpcion,
-      comentarioPublicacion: pubData.comentarioPublicacion,
-      estadoPlantilla: estadoPlantilla,
-      versionPublicada: pubData.versionPublicada,
-      estado: estado,
-      fields: insertedFields,
-      margenes: margenes,
-      showHeader: showHeader,
-      showFooter: showFooter,
-    };
-  }, [currentHtml, infoData, insertedFields, pubData, margenes, showHeader, showFooter]);
+  const buildPayload = useCallback(
+    (
+      estado: string,
+      estadoPlantilla: string,
+      publicacionOpcion: PublicacionData['publicacionOpcion'] = pubData.publicacionOpcion
+    ) => {
+      const html = normalizeTemplateHtml(multiPageEditorRef.current?.getHTML() ?? currentHtml);
+      return {
+        workspaceId: activeWorkspace?.id || '',
+        nombre: infoData.nombre || 'Nueva Plantilla',
+        descripcion: infoData.descripcion,
+        numeroOficio: infoData.numeroOficio,
+        areaResponsable: infoData.areaResponsable,
+        tipoPlantilla: infoData.tipoPlantilla,
+        etiquetasIds: infoData.etiquetasIds,
+        tipoDocumentoId: infoData.tipoDocumentoId || null,
+        grupotipoId: infoData.grupotipoId || null,
+        hojaTamano: infoData.hojaTamano,
+        hojaOrientacion: infoData.hojaOrientacion,
+        contenidoHtml: html,
+        camposInsertados: insertedFields,
+        publicacionOpcion,
+        comentarioPublicacion: pubData.comentarioPublicacion,
+        estadoPlantilla: estadoPlantilla,
+        versionPublicada:
+          publicacionOpcion === 'version'
+            ? publicationContext?.template?.nextVersion || pubData.versionPublicada
+            : publicationContext?.template?.currentVersion || pubData.versionPublicada,
+        versionTargetAction:
+          publicacionOpcion === 'actualizar' || publicacionOpcion === 'version'
+            ? estado === 'published'
+              ? 'publicar'
+              : estadoPlantilla === 'En revisión'
+                ? 'aprobacion'
+                : 'borrador'
+            : undefined,
+        estado: estado,
+        fields: insertedFields,
+        margenes: margenes,
+        showHeader: showHeader,
+        showFooter: showFooter,
+      };
+    },
+    [
+      activeWorkspace?.id,
+      currentHtml,
+      infoData,
+      insertedFields,
+      pubData,
+      margenes,
+      publicationContext,
+      showHeader,
+      showFooter,
+    ]
+  );
 
   const handleSaveDraft = useCallback(async () => {
+    if (!activeWorkspace?.id) {
+      addToast('error', 'Selecciona un espacio de trabajo para guardar la plantilla.');
+      return false;
+    }
     setIsSaving(true);
     try {
-      const payload = buildPayload('draft', 'Borrador');
+      const saveAction: PublicacionData['publicacionOpcion'] = isExistingPublishedTemplate
+        ? pubData.publicacionOpcion === 'version'
+          ? 'version'
+          : 'actualizar'
+        : 'borrador';
+      const payload = buildPayload('draft', 'Borrador', saveAction);
 
       let res: Response;
       if (savedTemplateIdRef.current) {
-        res = await fetch(`/api/plantillas/${savedTemplateIdRef.current}`, {
+        res = await templateApiFetch(`/api/plantillas/${savedTemplateIdRef.current}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
       } else {
-        res = await fetch('/api/plantillas', {
+        res = await templateApiFetch('/api/plantillas', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
       }
@@ -2928,7 +4732,7 @@ function NuevaPlantillaPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al guardar');
 
-      if (json.data?.id && !savedTemplateIdRef.current) {
+      if (json.data?.id && (!savedTemplateIdRef.current || json.createdVersion)) {
         savedTemplateIdRef.current = json.data.id;
         // Update URL without navigation
         const url = new URL(window.location.href);
@@ -2937,13 +4741,28 @@ function NuevaPlantillaPage() {
       }
 
       setHasUnsavedChanges(false);
-      addToast('success', 'Borrador guardado correctamente');
+      addToast(
+        'success',
+        isExistingPublishedTemplate
+          ? saveAction === 'actualizar'
+            ? 'Revisión de la versión actual guardada como borrador'
+            : 'Nueva versión creada como borrador'
+          : 'Borrador guardado correctamente'
+      );
+      return true;
     } catch (err: any) {
-      addToast('error', err.message || 'Error al guardar el borrador');
+      addToast(
+        'error',
+        err.message ||
+          (isExistingPublishedTemplate
+            ? 'Error al crear la nueva versión'
+            : 'Error al guardar el borrador')
+      );
+      return false;
     } finally {
       setIsSaving(false);
     }
-  }, [buildPayload, addToast]);
+  }, [activeWorkspace?.id, buildPayload, addToast, isExistingPublishedTemplate]);
 
   const handleExitClick = () => {
     if (hasUnsavedChanges) {
@@ -2962,41 +4781,232 @@ function NuevaPlantillaPage() {
     setIsFullscreen((value) => !value);
   };
 
+  const capturePreviewSnapshot = useCallback((): TemplatePreviewSnapshot => {
+    const serializedHtml = multiPageEditorRef.current?.getHTML() ?? currentHtml;
+    const serialized = splitSerializedTemplateHtml(serializedHtml);
+    const editorRoot = containerRef.current;
+    const livePages = editorRoot
+      ? Array.from(editorRoot.querySelectorAll('[data-page-content="true"]')).map(
+          cleanPreviewContent
+        )
+      : [];
+    const liveHeader = editorRoot?.querySelector('[data-header-editable="true"]');
+    const liveFooter = editorRoot?.querySelector('[data-footer-editable="true"]');
+
+    const pages =
+      livePages.length >= serialized.pages.length && livePages.length > 0
+        ? livePages
+        : serialized.pages;
+
+    return {
+      pages,
+      headerHtml: showHeader
+        ? liveHeader
+          ? cleanPreviewContent(liveHeader)
+          : serialized.headerHtml
+        : '',
+      footerHtml: showFooter
+        ? liveFooter
+          ? cleanPreviewContent(liveFooter)
+          : serialized.footerHtml
+        : '',
+    };
+  }, [currentHtml, showFooter, showHeader]);
+
+  const handleOpenPreview = useCallback(() => {
+    setPreviewSnapshot(capturePreviewSnapshot());
+    previewScrollTargetRef.current = 'start';
+    previewWheelLockUntilRef.current = 0;
+    setPreviewPage(1);
+    setShowPreview(true);
+  }, [capturePreviewSnapshot]);
+
+  const handleClosePreview = useCallback(() => {
+    if (previewRequested && previewOpenedFromGallery) {
+      router.back();
+      return;
+    }
+
+    setShowPreview(false);
+  }, [previewOpenedFromGallery, previewRequested, router]);
+
+  useEffect(() => {
+    if (!previewRequested || !templateId || isLoadingTemplate) return;
+    if (
+      loadedTemplateIdRef.current !== templateId ||
+      openedPreviewTemplateRef.current === templateId
+    ) {
+      return;
+    }
+
+    let previewFrame = 0;
+    const paginationFrame = requestAnimationFrame(() => {
+      previewFrame = requestAnimationFrame(() => {
+        handleOpenPreview();
+        openedPreviewTemplateRef.current = templateId;
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(paginationFrame);
+      if (previewFrame) cancelAnimationFrame(previewFrame);
+    };
+  }, [handleOpenPreview, isLoadingTemplate, previewRequested, templateId]);
+
+  const goToPreviewPage = useCallback(
+    (page: number, scrollTarget: 'start' | 'end' = 'start') => {
+      previewScrollTargetRef.current = scrollTarget;
+      setPreviewPage(Math.min(Math.max(page, 1), previewSnapshot.pages.length));
+    },
+    [previewSnapshot.pages.length]
+  );
+
+  const handlePreviewWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 4) return;
+
+      const scrollArea = event.currentTarget;
+      const movingForward = event.deltaY > 0;
+      const atStart = scrollArea.scrollTop <= 1;
+      const atEnd = scrollArea.scrollTop + scrollArea.clientHeight >= scrollArea.scrollHeight - 1;
+      const reachedBoundary = movingForward ? atEnd : atStart;
+      const canChangePage = movingForward
+        ? previewPage < previewSnapshot.pages.length
+        : previewPage > 1;
+
+      if (!reachedBoundary || !canChangePage) return;
+
+      const now = Date.now();
+      if (now < previewWheelLockUntilRef.current) return;
+
+      previewWheelLockUntilRef.current = now + 350;
+      goToPreviewPage(previewPage + (movingForward ? 1 : -1), movingForward ? 'start' : 'end');
+    },
+    [goToPreviewPage, previewPage, previewSnapshot.pages.length]
+  );
+
+  useEffect(() => {
+    if (!showPreview) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const scrollArea = previewScrollAreaRef.current;
+      if (!scrollArea) return;
+
+      scrollArea.scrollTop =
+        previewScrollTargetRef.current === 'end'
+          ? Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight)
+          : 0;
+      previewScrollTargetRef.current = 'start';
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [previewPage, showPreview]);
+
+  const handlePrintPreview = useCallback(() => {
+    const paperSize = (infoData.hojaTamano || 'Carta (Letter)') as PaperSize;
+    const orientation = infoData.hojaOrientacion || 'vertical';
+    const dims = getPageDimensions(paperSize, orientation);
+    const widthInches = dims.width / 96;
+    const heightInches = dims.height / 96;
+    const printWindow = window.open(
+      '',
+      '_blank',
+      `width=${Math.round(dims.width + 100)},height=${Math.round(dims.height + 100)}`
+    );
+    if (!printWindow) return;
+
+    const pagesMarkup = previewSnapshot.pages
+      .map((pageHtml, pageIndex) => {
+        const headerHtml = showHeader
+          ? resolvePreviewZoneHtml(previewSnapshot.headerHtml, pageIndex)
+          : '';
+        const footerHtml = showFooter
+          ? resolvePreviewZoneHtml(previewSnapshot.footerHtml, pageIndex)
+          : '';
+        return `<section class="template-print-page"><div class="template-preview-zone template-print-header">${headerHtml}</div><div class="template-preview-content template-print-content">${pageHtml}</div><div class="template-preview-zone template-print-footer">${footerHtml}</div></section>`;
+      })
+      .join('');
+
+    printWindow.document.write(
+      `<!DOCTYPE html><html><head><title>${escapePrintTitle(
+        infoData.nombre || 'Plantilla'
+      )}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=swap"><style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;}@page{size:${widthInches}in ${heightInches}in;margin:0;}.template-print-page{width:${widthInches}in;height:${heightInches}in;display:flex;flex-direction:column;overflow:hidden;break-after:page;page-break-after:always;background:white;}.template-print-page:last-child{break-after:auto;page-break-after:auto;}.template-print-header{height:${margenes.top}cm;min-height:${margenes.top}cm;padding:4px ${margenes.right}cm 4px ${margenes.left}cm;display:flex;align-items:flex-end;flex-shrink:0;}.template-print-content{min-height:0;flex:1;overflow:hidden;padding:0 ${margenes.right}cm 0 ${margenes.left}cm;}.template-print-footer{height:${margenes.bottom}cm;min-height:${margenes.bottom}cm;padding:4px ${margenes.right}cm 4px ${margenes.left}cm;display:flex;align-items:flex-start;flex-shrink:0;}${TEMPLATE_PREVIEW_CONTENT_CSS}</style></head><body>${pagesMarkup}</body></html>`
+    );
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 300);
+  }, [infoData, margenes, previewSnapshot, showFooter, showHeader]);
+
   const handlePublish = useCallback(async () => {
-    // Validate estado is set
-    if (!pubData.estadoPlantilla) {
-      addToast('error', 'Selecciona una opción de publicación para continuar.');
+    if (!activeWorkspace?.id || !publicationContext) {
+      addToast(
+        'error',
+        publicationContextError || 'No se pudo validar la política de publicación.'
+      );
       return;
     }
     setIsSaving(true);
     try {
+      const publicationAction: PublicacionData['publicacionOpcion'] = isExistingPublishedTemplate
+        ? pubData.publicacionOpcion === 'version'
+          ? 'version'
+          : 'actualizar'
+        : pubData.publicacionOpcion;
+      const versionTargetAction = publicationContext.permissions.canPublish
+        ? 'publicar'
+        : publicationContext.permissions.canSubmitApproval
+          ? 'aprobacion'
+          : 'borrador';
       const statusMap: Record<string, string> = {
         borrador: 'draft',
         publicar: 'published',
         aprobacion: 'draft',
-        version: 'published',
+        actualizar:
+          versionTargetAction === 'publicar'
+            ? 'published'
+            : versionTargetAction === 'aprobacion'
+              ? 'draft'
+              : 'draft',
+        version:
+          versionTargetAction === 'publicar'
+            ? 'published'
+            : versionTargetAction === 'aprobacion'
+              ? 'draft'
+              : 'draft',
       };
       const estadoMap: Record<string, string> = {
         borrador: 'Borrador',
         publicar: 'Publicada',
         aprobacion: 'En revisión',
-        version: 'Publicada',
+        actualizar:
+          versionTargetAction === 'publicar'
+            ? 'Publicada'
+            : versionTargetAction === 'aprobacion'
+              ? 'En revisión'
+              : 'Borrador',
+        version:
+          versionTargetAction === 'publicar'
+            ? 'Publicada'
+            : versionTargetAction === 'aprobacion'
+              ? 'En revisión'
+              : 'Borrador',
       };
-      const estado = statusMap[pubData.publicacionOpcion] || 'draft';
-      const estadoPlantilla = estadoMap[pubData.publicacionOpcion] || pubData.estadoPlantilla;
-      const payload = buildPayload(estado, estadoPlantilla);
+      const estado = statusMap[publicationAction] || 'draft';
+      const estadoPlantilla = estadoMap[publicationAction] || pubData.estadoPlantilla;
+      const payload = buildPayload(estado, estadoPlantilla, publicationAction);
 
       let res: Response;
       if (savedTemplateIdRef.current) {
-        res = await fetch(`/api/plantillas/${savedTemplateIdRef.current}`, {
+        res = await templateApiFetch(`/api/plantillas/${savedTemplateIdRef.current}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
       } else {
-        res = await fetch('/api/plantillas', {
+        res = await templateApiFetch('/api/plantillas', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
       }
@@ -3004,7 +5014,7 @@ function NuevaPlantillaPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al publicar');
 
-      if (json.data?.id && !savedTemplateIdRef.current) {
+      if (json.data?.id && (!savedTemplateIdRef.current || json.createdVersion)) {
         savedTemplateIdRef.current = json.data.id;
       }
 
@@ -3013,24 +5023,52 @@ function NuevaPlantillaPage() {
         borrador: 'Borrador guardado correctamente',
         publicar: '¡Plantilla publicada exitosamente!',
         aprobacion: 'Plantilla enviada a aprobación',
-        version: 'Nueva versión creada correctamente',
+        actualizar:
+          versionTargetAction === 'publicar'
+            ? 'Versión actualizada correctamente'
+            : versionTargetAction === 'aprobacion'
+              ? 'Actualización enviada a aprobación'
+              : 'Actualización guardada como borrador',
+        version:
+          versionTargetAction === 'publicar'
+            ? 'Nueva versión publicada correctamente'
+            : versionTargetAction === 'aprobacion'
+              ? 'Nueva versión enviada a aprobación'
+              : 'Nueva versión creada como borrador',
       };
-      addToast('success', publishLabels[pubData.publicacionOpcion] || 'Plantilla guardada correctamente');
+      addToast('success', publishLabels[publicationAction] || 'Plantilla guardada correctamente');
       setTimeout(() => router.push('/plantillas'), 1500);
     } catch (err: any) {
       addToast('error', err.message || 'Error al publicar la plantilla');
     } finally {
       setIsSaving(false);
     }
-  }, [buildPayload, pubData, addToast, router]);
+  }, [
+    activeWorkspace?.id,
+    buildPayload,
+    pubData,
+    addToast,
+    publicationContext,
+    publicationContextError,
+    router,
+    isExistingPublishedTemplate,
+  ]);
 
   const handleSaveAndExit = async () => {
-    await handleSaveDraft();
-    router.push('/plantillas');
+    const saved = await handleSaveDraft();
+    if (saved) router.push('/plantillas');
   };
 
   const handleNext = () => {
     if (wizardStep === 1) {
+      if (!templateId && !templateOrigin) {
+        addToast('error', 'Selecciona cómo quieres comenzar la plantilla.');
+        return;
+      }
+      if (!templateId && templateOrigin === 'word' && !importedDocx) {
+        addToast('error', 'Importa un documento Word antes de continuar.');
+        return;
+      }
       if (!infoData.nombre.trim()) {
         setShowValidationErrors(true);
         addToast('error', 'El campo "Nombre de la plantilla" es obligatorio.');
@@ -3058,13 +5096,15 @@ function NuevaPlantillaPage() {
   const stepDescriptions: Record<number, string> = {
     1: 'Define la identidad, clasificación y formato base de la plantilla.',
     2: 'Diseña el contenido e incorpora los campos que se completarán después.',
-    3: 'Revisa la clasificación y elige cómo guardar o publicar la plantilla.',
+    3: 'Elige cómo guardar o publicar la plantilla.',
   };
   const wizardProgress = ((wizardStep - 1) / (WIZARD_STEPS.length - 1)) * 100;
 
   return (
-    <div ref={containerRef} className="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950">
-
+    <div
+      ref={containerRef}
+      className="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950"
+    >
       {/* Loading overlay when fetching existing template */}
       {isLoadingTemplate && (
         <div className="absolute inset-0 z-[300] flex items-center justify-center bg-white/85 backdrop-blur-sm">
@@ -3103,18 +5143,27 @@ function NuevaPlantillaPage() {
                     isActive
                       ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
                       : isCompleted
-                      ? 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary' : 'cursor-default text-slate-400'
+                        ? 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary'
+                        : 'cursor-default text-slate-400'
                   }`}
                 >
-                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
-                    isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'
-                  }`}>
+                  <span
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
+                      isActive
+                        ? 'bg-primary text-white'
+                        : isCompleted
+                          ? 'bg-primary/10 text-primary'
+                          : 'bg-slate-200/70 text-slate-400'
+                    }`}
+                  >
                     {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                   </span>
                   <span>{step.label}</span>
                 </button>
                 {idx < WIZARD_STEPS.length - 1 && (
-                  <div className={`h-px w-3 ${step.id < wizardStep ? 'bg-primary/50' : 'bg-slate-200'}`} />
+                  <div
+                    className={`h-px w-3 ${step.id < wizardStep ? 'bg-primary/50' : 'bg-slate-200'}`}
+                  />
                 )}
               </React.Fragment>
             );
@@ -3125,7 +5174,7 @@ function NuevaPlantillaPage() {
           {wizardStep === 2 && (
             <button
               type="button"
-              onClick={() => setShowPreview(true)}
+              onClick={handleOpenPreview}
               className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:bg-slate-50"
             >
               <Eye size={15} />
@@ -3207,209 +5256,336 @@ function NuevaPlantillaPage() {
         </section>
 
         <div className="flex flex-1 overflow-hidden">
-        {wizardStep === 1 && (
-          <StepInfoGeneral
-            data={infoData}
-            onChange={handleInfoChange}
-            margenes={margenes}
-            showRulers={showRulers}
-            onDocumentSettingsChange={(settings) => {
-              setMargenes(settings.margins);
-              setShowRulers(settings.showRulers);
-              setHasUnsavedChanges(true);
-            }}
-            showValidationErrors={showValidationErrors}
-          />
-        )}
+          {wizardStep === 1 && (
+            <StepInfoGeneral
+              data={infoData}
+              onChange={handleInfoChange}
+              margenes={margenes}
+              showRulers={showRulers}
+              onDocumentSettingsChange={(settings) => {
+                setMargenes(settings.margins);
+                setShowRulers(settings.showRulers);
+                setHasUnsavedChanges(true);
+              }}
+              showValidationErrors={showValidationErrors}
+              showOriginChoice={!templateId}
+              templateOrigin={templateOrigin}
+              onTemplateOriginChange={handleTemplateOriginChange}
+              onDocxImport={(file) => void handleDocxImport(file)}
+              importStage={templateImportStage}
+              importError={templateImportError}
+              importedDocxName={importedDocx?.filename || null}
+            />
+          )}
 
-        {wizardStep === 2 && (
-          <div className="flex flex-1 overflow-hidden">
-            {/* Left fields sidebar */}
-            <div className="hidden shrink-0 md:flex">
-              <FieldsSidebar
-                editor={null}
-                fields={insertedFields}
-                selectedFieldId={selectedFieldId}
-                onInsertField={insertGeneralField}
-                onSelectField={(id) => {
-                  if (id) selectInsertedField(id);
-                  else {
+          {wizardStep === 2 && (
+            <div className="flex flex-1 overflow-hidden">
+              {/* Left fields sidebar */}
+              <div className="hidden shrink-0 md:flex">
+                <FieldsSidebar
+                  editor={null}
+                  fields={insertedFields}
+                  selectedFieldId={selectedFieldId}
+                  onInsertField={insertGeneralField}
+                  onSelectField={(id) => {
+                    if (id) selectInsertedField(id);
+                    else {
+                      setSelectedFieldId(null);
+                      clearInsertedFieldHighlights();
+                    }
+                  }}
+                  onUpdateField={() => {}}
+                />
+              </div>
+
+              {/* Center: toolbar + multi-page editor (no MenuBar) */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <SimpleEditorToolbar
+                  selectedChipId={selectedFieldId}
+                  infoData={infoData}
+                  onInfoChange={handleInfoChange}
+                  showRulers={showRulers}
+                  onToggleRulers={() => setShowRulers((v) => !v)}
+                  showHeader={showHeader}
+                  showFooter={showFooter}
+                  onShowHeaderChange={setShowHeader}
+                  onShowFooterChange={setShowFooter}
+                  firstPageDifferent={firstPageDifferent}
+                  onFirstPageDifferentChange={setFirstPageDifferent}
+                  margenes={margenes}
+                  onMargenesChange={setMargenes}
+                  onShowNumerosModal={() => setShowNumerosModal(true)}
+                  onApplyPageNumbers={(opts) => {
+                    applyPageNumberConfig(opts);
+                  }}
+                  showFindReplace={showFindReplace}
+                  onToggleFindReplace={() => setShowFindReplace((v) => !v)}
+                  wordCount={wordCount}
+                  showWordCount={showWordCount}
+                  onToggleWordCount={() => {
+                    updateWordCount();
+                    setShowWordCount((v) => !v);
+                  }}
+                  openDropdown={openDropdown}
+                  onSetOpenDropdown={setOpenDropdown}
+                />
+                <div
+                  className="flex-1 overflow-y-auto"
+                  style={{ backgroundColor: '#F4F5F7' }}
+                  onMouseUp={handleEditorInteraction}
+                  onKeyUp={handleEditorInteraction}
+                  onClick={handleDocumentAreaClick}
+                >
+                  <div
+                    style={{
+                      transform: `scale(${zoom / 100})`,
+                      transformOrigin: 'top center',
+                      transition: 'transform 0.15s ease',
+                    }}
+                  >
+                    <MultiPageEditor
+                      key={`template-editor-${templateId ?? 'new'}-${editorDocumentVersion}`}
+                      ref={multiPageEditorRef}
+                      paperSize={infoData.hojaTamano as PaperSize}
+                      orientation={infoData.hojaOrientacion as PageOrientation}
+                      initialHtml={currentHtml}
+                      margins={margenes}
+                      showRulers={showRulers}
+                      showHeader={showHeader}
+                      showFooter={showFooter}
+                      firstPageDifferent={firstPageDifferent}
+                      onFirstPageDifferentChange={setFirstPageDifferent}
+                      onRemoveHeader={() => setShowHeader(false)}
+                      onRemoveFooter={() => setShowFooter(false)}
+                      onPageNumbers={() => setShowNumerosModal(true)}
+                      onImageSelected={(data) => setImageSizeData(data)}
+                      onChange={(html) => {
+                        setCurrentHtml(html);
+                        setHasUnsavedChanges(true);
+                        updateWordCount();
+                        // Keep the sidebar aligned with fields that truly exist in the document.
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+                        const presentIds = new Set(
+                          Array.from(doc.querySelectorAll('[data-field-id]')).map(
+                            (el) => el.getAttribute('data-field-id') as string
+                          )
+                        );
+                        setInsertedFields((current) => {
+                          let changed = false;
+                          const next = current
+                            .filter((field) => {
+                              const present = presentIds.has(field.id);
+                              if (!present) changed = true;
+                              return present;
+                            })
+                            .map((field) => {
+                              const fieldElement = findInsertedFieldElement(field.id);
+                              if (!fieldElement) return field;
+                              const nextPageIndex = getPageIndexForNode(fieldElement);
+                              if (nextPageIndex === field.pageIndex) return field;
+                              changed = true;
+                              return { ...field, pageIndex: nextPageIndex };
+                            });
+                          return changed ? next : current;
+                        });
+                      }}
+                      onPageCountChange={(count) => {
+                        setPageCount(count);
+                        setActivePage((current) => Math.min(current, count));
+                      }}
+                      onActivePageChange={setActivePage}
+                    />
+                  </div>
+                </div>
+                {/* Bottom status bar */}
+                <div className="flex items-center justify-between px-4 py-1.5 bg-white border-t border-gray-200 text-xs text-gray-500 shrink-0 select-none">
+                  <div className="flex items-center gap-2">
+                    {pageCount > 5 ? (
+                      <label className="flex items-center gap-1 font-medium text-slate-600">
+                        <span>Página</span>
+                        <select
+                          aria-label="Seleccionar página"
+                          value={Math.min(activePage, pageCount)}
+                          onChange={(event) => {
+                            const pageNumber = Number(event.target.value);
+                            if (multiPageEditorRef.current?.goToPage(pageNumber)) {
+                              setActivePage(pageNumber);
+                            }
+                          }}
+                          className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                        >
+                          {Array.from({ length: pageCount }, (_, index) => index + 1).map(
+                            (pageNumber) => (
+                              <option key={pageNumber} value={pageNumber}>
+                                {pageNumber}
+                              </option>
+                            )
+                          )}
+                        </select>
+                        <span>de {pageCount}</span>
+                      </label>
+                    ) : (
+                      <span className="font-medium">
+                        Página {Math.min(activePage, pageCount)} de {pageCount}
+                      </span>
+                    )}
+                    <div className="w-px h-4 bg-gray-200" />
+                    {/* Undo / Redo */}
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        document.execCommand('undo');
+                      }}
+                      title="Deshacer (Ctrl+Z)"
+                      className="p-1 rounded hover:bg-gray-100 text-gray-500 transition-colors"
+                    >
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M3 7v6h6" />
+                        <path d="M3 13C5.333 7.667 9.6 5 16 5c3.5 0 6 1.5 7 4" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        document.execCommand('redo');
+                      }}
+                      title="Rehacer (Ctrl+Y)"
+                      className="p-1 rounded hover:bg-gray-100 text-gray-500 transition-colors"
+                    >
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 7v6h-6" />
+                        <path d="M21 13C18.667 7.667 14.4 5 8 5c-3.5 0-6 1.5-7 4" />
+                      </svg>
+                    </button>
+                    <div className="w-px h-4 bg-gray-200" />
+                    {/* Find & Replace */}
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setShowFindReplace((v) => !v);
+                        setOpenDropdown(null);
+                      }}
+                      title="Buscar y reemplazar (Ctrl+H)"
+                      className={`p-1 rounded hover:bg-gray-100 transition-colors ${showFindReplace ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+                    >
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                      </svg>
+                    </button>
+                    <div className="w-px h-4 bg-gray-200" />
+                    {/* Word count */}
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        updateWordCount();
+                        setShowWordCount((v) => !v);
+                      }}
+                      title="Recuento de palabras"
+                      className="px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-500 font-medium"
+                    >
+                      {wordCount} palabras
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setZoom((z) => Math.max(25, z - 10))}
+                      className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 font-bold text-sm leading-none"
+                      title="Reducir zoom"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="range"
+                      min={25}
+                      max={200}
+                      step={5}
+                      value={zoom}
+                      onChange={(e) => setZoom(Number(e.target.value))}
+                      className="w-24 h-1 accent-blue-500 cursor-pointer"
+                      title="Zoom"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setZoom((z) => Math.min(200, z + 10))}
+                      className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 font-bold text-sm leading-none"
+                      title="Aumentar zoom"
+                    >
+                      +
+                    </button>
+                    <span className="w-10 text-center font-medium text-gray-600">{zoom}%</span>
+                    <button
+                      type="button"
+                      onClick={() => setZoom(100)}
+                      className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-500 text-xs"
+                      title="Restablecer zoom"
+                    >
+                      Ajustar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Field Properties Sidebar */}
+              <div className="hidden shrink-0 xl:flex">
+                <FieldPropertiesSidebar
+                  field={selectedField}
+                  onClose={() => {
                     setSelectedFieldId(null);
                     clearInsertedFieldHighlights();
-                  }
-                }}
-                onUpdateField={() => {}}
-              />
-            </div>
-
-            {/* Center: toolbar + multi-page editor (no MenuBar) */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <SimpleEditorToolbar
-                selectedChipId={selectedFieldId}
-                infoData={infoData}
-                onInfoChange={handleInfoChange}
-                showRulers={showRulers}
-                onToggleRulers={() => setShowRulers((v) => !v)}
-                showHeader={showHeader}
-                showFooter={showFooter}
-                onShowHeaderChange={setShowHeader}
-                onShowFooterChange={setShowFooter}
-                firstPageDifferent={firstPageDifferent}
-                onFirstPageDifferentChange={setFirstPageDifferent}
-                margenes={margenes}
-                onMargenesChange={setMargenes}
-                onShowNumerosModal={() => setShowNumerosModal(true)}
-                onApplyPageNumbers={(opts) => {
-                  applyPageNumberConfig(opts);
-                }}
-                showFindReplace={showFindReplace}
-                onToggleFindReplace={() => setShowFindReplace((v) => !v)}
-                wordCount={wordCount}
-                showWordCount={showWordCount}
-                onToggleWordCount={() => { updateWordCount(); setShowWordCount((v) => !v); }}
-                openDropdown={openDropdown}
-                onSetOpenDropdown={setOpenDropdown}
-              />
-              <div
-                className="flex-1 overflow-y-auto"
-                style={{ backgroundColor: '#F4F5F7' }}
-                onMouseUp={handleEditorInteraction}
-                onKeyUp={handleEditorInteraction}
-                onClick={handleDocumentAreaClick}
-              >
-                <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', transition: 'transform 0.15s ease' }}>
-                  <MultiPageEditor
-                    ref={multiPageEditorRef}
-                    paperSize={infoData.hojaTamano as PaperSize}
-                    orientation={infoData.hojaOrientacion as PageOrientation}
-                    initialHtml={currentHtml}
-                    margins={margenes}
-                    showRulers={showRulers}
-                    showHeader={showHeader}
-                    showFooter={showFooter}
-                    firstPageDifferent={firstPageDifferent}
-                    onFirstPageDifferentChange={setFirstPageDifferent}
-                    onRemoveHeader={() => setShowHeader(false)}
-                    onRemoveFooter={() => setShowFooter(false)}
-                    onPageNumbers={() => setShowNumerosModal(true)}
-                    onImageSelected={(data) => setImageSizeData(data)}
-                    onChange={(html) => {
-                      setCurrentHtml(html);
-                      setHasUnsavedChanges(true);
-                      updateWordCount();
-                      // Keep the sidebar aligned with fields that truly exist in the document.
-                      const parser = new DOMParser();
-                      const doc = parser.parseFromString(html, 'text/html');
-                      const presentIds = new Set(
-                        Array.from(doc.querySelectorAll('[data-field-id]')).map(
-                          (el) => el.getAttribute('data-field-id') as string
-                        )
-                      );
-                      setInsertedFields((current) => {
-                        let changed = false;
-                        const next = current
-                          .filter((field) => {
-                            const present = presentIds.has(field.id);
-                            if (!present) changed = true;
-                            return present;
-                          })
-                          .map((field) => {
-                            const fieldElement = findInsertedFieldElement(field.id);
-                            if (!fieldElement) return field;
-                            const nextPageIndex = getPageIndexForNode(fieldElement);
-                            if (nextPageIndex === field.pageIndex) return field;
-                            changed = true;
-                            return { ...field, pageIndex: nextPageIndex };
-                          });
-                        return changed ? next : current;
-                      });
-                    }}
-                    onPageCountChange={(count) => {
-                      setPageCount(count);
-                      setActivePage((current) => Math.min(current, count));
-                    }}
-                    onActivePageChange={setActivePage}
-                  />
-                </div>
-              </div>
-              {/* Bottom status bar */}
-              <div className="flex items-center justify-between px-4 py-1.5 bg-white border-t border-gray-200 text-xs text-gray-500 shrink-0 select-none">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">Página {Math.min(activePage, pageCount)} de {pageCount}</span>
-                  <div className="w-px h-4 bg-gray-200" />
-                  {/* Undo / Redo */}
-                  <button
-                    type="button"
-                    onMouseDown={(e) => { e.preventDefault(); document.execCommand('undo'); }}
-                    title="Deshacer (Ctrl+Z)"
-                    className="p-1 rounded hover:bg-gray-100 text-gray-500 transition-colors"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M3 13C5.333 7.667 9.6 5 16 5c3.5 0 6 1.5 7 4"/></svg>
-                  </button>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => { e.preventDefault(); document.execCommand('redo'); }}
-                    title="Rehacer (Ctrl+Y)"
-                    className="p-1 rounded hover:bg-gray-100 text-gray-500 transition-colors"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M21 13C18.667 7.667 14.4 5 8 5c-3.5 0-6 1.5-7 4"/></svg>
-                  </button>
-                  <div className="w-px h-4 bg-gray-200" />
-                  {/* Find & Replace */}
-                  <button
-                    type="button"
-                    onMouseDown={(e) => { e.preventDefault(); setShowFindReplace((v) => !v); setOpenDropdown(null); }}
-                    title="Buscar y reemplazar (Ctrl+H)"
-                    className={`p-1 rounded hover:bg-gray-100 transition-colors ${showFindReplace ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  </button>
-                  <div className="w-px h-4 bg-gray-200" />
-                  {/* Word count */}
-                  <button
-                    type="button"
-                    onMouseDown={(e) => { e.preventDefault(); updateWordCount(); setShowWordCount((v) => !v); }}
-                    title="Recuento de palabras"
-                    className="px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-500 font-medium"
-                  >
-                    {wordCount} palabras
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setZoom((z) => Math.max(25, z - 10))} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 font-bold text-sm leading-none" title="Reducir zoom">−</button>
-                  <input type="range" min={25} max={200} step={5} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-24 h-1 accent-blue-500 cursor-pointer" title="Zoom" />
-                  <button type="button" onClick={() => setZoom((z) => Math.min(200, z + 10))} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 font-bold text-sm leading-none" title="Aumentar zoom">+</button>
-                  <span className="w-10 text-center font-medium text-gray-600">{zoom}%</span>
-                  <button type="button" onClick={() => setZoom(100)} className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-500 text-xs" title="Restablecer zoom">Ajustar</button>
-                </div>
+                  }}
+                  onUpdate={handleUpdateField}
+                  onDuplicateField={handleDuplicateField}
+                  onDeleteField={handleDeleteField}
+                  allFields={insertedFields}
+                  onSelectField={(id) => selectInsertedField(id)}
+                />
               </div>
             </div>
+          )}
 
-            {/* Right: Field Properties Sidebar */}
-            <div className="hidden shrink-0 xl:flex">
-              <FieldPropertiesSidebar
-                field={selectedField}
-                onClose={() => {
-                  setSelectedFieldId(null);
-                  clearInsertedFieldHighlights();
-                }}
-                onUpdate={handleUpdateField}
-                onDeleteField={handleDeleteField}
-                allFields={insertedFields}
-                onSelectField={(id) => selectInsertedField(id)}
-              />
-            </div>
-          </div>
-        )}
-
-        {wizardStep === 3 && (
-          <StepPublicacion
-            data={pubData}
-            onChange={(updates) => setPubData((prev) => ({ ...prev, ...updates }))}
-            infoData={infoData}
-            onInfoChange={handleInfoChange}
-          />
-        )}
+          {wizardStep === 3 && (
+            <StepPublicacion
+              data={pubData}
+              onChange={(updates) => setPubData((prev) => ({ ...prev, ...updates }))}
+              context={publicationContext}
+              loadingContext={isLoadingPublicationContext}
+              contextError={publicationContextError}
+            />
+          )}
         </div>
       </div>
 
@@ -3426,11 +5602,22 @@ function NuevaPlantillaPage() {
           {wizardStep === 2 && (
             <button
               onClick={() => setShowExitModal(true)}
-              disabled={isSaving}
+              disabled={
+                isSaving ||
+                isLoadingPublicationContext ||
+                (isExistingPublishedTemplate &&
+                  publicationContext?.permissions.canCreateVersion !== true)
+              }
               className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
               <Save size={15} />
-              {isSaving ? 'Guardando...' : 'Guardar borrador'}
+              {isSaving
+                ? 'Guardando...'
+                : isExistingPublishedTemplate
+                  ? pubData.publicacionOpcion === 'version'
+                    ? 'Guardar nueva versión como borrador'
+                    : 'Guardar actualización como borrador'
+                  : 'Guardar borrador'}
             </button>
           )}
           {wizardStep < 3 ? (
@@ -3443,17 +5630,33 @@ function NuevaPlantillaPage() {
           ) : (
             <button
               onClick={handlePublish}
-              disabled={isSaving || !pubData.estadoPlantilla}
+              disabled={
+                isSaving ||
+                isLoadingPublicationContext ||
+                !publicationContext ||
+                !pubData.estadoPlantilla ||
+                (isExistingPublishedTemplate &&
+                  publicationContext.permissions.canCreateVersion !== true)
+              }
               className="flex h-10 items-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
-              {isSaving ? 'Guardando...' : (
-                {
-                  borrador: 'Guardar como borrador',
-                  publicar: 'Publicar plantilla',
-                  aprobacion: 'Enviar a aprobación',
-                  version: 'Duplicar como nueva versión',
-                }[pubData.publicacionOpcion] || 'Publicar plantilla'
-              )}
+              {isSaving
+                ? 'Guardando...'
+                : isExistingPublishedTemplate
+                  ? pubData.publicacionOpcion === 'version'
+                    ? publicationContext?.permissions.canSubmitApproval
+                      ? 'Enviar nueva versión a aprobación'
+                      : 'Publicar nueva versión'
+                    : publicationContext?.permissions.canSubmitApproval
+                      ? 'Enviar actualización a aprobación'
+                      : 'Actualizar versión actual'
+                  : {
+                      borrador: 'Guardar como borrador',
+                      publicar: 'Publicar plantilla',
+                      aprobacion: 'Enviar a aprobación',
+                      actualizar: 'Actualizar versión actual',
+                      version: 'Crear nueva versión',
+                    }[pubData.publicacionOpcion] || 'Publicar plantilla'}
             </button>
           )}
         </div>
@@ -3470,41 +5673,36 @@ function NuevaPlantillaPage() {
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-gray-900">Vista Previa</h2>
-                <p className="text-xs text-gray-400">{infoData.nombre || 'Nueva plantilla'} · {infoData.hojaTamano || 'Carta (Letter)'}</p>
+                <p className="text-xs text-gray-400">
+                  {infoData.nombre || 'Nueva plantilla'} · {infoData.hojaTamano || 'Carta (Letter)'}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  const paperSize = infoData.hojaTamano || 'Carta (Letter)';
-                  const orientation = infoData.hojaOrientacion || 'vertical';
-                  const PAGE_SIZES: Record<string, { width: number; height: number }> = {
-                    'Carta (Letter)': { width: 816, height: 1056 },
-                    'Oficio (Legal)': { width: 816, height: 1344 },
-                    'A4': { width: 794, height: 1123 },
-                    'A3': { width: 1123, height: 1587 },
-                    'A5': { width: 559, height: 794 },
-                    'Tabloide': { width: 1056, height: 1632 },
-                  };
-                  const dims = PAGE_SIZES[paperSize] ?? PAGE_SIZES['Carta (Letter)'];
-                  const w = orientation === 'horizontal' ? dims.height : dims.width;
-                  const h = orientation === 'horizontal' ? dims.width : dims.height;
-                  const printWindow = window.open('', '_blank', `width=${w + 100},height=${h + 100}`);
-                  if (!printWindow) return;
-                  printWindow.document.write(`<!DOCTYPE html><html><head><title>${infoData.nombre || 'Plantilla'}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=swap"><style>*{box-sizing:border-box;margin:0;padding:0;}body{background:white;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:12px;color:#111;}@page{size:${w}px ${h}px;margin:0;}.page{width:${w}px;min-height:${h}px;padding:40px 60px;margin:0 auto;page-break-after:always;}table{border-collapse:collapse;width:100%;}td,th{border:1px solid #d1d5db;padding:6px 10px;}hr{border:none;border-top:2px solid #e5e7eb;margin:16px 0;}ul{list-style-type:disc;padding-left:1.5em;}ol{list-style-type:decimal;padding-left:1.5em;}h1{font-size:28px;font-weight:700;margin:16px 0 8px;}h2{font-size:22px;font-weight:600;margin:14px 0 8px;}h3{font-size:18px;font-weight:600;margin:12px 0 6px;}p{margin:0 0 8px;line-height:1.5;}img{max-width:100%;height:auto;}@media print{body{margin:0;}.page{page-break-after:always;}}</style></head><body><div class="page">${currentHtml || '<p><em>Sin contenido</em></p>'}</div></body></html>`);
-                  printWindow.document.close();
-                  printWindow.focus();
-                  setTimeout(() => { printWindow.print(); printWindow.close(); }, 300);
-                }}
+                onClick={handlePrintPreview}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors"
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="6 9 6 2 18 2 18 9" />
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                  <rect x="6" y="14" width="12" height="8" />
+                </svg>
                 Imprimir
               </button>
               <button
                 type="button"
-                onClick={() => setShowPreview(false)}
+                onClick={handleClosePreview}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
               >
                 <X size={15} />
@@ -3513,46 +5711,191 @@ function NuevaPlantillaPage() {
             </div>
           </div>
           {/* Document area */}
-          <div className="flex-1 overflow-y-auto bg-gray-300 py-10 px-6">
+          <div
+            ref={previewScrollAreaRef}
+            onWheel={handlePreviewWheel}
+            aria-label="Vista previa paginada"
+            className="flex-1 overflow-auto overscroll-contain bg-gray-300 py-10 px-6"
+          >
             {(() => {
-              const paperSize = infoData.hojaTamano || 'Carta (Letter)';
+              const paperSize = (infoData.hojaTamano || 'Carta (Letter)') as PaperSize;
               const orientation = infoData.hojaOrientacion || 'vertical';
-              const PAGE_SIZES: Record<string, { width: number; height: number }> = {
-                'Carta (Letter)': { width: 816, height: 1056 },
-                'Oficio (Legal)': { width: 816, height: 1344 },
-                'A4': { width: 794, height: 1123 },
-                'A3': { width: 1123, height: 1587 },
-                'A5': { width: 559, height: 794 },
-                'Tabloide': { width: 1056, height: 1632 },
-              };
-              const dims = PAGE_SIZES[paperSize] ?? PAGE_SIZES['Carta (Letter)'];
-              const w = orientation === 'horizontal' ? dims.height : dims.width;
-              const h = orientation === 'horizontal' ? dims.width : dims.height;
+              const dims = getPageDimensions(paperSize, orientation);
+              const marginTop = cmToPx(margenes.top);
+              const marginBottom = cmToPx(margenes.bottom);
+              const marginLeft = cmToPx(margenes.left);
+              const marginRight = cmToPx(margenes.right);
+              const pageIndex = Math.min(previewPage, previewSnapshot.pages.length) - 1;
+              const pageHtml = previewSnapshot.pages[pageIndex] || '<p><br></p>';
+              const previewScale = previewZoom / 100;
               return (
-                <div
-                  style={{
-                    width: `${w}px`,
-                    minHeight: `${h}px`,
-                    background: 'white',
-                    padding: '40px 60px',
-                    margin: '0 auto',
-                    boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
-                    borderRadius: '2px',
-                    fontFamily: "'Google Sans', 'Google Sans Text', 'Segoe UI', Arial, sans-serif",
-                    fontSize: '12px',
-                    color: '#111',
-                    lineHeight: '1.5',
-                  }}
-                  dangerouslySetInnerHTML={{ __html: currentHtml || '<p><em>Sin contenido</em></p>' }}
-                />
+                <>
+                  <style>{TEMPLATE_PREVIEW_CONTENT_CSS}</style>
+                  <div className="flex min-h-full min-w-max items-start justify-center">
+                    <div
+                      style={{
+                        width: `${dims.width * previewScale}px`,
+                        height: `${dims.height * previewScale}px`,
+                        flexShrink: 0,
+                        margin: '0 auto',
+                        position: 'relative',
+                      }}
+                    >
+                      <div
+                        data-preview-page={pageIndex + 1}
+                        style={{
+                          width: `${dims.width}px`,
+                          height: `${dims.height}px`,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          overflow: 'hidden',
+                          flexShrink: 0,
+                          background: 'white',
+                          border: '1px solid #d1d5db',
+                          boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+                          borderRadius: '2px',
+                          boxSizing: 'border-box',
+                          transform: `scale(${previewScale})`,
+                          transformOrigin: 'top left',
+                        }}
+                      >
+                        <div
+                          className="template-preview-zone"
+                          style={{
+                            height: `${marginTop}px`,
+                            minHeight: `${marginTop}px`,
+                            padding: `4px ${marginRight}px 4px ${marginLeft}px`,
+                            display: 'flex',
+                            alignItems: 'flex-end',
+                            flexShrink: 0,
+                            boxSizing: 'border-box',
+                          }}
+                          dangerouslySetInnerHTML={{
+                            __html: showHeader
+                              ? resolvePreviewZoneHtml(previewSnapshot.headerHtml, pageIndex)
+                              : '',
+                          }}
+                        />
+                        <div
+                          className="template-preview-content"
+                          style={{
+                            minHeight: 0,
+                            flex: 1,
+                            overflow: 'hidden',
+                            paddingLeft: `${marginLeft}px`,
+                            paddingRight: `${marginRight}px`,
+                            boxSizing: 'border-box',
+                          }}
+                          dangerouslySetInnerHTML={{ __html: pageHtml }}
+                        />
+                        <div
+                          className="template-preview-zone"
+                          style={{
+                            height: `${marginBottom}px`,
+                            minHeight: `${marginBottom}px`,
+                            padding: `4px ${marginRight}px 4px ${marginLeft}px`,
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            flexShrink: 0,
+                            boxSizing: 'border-box',
+                          }}
+                          dangerouslySetInnerHTML={{
+                            __html: showFooter
+                              ? resolvePreviewZoneHtml(previewSnapshot.footerHtml, pageIndex)
+                              : '',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
               );
             })()}
           </div>
           {/* Footer */}
-          <div className="shrink-0 flex items-center justify-between px-6 py-2 border-t border-gray-200 bg-white">
+          <div className="shrink-0 flex min-h-12 items-center justify-between gap-4 border-t border-gray-200 bg-white px-6 py-2">
             <span className="text-xs text-gray-400">
-              Tamaño: {infoData.hojaTamano || 'Carta (Letter)'} · Orientación: {infoData.hojaOrientacion === 'horizontal' ? 'Horizontal' : 'Vertical'}
+              Tamaño: {infoData.hojaTamano || 'Carta (Letter)'} · Orientación:{' '}
+              {infoData.hojaOrientacion === 'horizontal' ? 'Horizontal' : 'Vertical'}
             </span>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <button
+                type="button"
+                onClick={() => setPreviewZoom((value) => Math.max(25, value - 10))}
+                disabled={previewZoom <= 25}
+                title="Reducir zoom"
+                aria-label="Reducir zoom de vista previa"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Minus size={14} />
+              </button>
+              <input
+                type="range"
+                min={25}
+                max={200}
+                step={5}
+                value={previewZoom}
+                onChange={(event) => setPreviewZoom(Number(event.target.value))}
+                aria-label="Zoom de vista previa"
+                className="h-1 w-24 cursor-pointer accent-blue-600"
+              />
+              <button
+                type="button"
+                onClick={() => setPreviewZoom((value) => Math.min(200, value + 10))}
+                disabled={previewZoom >= 200}
+                title="Aumentar zoom"
+                aria-label="Aumentar zoom de vista previa"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Plus size={14} />
+              </button>
+              <span className="w-10 text-center font-medium text-slate-600">{previewZoom}%</span>
+              <button
+                type="button"
+                onClick={() => setPreviewZoom(100)}
+                className="rounded-md px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              >
+                Restablecer
+              </button>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <button
+                type="button"
+                onClick={() => goToPreviewPage(previewPage - 1)}
+                disabled={previewPage <= 1}
+                title="Página anterior"
+                aria-label="Página anterior"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <label className="flex items-center gap-1.5 font-medium text-slate-600">
+                <span>Página</span>
+                <select
+                  aria-label="Seleccionar página de vista previa"
+                  value={Math.min(previewPage, previewSnapshot.pages.length)}
+                  onChange={(event) => goToPreviewPage(Number(event.target.value))}
+                  className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                >
+                  {previewSnapshot.pages.map((_, index) => (
+                    <option key={index + 1} value={index + 1}>
+                      {index + 1}
+                    </option>
+                  ))}
+                </select>
+                <span>de {previewSnapshot.pages.length}</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => goToPreviewPage(previewPage + 1)}
+                disabled={previewPage >= previewSnapshot.pages.length}
+                title="Página siguiente"
+                aria-label="Página siguiente"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3564,6 +5907,7 @@ function NuevaPlantillaPage() {
           onExitWithoutSave={() => router.push('/plantillas')}
           onCancel={() => setShowExitModal(false)}
           isSaving={isSaving}
+          createsNewVersion={isExistingPublishedTemplate}
         />
       )}
 
@@ -3608,8 +5952,18 @@ function NuevaPlantillaPage() {
             key={toast.id}
             className="flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium pointer-events-auto"
             style={{
-              backgroundColor: toast.type === 'success' ? '#ECFDF5' : toast.type === 'error' ? '#FEF2F2' : '#EFF6FF',
-              color: toast.type === 'success' ? '#065F46' : toast.type === 'error' ? '#991B1B' : '#1E40AF',
+              backgroundColor:
+                toast.type === 'success'
+                  ? '#ECFDF5'
+                  : toast.type === 'error'
+                    ? '#FEF2F2'
+                    : '#EFF6FF',
+              color:
+                toast.type === 'success'
+                  ? '#065F46'
+                  : toast.type === 'error'
+                    ? '#991B1B'
+                    : '#1E40AF',
               border: `1px solid ${toast.type === 'success' ? '#A7F3D0' : toast.type === 'error' ? '#FECACA' : '#BFDBFE'}`,
             }}
           >
@@ -3626,11 +5980,13 @@ function NuevaPlantillaPage() {
 
 export default function NuevaPlantillaPageWrapper() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center h-screen bg-white">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-screen bg-white">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
       <NuevaPlantillaPage />
     </Suspense>
   );

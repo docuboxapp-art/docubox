@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   FileText,
   X,
@@ -35,6 +35,7 @@ import {
   ScrollText,
   Maximize2,
   Minimize2,
+  GripVertical,
 } from 'lucide-react';
 import type {
   CryptographicElementType,
@@ -47,6 +48,15 @@ import { PARTICIPANT_COLORS, PARTICIPANT_COLORS_HEX } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { InfoTooltip } from './SharedComponents';
+import {
+  TemplateHtmlPreview,
+  type TemplatePreviewFieldMeasurement,
+} from '@/components/templates/TemplateHtmlPreview';
+import {
+  getTemplatePageCount,
+  getTemplatePageDimensions,
+  type PublishedTemplateDocument,
+} from '@/lib/templates/preview';
 
 // ── Participant user data cache ───────────────────────────────────────────────
 interface ParticipantUserData {
@@ -56,6 +66,123 @@ interface ParticipantUserData {
   email?: string;
   telefono?: string;
   direccion?: string;
+}
+
+type TemplateInsertedField = {
+  id?: unknown;
+  valueKey?: unknown;
+  label?: unknown;
+  fieldType?: unknown;
+  customName?: unknown;
+  showLabelInDocument?: unknown;
+  options?: unknown;
+  pageIndex?: unknown;
+  scope?: unknown;
+  required?: unknown;
+  assignedParticipantId?: unknown;
+};
+
+function getTemplateInsertedFields(template?: PublishedTemplateDocument | null) {
+  if (!template || !Array.isArray(template.campos_insertados)) return [];
+  return template.campos_insertados.flatMap((rawField, index) => {
+    if (!rawField || typeof rawField !== 'object') return [];
+    const field = rawField as TemplateInsertedField;
+    const id = typeof field.id === 'string' && field.id ? field.id : `template-field-${index}`;
+    const label =
+      typeof field.label === 'string' && field.label
+        ? field.label
+        : typeof field.customName === 'string' && field.customName
+          ? field.customName
+          : `Campo ${index + 1}`;
+    const fieldType = typeof field.fieldType === 'string' ? field.fieldType : 'text';
+    const customName =
+      typeof field.customName === 'string' && field.customName ? field.customName : label;
+    const scope = field.scope === 'general' ? 'general' : 'participant';
+    const valueKey =
+      typeof field.valueKey === 'string' && field.valueKey
+        ? field.valueKey
+        : `legacy:${scope}:${fieldType}:${customName.trim().toLocaleLowerCase('es-MX')}`;
+    return [
+      {
+        id,
+        valueKey,
+        label,
+        fieldType,
+        customName,
+        showLabelInDocument: field.showLabelInDocument === true,
+        options: Array.isArray(field.options)
+          ? field.options.filter((option): option is string => typeof option === 'string')
+          : [],
+        pageIndex:
+          typeof field.pageIndex === 'number' && Number.isFinite(field.pageIndex)
+            ? Math.max(0, field.pageIndex)
+            : 0,
+        scope,
+        required: field.required !== false,
+        assignedParticipantId:
+          typeof field.assignedParticipantId === 'string' ? field.assignedParticipantId : null,
+      },
+    ];
+  });
+}
+
+function createTemplatePlacedFields(
+  template: PublishedTemplateDocument | null | undefined,
+  participants: Participant[]
+): PlacedField[] {
+  const definitions = getTemplateInsertedFields(template);
+  const automaticParticipant = participants.length === 1 ? participants[0] : null;
+  return definitions.map((field, index) => {
+    const assignedParticipant =
+      participants.find((participant) => participant.id === field.assignedParticipantId) ||
+      automaticParticipant;
+    const participantIndex = assignedParticipant
+      ? Math.max(
+          participants.findIndex((participant) => participant.id === assignedParticipant.id),
+          0
+        )
+      : 0;
+    const isSignature = field.fieldType === 'signature' || field.label === 'Firma';
+    return {
+      id: field.id,
+      valueKey: field.valueKey,
+      label: field.label,
+      tipo: field.fieldType,
+      required: field.required,
+      templateField: true,
+      icon: null,
+      x: 12,
+      y: 12 + (index % 8) * 8,
+      width: isSignature ? 22 : 14,
+      height: isSignature ? 7 : 3,
+      page: field.pageIndex + 1,
+      participantId: assignedParticipant?.id,
+      participantName: assignedParticipant?.name,
+      colorHex: assignedParticipant
+        ? PARTICIPANT_COLORS_HEX[participantIndex % PARTICIPANT_COLORS_HEX.length]
+        : '#94a3b8',
+      placementKind: field.scope as 'participant' | 'general',
+      dropdownOptions: field.fieldType === 'dropdown' ? field.options : undefined,
+      radioOptions: field.fieldType === 'radio' ? field.options : undefined,
+      fieldConfig: {
+        customName: field.customName,
+        showLabelInDocument: field.showLabelInDocument,
+      },
+    };
+  });
+}
+
+function hydrateTemplatePlacedFieldValueKeys(
+  fields: PlacedField[],
+  template?: PublishedTemplateDocument | null
+) {
+  const valueKeysById = new Map(
+    getTemplateInsertedFields(template).map((field) => [field.id, field.valueKey])
+  );
+  return fields.map((field) => ({
+    ...field,
+    valueKey: field.valueKey || valueKeysById.get(field.id),
+  }));
 }
 
 // ── Field Label Config Modal ──────────────────────────────────────────────────
@@ -82,15 +209,8 @@ function FieldLabelConfigModal({
         className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between mb-1">
+        <div className="mb-1">
           <h3 className="text-lg font-bold text-gray-900">Configuración del Campo</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"
-          >
-            <X size={18} />
-          </button>
         </div>
         <p className="text-sm text-gray-500 mb-5">
           Personaliza el nombre y la visibilidad de la etiqueta para este campo.
@@ -216,15 +336,8 @@ function FieldTypeConfigModal({
         className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between mb-1">
+        <div className="mb-1">
           <h3 className="text-lg font-bold text-gray-900">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"
-          >
-            <X size={18} />
-          </button>
         </div>
         <p className="text-sm text-gray-500 mb-5">
           Configura las opciones específicas para este tipo de campo.
@@ -429,17 +542,10 @@ function CasillaLabelModal({
         className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between mb-1">
+        <div className="mb-1">
           <h3 className="text-lg font-bold text-gray-900">
             Editar Etiqueta para &quot;Casilla&quot;
           </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"
-          >
-            <X size={18} />
-          </button>
         </div>
         <p className="text-sm text-gray-500 mb-5">
           Define la etiqueta que se mostrará junto a la casilla de verificación.
@@ -615,17 +721,10 @@ function DropdownOptionsModal({
         className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between mb-1">
+        <div className="mb-1">
           <h3 className="text-lg font-bold text-gray-900">
             Editar Opciones para &quot;{fieldLabel}&quot;
           </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"
-          >
-            <X size={18} />
-          </button>
         </div>
         <p className="text-sm text-gray-500 mb-5">
           Define las opciones que el participante podrá seleccionar.
@@ -760,13 +859,14 @@ function PlacedFieldWidget({
   const isTelefono = field.label === 'Número Telefónico';
   const isDireccion = field.label === 'Dirección';
   const hasTypeConfigOption = hasTypeConfig(field.label);
-  const minDimensions = field.cryptographicType === 'document_chain'
-    ? { width: 60, height: 14 }
-    : field.cryptographicType === 'document_seal'
-      ? { width: 60, height: 22 }
-      : isFirma
-        ? { width: 24, height: 8 }
-        : { width: 5, height: 3 };
+  const minDimensions =
+    field.cryptographicType === 'document_chain'
+      ? { width: 60, height: 14 }
+      : field.cryptographicType === 'document_seal'
+        ? { width: 60, height: 22 }
+        : isFirma
+          ? { width: 24, height: 8 }
+          : { width: 5, height: 3 };
 
   const colorHex = field.colorHex || '#2dd4bf';
 
@@ -1162,7 +1262,11 @@ function PlacedFieldWidget({
                   setShowLabelConfigModal(true);
                 }}
                 className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:bg-gray-100 transition-colors"
-                title={isCryptographic ? 'Etiqueta de referencia en el editor' : 'Configuración del campo'}
+                title={
+                  isCryptographic
+                    ? 'Etiqueta de referencia en el editor'
+                    : 'Configuración del campo'
+                }
               >
                 <Tag size={12} />
               </button>
@@ -1540,7 +1644,9 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
     const load = async () => {
       const { data } = await supabase
         .from('document_security_settings')
-        .select('vencimiento_enabled,fecha_vencimiento,recordatorio_frecuencia,codigo_acceso_enabled,proteccion_adicional_enabled,proteccion_participacion_enabled,impedir_impresion,evitar_copia_texto,impedir_modificacion,impedir_extraccion,evitar_montaje,legal_hold_enabled')
+        .select(
+          'vencimiento_enabled,fecha_vencimiento,recordatorio_frecuencia,codigo_acceso_enabled,proteccion_adicional_enabled,proteccion_participacion_enabled,impedir_impresion,evitar_copia_texto,impedir_modificacion,impedir_extraccion,evitar_montaje,legal_hold_enabled'
+        )
         .eq('documento_id', documentoId)
         .maybeSingle();
       if (data) {
@@ -1971,8 +2077,8 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
             ))}
             <p className="pt-1 text-xs leading-5 text-slate-500">
               Estas restricciones se aplicarán al PDF final descargable y serán respetadas por
-              lectores compatibles con el estándar PDF. Su comportamiento puede variar según el visor
-              utilizado.
+              lectores compatibles con el estándar PDF. Su comportamiento puede variar según el
+              visor utilizado.
             </p>
           </div>
         )}
@@ -1999,11 +2105,13 @@ export function StepAjustes({
   onChange,
   participants,
   file,
+  templateSource,
   isCondicional,
   documentoId,
   securitySettings,
   onPlacedFieldsChange,
   onFixarCamposChange,
+  onTemplateFieldAssignmentChange,
   initialFixarCampos,
   initialPlacedFields,
 }: {
@@ -2011,11 +2119,13 @@ export function StepAjustes({
   onChange: (s: DocumentSettings) => void;
   participants: Participant[];
   file: File | null;
+  templateSource?: PublishedTemplateDocument | null;
   isCondicional?: boolean;
   documentoId?: string;
   securitySettings?: SecuritySettings;
   onPlacedFieldsChange?: (fields: PlacedField[]) => void;
   onFixarCamposChange?: (fixar: boolean, hasFirma: boolean) => void;
+  onTemplateFieldAssignmentChange?: (ready: boolean) => void;
   initialFixarCampos?: boolean;
   initialPlacedFields?: PlacedField[];
 }) {
@@ -2023,13 +2133,19 @@ export function StepAjustes({
   const supabase = createClient();
   const [activeTab, setActiveTab] = useState<'campos' | 'seguridad'>('campos');
   const [fixarCampos, setFixarCampos] = useState(
-    isCondicional ? true : (initialFixarCampos ?? false)
+    templateSource || isCondicional ? true : (initialFixarCampos ?? false)
   );
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [totalPages, setTotalPages] = useState(() =>
+    templateSource ? getTemplatePageCount(templateSource) : 1
+  );
   const [pageInputValue, setPageInputValue] = useState('1');
-  const [placedFields, setPlacedFields] = useState<PlacedField[]>(initialPlacedFields ?? []);
+  const [placedFields, setPlacedFields] = useState<PlacedField[]>(() =>
+    initialPlacedFields?.length
+      ? hydrateTemplatePlacedFieldValueKeys(initialPlacedFields, templateSource)
+      : createTemplatePlacedFields(templateSource, participants)
+  );
   const [isDragOver, setIsDragOver] = useState(false);
   const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   const [pdfPageImages, setPdfPageImages] = useState<Record<number, string>>({});
@@ -2057,12 +2173,46 @@ export function StepAjustes({
   const standardPlacedFields = placedFields.filter(
     (field) => field.placementKind !== 'cryptographic'
   );
+  const templateFieldDefinitions = useMemo(
+    () => getTemplateInsertedFields(templateSource),
+    [templateSource]
+  );
+  const templateFieldIds = useMemo(
+    () => new Set(templateFieldDefinitions.map((field) => field.id)),
+    [templateFieldDefinitions]
+  );
+  const templateFields = placedFields.filter((field) => templateFieldIds.has(field.id));
+  const templateFieldGroups = Array.from(
+    templateFields
+      .reduce((groups, field) => {
+        const valueKey = field.valueKey || field.id;
+        groups.set(valueKey, [...(groups.get(valueKey) || []), field]);
+        return groups;
+      }, new Map<string, PlacedField[]>())
+      .values()
+  );
+  const templateAssignmentFields = templateFieldGroups.flatMap((group) => group.slice(0, 1));
+  const getTemplateFieldOccurrenceCount = (field: PlacedField) =>
+    templateFieldGroups.find(
+      (group) => (group[0]?.valueKey || group[0]?.id) === (field.valueKey || field.id)
+    )?.length || 1;
+  const assignedTemplateFieldCount = templateAssignmentFields.filter(
+    (field) => field.participantId
+  ).length;
+  const templateFieldsReady =
+    templateFieldDefinitions.length === 0 ||
+    (templateFields.length === templateFieldDefinitions.length &&
+      templateAssignmentFields.every((field) => Boolean(field.participantId)));
 
   // Notify parent when placedFields changes
   useEffect(() => {
     onPlacedFieldsChange?.(placedFields);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placedFields]);
+
+  useEffect(() => {
+    onTemplateFieldAssignmentChange?.(!templateSource || templateFieldsReady);
+  }, [onTemplateFieldAssignmentChange, templateFieldsReady, templateSource]);
 
   // Keep displayZoom in sync with zoomLevel
   useEffect(() => {
@@ -2078,6 +2228,7 @@ export function StepAjustes({
   }, [totalPages]);
 
   const isPdf = file?.name?.toLowerCase().endsWith('.pdf');
+  const templateDimensions = templateSource ? getTemplatePageDimensions(templateSource) : null;
   const displayParticipants =
     participants.length > 0
       ? participants
@@ -2129,6 +2280,7 @@ export function StepAjustes({
       try {
         const camposSolicitados = fields.map((f) => ({
           id: f.id,
+          valueKey: f.valueKey || f.id,
           label: f.label,
           x: f.x,
           y: f.y,
@@ -2231,6 +2383,72 @@ export function StepAjustes({
   const selectedColorHex =
     PARTICIPANT_COLORS_HEX[selectedParticipantIdx % PARTICIPANT_COLORS_HEX.length];
   const selectedColor = PARTICIPANT_COLORS[selectedParticipantIdx % PARTICIPANT_COLORS.length];
+
+  const assignTemplateField = useCallback(
+    (fieldId: string, participantId?: string) => {
+      const participant = participants.find((item) => item.id === participantId);
+      const participantIndex = participant
+        ? Math.max(
+            participants.findIndex((item) => item.id === participant.id),
+            0
+          )
+        : 0;
+      setPlacedFields((current) => {
+        const targetField = current.find(
+          (candidate) => candidate.id === fieldId && templateFieldIds.has(candidate.id)
+        );
+        const targetValueKey = targetField?.valueKey || targetField?.id;
+        if (!targetValueKey) return current;
+        return current.map((field) =>
+          templateFieldIds.has(field.id) && (field.valueKey || field.id) === targetValueKey
+            ? {
+                ...field,
+                participantId: participant?.id,
+                participantName: participant?.name,
+                colorHex: participant
+                  ? PARTICIPANT_COLORS_HEX[participantIndex % PARTICIPANT_COLORS_HEX.length]
+                  : '#94a3b8',
+              }
+            : field
+        );
+      });
+    },
+    [participants, templateFieldIds]
+  );
+
+  const handleTemplateFieldsMeasured = useCallback(
+    (measurements: TemplatePreviewFieldMeasurement[]) => {
+      if (measurements.length === 0) return;
+      const byId = new Map(measurements.map((measurement) => [measurement.id, measurement]));
+      setPlacedFields((current) => {
+        let changed = false;
+        const next = current.map((field) => {
+          const measurement = byId.get(field.id);
+          if (!measurement || !field.templateField) return field;
+          const measured = {
+            ...field,
+            tipo: measurement.fieldType || field.tipo,
+            page: measurement.pageIndex + 1,
+            x: Math.max(0, Math.min(measurement.x, 100)),
+            y: Math.max(0, Math.min(measurement.y, 100)),
+            width: Math.max(1, Math.min(measurement.width, 100)),
+            height: Math.max(1, Math.min(measurement.height, 100)),
+          };
+          const same =
+            field.page === measured.page &&
+            Math.abs(field.x - measured.x) < 0.01 &&
+            Math.abs(field.y - measured.y) < 0.01 &&
+            Math.abs(field.width - measured.width) < 0.01 &&
+            Math.abs(field.height - measured.height) < 0.01;
+          if (same) return field;
+          changed = true;
+          return measured;
+        });
+        return changed ? next : current;
+      });
+    },
+    []
+  );
 
   const renderPdfPage = useCallback(async (pageNumber: number, documentOverride?: any) => {
     const pdfDocument = documentOverride || pdfDocumentRef.current;
@@ -2521,12 +2739,209 @@ export function StepAjustes({
         isPreviewFocused ? 'fixed inset-0 z-50 bg-slate-100 p-4' : ''
       }`}
     >
+      {templateSource && templateFieldDefinitions.length > 0 && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed top-0 overflow-hidden opacity-0"
+          style={{ left: '-100000px', width: templateDimensions?.width || 816, height: 1 }}
+        >
+          {Array.from({ length: totalPages }, (_, pageIndex) => (
+            <TemplateHtmlPreview
+              key={`${templateSource.id}-field-measurement-${pageIndex}`}
+              template={templateSource}
+              pageIndex={pageIndex}
+              onFieldsMeasured={handleTemplateFieldsMeasured}
+            />
+          ))}
+        </div>
+      )}
+
       {/* LEFT PANEL — scrollable independently */}
-      <div
-        className="flex h-full min-h-0 w-[38%] flex-col gap-4 overflow-y-auto"
-      >
+      <div className="flex h-full min-h-0 w-[38%] flex-col gap-4 overflow-y-auto">
+        {templateSource && (
+          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-700 text-slate-950">
+                  Asignar campos de la plantilla
+                </h2>
+                <p className="mt-1 text-sm leading-5 text-slate-500">
+                  Define qué participante completará cada campo precargado.
+                </p>
+              </div>
+              <span
+                className={`shrink-0 rounded-md px-2 py-1 text-xs font-600 ${
+                  templateFieldsReady
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-amber-50 text-amber-700'
+                }`}
+              >
+                {assignedTemplateFieldCount}/{templateAssignmentFields.length}
+              </span>
+            </div>
+
+            {templateFieldDefinitions.length === 0 ? (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-600">
+                Esta plantilla no contiene campos pendientes de asignación.
+              </div>
+            ) : participants.length === 0 ? (
+              <div className="mt-4 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+                <p className="text-xs leading-5 text-amber-700">
+                  Regresa a Participantes y agrega al menos una persona para continuar.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {participants.length > 1 && (
+                  <div
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const fieldId = event.dataTransfer.getData(
+                        'application/x-docubox-template-field'
+                      );
+                      if (fieldId) assignTemplateField(fieldId);
+                    }}
+                    className="rounded-lg border border-dashed border-slate-300 bg-slate-50/70 p-3"
+                  >
+                    <p className="text-xs font-600 text-slate-600">Campos sin asignar</p>
+                    <div className="mt-2 space-y-2">
+                      {templateAssignmentFields.filter((field) => !field.participantId).length ===
+                      0 ? (
+                        <p className="text-xs text-slate-500">Todos los campos están asignados.</p>
+                      ) : (
+                        templateAssignmentFields
+                          .filter((field) => !field.participantId)
+                          .map((field) => (
+                            <div
+                              key={field.id}
+                              draggable
+                              onDragStart={(event) => {
+                                event.dataTransfer.setData(
+                                  'application/x-docubox-template-field',
+                                  field.id
+                                );
+                                event.dataTransfer.effectAllowed = 'move';
+                              }}
+                              className="flex cursor-grab items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 active:cursor-grabbing"
+                            >
+                              <GripVertical size={14} className="shrink-0 text-slate-400" />
+                              <span className="min-w-0 flex-1 truncate">
+                                {field.fieldConfig?.customName || field.label}
+                              </span>
+                              <span className="shrink-0 text-slate-400">
+                                {getTemplateFieldOccurrenceCount(field) > 1
+                                  ? `${getTemplateFieldOccurrenceCount(field)} apariciones`
+                                  : `Pág. ${field.page || 1}`}
+                              </span>
+                            </div>
+                          ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {participants.map((participant, participantIndex) => {
+                  const participantFields = templateAssignmentFields.filter(
+                    (field) => field.participantId === participant.id
+                  );
+                  const participantColor =
+                    PARTICIPANT_COLORS_HEX[participantIndex % PARTICIPANT_COLORS_HEX.length];
+                  return (
+                    <div
+                      key={participant.id}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const fieldId = event.dataTransfer.getData(
+                          'application/x-docubox-template-field'
+                        );
+                        if (fieldId) assignTemplateField(fieldId, participant.id);
+                      }}
+                      className="rounded-lg border bg-white p-3 transition-colors"
+                      style={{ borderColor: `${participantColor}66` }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: participantColor }}
+                        />
+                        <p className="min-w-0 flex-1 truncate text-sm font-600 text-slate-800">
+                          {participant.name}
+                        </p>
+                        <span className="text-xs text-slate-400">{participantFields.length}</span>
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        {participantFields.length === 0 ? (
+                          <p className="rounded-md border border-dashed border-slate-200 px-3 py-3 text-center text-xs text-slate-400">
+                            Arrastra aquí los campos de esta persona.
+                          </p>
+                        ) : (
+                          participantFields.map((field) => (
+                            <div
+                              key={field.id}
+                              draggable={participants.length > 1}
+                              onDragStart={(event) => {
+                                event.dataTransfer.setData(
+                                  'application/x-docubox-template-field',
+                                  field.id
+                                );
+                                event.dataTransfer.effectAllowed = 'move';
+                              }}
+                              className={`flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 ${
+                                participants.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''
+                              }`}
+                            >
+                              {participants.length > 1 && (
+                                <GripVertical size={14} className="shrink-0 text-slate-400" />
+                              )}
+                              <span className="min-w-0 flex-1 truncate">
+                                {field.fieldConfig?.customName || field.label}
+                              </span>
+                              <span className="shrink-0 text-slate-400">
+                                {getTemplateFieldOccurrenceCount(field) > 1
+                                  ? `${getTemplateFieldOccurrenceCount(field)} apariciones`
+                                  : `Pág. ${field.page || 1}`}
+                              </span>
+                              {participants.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => assignTemplateField(field.id)}
+                                  aria-label={`Quitar asignación de ${field.label}`}
+                                  className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-white hover:text-red-500"
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {!templateFieldsReady && (
+                  <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+                    <p className="text-xs leading-5 text-amber-700">
+                      Asigna todos los campos para habilitar el siguiente paso.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Field settings */}
-        <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div
+          className={`${templateSource ? 'hidden' : ''} rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]`}
+        >
           <div className="mb-4">
             <h2 className="text-base font-700 text-slate-950">Configuración de campos</h2>
             <p className="mt-1 text-sm leading-5 text-slate-500">
@@ -2570,8 +2985,8 @@ export function StepAjustes({
                 <>
                   <span className="block font-semibold text-white">Campos por participante</span>
                   <span className="mt-1 block">
-                    Define los campos obligatorios para cada participante, el cual verá y
-                    completará únicamente los campos que tenga asignados.
+                    Define los campos obligatorios para cada participante, el cual verá y completará
+                    únicamente los campos que tenga asignados.
                   </span>
                 </>
               }
@@ -2592,7 +3007,7 @@ export function StepAjustes({
         </div>
 
         {/* Campos por participante */}
-        {standardFieldPlacementEnabled && (
+        {standardFieldPlacementEnabled && !templateSource && (
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div className="mb-3">
               <h2 className="text-base font-700 text-slate-950">Campos por participante</h2>
@@ -2806,12 +3221,10 @@ export function StepAjustes({
         {cryptoPlacementEnabled && (
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div className="mb-4">
-              <h2 className="text-base font-700 text-slate-950">
-                Cadena original y sello digital
-              </h2>
+              <h2 className="text-base font-700 text-slate-950">Cadena original y sello digital</h2>
               <p className="mt-1 text-sm leading-5 text-slate-500">
-                Coloca al menos uno de los campos en el documento. Sus valores reales se generan
-                y firman al completar el proceso.
+                Coloca al menos uno de los campos en el documento. Sus valores reales se generan y
+                firman al completar el proceso.
               </p>
             </div>
 
@@ -2925,9 +3338,7 @@ export function StepAjustes({
       </div>
 
       {/* RIGHT PANEL — document preview, fixed height, no scroll on the sheet itself */}
-      <div
-        className="flex h-full min-h-0 flex-1 flex-col"
-      >
+      <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-full overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
             <h2 className="text-base font-700 text-slate-950">Vista previa del documento</h2>
@@ -3013,10 +3424,21 @@ export function StepAjustes({
               style={{
                 width: `${zoomLevel}%`,
                 maxWidth: `${zoomLevel * 8}px`,
-                aspectRatio: '8.5/11',
+                aspectRatio: templateDimensions
+                  ? `${templateDimensions.width}/${templateDimensions.height}`
+                  : '8.5/11',
               }}
             >
-              {file && isPdf ? (
+              {templateSource ? (
+                <TemplateHtmlPreview
+                  template={templateSource}
+                  pageIndex={currentPage - 1}
+                  className="h-full rounded pointer-events-none select-none"
+                  title={`Página ${currentPage} de ${templateSource.nombre}`}
+                  onFieldsMeasured={handleTemplateFieldsMeasured}
+                  onPageCountChange={setTotalPages}
+                />
+              ) : file && isPdf ? (
                 pdfLoading ? (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-3 rounded bg-gray-50">
                     <FileText size={40} className="text-primary animate-pulse" />
@@ -3047,6 +3469,7 @@ export function StepAjustes({
               )}
               {placedFields
                 .filter((field) => (field.page ?? 1) === currentPage)
+                .filter((field) => !field.templateField)
                 .map((field) => (
                   <PlacedFieldWidget
                     key={field.id}

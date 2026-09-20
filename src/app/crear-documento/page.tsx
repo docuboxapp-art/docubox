@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Toaster, toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
 import {
   Upload,
@@ -38,6 +39,12 @@ import type {
   SecuritySettings,
   DocuboxSourceSelection,
 } from './components/types';
+import type {
+  ParticipantRequirementDraft,
+  SupplementalDocumentDraft,
+} from '@/lib/document-package/types';
+import type { PublishedTemplateDocument } from '@/lib/templates/preview';
+import { getTemplateSignatureCapacity } from '@/lib/templates/field-capacity';
 
 // ─── Helper: derive tipo from field label ─────────────────────────────────────
 function getLabelTipo(label: string): string {
@@ -64,6 +71,20 @@ function getLabelTipo(label: string): string {
     'Cadena de evidencia': 'evidence_chain',
   };
   return map[label] || 'texto';
+}
+
+function getTemplateSignatureCapacityMessage(capacity: number, signerCount: number) {
+  if (signerCount < capacity) {
+    return capacity === 1
+      ? 'Esta plantilla contiene un espacio de firma. Debes configurar un firmante antes de continuar.'
+      : `Esta plantilla contiene ${capacity} espacios de firma. Debes configurar ${capacity} firmantes antes de continuar.`;
+  }
+
+  return capacity === 0
+    ? 'Esta plantilla no contiene espacios de firma. No es posible configurar firmantes.'
+    : capacity === 1
+      ? 'Esta plantilla solo tiene un espacio de firma. No es posible configurar más de un firmante.'
+      : `Esta plantilla solo tiene ${capacity} espacios de firma. No es posible configurar más de ${capacity} firmantes.`;
 }
 
 // ─── Pipeline de seguridad (Capa 1 + Capa 2) — ejecutado en background ───────
@@ -133,6 +154,29 @@ export interface PreProcessedFile {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+function getDocumentPreparationErrorMessage(error: unknown) {
+  if (!(error instanceof ClientDocumentConversionError)) {
+    return 'No fue posible preparar el documento. Intenta nuevamente o selecciona otro archivo.';
+  }
+
+  switch (error.code) {
+    case 'CONVERSION_PROVIDER_UNAVAILABLE':
+      return 'La conversión de archivos Word, Excel y PowerPoint no está disponible en este entorno. Sube el documento en PDF o inténtalo más tarde.';
+    case 'CONVERSION_QUOTA_EXHAUSTED':
+    case 'CONVERSION_USAGE_LIMITED':
+    case 'CONVERSION_RATE_LIMITED':
+      return 'No fue posible preparar el documento en este momento. Intenta nuevamente más tarde.';
+    case 'CONVERSION_TIMEOUT':
+      return 'La conversión tardó demasiado. Intenta nuevamente o sube el documento en PDF.';
+    case 'INVALID_DOCUMENT':
+      return 'El archivo está vacío, excede 25 MB o su formato no es compatible.';
+    case 'UNAUTHORIZED':
+      return 'Tu sesión expiró. Inicia sesión nuevamente antes de subir el documento.';
+    default:
+      return 'No fue posible convertir el archivo. Verifica que no esté dañado o sube una versión en PDF.';
+  }
+}
+
 const BASE_STEPS = [
   { id: 1, label: 'Subir', icon: Upload },
   { id: 2, label: 'Participantes', icon: Users },
@@ -196,7 +240,15 @@ function CrearDocumentoPageInner() {
   const documentPreparationAbortRef = useRef<AbortController | null>(null);
   const documentPreparationTimerRef = useRef<number | null>(null);
   const [docuboxSource, setDocuboxSource] = useState<DocuboxSourceSelection | null>(null);
+  const [templateSource, setTemplateSource] = useState<PublishedTemplateDocument | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [supplementalResources, setSupplementalResources] = useState<SupplementalDocumentDraft[]>(
+    []
+  );
+  const [documentRequirements, setDocumentRequirements] = useState<ParticipantRequirementDraft[]>(
+    []
+  );
+  const [inPersonSigningEnabled, setInPersonSigningEnabled] = useState(false);
   const [participantMode, setParticipantMode] = useState<ParticipantMode>(null);
   const [participationOrder, setParticipationOrder] = useState<string>('');
   const [grupos, setGrupos] = useState<GrupoFirma[]>([]);
@@ -222,6 +274,7 @@ function CrearDocumentoPageInner() {
   const [placedFields, setPlacedFields] = useState<import('./components/types').PlacedField[]>([]);
   const [ajustesFixarCampos, setAjustesFixarCampos] = useState(false);
   const [ajustesHasFirma, setAjustesHasFirma] = useState(false);
+  const [templateFieldsReady, setTemplateFieldsReady] = useState(true);
   const [securitySummary, setSecuritySummary] = useState<SecuritySettings | undefined>(undefined);
   const [documentoId] = useState<string>(() => {
     const year = new Date().getFullYear();
@@ -236,6 +289,7 @@ function CrearDocumentoPageInner() {
   const [draftDbId, setDraftDbId] = useState<string | null>(null);
   const stepEnviarRef = useRef<StepEnviarHandle>(null);
   const [enviarSending, setEnviarSending] = useState(false);
+  const [deliveryMode, setDeliveryMode] = useState<'now' | 'scheduled'>('now');
   // Estado del pipeline de seguridad pre-ejecutado
   const [preProcessedFile, setPreProcessedFile] = useState<PreProcessedFile | null>(null);
   const [isPreProcessing, setIsPreProcessing] = useState(false);
@@ -264,6 +318,44 @@ function CrearDocumentoPageInner() {
       } as Record<string, string>
     )[currentStepLabel] ?? 'Configura el documento antes de enviarlo.';
   const completionPercent = Math.round(((currentStep - 1) / Math.max(STEPS.length - 1, 1)) * 100);
+  const templateSignatureCapacity = getTemplateSignatureCapacity(templateSource);
+  const configuredSignerCount = participants.filter(
+    (participant) =>
+      participant.configured === true &&
+      ((participant.acto || '').toLocaleLowerCase('es-MX') === 'firmante' ||
+        (!participant.acto && participant.role === 'firmante'))
+  ).length;
+  const templateSignerCapacityMismatch =
+    !!templateSource && configuredSignerCount !== templateSignatureCapacity;
+
+  const showSignatureCapacityWarning = (capacity: number) => {
+    toast.warning(getTemplateSignatureCapacityMessage(capacity, configuredSignerCount), {
+      id: 'template-signature-capacity',
+    });
+  };
+
+  useEffect(() => {
+    if (
+      currentStepLabel !== 'Participantes' ||
+      !templateSource ||
+      participants.length === 0 ||
+      !participants.every((participant) => participant.configured === true) ||
+      configuredSignerCount === templateSignatureCapacity
+    ) {
+      return;
+    }
+
+    toast.warning(
+      getTemplateSignatureCapacityMessage(templateSignatureCapacity, configuredSignerCount),
+      { id: 'template-signature-capacity' }
+    );
+  }, [
+    configuredSignerCount,
+    currentStepLabel,
+    participants,
+    templateSignatureCapacity,
+    templateSource,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -287,6 +379,9 @@ function CrearDocumentoPageInner() {
       setPreProcessedFile(null);
       return;
     }
+    setTemplateSource(null);
+    setTemplateFieldsReady(true);
+    setPlacedFields([]);
 
     const controller = new AbortController();
     documentPreparationAbortRef.current = controller;
@@ -313,12 +408,7 @@ function CrearDocumentoPageInner() {
       if (controller.signal.aborted) return;
       setFile(null);
       setPreProcessedFile(null);
-      setDocumentPreparationError(
-        error instanceof ClientDocumentConversionError &&
-          (error.code === 'CONVERSION_QUOTA_EXHAUSTED' || error.code === 'CONVERSION_USAGE_LIMITED')
-          ? 'No fue posible preparar el documento en este momento. Intenta nuevamente más tarde.'
-          : 'No fue posible preparar el documento. Intenta nuevamente o selecciona otro archivo.'
-      );
+      setDocumentPreparationError(getDocumentPreparationErrorMessage(error));
     } finally {
       if (documentPreparationTimerRef.current !== null) {
         window.clearTimeout(documentPreparationTimerRef.current);
@@ -410,7 +500,7 @@ function CrearDocumentoPageInner() {
 
   const canGoNext = (() => {
     if (currentStep === 1) {
-      if (!file || !docConfig.nombre.trim()) return false;
+      if ((!file && !templateSource) || !docConfig.nombre.trim()) return false;
       if (docConfig.tipoDocumentoId === '__otros__' && !docConfig.otroTipoDocumento.trim())
         return false;
       if (securitySummary?.legalHoldEnabled && !securitySummary.legalHoldReason) return false;
@@ -418,6 +508,7 @@ function CrearDocumentoPageInner() {
     }
     if (currentStepLabel === 'Participantes') {
       return (
+        !templateSignerCapacityMismatch &&
         participantMode !== null &&
         participants.length > 0 &&
         participants.every((p) => p.configured === true) &&
@@ -429,7 +520,9 @@ function CrearDocumentoPageInner() {
       return grupos.length > 0 && participants.every((p) => assignedIds.has(p.id));
     }
     if (currentStepLabel === 'Ajustes') {
-      if (ajustesFixarCampos && !ajustesHasFirma) return false;
+      if (templateSource) {
+        if (!templateFieldsReady) return false;
+      } else if (ajustesFixarCampos && !ajustesHasFirma) return false;
       if (securitySummary?.selloDigital && securitySummary.selloUbicacion === 'libre') {
         const hasVisibleCertificationField = placedFields.some(
           (field) =>
@@ -445,7 +538,7 @@ function CrearDocumentoPageInner() {
   })();
 
   const nextButtonLabel =
-    currentStepLabel === 'Ajustes' && !ajustesFixarCampos
+    currentStepLabel === 'Ajustes' && !templateSource && !ajustesFixarCampos
       ? 'Continuar sin asignar campos'
       : 'Siguiente';
 
@@ -454,7 +547,13 @@ function CrearDocumentoPageInner() {
   const handleNext = () => {
     if (canGoNext && currentStep < STEPS.length) {
       // Disparar pipeline de seguridad al salir del paso Participantes
-      if (currentStepLabel === 'Participantes' && file && !preProcessedFile && !isPreProcessing) {
+      if (
+        currentStepLabel === 'Participantes' &&
+        file &&
+        !templateSource &&
+        !preProcessedFile &&
+        !isPreProcessing
+      ) {
         setIsPreProcessing(true);
         (async () => {
           try {
@@ -511,7 +610,7 @@ function CrearDocumentoPageInner() {
   };
 
   const handleGuardarAvance = async (): Promise<boolean> => {
-    if (!file) return false;
+    if (!file && !templateSource) return false;
     if (!docConfig.nombre.trim()) return false;
     if (!user) {
       router.push('/login');
@@ -530,6 +629,10 @@ function CrearDocumentoPageInner() {
       }
 
       const docId = draftDbId || generateDocumentoId();
+      const draftFileName =
+        file?.name || `${templateSource?.nombre || 'Plantilla'}.docubox-template`;
+      const draftFileSize = file?.size || new Blob([templateSource?.contenido_html || '']).size;
+      const draftFileType = file?.type || 'application/vnd.docubox.template+html';
 
       const res = await fetch('/api/documentos/guardar-borrador', {
         method: 'POST',
@@ -540,11 +643,11 @@ function CrearDocumentoPageInner() {
         body: JSON.stringify({
           documentoId: docId,
           draftDbId: draftDbId || null,
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.type || 'application/octet-stream',
+          fileName: draftFileName,
+          fileSize: draftFileSize,
+          fileType: draftFileType,
           fileHash: 'draft',
-          nombre: docConfig.nombre || file.name.replace(/\.[^/.]+$/, ''),
+          nombre: docConfig.nombre || draftFileName.replace(/\.[^/.]+$/, ''),
           descripcion: docConfig.descripcion || null,
           numeroOficio: docConfig.numeroOficio || null,
           grupotipoId: docConfig.grupotipoId || null,
@@ -587,8 +690,10 @@ function CrearDocumentoPageInner() {
           blockchainEvidence: true,
           metadatosAdicionales: securitySummary?.metadatosAdicionales ?? false,
           additionalMetadata: docConfig.additionalMetadata,
+          sourceTemplateId: templateSource?.id || null,
           camposSolicitados: placedFields.map((f) => ({
             id: f.id,
+            valueKey: f.valueKey || f.id,
             label: f.label,
             tipo: getLabelTipo(f.label),
             x: f.x,
@@ -661,7 +766,7 @@ function CrearDocumentoPageInner() {
   };
 
   // Determine if "Guardar Avance" should be enabled (needs file + nombre)
-  const canSaveDraft = !!file && !!docConfig.nombre.trim();
+  const canSaveDraft = !!(file || templateSource) && !!docConfig.nombre.trim();
 
   // Block document creation if email not verified
   if (emailVerified === false) {
@@ -702,6 +807,7 @@ function CrearDocumentoPageInner() {
 
   return (
     <div ref={containerRef} className="flex h-screen flex-col bg-slate-50 text-slate-950">
+      <Toaster position="bottom-right" richColors />
       {showExitModal && (
         <ExitConfirmModal
           canSave={canSaveDraft}
@@ -849,6 +955,27 @@ function CrearDocumentoPageInner() {
               onPdfMetadata={(meta) => setPdfMetadata(meta)}
               sourceSelection={docuboxSource}
               onSourceSelectionChange={setDocuboxSource}
+              templateSource={templateSource}
+              onTemplateSourceChange={(template) => {
+                setTemplateSource(template);
+                if (template) {
+                  setFile(null);
+                  setPreProcessedFile(null);
+                  setDocumentPreparationError(null);
+                  setPlacedFields([]);
+                  setTemplateFieldsReady(false);
+                } else {
+                  setTemplateFieldsReady(true);
+                }
+              }}
+              supplementalResources={supplementalResources}
+              onSupplementalResourcesChange={setSupplementalResources}
+              participants={participants}
+              onParticipantsChange={setParticipants}
+              inPersonSigningEnabled={inPersonSigningEnabled}
+              onInPersonSigningEnabledChange={setInPersonSigningEnabled}
+              documentRequirements={documentRequirements}
+              onDocumentRequirementsChange={setDocumentRequirements}
             />
           )}
           {currentStepLabel === 'Participantes' && (
@@ -869,10 +996,22 @@ function CrearDocumentoPageInner() {
                   user?.user_metadata?.nombre ||
                   '',
               }}
+              supplementalResources={supplementalResources}
+              inPersonSigningEnabled={inPersonSigningEnabled}
+              documentRequirements={documentRequirements}
+              templateSignatureCapacity={templateSource ? templateSignatureCapacity : null}
+              onSignatureCapacityExceeded={showSignatureCapacityWarning}
             />
           )}
           {currentStepLabel === 'Agrupamiento' && (
-            <StepAgrupamiento participants={participants} grupos={grupos} onChange={setGrupos} />
+            <StepAgrupamiento
+              participants={participants}
+              grupos={grupos}
+              onChange={setGrupos}
+              organizationWorkspaceId={
+                activeWorkspace?.workspaceType === 'business' ? activeWorkspace.id : null
+              }
+            />
           )}
           {currentStepLabel === 'Flujo de Trabajo' && (
             <StepFlujoTrabajo participants={participants} />
@@ -883,6 +1022,7 @@ function CrearDocumentoPageInner() {
               onChange={setSettings}
               participants={participants}
               file={file}
+              templateSource={templateSource}
               isCondicional={isCondicional}
               documentoId={documentoId}
               securitySettings={securitySummary}
@@ -891,6 +1031,7 @@ function CrearDocumentoPageInner() {
                 setAjustesFixarCampos(fixar);
                 setAjustesHasFirma(hasFirma);
               }}
+              onTemplateFieldAssignmentChange={setTemplateFieldsReady}
               initialFixarCampos={ajustesFixarCampos}
               initialPlacedFields={placedFields}
             />
@@ -899,6 +1040,7 @@ function CrearDocumentoPageInner() {
             <StepEnviar
               ref={stepEnviarRef}
               file={file}
+              templateSource={templateSource}
               participants={participants}
               settings={settings}
               docConfig={docConfig}
@@ -912,6 +1054,8 @@ function CrearDocumentoPageInner() {
               preProcessedFile={preProcessedFile}
               pdfMetadata={pdfMetadata}
               docuboxSource={docuboxSource}
+              supplementalResources={supplementalResources}
+              onDeliveryModeChange={setDeliveryMode}
             />
           )}
         </div>
@@ -1003,12 +1147,12 @@ function CrearDocumentoPageInner() {
                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                       />
                     </svg>
-                    Enviando...
+                    {deliveryMode === 'scheduled' ? 'Programando...' : 'Enviando...'}
                   </>
                 ) : (
                   <>
                     <Send size={15} />
-                    Enviar documento
+                    {deliveryMode === 'scheduled' ? 'Programar envío' : 'Enviar documento'}
                   </>
                 )}
               </button>

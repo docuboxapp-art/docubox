@@ -183,6 +183,15 @@ export function checkEvidenceForIntent(intent: LuciaIntent, finalContext: Record
     case 'document_summary':
     case 'document_content_search':
       return rag.length > 0;
+    case 'contractual_search':
+      return (
+        intelligenceRows(structured, 'fields').some(
+          (field: any) => field.chunk_id && field.evidence_text
+        ) ||
+        intelligenceRows(structured, 'obligations').some(
+          (obligation: any) => obligation.chunk_id && obligation.evidence_text
+        )
+      );
     case 'document_intelligence_profile':
     case 'document_classification':
     case 'document_metadata_suggestions':

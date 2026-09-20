@@ -1,0 +1,110 @@
+openapi: 3.1.0
+info:
+  title: Docubox Public API
+  version: 1.0.0
+  description: Versioned organization API. API secrets are shown once and sent as Bearer credentials.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /documents:
+    get:
+      summary: List tenant documents
+      x-required-scope: documents.read
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200': { description: Document list }
+  /documents/{documentId}:
+    get:
+      summary: Read document status and metadata
+      x-required-scope: documents.read
+      parameters:
+        - $ref: '#/components/parameters/documentId'
+      responses:
+        '200': { description: Document }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /documents/{documentId}/participants:
+    get:
+      summary: List stable participant references
+      x-required-scope: documents.read
+      parameters:
+        - $ref: '#/components/parameters/documentId'
+      responses:
+        '200': { description: Participants }
+  /documents/{documentId}/send:
+    post:
+      summary: Send an eligible document using the existing delivery service
+      x-required-scope: documents.send
+      parameters:
+        - $ref: '#/components/parameters/documentId'
+        - $ref: '#/components/parameters/idempotencyKey'
+      responses:
+        '202': { description: Delivery accepted }
+        '409': { description: Document is not sendable or request is already running }
+  /documents/{documentId}/schedule:
+    post:
+      summary: Schedule delivery through the Phase C scheduler
+      x-required-scope: documents.schedule
+      parameters:
+        - $ref: '#/components/parameters/documentId'
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scheduled_at, timezone]
+              properties:
+                scheduled_at: { type: string, format: date-time }
+                timezone: { type: string, example: America/Chihuahua }
+      responses:
+        '201': { description: Schedule created }
+  /documents/{documentId}/evidence:
+    get:
+      summary: Read Evidence Package v2 metadata and verification references
+      x-required-scope: evidence.read
+      parameters:
+        - $ref: '#/components/parameters/documentId'
+      responses:
+        '200': { description: Evidence metadata; no artifact body is exposed }
+  /webhooks:
+    get:
+      summary: List existing organization webhook endpoints
+      x-required-scope: webhooks.manage
+      responses:
+        '200': { description: Webhook list }
+    post:
+      summary: Register an endpoint on the existing webhook dispatcher
+      x-required-scope: webhooks.manage
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+      responses:
+        '201': { description: Webhook created; secret is returned once }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Docubox organization API key
+  parameters:
+    documentId:
+      in: path
+      name: documentId
+      required: true
+      schema: { type: string, format: uuid }
+    idempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema: { type: string, maxLength: 200 }
+  responses:
+    NotFound:
+      description: Resource not found in the credential tenant

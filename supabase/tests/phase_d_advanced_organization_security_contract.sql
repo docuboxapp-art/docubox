@@ -1,0 +1,41 @@
+BEGIN;
+
+SELECT plan(34);
+
+SELECT has_table('public', 'document_signing_groups', 'signing group snapshots exist');
+SELECT has_table('public', 'document_signing_group_members', 'signing group members exist');
+SELECT has_table('public', 'document_participant_delegations', 'delegations exist');
+SELECT has_table('public', 'document_custody_history', 'custody history exists');
+SELECT has_table('public', 'organization_retention_policies', 'retention policies exist');
+SELECT has_table('public', 'document_retention_policy_assignments', 'retention assignments exist');
+SELECT has_column('public', 'participant_completion_attempts', 'effective_actor_user_id', 'effective actor is recorded');
+SELECT has_column('public', 'participant_completion_attempts', 'delegation_id', 'completion binds delegation');
+SELECT has_column('public', 'participation_responses', 'witness_completed', 'witness outcome is distinct');
+SELECT has_column('public', 'document_participant_delegations', 'policy_mode', 'delegation policy is recorded');
+SELECT has_column('public', 'document_participant_delegations', 'policy_snapshot', 'delegation policy snapshot is retained');
+SELECT has_function('public', 'snapshot_document_signing_groups', ARRAY['uuid'], 'group snapshot function exists');
+SELECT has_function('public', 'transfer_document_custody', ARRAY['uuid','uuid','uuid','uuid','text','text'], 'custody transfer function exists');
+SELECT has_function('public', 'apply_document_retention_policy', ARRAY['uuid','uuid','uuid','uuid','text'], 'retention application exists');
+SELECT has_function('public', 'set_organization_delegation_policy', ARRAY['uuid','uuid','text','uuid[]','text[]'], 'delegation policy function exists');
+SELECT has_function('public', 'claim_participant_completion_auth003', ARRAY['uuid','uuid','uuid','text','text','text','text','uuid','uuid'], 'AUTH-003 claim remains available internally');
+SELECT has_function('public', 'commit_participant_completion_auth003', ARRAY['uuid','uuid','text','text','uuid','jsonb'], 'AUTH-003 commit remains available internally');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.document_signing_groups'::regclass), 'signing groups have RLS');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.document_signing_group_members'::regclass), 'group members have RLS');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.document_participant_delegations'::regclass), 'delegations have RLS');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.document_custody_history'::regclass), 'custody has RLS');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.organization_retention_policies'::regclass), 'retention policies have RLS');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.document_retention_policy_assignments'::regclass), 'retention assignments have RLS');
+SELECT ok(NOT has_table_privilege('anon', 'public.document_signing_groups', 'SELECT'), 'anon cannot read signing groups');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.document_signing_groups', 'INSERT'), 'browser cannot forge signing groups');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.document_participant_delegations', 'INSERT'), 'browser cannot forge delegation');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.document_custody_history', 'UPDATE'), 'browser cannot rewrite custody');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.organization_retention_policies', 'INSERT'), 'browser cannot forge retention policies');
+SELECT ok(NOT has_function_privilege('authenticated', 'public.snapshot_document_signing_groups(uuid)', 'EXECUTE'), 'browser cannot snapshot groups');
+SELECT ok(NOT has_function_privilege('authenticated', 'public.transfer_document_custody(uuid,uuid,uuid,uuid,text,text)', 'EXECUTE'), 'browser cannot transfer custody directly');
+SELECT ok(NOT has_function_privilege('authenticated', 'public.apply_document_retention_policy(uuid,uuid,uuid,uuid,text)', 'EXECUTE'), 'browser cannot apply retention directly');
+SELECT ok(NOT has_function_privilege('authenticated', 'public.set_organization_delegation_policy(uuid,uuid,text,uuid[],text[])', 'EXECUTE'), 'browser cannot bypass delegation policy API');
+SELECT ok(has_function_privilege('service_role', 'public.claim_participant_completion(uuid,uuid,uuid,text,text,text,text,uuid,uuid)', 'EXECUTE'), 'service role owns the completion boundary');
+SELECT ok(NOT has_function_privilege('authenticated', 'public.commit_participant_completion(uuid,uuid,text,text,uuid,jsonb)', 'EXECUTE'), 'browser cannot commit completion directly');
+
+SELECT * FROM finish();
+ROLLBACK;

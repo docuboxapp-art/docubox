@@ -50,11 +50,24 @@ import { getPublicAppUrl } from '@/lib/publicAppUrl';
 import { isDocumentGeneratedCryptographicField } from '@/lib/documentFields';
 import AutographSignatureFlow from './AutographSignatureFlow';
 import { useEfirmaEvidence, fileToBase64 } from '@/hooks/useEfirmaEvidence';
+import { GroupMemberDelegationControl } from '@/components/documents/GroupMemberDelegationControl';
+import { TemplateDocumentPreview } from '@/components/templates/TemplateDocumentPreview';
+import {
+  applyTemplateFieldValues,
+  loadTemplateDocumentSource,
+  type TemplateFieldValues,
+} from '@/lib/templates/document-flow';
+import {
+  createPdfFromPublishedTemplate,
+  type TemplateRenderedFieldMeasurement,
+  type PublishedTemplateDocument,
+} from '@/lib/templates/preview';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface CampoSolicitado {
   id?: string;
+  valueKey?: string;
   label: string;
   participantId: string | null;
   participantName: string | null;
@@ -124,6 +137,7 @@ interface CampoPersonalizado {
 // ─── NEW: Placed field on document ───────────────────────────────────────────
 interface PlacedFieldFirmar {
   id: string;
+  valueKey?: string;
   label: string;
   tipo: CampoPersonalizado['tipo'];
   value: string;
@@ -153,7 +167,10 @@ interface DocumentData {
   nombre: string;
   estado: string;
   owner_id: string;
+  workspace_id?: string | null;
   file_url?: string;
+  file_type?: string;
+  source_template_id?: string | null;
   campos_solicitados?: CampoSolicitado[];
   participantes?: any[];
 }
@@ -181,10 +198,62 @@ function deriveTipoFromLabel(label: string): CampoPersonalizado['tipo'] {
   return map[label] || 'texto';
 }
 
+function getCampoValueKey(campo: CampoSolicitado, index: number) {
+  return campo.valueKey || campo.id || `prefijado-${index}`;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function resolveParticipantRecordId(
+  participant: Record<string, unknown> | null,
+  authenticatedUserId: string | undefined
+) {
+  const candidates = [participant?.user_id, participant?.id, authenticatedUserId];
+  const resolved = candidates
+    .map((candidate) => String(candidate || '').trim())
+    .find((candidate) => UUID_PATTERN.test(candidate));
+  return resolved || String(authenticatedUserId || '').trim();
+}
+
+function normalizeFieldTipo(value: unknown): CampoPersonalizado['tipo'] | null {
+  const normalized = String(value || '')
+    .trim()
+    .toLocaleLowerCase('es-MX');
+  const aliases: Record<string, CampoPersonalizado['tipo']> = {
+    signature: 'firma',
+    firma: 'firma',
+    text: 'texto',
+    texto: 'texto',
+    number: 'numero',
+    numero: 'numero',
+    date: 'fecha',
+    fecha: 'fecha',
+    checkbox: 'checkbox',
+    dropdown: 'dropdown',
+    radio: 'radio',
+    email: 'correo',
+    correo: 'correo',
+    rfc: 'rfc',
+    curp: 'curp',
+    phone: 'telefono',
+    telefono: 'telefono',
+    address: 'direccion',
+    direccion: 'direccion',
+    time: 'hora',
+    hora: 'hora',
+    image: 'imagen',
+    imagen: 'imagen',
+    currency: 'moneda',
+    moneda: 'moneda',
+    nombre_completo: 'nombre_completo',
+  };
+  return aliases[normalized] || null;
+}
+
 // ─── Helper: smart tipo resolution considering field data ─────────────────────
 function resolveFieldTipo(c: CampoSolicitado): CampoPersonalizado['tipo'] {
   // If tipo is explicitly set and not the generic 'texto' fallback, use it
-  const explicitTipo = c.tipo as CampoPersonalizado['tipo'];
+  const explicitTipo = normalizeFieldTipo(c.tipo);
   if (explicitTipo && explicitTipo !== 'texto') return explicitTipo;
   // If tipo is 'texto' but field has dropdown/radio options, infer correct type
   if (c.dropdownOptions && c.dropdownOptions.length > 0) return 'dropdown';
@@ -950,7 +1019,9 @@ function EfirmaFirmarFlow({
           <div className="flex min-w-0 flex-1 items-start gap-2">
             <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-green-600" />
             <div>
-              <p className={`text-sm font-semibold ${isDark ? 'text-green-400' : 'text-green-700'}`}>
+              <p
+                className={`text-sm font-semibold ${isDark ? 'text-green-400' : 'text-green-700'}`}
+              >
                 e.firma SAT validada y vigente
               </p>
               <p className={`text-xs mt-0.5 ${isDark ? 'text-green-500' : 'text-green-600'}`}>
@@ -985,7 +1056,8 @@ function EfirmaFirmarFlow({
                 className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
               />
               <p className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
-                Hay una e.firma registrada en tu perfil. Puedes verificar su vigencia antes de cargar los archivos para firmar.
+                Hay una e.firma registrada en tu perfil. Puedes verificar su vigencia antes de
+                cargar los archivos para firmar.
               </p>
             </div>
             <div className="flex gap-2">
@@ -1208,7 +1280,9 @@ function EfirmaFirmarFlow({
                 className={`flex items-start gap-2 rounded-lg border px-3 py-2 ${isDark ? 'border-green-800 bg-green-900/20' : 'border-green-200 bg-green-50'}`}
               >
                 <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-green-600" />
-                <p className={`text-xs leading-relaxed ${isDark ? 'text-green-300' : 'text-green-700'}`}>
+                <p
+                  className={`text-xs leading-relaxed ${isDark ? 'text-green-300' : 'text-green-700'}`}
+                >
                   {profileValidationNotice}
                 </p>
               </div>
@@ -4781,6 +4855,7 @@ export default function FirmarDocumentoPage() {
   const { activeWorkspace } = useWorkspace();
   const docId = params?.id as string;
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [kioskSessionId, setKioskSessionId] = useState<string | null>(null);
 
   // ── Session-storage key for this document's signing flow ──────────────────
   const sessionKey = docId ? `firmar-doc-flow-${docId}` : null;
@@ -4905,8 +4980,65 @@ export default function FirmarDocumentoPage() {
     }
   }, [sessionKey]);
 
+  useEffect(() => {
+    let active = true;
+    void fetch('/api/firma-presencial/context', { cache: 'no-store' })
+      .then(async (response) => {
+        if (response.status === 404) return null;
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error('KIOSK_CONTEXT_UNAVAILABLE');
+        return payload.data as { sessionId?: string; documentId?: string; active?: boolean };
+      })
+      .then((context) => {
+        if (!active || !context) return;
+        if (context.active && context.documentId === docId && context.sessionId) {
+          setKioskSessionId(context.sessionId);
+        }
+      })
+      .catch(() => {
+        if (active) setDocError('No fue posible validar la sesión presencial.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [docId]);
+
+  const closeKioskContext = useCallback(
+    async (action: 'complete' | 'cancel') => {
+      if (!kioskSessionId) return false;
+      const supabase = createClient();
+      const { data } = await supabase.auth.getSession();
+      if (!data.session?.access_token)
+        throw new Error('La sesión del participante ya no está disponible.');
+      const response = await fetch('/api/firma-presencial/context', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session.access_token}`,
+        },
+        body: JSON.stringify({ action }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.data?.neutralPath) {
+        throw new Error(
+          payload.error ||
+            (action === 'complete'
+              ? 'No fue posible cerrar la sesión presencial.'
+              : 'No fue posible cancelar la sesión presencial.')
+        );
+      }
+      clearPersistedFlow();
+      await supabase.auth.signOut({ scope: 'local' });
+      window.location.replace(payload.data.neutralPath);
+      return true;
+    },
+    [clearPersistedFlow, kioskSessionId]
+  );
+
   // Document state
   const [document, setDocument] = useState<DocumentData | null>(null);
+  const [templateDocument, setTemplateDocument] = useState<PublishedTemplateDocument | null>(null);
+  const [completedTemplateValues, setCompletedTemplateValues] = useState<TemplateFieldValues>({});
   const [loading, setLoading] = useState(true);
   const [docError, setDocError] = useState<string | null>(null);
 
@@ -4961,8 +5093,11 @@ export default function FirmarDocumentoPage() {
   const [showNoFirmaAlert, setShowNoFirmaAlert] = useState(false);
 
   // Participant info
-  const [myRole, setMyRole] = useState<'firmante' | 'aprobador' | 'observador'>('firmante');
+  const [myRole, setMyRole] = useState<'firmante' | 'aprobador' | 'observador' | 'testigo'>(
+    'firmante'
+  );
   const [myParticipantData, setMyParticipantData] = useState<any>(null);
+  const participantRecordId = resolveParticipantRecordId(myParticipantData, user?.id);
 
   // ── Stamp styles from user profile ────────────────────────────────────────
   const [efirmaStampStyle, setEfirmaStampStyle] = useState<string>('EC1');
@@ -6313,7 +6448,9 @@ export default function FirmarDocumentoPage() {
         const supabase = createClient();
         const { data, error } = await supabase
           .from('documentos')
-          .select('id, nombre, estado, owner_id, file_url, campos_solicitados, participantes')
+          .select(
+            'id, nombre, estado, owner_id, file_url, file_type, source_template_id, campos_solicitados, participantes'
+          )
           .eq('id', docId)
           .single();
 
@@ -6330,9 +6467,9 @@ export default function FirmarDocumentoPage() {
             return;
           }
           const apiJson = await apiRes.json();
-          processDocData(apiJson.data);
+          await processDocData(apiJson.data);
         } else {
-          processDocData(data);
+          await processDocData(data);
         }
 
         // Check proteccion_participacion_enabled
@@ -6359,17 +6496,71 @@ export default function FirmarDocumentoPage() {
       }
     };
 
-    const processDocData = (data: any) => {
-      setDocument(data);
+    const processDocData = async (data: any) => {
+      const loadedDocument: DocumentData = {
+        ...data,
+        file_url: `/api/documentos/${encodeURIComponent(data.id)}/viewer-file?variant=original`,
+      };
+      setDocument(loadedDocument);
+      const { data: sessionData } = await createClient().auth.getSession();
+      const authorizationHeaders: Record<string, string> = sessionData.session?.access_token
+        ? { Authorization: `Bearer ${sessionData.session.access_token}` }
+        : {};
+      const resolvedTemplate = await loadTemplateDocumentSource({
+        documentId: data.id,
+        fileType: data.file_type,
+        fileUrl: loadedDocument.file_url,
+        headers: authorizationHeaders,
+      }).catch(() => null);
+      setTemplateDocument(resolvedTemplate);
+
+      void fetch(`/api/documentos/participation-responses?id=${encodeURIComponent(data.id)}`, {
+        cache: 'no-store',
+        headers: authorizationHeaders,
+      })
+        .then(async (response) => (response.ok ? response.json() : null))
+        .then((payload) => {
+          const values: TemplateFieldValues = {};
+          const responses = Array.isArray(payload?.data) ? payload.data : [];
+          responses.forEach((response: { campos_completados?: CampoCompletado[] }) => {
+            (response.campos_completados || []).forEach((field) => {
+              if (field.campo_id && field.value) values[field.campo_id] = field.value;
+            });
+          });
+          setCompletedTemplateValues(values);
+        })
+        .catch(() => setCompletedTemplateValues({}));
 
       const rawParts: any[] = data.participantes || [];
       const normalizedUserEmail = (user?.email || '').trim().toLowerCase();
-      const myPart = rawParts.find(
+      let myPart = rawParts.find(
         (p: any) =>
           p.id === user?.id ||
           p.user_id === user?.id ||
-          (normalizedUserEmail && String(p.email || '').trim().toLowerCase() === normalizedUserEmail)
+          (normalizedUserEmail &&
+            String(p.email || '')
+              .trim()
+              .toLowerCase() === normalizedUserEmail)
       );
+
+      if (!myPart) {
+        const { data: currentSession } = await createClient().auth.getSession();
+        const accessToken = currentSession.session?.access_token;
+        if (accessToken) {
+          const delegationResponse = await fetch(`/api/documentos/${data.id}/delegations/me`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            cache: 'no-store',
+          });
+          const delegationPayload = await delegationResponse.json().catch(() => ({}));
+          if (delegationResponse.ok && delegationPayload.data?.original_participant_reference_id) {
+            myPart = rawParts.find(
+              (participant: any) =>
+                participant.participant_ref_id ===
+                delegationPayload.data.original_participant_reference_id
+            );
+          }
+        }
+      }
 
       // Documents created by earlier versions may still have the legacy
       // `en_progreso` value. Both values are active signing states.
@@ -6389,6 +6580,7 @@ export default function FirmarDocumentoPage() {
         const role = myPart.role || myPart.acto || 'firmante';
         if (role === 'aprobador' || role === 'Aprobador') setMyRole('aprobador');
         else if (role === 'observador' || role === 'Observador') setMyRole('observador');
+        else if (role === 'testigo' || role === 'Testigo') setMyRole('testigo');
         else setMyRole('firmante');
       }
 
@@ -6414,6 +6606,7 @@ export default function FirmarDocumentoPage() {
             const resolvedTipo: CampoPersonalizado['tipo'] = resolveFieldTipo(c);
             return {
               id: c.id || `prefijado-${myCampos.indexOf(c)}`,
+              valueKey: getCampoValueKey(c, myCampos.indexOf(c)),
               label: c.label,
               tipo: resolvedTipo,
               value: '',
@@ -6434,7 +6627,7 @@ export default function FirmarDocumentoPage() {
 
       const initValues: Record<string, string> = {};
       myCampos.forEach((c) => {
-        const key = c.id || `prefijado-${myCampos.indexOf(c)}`;
+        const key = getCampoValueKey(c, myCampos.indexOf(c));
         const resolvedTipo: CampoPersonalizado['tipo'] = resolveFieldTipo(c);
         const autoValue = getAutoFillValue(resolvedTipo, userProfileRef.current);
         initValues[key] = autoValue || '';
@@ -6486,8 +6679,8 @@ export default function FirmarDocumentoPage() {
         setCamposValues((prev) => {
           const updated = { ...prev };
           camposPrefijados.forEach((c, idx) => {
-            const key = c.id || `prefijado-${idx}`;
-            const tipo = c.tipo as CampoPersonalizado['tipo'];
+            const key = getCampoValueKey(c, idx);
+            const tipo = resolveFieldTipo(c);
             const autoValue = getAutoFillValue(tipo, userProfile);
             if (autoValue && !updated[key]) {
               updated[key] = autoValue;
@@ -6507,7 +6700,7 @@ export default function FirmarDocumentoPage() {
     const syncFrame = window.requestAnimationFrame(() => {
       setPlacedFields((prev) =>
         prev.map((f) => {
-          const val = camposValues[f.id];
+          const val = camposValues[f.valueKey || f.id];
           // Only update if the value exists in camposValues AND is different from current
           // Don't overwrite a non-empty auto-filled value with an empty string
           if (val !== undefined && val !== f.value && (val !== '' || f.value === '')) {
@@ -6523,12 +6716,36 @@ export default function FirmarDocumentoPage() {
 
   // ── Derived state ──────────────────────────────────────────────────────────
   const hasCamposPrefijados = camposPrefijados.length > 0;
+  const isTemplateOriginDocument = Boolean(document?.source_template_id || templateDocument);
+  const logicalCamposPrefijados = React.useMemo(() => {
+    const seen = new Set<string>();
+    return camposPrefijados.filter((campo, index) => {
+      const valueKey = getCampoValueKey(campo, index);
+      if (seen.has(valueKey)) return false;
+      seen.add(valueKey);
+      return true;
+    });
+  }, [camposPrefijados]);
+  const templateFieldValues = React.useMemo<TemplateFieldValues>(() => {
+    const values: TemplateFieldValues = { ...completedTemplateValues };
+    camposPrefijados.forEach((campo, index) => {
+      const key = getCampoValueKey(campo, index);
+      const value = camposValues[key];
+      if (value) values[key] = value;
+    });
+    placedFields.forEach((field) => {
+      const key = field.valueKey || field.id;
+      const value = field.tipo === 'firma' ? firmaData : field.value;
+      if (value) values[key] = value;
+    });
+    return values;
+  }, [camposPrefijados, camposValues, completedTemplateValues, firmaData, placedFields]);
   const allCamposCompleted = hasCamposPrefijados
-    ? camposPrefijados.every((c, idx) => {
+    ? logicalCamposPrefijados.every((c, idx) => {
         // firma fields are handled in the next step — skip validation here
         const resolvedTipo = resolveFieldTipo(c);
         if (resolvedTipo === 'firma') return true;
-        const key = c.id || `prefijado-${idx}`;
+        const key = getCampoValueKey(c, idx);
         return (camposValues[key] || '').trim().length > 0;
       }) &&
       camposPersonalizados.every((c) => {
@@ -6543,7 +6760,7 @@ export default function FirmarDocumentoPage() {
   // Check if firma field is inserted in document
   const hasFirmaInserted =
     camposPersonalizados.some((c) => c.tipo === 'firma') ||
-    camposPrefijados.some((c) => c.tipo === 'firma') ||
+    camposPrefijados.some((c) => resolveFieldTipo(c) === 'firma') ||
     placedFields.some((f) => f.tipo === 'firma');
 
   // ── Auto-fill helper ───────────────────────────────────────────────────────
@@ -6714,7 +6931,7 @@ export default function FirmarDocumentoPage() {
   const handleAceptarTerminos = () => {
     if (!terminosAceptados) return;
     if (geoLoading || geoBlocked) return;
-    if (myRole === 'aprobador') {
+    if (myRole === 'aprobador' || myRole === 'testigo') {
       setStep('aprobacion');
     } else {
       setStep('campos');
@@ -6914,8 +7131,8 @@ export default function FirmarDocumentoPage() {
       const supabase = createClient();
       const camposCompletados: CampoCompletado[] = [];
       if (hasCamposPrefijados) {
-        camposPrefijados.forEach((c, idx) => {
-          const key = c.id || `prefijado-${idx}`;
+        logicalCamposPrefijados.forEach((c, idx) => {
+          const key = getCampoValueKey(c, idx);
           camposCompletados.push({ campo_id: key, label: c.label, value: camposValues[key] || '' });
         });
       } else {
@@ -6965,12 +7182,7 @@ export default function FirmarDocumentoPage() {
           ? 'Debes permitir el acceso a tu ubicación para firmar este documento.'
           : 'No fue posible obtener una ubicación válida. Activa la ubicación e inténtalo de nuevo.'
       );
-      return;
-    }
-    if (isEfirmaSAT && (!efirmaValidated || !efirmaCerB64 || !efirmaKeyB64 || !efirmaPassword)) {
-      setSubmitError(
-        'Para firmar con e.firma, carga y valida los archivos .cer y .key junto con la contraseña. Estos datos sólo se usan durante esta firma.'
-      );
+
       return;
     }
     setSubmitting(true);
@@ -6980,8 +7192,8 @@ export default function FirmarDocumentoPage() {
 
       const camposCompletados: CampoCompletado[] = [];
       if (hasCamposPrefijados) {
-        camposPrefijados.forEach((c, idx) => {
-          const key = c.id || `prefijado-${idx}`;
+        logicalCamposPrefijados.forEach((c, idx) => {
+          const key = getCampoValueKey(c, idx);
           camposCompletados.push({
             campo_id: key,
             label: c.label,
@@ -7006,7 +7218,11 @@ export default function FirmarDocumentoPage() {
         finalFirmaData = generateTypedSignatureDataUrl(typedSignature, typedSignatureStyle);
       }
 
-      const now = new Date().toISOString();
+      const persistedCompletion = readPersistedFlow();
+      const persistedSignedAt = String(persistedCompletion?.completionSignedAt || '');
+      const now = Number.isFinite(Date.parse(persistedSignedAt))
+        ? new Date(persistedSignedAt).toISOString()
+        : new Date().toISOString();
 
       // ── Capture evidence: IP, geolocation, hash ────────────────────────────
       let ipAddress = '—';
@@ -7059,13 +7275,69 @@ export default function FirmarDocumentoPage() {
             ? autografaStampStyle
             : clickSignStampStyle;
 
+      const completionIdempotencyKey =
+        typeof persistedCompletion?.completionIdempotencyKey === 'string' &&
+        persistedCompletion.completionIdempotencyKey.length >= 16
+          ? persistedCompletion.completionIdempotencyKey
+          : crypto.randomUUID();
+      writePersistedFlow({ completionIdempotencyKey, completionSignedAt: now });
+      const {
+        data: { session: completionSession },
+      } = await supabase.auth.getSession();
+      if (!completionSession?.access_token) {
+        throw new Error('No fue posible verificar la sesión de firma.');
+      }
+      const completionHeaders = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${completionSession.access_token}`,
+      };
+      const claimResponse = await fetch('/api/firma/completion', {
+        method: 'POST',
+        headers: completionHeaders,
+        body: JSON.stringify({
+          action: 'claim',
+          documentId: document.id,
+          participantRecordId,
+          participantReferenceId: myParticipantData?.participant_ref_id || null,
+          actionType:
+            myRole === 'firmante' ? 'signature' : myRole === 'testigo' ? 'witness' : 'approval',
+          signatureMethod: myRole === 'firmante' ? selectedSignatureMethod : null,
+          idempotencyKey: completionIdempotencyKey,
+        }),
+      });
+      const claimPayload = await claimResponse.json().catch(() => ({}));
+      if (!claimResponse.ok || !claimPayload.data?.attemptId) {
+        throw new Error(
+          claimPayload.error || 'No fue posible reservar la finalización de la firma.'
+        );
+      }
+      const completionAttemptId = String(claimPayload.data.attemptId);
+      const completionAlreadyCommitted = claimPayload.data.status === 'committed';
+
       // Validate and persist the cryptographic signature before changing any
       // participant or document state. A provider failure must leave the
       // workflow pending instead of producing a false "signed" state.
       let serverEfirmaSignedAt: string | null = null;
       let finalSignatureEvidenceId: string | null =
-        selectedSignatureMethod === 'autografa' ? autographEvidenceId : null;
-      if (isEfirmaSAT && myRole === 'firmante') {
+        selectedSignatureMethod === 'autografa'
+          ? autographEvidenceId
+          : typeof persistedCompletion?.completionEvidenceId === 'string'
+            ? persistedCompletion.completionEvidenceId
+            : null;
+      if (claimPayload.data.evidenceId) {
+        finalSignatureEvidenceId = String(claimPayload.data.evidenceId);
+      }
+      if (
+        isEfirmaSAT &&
+        myRole === 'firmante' &&
+        !completionAlreadyCommitted &&
+        !finalSignatureEvidenceId
+      ) {
+        if (!efirmaValidated || !efirmaCerB64 || !efirmaKeyB64 || !efirmaPassword) {
+          throw new Error(
+            'Para firmar con e.firma, carga y valida los archivos .cer y .key junto con la contraseña. Estos datos sólo se usan durante esta firma.'
+          );
+        }
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -7082,7 +7354,7 @@ export default function FirmarDocumentoPage() {
           },
           body: JSON.stringify({
             document_id: document.id,
-            participant_id: String(myParticipantData?.id || myParticipantData?.user_id || user.id),
+            participant_id: participantRecordId,
             cer_b64: efirmaCerB64,
             key_b64: efirmaKeyB64,
             password: efirmaPassword,
@@ -7107,9 +7379,7 @@ export default function FirmarDocumentoPage() {
         }
         serverEfirmaSignedAt = signData.signed_at || null;
         finalSignatureEvidenceId = String(signData.evidence_id);
-        setEfirmaCerB64(null);
-        setEfirmaKeyB64(null);
-        setEfirmaPassword(null);
+        writePersistedFlow({ completionEvidenceId: finalSignatureEvidenceId });
       }
 
       const responsePayload = {
@@ -7117,7 +7387,7 @@ export default function FirmarDocumentoPage() {
         participante_email: user.email || '',
         participante_nombre: user.user_metadata?.full_name || user.email || '',
         participante_id: user.id,
-        participant_record_id: String(myParticipantData?.id || myParticipantData?.user_id || user.id),
+        participant_record_id: participantRecordId,
         tipo_participacion: myRole,
         terminos_aceptados: true,
         terminos_aceptados_at: now,
@@ -7154,20 +7424,14 @@ export default function FirmarDocumentoPage() {
         observaciones: observaciones || null,
       };
 
-      if (myRole === 'firmante') {
-        const {
-          data: { session: evidenceSession },
-        } = await supabase.auth.getSession();
-        if (!evidenceSession?.access_token) throw new Error('No fue posible verificar la sesión de firma.');
+      if (myRole === 'firmante' && !completionAlreadyCommitted) {
         const evidenceResponse = await fetch('/api/firma/finalize-evidence', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${evidenceSession.access_token}`,
-          },
+          headers: completionHeaders,
           body: JSON.stringify({
             documentId: document.id,
-            participantRecordId: String(myParticipantData?.id || myParticipantData?.user_id || user.id),
+            participantRecordId,
+            attemptId: completionAttemptId,
             method: selectedSignatureMethod,
             evidenceId: finalSignatureEvidenceId,
             signedAt: serverEfirmaSignedAt || now,
@@ -7182,131 +7446,45 @@ export default function FirmarDocumentoPage() {
           throw new Error(evidencePayload?.error || 'No se pudo consolidar la evidencia de firma.');
         }
         finalSignatureEvidenceId = String(evidencePayload.evidenceId);
+        writePersistedFlow({ completionEvidenceId: finalSignatureEvidenceId });
         responsePayload.signature_evidence_id = finalSignatureEvidenceId;
         responsePayload.consent_text_sha256 = evidencePayload.consent?.textHash || null;
       }
 
-      const { error: upsertError } = await supabase
-        .from('participation_responses')
-        .upsert(responsePayload, { onConflict: 'documento_id,participante_email' });
-
-      if (upsertError) throw new Error(upsertError.message);
-
-      const subEstado = myRole === 'firmante' ? 'firmo' : 'aprobo';
-      await supabase.rpc('update_participante_sub_estado', {
-        p_documento_id: document.id,
-        p_email: user.email,
-        p_sub_estado: subEstado,
+      const commitResponse = await fetch('/api/firma/completion', {
+        method: 'POST',
+        headers: completionHeaders,
+        body: JSON.stringify({
+          action: 'commit',
+          documentId: document.id,
+          participantRecordId,
+          participantReferenceId: myParticipantData?.participant_ref_id || null,
+          attemptId: completionAttemptId,
+          idempotencyKey: completionIdempotencyKey,
+          evidenceId: finalSignatureEvidenceId,
+          response: responsePayload,
+        }),
       });
+      const commitPayload = await commitResponse.json().catch(() => ({}));
+      if (!commitResponse.ok || commitPayload.data?.status !== 'committed') {
+        throw new Error(commitPayload.error || 'No se pudo confirmar la participación.');
+      }
+      if (isEfirmaSAT) {
+        setEfirmaCerB64(null);
+        setEfirmaKeyB64(null);
+        setEfirmaPassword(null);
+      }
+      const committedDocumentState = String(commitPayload.data.documentState || 'en_proceso');
+      const documentoEstado = (
+        committedDocumentState === 'en_proceso' ? 'en_progreso' : committedDocumentState
+      ) as 'completado' | 'firmado' | 'en_progreso';
 
-      // Update participant's estado to 'firmado' in the participantes JSONB array
-      await supabase.rpc('update_participante_estado', {
-        p_documento_id: document.id,
-        p_email: user.email,
-        p_estado: 'firmado',
-      });
-
-      // Check if ALL participants have completed and determine document estado
-      const TERMINAL_SUB_ESTADOS = [
-        'firmo',
-        'firmado',
-        'aprobo',
-        'aprobado',
-        'rechazo',
-        'rechazado',
-        'cancelo',
-        'cancelado',
-      ];
-      const { data: updatedDoc } = await supabase
-        .from('documentos')
-        .select('participantes, estado')
-        .eq('id', document.id)
-        .single();
-
-      let documentoEstado: 'completado' | 'firmado' | 'en_progreso' = 'en_progreso';
-
-      if (updatedDoc && updatedDoc.estado !== 'completado' && updatedDoc.estado !== 'cancelado') {
-        const updatedParticipantes: any[] = updatedDoc.participantes ?? [];
-
-        // If participantes array is empty or null, the current user is the only/last signer
-        if (updatedParticipantes.length === 0) {
-          documentoEstado = 'completado';
-          const completedAt = new Date().toISOString();
-          await supabase
-            .from('documentos')
-            .update({ estado: 'completado', fecha_completado: completedAt })
-            .eq('id', document.id);
-        } else {
-          // Mark current user as signed in the local copy for evaluation
-          // Match by email (case-insensitive), supabase user id, or participant id
-          const userEmailLower = (user.email || '').toLowerCase();
-          const participantesEvaluados = updatedParticipantes.map((p: any) => {
-            const pEmail = (p.email || '').toLowerCase();
-            if (pEmail === userEmailLower || p.id === user.id || p.user_id === user.id) {
-              return { ...p, sub_estado: subEstado, estado: 'firmado' };
-            }
-            return p;
-          });
-
-          // Check terminal state using both sub_estado AND estado fields
-          const allCompleted =
-            participantesEvaluados.length > 0 &&
-            participantesEvaluados.every((p: any) => {
-              const sub = (p.sub_estado ?? '').toLowerCase();
-              const est = (p.estado ?? '').toLowerCase();
-              return TERMINAL_SUB_ESTADOS.includes(sub) || TERMINAL_SUB_ESTADOS.includes(est);
-            });
-
-          // Additional check: if there's only 1 participant and we just signed, mark as completado
-          const isSoloParticipant = updatedParticipantes.length === 1;
-
-          if (allCompleted || isSoloParticipant) {
-            documentoEstado = 'completado';
-            const completedAt = new Date().toISOString();
-            await supabase
-              .from('documentos')
-              .update({ estado: 'completado', fecha_completado: completedAt })
-              .eq('id', document.id);
-          } else {
-            // Some participants still pending — preserve the canonical active state.
-            await supabase
-              .from('documentos')
-              .update({ estado: 'en_proceso' })
-              .eq('id', document.id);
-
-            // ── Advance participation chain for sequential/mixed orders ────
-            // Notify the next participant(s) in line based on participation_order
-            try {
-              const {
-                data: { session: currentSession },
-              } = await supabase.auth.getSession();
-              if (currentSession?.access_token) {
-                await fetch('/api/documentos/advance-participation', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${currentSession.access_token}`,
-                  },
-                  body: JSON.stringify({ documentoId: document.id }),
-                }).catch(() => {});
-              }
-            } catch {
-              /* non-critical */
-            }
-          }
-        }
-      } else if (!updatedDoc) {
-        // Could not read document back (RLS or network issue) — use service role via API to check
-        // Fallback: if current user is the only participant in local document data, mark as completed
-        const localParticipantes: any[] = document.participantes ?? [];
-        if (localParticipantes.length <= 1) {
-          documentoEstado = 'completado';
-          // Best-effort update via supabase (may fail for participants without UPDATE permission)
-          await supabase
-            .from('documentos')
-            .update({ estado: 'completado', fecha_completado: new Date().toISOString() })
-            .eq('id', document.id);
-        }
+      if (commitPayload.data.routingRequired) {
+        await fetch('/api/documentos/advance-participation', {
+          method: 'POST',
+          headers: completionHeaders,
+          body: JSON.stringify({ documentoId: document.id }),
+        }).catch(() => {});
       }
 
       // The browser requests one backend operation. PAdES-B-T, NOM-151 and
@@ -7320,9 +7498,37 @@ export default function FirmarDocumentoPage() {
             ? { Authorization: `Bearer ${session.access_token}` }
             : {};
 
+          let sealBody: FormData | undefined;
+          if (templateDocument) {
+            const materializationValues: TemplateFieldValues = { ...templateFieldValues };
+            camposPrefijados.forEach((field, index) => {
+              if (resolveFieldTipo(field) === 'firma') {
+                delete materializationValues[getCampoValueKey(field, index)];
+              }
+            });
+            placedFields.forEach((field) => {
+              if (field.tipo === 'firma') delete materializationValues[field.valueKey || field.id];
+            });
+            const materializedTemplate = applyTemplateFieldValues(
+              templateDocument,
+              materializationValues,
+              { final: true }
+            );
+            let templateFieldMeasurements: TemplateRenderedFieldMeasurement[] = [];
+            const templatePdf = await createPdfFromPublishedTemplate(materializedTemplate, {
+              onFieldsMeasured: (fields) => {
+                templateFieldMeasurements = fields;
+              },
+            });
+            sealBody = new FormData();
+            sealBody.append('templatePdf', templatePdf, templatePdf.name);
+            sealBody.append('templateFieldMeasurements', JSON.stringify(templateFieldMeasurements));
+          }
+
           const sealResponse = await fetch(`/api/documentos/${document.id}/seal-signatures`, {
             method: 'POST',
             headers: authorizationHeaders,
+            body: sealBody,
           });
           if (!sealResponse.ok) {
             const payload = await sealResponse.json().catch(() => ({}));
@@ -7360,21 +7566,7 @@ export default function FirmarDocumentoPage() {
           : null,
       });
 
-      const actorNombre = user.user_metadata?.full_name || user.email || 'Usuario';
-      await supabase.from('document_activity_log').insert({
-        documento_id: document.id,
-        actor_id: user.id,
-        actor_nombre: actorNombre,
-        actor_email: user.email || '',
-        action: myRole === 'firmante' ? 'firma_completada' : 'aprobacion_completada',
-        category: 'firma',
-        details: {
-          metodo: myRole,
-          campos_completados: camposCompletados.length,
-          ip: ipAddress,
-          hash: signatureHash,
-        },
-      });
+      if (await closeKioskContext('complete')) return;
 
       setStep('completado');
       // Trigger green success animation after a short delay
@@ -7387,10 +7579,10 @@ export default function FirmarDocumentoPage() {
   };
 
   const steps =
-    myRole === 'aprobador'
+    myRole === 'aprobador' || myRole === 'testigo'
       ? [
           { id: 'terminos', label: 'Términos' },
-          { id: 'aprobacion', label: 'Aprobación' },
+          { id: 'aprobacion', label: myRole === 'testigo' ? 'Testimonio' : 'Aprobación' },
         ]
       : [
           { id: 'terminos', label: 'Términos' },
@@ -7873,30 +8065,40 @@ export default function FirmarDocumentoPage() {
             {document.file_url ? (
               <div className="flex-1 relative overflow-hidden">
                 <div className="absolute inset-0 overflow-auto p-4 flex justify-center">
-                  <div className="shadow-xl bg-white self-start relative">
-                    <PdfCanvas
-                      fileUrl={document.file_url}
-                      page={currentPage}
+                  {templateDocument ? (
+                    <TemplateDocumentPreview
+                      template={templateDocument}
+                      values={templateFieldValues}
+                      pageIndex={currentPage - 1}
                       zoom={zoom}
-                      onTotalPages={setTotalPages}
+                      title={`Documento de plantilla ${document.nombre}`}
+                      onPageCountChange={setTotalPages}
                     />
-                    {/* Stamp overlay: placed fields with filled values */}
-                    {stampFieldsForPage(currentPage).length > 0 && (
-                      <div
-                        className="absolute inset-0"
-                        style={{ zIndex: 10, pointerEvents: 'none' }}
-                      >
-                        {stampFieldsForPage(currentPage).map((field) => (
-                          <CompletedFieldStamp
-                            key={field.id}
-                            field={field}
-                            firmaDataUrl={displayFirmaData}
-                            stampDisplayProps={completedStampProps}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  ) : (
+                    <div className="shadow-xl bg-white self-start relative">
+                      <PdfCanvas
+                        fileUrl={document.file_url}
+                        page={currentPage}
+                        zoom={zoom}
+                        onTotalPages={setTotalPages}
+                      />
+                      {stampFieldsForPage(currentPage).length > 0 && (
+                        <div
+                          className="absolute inset-0"
+                          style={{ zIndex: 10, pointerEvents: 'none' }}
+                        >
+                          {stampFieldsForPage(currentPage).map((field) => (
+                            <CompletedFieldStamp
+                              key={field.id}
+                              field={field}
+                              firmaDataUrl={displayFirmaData}
+                              stampDisplayProps={completedStampProps}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {/* Zoom + Pagination bar */}
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
@@ -7955,11 +8157,23 @@ export default function FirmarDocumentoPage() {
                           title="Página anterior"
                           aria-label="Página anterior"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
                             <polyline points="15 18 9 12 15 6" />
                           </svg>
                         </button>
-                        <div className="flex min-w-[112px] items-center justify-center gap-1 text-sm" aria-live="polite">
+                        <div
+                          className="flex min-w-[112px] items-center justify-center gap-1 text-sm"
+                          aria-live="polite"
+                        >
                           {canJumpToPage ? (
                             <>
                               <span className="text-slate-400">Página</span>
@@ -7980,10 +8194,14 @@ export default function FirmarDocumentoPage() {
                                 aria-label="Ir a página"
                                 className="w-9 rounded border border-slate-200 bg-white py-0.5 text-center font-semibold text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
                               />
-                              <span className="whitespace-nowrap text-slate-400">de {totalPages}</span>
+                              <span className="whitespace-nowrap text-slate-400">
+                                de {totalPages}
+                              </span>
                             </>
                           ) : (
-                            <span className="whitespace-nowrap font-medium text-slate-600">Página {currentPage} de {totalPages}</span>
+                            <span className="whitespace-nowrap font-medium text-slate-600">
+                              Página {currentPage} de {totalPages}
+                            </span>
                           )}
                         </div>
                         <button
@@ -7993,7 +8211,16 @@ export default function FirmarDocumentoPage() {
                           title="Página siguiente"
                           aria-label="Página siguiente"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
                             <polyline points="9 18 15 12 9 6" />
                           </svg>
                         </button>
@@ -8040,12 +8267,18 @@ export default function FirmarDocumentoPage() {
                     <h2
                       className={`text-xl font-bold mb-1 ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
-                      {myRole === 'firmante' ? '¡Documento firmado!' : '¡Aprobación registrada!'}
+                      {myRole === 'firmante'
+                        ? '¡Documento firmado!'
+                        : myRole === 'testigo'
+                          ? '¡Testimonio registrado!'
+                          : '¡Aprobación registrada!'}
                     </h2>
                     <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
                       {myRole === 'firmante'
                         ? 'Tu firma ha sido registrada exitosamente.'
-                        : 'Tu aprobación ha sido registrada exitosamente.'}
+                        : myRole === 'testigo'
+                          ? 'Tu participación como testigo quedó registrada.'
+                          : 'Tu aprobación ha sido registrada exitosamente.'}
                     </p>
                   </div>
 
@@ -8062,7 +8295,11 @@ export default function FirmarDocumentoPage() {
                       <span
                         className={`text-sm font-semibold transition-colors duration-700 ${showSuccessAnim ? (isDark ? 'text-green-400' : 'text-green-700') : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
                       >
-                        {myRole === 'firmante' ? '¡Firma completada!' : '¡Aprobación completada!'}
+                        {myRole === 'firmante'
+                          ? '¡Firma completada!'
+                          : myRole === 'testigo'
+                            ? '¡Testimonio completado!'
+                            : '¡Aprobación completada!'}
                       </span>
                     </div>
                     {/* Progress bar */}
@@ -9081,7 +9318,7 @@ export default function FirmarDocumentoPage() {
             <p
               className={`truncate text-sm font-700 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}
             >
-              {myRole === 'aprobador' ? 'Revisar documento' : 'Firmar documento'}
+              {myRole === 'firmante' ? 'Firmar documento' : 'Revisar documento'}
             </p>
             <p className={`truncate text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
               {activeWorkspace?.name || 'Espacio personal'}
@@ -9197,8 +9434,20 @@ export default function FirmarDocumentoPage() {
       {/* Exit confirmation modal */}
       {showExitModal && (
         <ExitConfirmModal
-          onConfirm={() => {
+          onConfirm={async () => {
             setShowExitModal(false);
+            if (kioskSessionId) {
+              try {
+                await closeKioskContext('cancel');
+              } catch (cause) {
+                setSubmitError(
+                  cause instanceof Error
+                    ? cause.message
+                    : 'No fue posible cancelar la sesión presencial.'
+                );
+              }
+              return;
+            }
             router.push(`/visor-documento/${document?.id}`);
           }}
           onCancel={() => setShowExitModal(false)}
@@ -9282,11 +9531,23 @@ export default function FirmarDocumentoPage() {
                       title="Página anterior"
                       aria-label="Página anterior"
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <polyline points="15 18 9 12 15 6" />
                       </svg>
                     </button>
-                    <div className="flex min-w-[104px] items-center justify-center gap-1 text-xs" aria-live="polite">
+                    <div
+                      className="flex min-w-[104px] items-center justify-center gap-1 text-xs"
+                      aria-live="polite"
+                    >
                       {canJumpToPage ? (
                         <>
                           <span className="text-slate-400">Página</span>
@@ -9310,7 +9571,9 @@ export default function FirmarDocumentoPage() {
                           <span className="whitespace-nowrap text-slate-400">de {totalPages}</span>
                         </>
                       ) : (
-                        <span className="whitespace-nowrap font-medium text-slate-600">Página {docModalPage} de {totalPages}</span>
+                        <span className="whitespace-nowrap font-medium text-slate-600">
+                          Página {docModalPage} de {totalPages}
+                        </span>
                       )}
                     </div>
                     <button
@@ -9320,7 +9583,16 @@ export default function FirmarDocumentoPage() {
                       title="Página siguiente"
                       aria-label="Página siguiente"
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <polyline points="9 18 15 12 9 6" />
                       </svg>
                     </button>
@@ -9343,16 +9615,26 @@ export default function FirmarDocumentoPage() {
           {/* Modal body */}
           <div className="flex-1 overflow-auto" style={{ paddingTop: '0px' }}>
             <div className="flex items-start justify-center min-h-full min-w-full p-8 pt-16">
-              <div className="relative shadow-lg bg-white flex-shrink-0">
-                <PdfCanvas
-                  fileUrl={document.file_url}
-                  page={docModalPage}
+              {templateDocument ? (
+                <TemplateDocumentPreview
+                  template={templateDocument}
+                  values={templateFieldValues}
+                  pageIndex={docModalPage - 1}
                   zoom={docModalZoom}
-                  onTotalPages={(n) => {
-                    /* totalPages already set */
-                  }}
+                  title={`Documento de plantilla ${document.nombre}`}
                 />
-              </div>
+              ) : (
+                <div className="relative shadow-lg bg-white flex-shrink-0">
+                  <PdfCanvas
+                    fileUrl={document.file_url}
+                    page={docModalPage}
+                    zoom={docModalZoom}
+                    onTotalPages={(n) => {
+                      /* totalPages already set */
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -9433,31 +9715,43 @@ export default function FirmarDocumentoPage() {
                     data-doc-sheet-firmar="true"
                     className="shadow-xl bg-white self-start relative"
                   >
-                    <PdfCanvas
-                      fileUrl={document.file_url}
-                      page={currentPage}
-                      zoom={zoom}
-                      onTotalPages={setTotalPages}
-                    />
-                    {/* Placed fields overlays */}
-                    {placedFields
-                      .filter((f) => f.page === currentPage)
-                      .map((field) => (
-                        <PlacedFieldOverlay
-                          key={field.id}
-                          field={field}
-                          signatureDataUrl={field.tipo === 'firma' ? firmaData : null}
-                          onRemove={handleRemovePlacedField}
-                          onMove={handleMovePlacedField}
-                          onResize={handleResizePlacedField}
-                          onUpdateFieldConfig={handleUpdateFieldConfig}
-                          onUpdateFieldTypeConfig={handleUpdateFieldTypeConfig}
-                          onUpdateOptions={handleUpdateDropdownOptions}
-                          onUpdateRadioOptions={handleUpdateRadioOptions}
-                          onUpdateCasillaLabel={handleUpdateCasillaLabel}
-                          readOnly={hasCamposPrefijados && !field.id.startsWith('placed-')}
+                    {templateDocument ? (
+                      <TemplateDocumentPreview
+                        template={templateDocument}
+                        values={templateFieldValues}
+                        pageIndex={currentPage - 1}
+                        zoom={zoom}
+                        title={`Documento de plantilla ${document.nombre}`}
+                        onPageCountChange={setTotalPages}
+                      />
+                    ) : (
+                      <>
+                        <PdfCanvas
+                          fileUrl={document.file_url}
+                          page={currentPage}
+                          zoom={zoom}
+                          onTotalPages={setTotalPages}
                         />
-                      ))}
+                        {placedFields
+                          .filter((f) => f.page === currentPage)
+                          .map((field) => (
+                            <PlacedFieldOverlay
+                              key={field.id}
+                              field={field}
+                              signatureDataUrl={field.tipo === 'firma' ? firmaData : null}
+                              onRemove={handleRemovePlacedField}
+                              onMove={handleMovePlacedField}
+                              onResize={handleResizePlacedField}
+                              onUpdateFieldConfig={handleUpdateFieldConfig}
+                              onUpdateFieldTypeConfig={handleUpdateFieldTypeConfig}
+                              onUpdateOptions={handleUpdateDropdownOptions}
+                              onUpdateRadioOptions={handleUpdateRadioOptions}
+                              onUpdateCasillaLabel={handleUpdateCasillaLabel}
+                              readOnly={hasCamposPrefijados && !field.id.startsWith('placed-')}
+                            />
+                          ))}
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -9535,11 +9829,23 @@ export default function FirmarDocumentoPage() {
                           title="Página anterior"
                           aria-label="Página anterior"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
                             <polyline points="15 18 9 12 15 6" />
                           </svg>
                         </button>
-                        <div className="flex min-w-[112px] items-center justify-center gap-1 text-sm" aria-live="polite">
+                        <div
+                          className="flex min-w-[112px] items-center justify-center gap-1 text-sm"
+                          aria-live="polite"
+                        >
                           {canJumpToPage ? (
                             <>
                               <span className="text-slate-400">Página</span>
@@ -9560,10 +9866,14 @@ export default function FirmarDocumentoPage() {
                                 aria-label="Ir a página"
                                 className="w-9 rounded border border-slate-200 bg-white py-0.5 text-center font-semibold text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
                               />
-                              <span className="whitespace-nowrap text-slate-400">de {totalPages}</span>
+                              <span className="whitespace-nowrap text-slate-400">
+                                de {totalPages}
+                              </span>
                             </>
                           ) : (
-                            <span className="whitespace-nowrap font-medium text-slate-600">Página {currentPage} de {totalPages}</span>
+                            <span className="whitespace-nowrap font-medium text-slate-600">
+                              Página {currentPage} de {totalPages}
+                            </span>
                           )}
                         </div>
                         <button
@@ -9573,7 +9883,16 @@ export default function FirmarDocumentoPage() {
                           title="Página siguiente"
                           aria-label="Página siguiente"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
                             <polyline points="9 18 15 12 9 6" />
                           </svg>
                         </button>
@@ -9622,6 +9941,18 @@ export default function FirmarDocumentoPage() {
                       Antes de continuar, revisa y acepta los términos de participación.
                     </p>
                   </div>
+
+                  {document.workspace_id &&
+                    myParticipantData?.participant_ref_id &&
+                    sessionToken &&
+                    !kioskSessionId && (
+                      <GroupMemberDelegationControl
+                        documentId={document.id}
+                        workspaceId={document.workspace_id}
+                        participantReferenceId={myParticipantData.participant_ref_id}
+                        accessToken={sessionToken}
+                      />
+                    )}
 
                   <div
                     className={`rounded-xl p-4 flex items-start gap-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}
@@ -9708,10 +10039,11 @@ export default function FirmarDocumentoPage() {
                             valor que una firma manuscrita.
                           </li>
                         )}
-                        {myRole === 'aprobador' && (
+                        {(myRole === 'aprobador' || myRole === 'testigo') && (
                           <li>
-                            Que su visto bueno constituye una aprobación formal del contenido del
-                            documento.
+                            {myRole === 'testigo'
+                              ? 'Que su participación registra un testimonio electrónico del acto, sin atribuir efectos notariales.'
+                              : 'Que su visto bueno constituye una aprobación formal del contenido del documento.'}
                           </li>
                         )}
                       </ol>
@@ -9773,7 +10105,9 @@ export default function FirmarDocumentoPage() {
                         <p
                           className={`text-sm font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}
                         >
-                          {geoDenied ? 'Ubicación requerida para firmar' : 'No fue posible obtener tu ubicación'}
+                          {geoDenied
+                            ? 'Ubicación requerida para firmar'
+                            : 'No fue posible obtener tu ubicación'}
                         </p>
                         <p
                           className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-red-400/80' : 'text-red-600'}`}
@@ -9809,8 +10143,8 @@ export default function FirmarDocumentoPage() {
                   {/* Campos prefijados */}
                   {hasCamposPrefijados && (
                     <div className="space-y-3">
-                      {camposPrefijados.map((campo, idx) => {
-                        const key = campo.id || `prefijado-${idx}`;
+                      {logicalCamposPrefijados.map((campo, idx) => {
+                        const key = getCampoValueKey(campo, idx);
                         const resolvedTipo: CampoPersonalizado['tipo'] = resolveFieldTipo(campo);
                         const displayLabel = campo.fieldConfig?.customName || campo.label;
                         return (
@@ -9985,7 +10319,8 @@ export default function FirmarDocumentoPage() {
                                 <p
                                   className={`text-xs leading-snug ${isDark ? 'text-teal-300' : 'text-teal-700'}`}
                                 >
-                                  La firma se configurará en el paso siguiente.
+                                  La estampa de firma se configurará en el paso siguiente con la
+                                  firma del participante asignado.
                                 </p>
                               </div>
                             ) : resolvedTipo === 'dropdown' && campo.dropdownOptions?.length ? (
@@ -10054,8 +10389,8 @@ export default function FirmarDocumentoPage() {
                     </div>
                   )}
 
-                  {/* Additional fields section — shown for BOTH prefixed and non-prefixed */}
-                  {hasCamposPrefijados && (
+                  {/* Template documents only use the fields defined during template setup. */}
+                  {hasCamposPrefijados && !isTemplateOriginDocument && (
                     <div className="space-y-3">
                       <h3
                         className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
@@ -10731,190 +11066,170 @@ export default function FirmarDocumentoPage() {
                           <p
                             className={`text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
                           >
-                            No hay campos obligatorios. Puedes agregar información opcional o
-                            continuar directamente a la firma.
+                            {isTemplateOriginDocument
+                              ? 'No hay campos obligatorios. Puedes continuar directamente a la firma.'
+                              : 'No hay campos obligatorios. Puedes agregar información opcional o continuar directamente a la firma.'}
                           </p>
                         </div>
                       </div>
 
                       {/* Agregar información adicional section */}
-                      <div className="space-y-3">
-                        <h3
-                          className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
-                        >
-                          Agregar información adicional
-                        </h3>
+                      {!isTemplateOriginDocument && (
+                        <div className="space-y-3">
+                          <h3
+                            className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                          >
+                            Agregar información adicional
+                          </h3>
 
-                        {/* Placed fields shown in sidebar */}
-                        {camposPersonalizados.length > 0 && (
-                          <div className="space-y-2">
-                            {camposPersonalizados.map((campo) => (
-                              <div
-                                key={campo.id}
-                                className={`border rounded-xl p-3 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border'}`}
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <CampoPersonalizadoIcon tipo={campo.tipo} />
-                                    <span
-                                      className={`text-sm font-medium truncate ${isDark ? 'text-gray-200' : 'text-foreground'}`}
-                                    >
-                                      {campo.label}
-                                    </span>
-                                    {campo.value &&
-                                      [
-                                        'nombre_completo',
-                                        'rfc',
-                                        'curp',
-                                        'correo',
-                                        'telefono',
-                                        'direccion',
-                                      ].includes(campo.tipo) && (
-                                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium shrink-0">
-                                          Auto
-                                        </span>
-                                      )}
-                                  </div>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
+                          {/* Placed fields shown in sidebar */}
+                          {camposPersonalizados.length > 0 && (
+                            <div className="space-y-2">
+                              {camposPersonalizados.map((campo) => (
+                                <div
+                                  key={campo.id}
+                                  className={`border rounded-xl p-3 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border'}`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <CampoPersonalizadoIcon tipo={campo.tipo} />
+                                      <span
+                                        className={`text-sm font-medium truncate ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                      >
+                                        {campo.label}
+                                      </span>
+                                      {campo.value &&
+                                        [
+                                          'nombre_completo',
+                                          'rfc',
+                                          'curp',
+                                          'correo',
+                                          'telefono',
+                                          'direccion',
+                                        ].includes(campo.tipo) && (
+                                          <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                                            Auto
+                                          </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const placedField = placedFields.find(
+                                            (f) => f.id === campo.id
+                                          );
+                                          if (placedField) {
+                                            const newName = window.prompt(
+                                              'Nombre del campo:',
+                                              placedField.fieldConfig?.customName || campo.label
+                                            );
+                                            if (newName !== null && newName.trim()) {
+                                              handleUpdateFieldConfig(campo.id, {
+                                                ...(placedField.fieldConfig || {}),
+                                                customName: newName.trim(),
+                                              });
+                                            }
+                                          }
+                                        }}
+                                        className="p-1 rounded hover:bg-slate-100 text-muted-foreground hover:text-primary transition-colors"
+                                        title="Editar etiqueta del campo"
+                                      >
+                                        <Tag size={13} />
+                                      </button>
+                                      {(() => {
                                         const placedField = placedFields.find(
                                           (f) => f.id === campo.id
                                         );
-                                        if (placedField) {
-                                          const newName = window.prompt(
-                                            'Nombre del campo:',
-                                            placedField.fieldConfig?.customName || campo.label
+                                        const hasSettings = [
+                                          'numero',
+                                          'moneda',
+                                          'fecha',
+                                          'hora',
+                                          'dropdown',
+                                          'radio',
+                                        ].includes(campo.tipo);
+                                        if (campo.tipo === 'checkbox') {
+                                          if (!placedField) return null;
+                                          return (
+                                            <SidebarCasillaSettingsButton
+                                              campo={campo}
+                                              placedField={placedField}
+                                              onUpdateCasillaLabel={handleUpdateCasillaLabel}
+                                            />
                                           );
-                                          if (newName !== null && newName.trim()) {
-                                            handleUpdateFieldConfig(campo.id, {
-                                              ...(placedField.fieldConfig || {}),
-                                              customName: newName.trim(),
-                                            });
-                                          }
                                         }
-                                      }}
-                                      className="p-1 rounded hover:bg-slate-100 text-muted-foreground hover:text-primary transition-colors"
-                                      title="Editar etiqueta del campo"
-                                    >
-                                      <Tag size={13} />
-                                    </button>
-                                    {(() => {
-                                      const placedField = placedFields.find(
-                                        (f) => f.id === campo.id
-                                      );
-                                      const hasSettings = [
-                                        'numero',
-                                        'moneda',
-                                        'fecha',
-                                        'hora',
-                                        'dropdown',
-                                        'radio',
-                                      ].includes(campo.tipo);
-                                      if (campo.tipo === 'checkbox') {
-                                        if (!placedField) return null;
+                                        if (!hasSettings || !placedField) return null;
                                         return (
-                                          <SidebarCasillaSettingsButton
+                                          <SidebarSettingsButton
                                             campo={campo}
                                             placedField={placedField}
-                                            onUpdateCasillaLabel={handleUpdateCasillaLabel}
+                                            onUpdateFieldTypeConfig={handleUpdateFieldTypeConfig}
+                                            onUpdateDropdownOptions={handleUpdateDropdownOptions}
+                                            onUpdateRadioOptions={handleUpdateRadioOptions}
                                           />
                                         );
-                                      }
-                                      if (!hasSettings || !placedField) return null;
+                                      })()}
+                                      <button
+                                        onClick={() => handleRemoveCampoPersonalizado(campo.id)}
+                                        className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  {(() => {
+                                    const placedField = placedFields.find((f) => f.id === campo.id);
+                                    const dropOpts =
+                                      placedField?.dropdownOptions &&
+                                      placedField.dropdownOptions.length > 0
+                                        ? placedField.dropdownOptions
+                                        : ['Opción A', 'Opción B'];
+                                    const radioOpts =
+                                      placedField?.radioOptions &&
+                                      placedField.radioOptions.length > 0
+                                        ? placedField.radioOptions
+                                        : ['Opción 1', 'Opción 2'];
+                                    const casillaLbl =
+                                      placedField?.casillaLabel || 'Etiqueta de casilla';
+                                    if (campo.tipo === 'firma')
                                       return (
-                                        <SidebarSettingsButton
-                                          campo={campo}
-                                          placedField={placedField}
-                                          onUpdateFieldTypeConfig={handleUpdateFieldTypeConfig}
-                                          onUpdateDropdownOptions={handleUpdateDropdownOptions}
-                                          onUpdateRadioOptions={handleUpdateRadioOptions}
+                                        <div className="border border-dashed border-slate-300 rounded-lg p-3 text-center text-xs text-muted-foreground">
+                                          <PenLine
+                                            size={16}
+                                            className="mx-auto mb-1 text-slate-400"
+                                          />
+                                          La firma se capturará en el paso siguiente
+                                        </div>
+                                      );
+                                    if (campo.tipo === 'fecha')
+                                      return (
+                                        <input
+                                          type="date"
+                                          value={campo.value}
+                                          onChange={(e) =>
+                                            handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                          }
+                                          className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                                         />
                                       );
-                                    })()}
-                                    <button
-                                      onClick={() => handleRemoveCampoPersonalizado(campo.id)}
-                                      className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
-                                    >
-                                      <Trash2 size={13} />
-                                    </button>
-                                  </div>
-                                </div>
-                                {(() => {
-                                  const placedField = placedFields.find((f) => f.id === campo.id);
-                                  const dropOpts =
-                                    placedField?.dropdownOptions &&
-                                    placedField.dropdownOptions.length > 0
-                                      ? placedField.dropdownOptions
-                                      : ['Opción A', 'Opción B'];
-                                  const radioOpts =
-                                    placedField?.radioOptions && placedField.radioOptions.length > 0
-                                      ? placedField.radioOptions
-                                      : ['Opción 1', 'Opción 2'];
-                                  const casillaLbl =
-                                    placedField?.casillaLabel || 'Etiqueta de casilla';
-                                  if (campo.tipo === 'firma')
-                                    return (
-                                      <div className="border border-dashed border-slate-300 rounded-lg p-3 text-center text-xs text-muted-foreground">
-                                        <PenLine
-                                          size={16}
-                                          className="mx-auto mb-1 text-slate-400"
+                                    if (campo.tipo === 'hora')
+                                      return (
+                                        <input
+                                          type="time"
+                                          value={campo.value}
+                                          onChange={(e) =>
+                                            handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                          }
+                                          className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                                         />
-                                        La firma se capturará en el paso siguiente
-                                      </div>
-                                    );
-                                  if (campo.tipo === 'fecha')
-                                    return (
-                                      <input
-                                        type="date"
-                                        value={campo.value}
-                                        onChange={(e) =>
-                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
-                                        }
-                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
-                                      />
-                                    );
-                                  if (campo.tipo === 'hora')
-                                    return (
-                                      <input
-                                        type="time"
-                                        value={campo.value}
-                                        onChange={(e) =>
-                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
-                                        }
-                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
-                                      />
-                                    );
-                                  if (campo.tipo === 'numero')
-                                    return (
-                                      <input
-                                        type="number"
-                                        value={campo.value}
-                                        placeholder="Ingresa número"
-                                        onKeyDown={(e) => {
-                                          if (['e', 'E', '+', '-'].includes(e.key))
-                                            e.preventDefault();
-                                        }}
-                                        onChange={(e) =>
-                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
-                                        }
-                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
-                                      />
-                                    );
-                                  if (campo.tipo === 'moneda')
-                                    return (
-                                      <div className="relative">
-                                        <span
-                                          className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
-                                        >
-                                          $
-                                        </span>
+                                      );
+                                    if (campo.tipo === 'numero')
+                                      return (
                                         <input
                                           type="number"
-                                          step="0.01"
                                           value={campo.value}
-                                          placeholder="0.00"
+                                          placeholder="Ingresa número"
                                           onKeyDown={(e) => {
                                             if (['e', 'E', '+', '-'].includes(e.key))
                                               e.preventDefault();
@@ -10922,280 +11237,467 @@ export default function FirmarDocumentoPage() {
                                           onChange={(e) =>
                                             handleUpdateCampoPersonalizado(campo.id, e.target.value)
                                           }
-                                          className={`w-full pl-7 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                          className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                                         />
-                                      </div>
-                                    );
-                                  if (campo.tipo === 'imagen')
-                                    return (
-                                      <div className="space-y-2">
-                                        <input
-                                          type="file"
-                                          accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-                                          onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (!file) return;
-                                            const allowed = ['image/jpeg', 'image/png'];
-                                            if (!allowed.includes(file.type)) {
-                                              alert('Solo se permiten archivos JPG, JPEG o PNG.');
-                                              e.target.value = '';
-                                              return;
-                                            }
-                                            if (file.size > 2 * 1024 * 1024) {
-                                              alert('El archivo no debe superar los 2 MB.');
-                                              e.target.value = '';
-                                              return;
-                                            }
-                                            const reader = new FileReader();
-                                            reader.onload = (ev) => {
+                                      );
+                                    if (campo.tipo === 'moneda')
+                                      return (
+                                        <div className="relative">
+                                          <span
+                                            className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                                          >
+                                            $
+                                          </span>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            value={campo.value}
+                                            placeholder="0.00"
+                                            onKeyDown={(e) => {
+                                              if (['e', 'E', '+', '-'].includes(e.key))
+                                                e.preventDefault();
+                                            }}
+                                            onChange={(e) =>
                                               handleUpdateCampoPersonalizado(
                                                 campo.id,
-                                                ev.target?.result as string
-                                              );
-                                            };
-                                            reader.readAsDataURL(file);
-                                          }}
-                                          className="w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
-                                        />
-                                        <p
-                                          className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
-                                        >
-                                          JPG, JPEG o PNG · máx. 2 MB
-                                        </p>
-                                        {campo.value && (
-                                          // eslint-disable-next-line @next/next/no-img-element
-                                          <img
-                                            src={campo.value}
-                                            alt="Vista previa"
-                                            className="w-full max-h-32 object-contain rounded-lg border border-border"
+                                                e.target.value
+                                              )
+                                            }
+                                            className={`w-full pl-7 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                                           />
-                                        )}
-                                      </div>
-                                    );
-                                  if (campo.tipo === 'telefono')
-                                    return (
-                                      <input
-                                        type="tel"
-                                        value={campo.value}
-                                        placeholder="Ingresa número telefónico"
-                                        onChange={(e) =>
-                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
-                                        }
-                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
-                                      />
-                                    );
-                                  if (campo.tipo === 'correo')
-                                    return (
-                                      <input
-                                        type="email"
-                                        value={campo.value}
-                                        placeholder="correo@ejemplo.com"
-                                        onChange={(e) =>
-                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
-                                        }
-                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
-                                      />
-                                    );
-                                  if (campo.tipo === 'direccion')
+                                        </div>
+                                      );
+                                    if (campo.tipo === 'imagen')
+                                      return (
+                                        <div className="space-y-2">
+                                          <input
+                                            type="file"
+                                            accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                            onChange={(e) => {
+                                              const file = e.target.files?.[0];
+                                              if (!file) return;
+                                              const allowed = ['image/jpeg', 'image/png'];
+                                              if (!allowed.includes(file.type)) {
+                                                alert('Solo se permiten archivos JPG, JPEG o PNG.');
+                                                e.target.value = '';
+                                                return;
+                                              }
+                                              if (file.size > 2 * 1024 * 1024) {
+                                                alert('El archivo no debe superar los 2 MB.');
+                                                e.target.value = '';
+                                                return;
+                                              }
+                                              const reader = new FileReader();
+                                              reader.onload = (ev) => {
+                                                handleUpdateCampoPersonalizado(
+                                                  campo.id,
+                                                  ev.target?.result as string
+                                                );
+                                              };
+                                              reader.readAsDataURL(file);
+                                            }}
+                                            className="w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                                          />
+                                          <p
+                                            className={`text-xs ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
+                                          >
+                                            JPG, JPEG o PNG · máx. 2 MB
+                                          </p>
+                                          {campo.value && (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                              src={campo.value}
+                                              alt="Vista previa"
+                                              className="w-full max-h-32 object-contain rounded-lg border border-border"
+                                            />
+                                          )}
+                                        </div>
+                                      );
+                                    if (campo.tipo === 'telefono')
+                                      return (
+                                        <input
+                                          type="tel"
+                                          value={campo.value}
+                                          placeholder="Ingresa número telefónico"
+                                          onChange={(e) =>
+                                            handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                          }
+                                          className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                        />
+                                      );
+                                    if (campo.tipo === 'correo')
+                                      return (
+                                        <input
+                                          type="email"
+                                          value={campo.value}
+                                          placeholder="correo@ejemplo.com"
+                                          onChange={(e) =>
+                                            handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                          }
+                                          className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                        />
+                                      );
+                                    if (campo.tipo === 'direccion')
+                                      return (
+                                        <input
+                                          type="text"
+                                          value={campo.value}
+                                          placeholder="Calle, colonia, municipio, estado"
+                                          onChange={(e) =>
+                                            handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                          }
+                                          className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                        />
+                                      );
+                                    if (campo.tipo === 'checkbox')
+                                      return (
+                                        <label className="flex items-center gap-2.5 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={campo.value === 'true'}
+                                            onChange={(e) =>
+                                              handleUpdateCampoPersonalizado(
+                                                campo.id,
+                                                e.target.checked ? 'true' : 'false'
+                                              )
+                                            }
+                                            className="w-4 h-4 accent-primary"
+                                          />
+                                          <span
+                                            className={`text-sm ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
+                                          >
+                                            {casillaLbl}
+                                          </span>
+                                        </label>
+                                      );
+                                    if (campo.tipo === 'dropdown')
+                                      return (
+                                        <select
+                                          value={campo.value}
+                                          onChange={(e) =>
+                                            handleUpdateCampoPersonalizado(campo.id, e.target.value)
+                                          }
+                                          className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
+                                        >
+                                          <option value="">Selecciona una opción</option>
+                                          {dropOpts.map((opt) => (
+                                            <option key={opt} value={opt}>
+                                              {opt}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      );
+                                    if (campo.tipo === 'radio')
+                                      return (
+                                        <div className="flex flex-wrap gap-3">
+                                          {radioOpts.map((opt) => (
+                                            <label
+                                              key={opt}
+                                              className="flex items-center gap-2 cursor-pointer"
+                                            >
+                                              <input
+                                                type="radio"
+                                                name={campo.id}
+                                                value={opt}
+                                                checked={campo.value === opt}
+                                                onChange={(e) =>
+                                                  handleUpdateCampoPersonalizado(
+                                                    campo.id,
+                                                    e.target.value
+                                                  )
+                                                }
+                                                className="accent-primary"
+                                              />
+                                              <span
+                                                className={`text-sm ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                                              >
+                                                {opt}
+                                              </span>
+                                            </label>
+                                          ))}
+                                        </div>
+                                      );
                                     return (
                                       <input
                                         type="text"
                                         value={campo.value}
-                                        placeholder="Calle, colonia, municipio, estado"
+                                        placeholder={`Ingresa ${campo.label.toLowerCase()}`}
                                         onChange={(e) =>
                                           handleUpdateCampoPersonalizado(campo.id, e.target.value)
                                         }
                                         className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
                                       />
                                     );
-                                  if (campo.tipo === 'checkbox')
-                                    return (
-                                      <label className="flex items-center gap-2.5 cursor-pointer">
-                                        <input
-                                          type="checkbox"
-                                          checked={campo.value === 'true'}
-                                          onChange={(e) =>
-                                            handleUpdateCampoPersonalizado(
-                                              campo.id,
-                                              e.target.checked ? 'true' : 'false'
-                                            )
-                                          }
-                                          className="w-4 h-4 accent-primary"
-                                        />
-                                        <span
-                                          className={`text-sm ${isDark ? 'text-gray-300' : 'text-muted-foreground'}`}
-                                        >
-                                          {casillaLbl}
-                                        </span>
-                                      </label>
-                                    );
-                                  if (campo.tipo === 'dropdown')
-                                    return (
-                                      <select
-                                        value={campo.value}
-                                        onChange={(e) =>
-                                          handleUpdateCampoPersonalizado(campo.id, e.target.value)
-                                        }
-                                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
-                                      >
-                                        <option value="">Selecciona una opción</option>
-                                        {dropOpts.map((opt) => (
-                                          <option key={opt} value={opt}>
-                                            {opt}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    );
-                                  if (campo.tipo === 'radio')
-                                    return (
-                                      <div className="flex flex-wrap gap-3">
-                                        {radioOpts.map((opt) => (
-                                          <label
-                                            key={opt}
-                                            className="flex items-center gap-2 cursor-pointer"
-                                          >
-                                            <input
-                                              type="radio"
-                                              name={campo.id}
-                                              value={opt}
-                                              checked={campo.value === opt}
-                                              onChange={(e) =>
-                                                handleUpdateCampoPersonalizado(
-                                                  campo.id,
-                                                  e.target.value
-                                                )
-                                              }
-                                              className="accent-primary"
-                                            />
-                                            <span
-                                              className={`text-sm ${isDark ? 'text-gray-300' : 'text-foreground'}`}
-                                            >
-                                              {opt}
-                                            </span>
-                                          </label>
-                                        ))}
-                                      </div>
-                                    );
-                                  return (
-                                    <input
-                                      type="text"
-                                      value={campo.value}
-                                      placeholder={`Ingresa ${campo.label.toLowerCase()}`}
-                                      onChange={(e) =>
-                                        handleUpdateCampoPersonalizado(campo.id, e.target.value)
-                                      }
-                                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-background border-border'}`}
-                                    />
-                                  );
-                                })()}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                                  })()}
+                                </div>
+                              ))}
+                            </div>
+                          )}
 
-                        {/* Hint for drag-drop */}
-                        {camposPersonalizados.length === 0 && (
-                          <p
-                            className={`text-xs rounded-lg px-3 py-2 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-muted-foreground bg-muted/30'}`}
-                          >
-                            Haz clic en un campo para colocarlo en el documento, o arrástralo
-                            directamente sobre el PDF.
-                          </p>
-                        )}
-
-                        {/* Campo type selector panel */}
-                        {showCampoSelector && (
-                          <div
-                            className={`border rounded-xl overflow-hidden shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}
-                          >
-                            {/* Campos del Participante */}
-                            <div
-                              className={`border-b ${isDark ? 'border-gray-700' : 'border-border'}`}
+                          {/* Hint for drag-drop */}
+                          {camposPersonalizados.length === 0 && (
+                            <p
+                              className={`text-xs rounded-lg px-3 py-2 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-muted-foreground bg-muted/30'}`}
                             >
-                              <button
-                                onClick={() => setParticipanteOpen((v) => !v)}
-                                className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-slate-50'}`}
+                              Haz clic en un campo para colocarlo en el documento, o arrástralo
+                              directamente sobre el PDF.
+                            </p>
+                          )}
+
+                          {/* Campo type selector panel */}
+                          {showCampoSelector && (
+                            <div
+                              className={`border rounded-xl overflow-hidden shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-white'}`}
+                            >
+                              {/* Campos del Participante */}
+                              <div
+                                className={`border-b ${isDark ? 'border-gray-700' : 'border-border'}`}
                               >
-                                <span
-                                  className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                <button
+                                  onClick={() => setParticipanteOpen((v) => !v)}
+                                  className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-slate-50'}`}
                                 >
-                                  Campos del Participante
-                                </span>
-                                <ChevronDown
-                                  size={16}
-                                  className={`text-muted-foreground transition-transform ${participanteOpen ? 'rotate-180' : ''}`}
-                                />
-                              </button>
-                              {participanteOpen && (
-                                <div className="px-3 pb-3 space-y-2">
-                                  {[
-                                    {
-                                      tipo: 'firma' as const,
-                                      label: 'Firma',
-                                      icon: <PenLine size={14} />,
-                                      required: true,
-                                    },
-                                    {
-                                      tipo: 'nombre_completo' as const,
-                                      label: 'Nombre Completo',
-                                      icon: <User size={14} />,
-                                    },
-                                    {
-                                      tipo: 'rfc' as const,
-                                      label: 'RFC',
-                                      icon: <FileText size={14} />,
-                                    },
-                                    {
-                                      tipo: 'curp' as const,
-                                      label: 'CURP',
-                                      icon: <UserCheck size={14} />,
-                                    },
-                                    {
-                                      tipo: 'correo' as const,
-                                      label: 'Correo Electrónico',
-                                      icon: <Mail size={14} />,
-                                    },
-                                    {
-                                      tipo: 'telefono' as const,
-                                      label: 'Número Telefónico',
-                                      icon: <Phone size={14} />,
-                                    },
-                                    {
-                                      tipo: 'direccion' as const,
-                                      label: 'Dirección',
-                                      icon: <MapPin size={14} />,
-                                    },
-                                  ].map((item) => {
-                                    const firmaAlreadyAdded =
-                                      item.tipo === 'firma' &&
-                                      (camposPersonalizados.some((c) => c.tipo === 'firma') ||
-                                        camposPrefijados.some(
-                                          (c) =>
-                                            c.tipo === 'firma' ||
-                                            deriveTipoFromLabel(c.label) === 'firma'
-                                        ));
-                                    return (
+                                  <span
+                                    className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                  >
+                                    Campos del Participante
+                                  </span>
+                                  <ChevronDown
+                                    size={16}
+                                    className={`text-muted-foreground transition-transform ${participanteOpen ? 'rotate-180' : ''}`}
+                                  />
+                                </button>
+                                {participanteOpen && (
+                                  <div className="px-3 pb-3 space-y-2">
+                                    {[
+                                      {
+                                        tipo: 'firma' as const,
+                                        label: 'Firma',
+                                        icon: <PenLine size={14} />,
+                                        required: true,
+                                      },
+                                      {
+                                        tipo: 'nombre_completo' as const,
+                                        label: 'Nombre Completo',
+                                        icon: <User size={14} />,
+                                      },
+                                      {
+                                        tipo: 'rfc' as const,
+                                        label: 'RFC',
+                                        icon: <FileText size={14} />,
+                                      },
+                                      {
+                                        tipo: 'curp' as const,
+                                        label: 'CURP',
+                                        icon: <UserCheck size={14} />,
+                                      },
+                                      {
+                                        tipo: 'correo' as const,
+                                        label: 'Correo Electrónico',
+                                        icon: <Mail size={14} />,
+                                      },
+                                      {
+                                        tipo: 'telefono' as const,
+                                        label: 'Número Telefónico',
+                                        icon: <Phone size={14} />,
+                                      },
+                                      {
+                                        tipo: 'direccion' as const,
+                                        label: 'Dirección',
+                                        icon: <MapPin size={14} />,
+                                      },
+                                    ].map((item) => {
+                                      const firmaAlreadyAdded =
+                                        item.tipo === 'firma' &&
+                                        (camposPersonalizados.some((c) => c.tipo === 'firma') ||
+                                          camposPrefijados.some(
+                                            (c) =>
+                                              c.tipo === 'firma' ||
+                                              deriveTipoFromLabel(c.label) === 'firma'
+                                          ));
+                                      return (
+                                        <div
+                                          key={item.tipo}
+                                          draggable={!firmaAlreadyAdded}
+                                          onDragStart={(e) => {
+                                            if (firmaAlreadyAdded) {
+                                              e.preventDefault();
+                                              return;
+                                            }
+                                            e.dataTransfer.setData('campo-tipo', item.tipo);
+                                            e.dataTransfer.setData('campo-label', item.label);
+                                          }}
+                                          onClick={() => {
+                                            if (!firmaAlreadyAdded)
+                                              handlePlaceFieldOnDocument(item.tipo, item.label);
+                                          }}
+                                          className={`flex items-center justify-between px-3 py-2.5 border rounded-lg transition-all select-none ${firmaAlreadyAdded ? 'border-slate-100 opacity-50 cursor-not-allowed' : `cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-sm ${isDark ? 'border-gray-600 bg-gray-700' : 'border-slate-200 bg-white'}`}`}
+                                          title={
+                                            firmaAlreadyAdded
+                                              ? 'La firma ya fue insertada en el documento'
+                                              : undefined
+                                          }
+                                        >
+                                          <div className="flex items-center gap-2.5">
+                                            <span className="text-slate-500">{item.icon}</span>
+                                            <span
+                                              className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                            >
+                                              {item.label}
+                                              {item.required && (
+                                                <span className="text-red-500 ml-1">*</span>
+                                              )}
+                                            </span>
+                                          </div>
+                                          {firmaAlreadyAdded ? (
+                                            <svg
+                                              width="12"
+                                              height="12"
+                                              viewBox="0 0 24 24"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              strokeWidth="2"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                              className="text-gray-300 shrink-0"
+                                            >
+                                              <circle cx="12" cy="12" r="10" />
+                                              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                                            </svg>
+                                          ) : (
+                                            <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                              ⠿
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Campos Generales */}
+                              <div>
+                                <button
+                                  onClick={() => setGeneralesOpen((v) => !v)}
+                                  className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-slate-50'}`}
+                                >
+                                  <span
+                                    className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
+                                  >
+                                    Campos Generales
+                                  </span>
+                                  <ChevronDown
+                                    size={16}
+                                    className={`text-muted-foreground transition-transform ${generalesOpen ? 'rotate-180' : ''}`}
+                                  />
+                                </button>
+                                {generalesOpen && (
+                                  <div className="px-3 pb-3 space-y-2">
+                                    {[
+                                      {
+                                        tipo: 'texto' as const,
+                                        label: 'Texto',
+                                        icon: <Type size={14} />,
+                                      },
+                                      {
+                                        tipo: 'fecha' as const,
+                                        label: 'Fecha',
+                                        icon: <Calendar size={14} />,
+                                      },
+                                      {
+                                        tipo: 'hora' as const,
+                                        label: 'Hora',
+                                        icon: (
+                                          <svg
+                                            width="14"
+                                            height="14"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          >
+                                            <circle cx="12" cy="12" r="10" />
+                                            <polyline points="12 6 12 12 16 14" />
+                                          </svg>
+                                        ),
+                                      },
+                                      {
+                                        tipo: 'numero' as const,
+                                        label: 'Número',
+                                        icon: <Hash size={14} />,
+                                      },
+                                      {
+                                        tipo: 'moneda' as const,
+                                        label: 'Moneda',
+                                        icon: (
+                                          <svg
+                                            width="14"
+                                            height="14"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          >
+                                            <line x1="12" y1="1" x2="12" y2="23" />
+                                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                                          </svg>
+                                        ),
+                                      },
+                                      {
+                                        tipo: 'checkbox' as const,
+                                        label: 'Casilla',
+                                        icon: <ToggleLeft size={14} />,
+                                      },
+                                      {
+                                        tipo: 'imagen' as const,
+                                        label: 'Imagen',
+                                        icon: (
+                                          <svg
+                                            width="14"
+                                            height="14"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          >
+                                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                                            <circle cx="8.5" cy="8.5" r="1.5" />
+                                            <polyline points="21 15 16 10 5 21" />
+                                          </svg>
+                                        ),
+                                      },
+                                      {
+                                        tipo: 'radio' as const,
+                                        label: 'Botones de opción',
+                                        icon: <List size={14} />,
+                                      },
+                                      {
+                                        tipo: 'dropdown' as const,
+                                        label: 'Desplegable',
+                                        icon: <ChevronDown size={14} />,
+                                      },
+                                    ].map((item) => (
                                       <div
                                         key={item.tipo}
-                                        draggable={!firmaAlreadyAdded}
+                                        draggable
                                         onDragStart={(e) => {
-                                          if (firmaAlreadyAdded) {
-                                            e.preventDefault();
-                                            return;
-                                          }
                                           e.dataTransfer.setData('campo-tipo', item.tipo);
                                           e.dataTransfer.setData('campo-label', item.label);
                                         }}
-                                        onClick={() => {
-                                          if (!firmaAlreadyAdded)
-                                            handlePlaceFieldOnDocument(item.tipo, item.label);
-                                        }}
-                                        className={`flex items-center justify-between px-3 py-2.5 border rounded-lg transition-all select-none ${firmaAlreadyAdded ? 'border-slate-100 opacity-50 cursor-not-allowed' : `cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-sm ${isDark ? 'border-gray-600 bg-gray-700' : 'border-slate-200 bg-white'}`}`}
-                                        title={
-                                          firmaAlreadyAdded
-                                            ? 'La firma ya fue insertada en el documento'
-                                            : undefined
+                                        onClick={() =>
+                                          handlePlaceFieldOnDocument(
+                                            item.tipo as CampoPersonalizado['tipo'],
+                                            item.label
+                                          )
                                         }
+                                        className={`flex items-center justify-between px-3 py-2.5 border rounded-lg cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-sm transition-all select-none ${isDark ? 'border-gray-600 bg-gray-700' : 'border-slate-200 bg-white'}`}
                                       >
                                         <div className="flex items-center gap-2.5">
                                           <span className="text-slate-500">{item.icon}</span>
@@ -11203,203 +11705,43 @@ export default function FirmarDocumentoPage() {
                                             className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}
                                           >
                                             {item.label}
-                                            {item.required && (
-                                              <span className="text-red-500 ml-1">*</span>
-                                            )}
                                           </span>
                                         </div>
-                                        {firmaAlreadyAdded ? (
-                                          <svg
-                                            width="12"
-                                            height="12"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth="2"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            className="text-gray-300 shrink-0"
-                                          >
-                                            <circle cx="12" cy="12" r="10" />
-                                            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                                          </svg>
-                                        ) : (
-                                          <span className="text-slate-300 text-xs font-bold tracking-widest">
-                                            ⠿
-                                          </span>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Campos Generales */}
-                            <div>
-                              <button
-                                onClick={() => setGeneralesOpen((v) => !v)}
-                                className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-slate-50'}`}
-                              >
-                                <span
-                                  className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}
-                                >
-                                  Campos Generales
-                                </span>
-                                <ChevronDown
-                                  size={16}
-                                  className={`text-muted-foreground transition-transform ${generalesOpen ? 'rotate-180' : ''}`}
-                                />
-                              </button>
-                              {generalesOpen && (
-                                <div className="px-3 pb-3 space-y-2">
-                                  {[
-                                    {
-                                      tipo: 'texto' as const,
-                                      label: 'Texto',
-                                      icon: <Type size={14} />,
-                                    },
-                                    {
-                                      tipo: 'fecha' as const,
-                                      label: 'Fecha',
-                                      icon: <Calendar size={14} />,
-                                    },
-                                    {
-                                      tipo: 'hora' as const,
-                                      label: 'Hora',
-                                      icon: (
-                                        <svg
-                                          width="14"
-                                          height="14"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="2"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                        >
-                                          <circle cx="12" cy="12" r="10" />
-                                          <polyline points="12 6 12 12 16 14" />
-                                        </svg>
-                                      ),
-                                    },
-                                    {
-                                      tipo: 'numero' as const,
-                                      label: 'Número',
-                                      icon: <Hash size={14} />,
-                                    },
-                                    {
-                                      tipo: 'moneda' as const,
-                                      label: 'Moneda',
-                                      icon: (
-                                        <svg
-                                          width="14"
-                                          height="14"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="2"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                        >
-                                          <line x1="12" y1="1" x2="12" y2="23" />
-                                          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                                        </svg>
-                                      ),
-                                    },
-                                    {
-                                      tipo: 'checkbox' as const,
-                                      label: 'Casilla',
-                                      icon: <ToggleLeft size={14} />,
-                                    },
-                                    {
-                                      tipo: 'imagen' as const,
-                                      label: 'Imagen',
-                                      icon: (
-                                        <svg
-                                          width="14"
-                                          height="14"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="2"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                        >
-                                          <rect x="3" y="3" width="18" height="18" rx="2" />
-                                          <circle cx="8.5" cy="8.5" r="1.5" />
-                                          <polyline points="21 15 16 10 5 21" />
-                                        </svg>
-                                      ),
-                                    },
-                                    {
-                                      tipo: 'radio' as const,
-                                      label: 'Botones de opción',
-                                      icon: <List size={14} />,
-                                    },
-                                    {
-                                      tipo: 'dropdown' as const,
-                                      label: 'Desplegable',
-                                      icon: <ChevronDown size={14} />,
-                                    },
-                                  ].map((item) => (
-                                    <div
-                                      key={item.tipo}
-                                      draggable
-                                      onDragStart={(e) => {
-                                        e.dataTransfer.setData('campo-tipo', item.tipo);
-                                        e.dataTransfer.setData('campo-label', item.label);
-                                      }}
-                                      onClick={() =>
-                                        handlePlaceFieldOnDocument(
-                                          item.tipo as CampoPersonalizado['tipo'],
-                                          item.label
-                                        )
-                                      }
-                                      className={`flex items-center justify-between px-3 py-2.5 border rounded-lg cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-sm transition-all select-none ${isDark ? 'border-gray-600 bg-gray-700' : 'border-slate-200 bg-white'}`}
-                                    >
-                                      <div className="flex items-center gap-2.5">
-                                        <span className="text-slate-500">{item.icon}</span>
-                                        <span
-                                          className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}
-                                        >
-                                          {item.label}
+                                        <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                          ⠿
                                         </span>
                                       </div>
-                                      <span className="text-slate-300 text-xs font-bold tracking-widest">
-                                        ⠿
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
 
-                            {/* Close button */}
-                            <div
-                              className={`px-3 pb-3 pt-1 border-t ${isDark ? 'border-gray-700' : 'border-border'}`}
-                            >
-                              <button
-                                onClick={() => setShowCampoSelector(false)}
-                                className={`w-full text-xs py-1.5 transition-colors ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-muted-foreground hover:text-foreground'}`}
+                              {/* Close button */}
+                              <div
+                                className={`px-3 pb-3 pt-1 border-t ${isDark ? 'border-gray-700' : 'border-border'}`}
                               >
-                                Cerrar
-                              </button>
+                                <button
+                                  onClick={() => setShowCampoSelector(false)}
+                                  className={`w-full text-xs py-1.5 transition-colors ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-muted-foreground hover:text-foreground'}`}
+                                >
+                                  Cerrar
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
 
-                        {/* Add campo button */}
-                        {!showCampoSelector && (
-                          <button
-                            onClick={() => setShowCampoSelector(true)}
-                            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-primary border border-primary/30 rounded-xl hover:bg-primary/5 transition-colors"
-                          >
-                            <Plus size={15} />
-                            Agregar campo personalizado
-                          </button>
-                        )}
-                      </div>
+                          {/* Add campo button */}
+                          {!showCampoSelector && (
+                            <button
+                              onClick={() => setShowCampoSelector(true)}
+                              className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-primary border border-primary/30 rounded-xl hover:bg-primary/5 transition-colors"
+                            >
+                              <Plus size={15} />
+                              Agregar campo personalizado
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -11740,7 +12082,7 @@ export default function FirmarDocumentoPage() {
                           <AutographSignatureFlow
                             key={signatureAttemptKey}
                             documentId={document.id}
-                            participantRecordId={String(myParticipantData?.id || myParticipantData?.user_id || user.id)}
+                            participantRecordId={participantRecordId}
                             userId={user.id}
                             userToken=""
                             userEmail={userProfile.email || user.email || ''}
@@ -11762,7 +12104,10 @@ export default function FirmarDocumentoPage() {
                         <div className="space-y-3">
                           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-3">
                             <div className="flex min-w-0 flex-1 items-start gap-2">
-                              <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0 text-green-500" />
+                              <CheckCircle2
+                                size={16}
+                                className="mt-0.5 flex-shrink-0 text-green-500"
+                              />
                               <p className="text-sm text-green-700">
                                 Firma autógrafa digital capturada y evidencia registrada
                                 correctamente.
@@ -12238,7 +12583,10 @@ export default function FirmarDocumentoPage() {
                       {firmaConfirmada && firmaData && (
                         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-3">
                           <div className="flex min-w-0 flex-1 items-start gap-2">
-                            <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0 text-green-500" />
+                            <CheckCircle2
+                              size={16}
+                              className="mt-0.5 flex-shrink-0 text-green-500"
+                            />
                             <p className="text-sm text-green-700">
                               Tu firma ha sido capturada. Puedes enviar tu participación.
                             </p>
@@ -12270,8 +12618,9 @@ export default function FirmarDocumentoPage() {
                     <p
                       className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
                     >
-                      Como aprobador, indica tu aprobación formal del documento. Puedes agregar
-                      observaciones opcionales.
+                      {myRole === 'testigo'
+                        ? 'Como testigo, confirma que observaste este acto electrónico. Puedes agregar observaciones opcionales.'
+                        : 'Como aprobador, indica tu aprobación formal del documento. Puedes agregar observaciones opcionales.'}
                     </p>
                   </div>
 
@@ -12330,8 +12679,8 @@ export default function FirmarDocumentoPage() {
                           >
                             Campos requeridos
                           </p>
-                          {camposPrefijados.map((campo, idx) => {
-                            const key = campo.id || `prefijado-${idx}`;
+                          {logicalCamposPrefijados.map((campo, idx) => {
+                            const key = getCampoValueKey(campo, idx);
                             return (
                               <div key={key} className="space-y-1.5">
                                 <label
@@ -12419,7 +12768,9 @@ export default function FirmarDocumentoPage() {
                     if (step === 'campos') setStep('terminos');
                     else if (step === 'firma') setStep('campos');
                     else if (step === 'aprobacion')
-                      setStep(myRole === 'aprobador' ? 'terminos' : 'campos');
+                      setStep(
+                        myRole === 'aprobador' || myRole === 'testigo' ? 'terminos' : 'campos'
+                      );
                   }}
                   className={`flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg transition-colors ${isDark ? 'text-gray-300 border-gray-600 hover:bg-gray-700' : 'text-muted-foreground border-border hover:bg-muted'}`}
                 >
@@ -12458,7 +12809,11 @@ export default function FirmarDocumentoPage() {
                   disabled={!terminosAceptados || geoBlocked || geoLoading}
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {geoLoading ? <Loader2 size={14} className="animate-spin" /> : <ChevronDown size={14} className="rotate-[-90deg]" />}
+                  {geoLoading ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <ChevronDown size={14} className="rotate-[-90deg]" />
+                  )}
                   Continuar
                 </button>
               )}

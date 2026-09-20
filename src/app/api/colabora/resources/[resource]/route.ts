@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
+import { automationDefinitionSchema } from '@/lib/collaboration/automation-contracts';
 import { OrganizationApiError, organizationApiFailure } from '@/lib/organization/server';
 import {
   authorizeCollaborationRequest,
@@ -162,14 +163,13 @@ const roomSchema = z.object({
     .default([]),
 });
 
-const automationSchema = z.object({
-  workspace_id: z.string().uuid(),
-  name: z.string().trim().min(3).max(180),
-  description: z.string().trim().max(3000).nullable().optional(),
-  trigger_definition: z.record(z.string(), z.unknown()),
-  conditions: z.array(z.unknown()).default([]),
-  actions: z.array(z.unknown()).min(1).max(20),
-});
+const automationSchema = z
+  .object({
+    workspace_id: z.string().uuid(),
+    name: z.string().trim().min(3).max(180),
+    description: z.string().trim().max(3000).nullable().optional(),
+  })
+  .and(automationDefinitionSchema);
 
 const reviewSchema = z.object({
   workspace_id: z.string().uuid(),
@@ -293,15 +293,23 @@ export async function POST(request: Request, context: { params: Promise<{ resour
       true
     );
     if (resource === 'rooms')
-      requireCollaborationEntitlement(access, 'collaboration_external_rooms', true, { proFeature: true });
+      requireCollaborationEntitlement(access, 'collaboration_external_rooms', true, {
+        proFeature: true,
+      });
     if (resource === 'automations')
-      requireCollaborationEntitlement(access, 'collaboration_automations', true, { proFeature: true });
+      requireCollaborationEntitlement(access, 'collaboration_automations', true, {
+        proFeature: true,
+      });
     if (resource === 'reviews')
       requireCollaborationEntitlement(access, 'collaboration_advanced_reviews', true);
     if (resource === 'negotiations')
-      requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, { proFeature: true });
+      requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, {
+        proFeature: true,
+      });
     if (['committees', 'closings'].includes(resource))
-      requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, { proFeature: true });
+      requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, {
+        proFeature: true,
+      });
 
     let created: Record<string, unknown>;
     let oneTimeCredentials: Array<Record<string, string>> = [];
@@ -428,6 +436,17 @@ export async function POST(request: Request, context: { params: Promise<{ resour
         throw version.error;
       }
       created = { ...result.data, definition: version.data };
+      await service.from('collaboration_activity_events').insert({
+        workspace_id: workspaceId,
+        actor_user_id: user.id,
+        event_type: 'automation.created',
+        resource_type: 'collaboration_automation',
+        resource_id: result.data.id,
+        summary: `Automatización creada: ${input.name}`,
+        visibility: 'internal',
+        metadata: { automation_version_id: version.data.id, version: 1 },
+        idempotency_key: `automation-created:${result.data.id}`,
+      });
     } else if (resource === 'negotiations') {
       const input = negotiationSchema.parse(body);
       const document = await service

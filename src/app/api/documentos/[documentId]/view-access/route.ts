@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
+import { canAccessParticipantDocument } from '@/lib/documents/participant-visibility';
 import {
   getDocumentViewProtection,
   requestFingerprint,
@@ -14,16 +15,25 @@ function noStore(body: unknown, status = 200) {
 }
 
 function validCode(value: unknown) {
-  return typeof value === 'string' && value.length >= 8 && value.length <= 128
-    && !/[\u0000-\u001f\u007f]/.test(value);
+  return (
+    typeof value === 'string' &&
+    value.length >= 8 &&
+    value.length <= 128 &&
+    !Array.from(value).some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || code === 127;
+    })
+  );
 }
 
-export async function GET(request: NextRequest, context: { params: Promise<{ documentId: string }> }) {
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ documentId: string }> }
+) {
   try {
     const { documentId } = await context.params;
-    const access = await requireDocumentAccess(request, documentId);
+    const access = await requireDocumentAccess(request, documentId, { ownerOrAdminOnly: true });
     const protection = await getDocumentViewProtection(access.service, access.document);
-    const canManage = access.role === 'OWNER' || access.role === 'WORKSPACE_ADMIN';
     const audit = await access.service
       .from('document_lifecycle_audit_events')
       .select('id,action,result,reason,actor_id,actor_email,created_at')
@@ -32,14 +42,37 @@ export async function GET(request: NextRequest, context: { params: Promise<{ doc
       .order('created_at', { ascending: false })
       .limit(100);
     if (audit.error) throw audit.error;
+
+    const protectedParticipants = new Set<string>();
+    for (const participant of Array.isArray(access.document.participantes)
+      ? access.document.participantes
+      : []) {
+      if (!participant || typeof participant !== 'object') continue;
+      const record = participant as Record<string, unknown>;
+      if (!canAccessParticipantDocument(record)) continue;
+      const participantId = String(record.user_id || record.id || '').trim();
+      const participantEmail = String(record.email || '')
+        .trim()
+        .toLowerCase();
+      if (participantId === access.document.owner_id) continue;
+      if (participantEmail || participantId)
+        protectedParticipants.add(participantEmail || participantId);
+    }
+
+    const events = audit.data || [];
+    const configuredEvent = events.find(
+      (event) =>
+        event.action === 'VIEW_ACCESS_PROTECTION_ENABLED' ||
+        event.action === 'VIEW_ACCESS_PROTECTION_REENABLED'
+    );
     return noStore({
       enabled: protection.enabled,
-      canManage,
-      configuredAt: canManage ? protection.configuredAt : undefined,
-      updatedAt: canManage ? protection.updatedAt : undefined,
-      configuredBy: canManage ? protection.configuredBy : undefined,
-      updatedBy: canManage ? protection.updatedBy : undefined,
-      events: audit.data || [],
+      canManage: true,
+      configuredAt: protection.configuredAt,
+      updatedAt: protection.updatedAt,
+      configuredBy: configuredEvent?.actor_email || null,
+      protectedParticipantCount: protection.enabled ? protectedParticipants.size : 0,
+      events,
     });
   } catch (error) {
     const response = documentAccessResponse(error);
@@ -47,13 +80,22 @@ export async function GET(request: NextRequest, context: { params: Promise<{ doc
   }
 }
 
-export async function PUT(request: NextRequest, context: { params: Promise<{ documentId: string }> }) {
+export async function PUT(
+  request: NextRequest,
+  context: { params: Promise<{ documentId: string }> }
+) {
   try {
     const { documentId } = await context.params;
     const access = await requireDocumentAccess(request, documentId, { ownerOrAdminOnly: true });
     const body = await request.json().catch(() => null);
     if (!validCode(body?.code) || body.code !== body?.confirmation) {
-      return noStore({ error: 'El código debe tener entre 8 y 128 caracteres y coincidir.', code: 'ACCESS_CODE_INVALID' }, 400);
+      return noStore(
+        {
+          error: 'El código debe tener entre 8 y 128 caracteres y coincidir.',
+          code: 'ACCESS_CODE_INVALID',
+        },
+        400
+      );
     }
     const fp = requestFingerprint(request);
     const result = await access.service.rpc('configure_document_view_access', {
@@ -75,7 +117,10 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ doc
   }
 }
 
-export async function DELETE(request: NextRequest, context: { params: Promise<{ documentId: string }> }) {
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ documentId: string }> }
+) {
   try {
     const { documentId } = await context.params;
     const access = await requireDocumentAccess(request, documentId, { ownerOrAdminOnly: true });

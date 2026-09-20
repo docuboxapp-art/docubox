@@ -52,6 +52,7 @@ export const DEFAULT_GRID_COLUMNS: GridColumnConfig[] = [
 
 export const DEFAULT_FILTERS: FilterVisibilityConfig[] = [
   { id: 'estructura', label: 'Tipo', visible: true },
+  { id: 'origen', label: 'Origen', visible: true },
   { id: 'tipoDocumento', label: 'Tipo de Documento', visible: true },
   { id: 'propietario', label: 'Propietario', visible: true },
   { id: 'ultimaModificacion', label: 'Última modificación', visible: true },

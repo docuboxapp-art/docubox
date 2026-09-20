@@ -607,7 +607,9 @@ async function updateRoom(request: Request, id: string, body: unknown) {
     permission,
     true
   );
-  requireCollaborationEntitlement(access, 'collaboration_external_rooms', true, { proFeature: true });
+  requireCollaborationEntitlement(access, 'collaboration_external_rooms', true, {
+    proFeature: true,
+  });
   const room = await service
     .from('collaboration_rooms')
     .select('*')
@@ -1011,6 +1013,20 @@ async function updateAutomation(request: Request, id: string, body: unknown) {
       );
     }
   }
+  if (['publish', 'pause', 'disable'].includes(input.action)) {
+    const audit = await service.from('collaboration_activity_events').insert({
+      workspace_id: input.workspace_id,
+      actor_user_id: user.id,
+      event_type: `automation.${input.action === 'publish' ? 'activated' : input.action === 'pause' ? 'paused' : 'disabled'}`,
+      resource_type: 'collaboration_automation',
+      resource_id: id,
+      summary: `Automatización ${input.action}`,
+      visibility: 'internal',
+      metadata: { automation_version: automation.data.current_version },
+      idempotency_key: `automation:${id}:${input.action}:${automation.data.current_version}`,
+    });
+    if (audit.error?.code !== '23505' && audit.error) throw audit.error;
+  }
 
   await recordCollaborationAudit(service, {
     workspaceId: input.workspace_id,
@@ -1032,7 +1048,9 @@ async function updateNegotiation(request: Request, id: string, body: unknown) {
     'reviews.create',
     true
   );
-  requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, { proFeature: true });
+  requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, {
+    proFeature: true,
+  });
   if (input.status === 'agreed' && !input.resolution)
     throw new OrganizationApiError(
       400,
@@ -1074,7 +1092,9 @@ async function updateCommittee(request: Request, id: string, body: unknown) {
     'collaboration_spaces.create',
     true
   );
-  requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, { proFeature: true });
+  requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, {
+    proFeature: true,
+  });
   const committee = await service
     .from('collaboration_committees')
     .select('*')
@@ -1169,7 +1189,9 @@ async function updateClosing(request: Request, id: string, body: unknown) {
     'collaboration_spaces.create',
     true
   );
-  requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, { proFeature: true });
+  requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, {
+    proFeature: true,
+  });
   const closing = await service
     .from('collaboration_closing_rooms')
     .select('*')

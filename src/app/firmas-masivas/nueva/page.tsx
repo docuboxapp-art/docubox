@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState, type ElementType, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -20,13 +20,18 @@ import AppLayout from '@/components/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
+import { DocuboxSourceSelector } from '@/app/crear-documento/components/DocuboxSourceSelector';
+import type { DocuboxSourceSelection } from '@/app/crear-documento/components/types';
 import {
   BULK_TYPE_LABELS,
-  saveLocalBulkCampaign,
   type BulkCampaignDraft,
-  type BulkCampaignSummary,
   type BulkCampaignType,
 } from '@/lib/bulk-signatures/schema';
+import {
+  parseBulkRecipientCsv,
+  validateBulkRecipients,
+  type BulkRecipientInput,
+} from '@/lib/bulk-signatures/recipients';
 
 const initialDraft: BulkCampaignDraft = {
   name: '',
@@ -38,18 +43,26 @@ const initialDraft: BulkCampaignDraft = {
   expiresAt: '',
   timezone: 'America/Chihuahua',
   sourceName: '',
+  sourceDocumentId: '',
+  sourceVersionId: null,
+  sourceVariant: 'original',
+  sourceSha256: '',
+  sourceDocumentName: '',
+  sourceVersionLabel: '',
   recipientCount: 0,
   signatureMethod: 'autograph_otp',
   workflowType: 'parallel',
   requireIdentity: false,
   sendReminders: true,
+  deliveryMode: 'draft',
+  scheduledAt: '',
 };
 
 const sources: Array<{
   id: BulkCampaignType;
   title: string;
   description: string;
-  icon: React.ElementType;
+  icon: ElementType;
 }> = [
   {
     id: 'multiple_documents',
@@ -88,15 +101,9 @@ export default function NewBulkSignatureCampaignPage() {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!user) return;
-    setDraft((current) =>
-      current.ownerName
-        ? current
-        : { ...current, ownerName: user.user_metadata?.full_name || user.email || '' }
-    );
-  }, [user]);
+  const [recipients, setRecipients] = useState<BulkRecipientInput[]>([]);
+  const [showSourceSelector, setShowSourceSelector] = useState(false);
+  const recipientValidation = useMemo(() => validateBulkRecipients(recipients), [recipients]);
 
   const update = <K extends keyof BulkCampaignDraft>(key: K, value: BulkCampaignDraft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
@@ -104,14 +111,21 @@ export default function NewBulkSignatureCampaignPage() {
     step === 1
       ? Boolean(draft.name.trim() && draft.expiresAt)
       : step === 2
-        ? Boolean(draft.sourceName.trim() && draft.recipientCount > 0)
-        : true;
+        ? Boolean(
+            draft.sourceDocumentId &&
+            draft.sourceSha256 &&
+            draft.sourceName.trim() &&
+            recipientValidation.total > 0 &&
+            recipientValidation.errors.length === 0
+          )
+        : step === 3
+          ? draft.deliveryMode !== 'scheduled' || Boolean(draft.scheduledAt)
+          : true;
 
   const finish = async () => {
     if (!activeWorkspace?.id) return setError('Selecciona un espacio de trabajo.');
     setSaving(true);
     setError('');
-    let id = crypto.randomUUID();
     try {
       const supabase = createClient();
       const {
@@ -125,32 +139,54 @@ export default function NewBulkSignatureCampaignPage() {
           Authorization: `Bearer ${session.access_token}`,
           'Idempotency-Key': crypto.randomUUID(),
         },
-        body: JSON.stringify({ ...draft, workspaceId: activeWorkspace.id }),
+        body: JSON.stringify({
+          ...draft,
+          workspaceId: activeWorkspace.id,
+          recipients,
+          launch: draft.deliveryMode === 'now',
+          scheduledAt:
+            draft.deliveryMode === 'scheduled' && draft.scheduledAt
+              ? new Date(draft.scheduledAt).toISOString()
+              : null,
+        }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'No se pudo guardar en el servidor.');
-      id = payload.data.id;
-    } catch {
-      const now = new Date().toISOString();
-      const local: BulkCampaignSummary = {
-        id,
-        name: draft.name.trim(),
-        description: draft.description.trim(),
-        campaignType: draft.campaignType,
-        ownerName: draft.ownerName || user?.email || 'Responsable del espacio',
-        status: 'draft',
-        totalItems: draft.recipientCount,
-        completedItems: 0,
-        pendingItems: draft.recipientCount,
-        failedItems: 0,
-        participantCount: draft.recipientCount,
-        expiresAt: new Date(draft.expiresAt).toISOString(),
-        createdAt: now,
-        updatedAt: now,
-      };
-      saveLocalBulkCampaign(local);
+      router.push(`/firmas-masivas/${payload.data.id}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo guardar la campana.');
+    } finally {
+      setSaving(false);
     }
-    router.push(`/firmas-masivas/${id}`);
+  };
+
+  const selectRecipientFile = async (file?: File) => {
+    if (!file) return;
+    setError('');
+    if (!file.name.toLowerCase().endsWith('.csv') || file.size > 5 * 1024 * 1024) {
+      setRecipients([]);
+      update('sourceName', '');
+      update('recipientCount', 0);
+      setError('Selecciona un CSV de hasta 5 MB con columnas nombre y correo.');
+      return;
+    }
+    const parsed = parseBulkRecipientCsv(await file.text());
+    const validation = validateBulkRecipients(parsed);
+    setRecipients(parsed);
+    update('sourceName', file.name);
+    update('recipientCount', validation.valid.length);
+  };
+
+  const selectDocumentSource = (_file: File, selection: DocuboxSourceSelection) => {
+    setDraft((current) => ({
+      ...current,
+      sourceDocumentId: selection.sourceDocumentId,
+      sourceVersionId: selection.sourceVersionId,
+      sourceVariant: selection.sourceVariant,
+      sourceSha256: selection.sourceSha256,
+      sourceDocumentName: selection.sourceDocumentName,
+      sourceVersionLabel: selection.sourceVersionLabel,
+    }));
   };
 
   return (
@@ -236,7 +272,7 @@ export default function NewBulkSignatureCampaignPage() {
               </Field>
               <Field label="Responsable">
                 <input
-                  value={draft.ownerName}
+                  value={draft.ownerName || user?.user_metadata?.full_name || user?.email || ''}
                   onChange={(e) => update('ownerName', e.target.value)}
                   className={inputClass}
                 />
@@ -304,38 +340,79 @@ export default function NewBulkSignatureCampaignPage() {
                 })}
               </section>
               <section className="grid gap-5 rounded-lg border border-slate-200 bg-white p-5 dark:border-border dark:bg-card md:grid-cols-2">
-                <Field
-                  label={
-                    draft.campaignType === 'template'
-                      ? 'Plantilla o archivo de datos'
-                      : 'Documento, ZIP o paquete'
-                  }
-                  required
-                >
+                <Field label="Documento base" required>
+                  <button
+                    type="button"
+                    onClick={() => setShowSourceSelector(true)}
+                    className="flex h-11 w-full items-center gap-3 rounded-md border border-slate-200 px-3 text-left text-sm text-slate-600 hover:border-blue-300 hover:bg-blue-50/30 dark:border-border"
+                  >
+                    <Files size={17} className="shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {draft.sourceDocumentName || 'Seleccionar desde Docubox'}
+                    </span>
+                    {draft.sourceVersionLabel && (
+                      <span className="shrink-0 text-xs text-slate-400">
+                        {draft.sourceVersionLabel}
+                      </span>
+                    )}
+                  </button>
+                </Field>
+                <Field label="Lista de destinatarios" required>
                   <label className="flex h-11 cursor-pointer items-center gap-3 rounded-md border border-dashed border-blue-300 bg-blue-50/40 px-3 text-sm text-slate-600">
                     <UploadCloud size={17} className="text-primary" />
                     <span className="truncate">
-                      {draft.sourceName || 'Seleccionar archivo de origen'}
+                      {draft.sourceName || 'Seleccionar archivo CSV'}
                     </span>
                     <input
                       type="file"
-                      accept=".pdf,.zip,.csv,.xlsx"
+                      accept=".csv,text/csv"
                       className="hidden"
-                      onChange={(e) => update('sourceName', e.target.files?.[0]?.name || '')}
+                      onChange={(e) => void selectRecipientFile(e.target.files?.[0])}
                     />
                   </label>
                 </Field>
-                <Field label="Registros o destinatarios" required>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100000}
-                    value={draft.recipientCount || ''}
-                    onChange={(e) => update('recipientCount', Number(e.target.value))}
-                    placeholder="Ej. 250"
-                    className={inputClass}
-                  />
+                <Field label="Registros o destinatarios" required className="md:col-span-2">
+                  <div className={`${inputClass} flex items-center justify-between`}>
+                    <span>{recipientValidation.valid.length.toLocaleString('es-MX')} validos</span>
+                    <span
+                      className={
+                        recipientValidation.errors.length ? 'text-red-600' : 'text-emerald-600'
+                      }
+                    >
+                      {recipientValidation.errors.length} errores
+                    </span>
+                  </div>
                 </Field>
+                {recipientValidation.total > 0 && (
+                  <div className="md:col-span-2 overflow-hidden rounded-md border border-slate-200">
+                    <div className="flex items-center justify-between bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      <span>Vista previa de destinatarios</span>
+                      <span>{recipientValidation.total.toLocaleString('es-MX')} filas</span>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {recipients.slice(0, 5).map((recipient) => (
+                        <div
+                          key={recipient.sourceRowId}
+                          className="grid grid-cols-[48px_1fr_1fr] gap-3 px-3 py-2 text-xs"
+                        >
+                          <span className="text-slate-400">#{recipient.sourceRowId}</span>
+                          <span className="truncate">{recipient.name || 'Sin nombre'}</span>
+                          <span className="truncate text-slate-500">
+                            {recipient.email || 'Sin correo'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {recipientValidation.errors.length > 0 && (
+                      <div className="border-t border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        {recipientValidation.errors
+                          .slice(0, 3)
+                          .map((item) => `Fila ${item.row}: ${item.message}`)
+                          .join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="md:col-span-2 flex items-start gap-3 rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-500 dark:bg-muted/30">
                   <FileArchive size={16} className="mt-0.5 shrink-0" />
                   El importador validara MIME, duplicados, correos y variables antes del
@@ -390,6 +467,29 @@ export default function NewBulkSignatureCampaignPage() {
                 onChange={(value) => update('sendReminders', value)}
                 icon={ClockIcon}
               />
+              <Field label="Ejecucion" className="md:col-span-2">
+                <select
+                  value={draft.deliveryMode}
+                  onChange={(event) =>
+                    update('deliveryMode', event.target.value as BulkCampaignDraft['deliveryMode'])
+                  }
+                  className={inputClass}
+                >
+                  <option value="draft">Guardar como borrador</option>
+                  <option value="now">Preparar para ejecutar ahora</option>
+                  <option value="scheduled">Programar ejecucion</option>
+                </select>
+              </Field>
+              {draft.deliveryMode === 'scheduled' && (
+                <Field label="Fecha y hora programada" required className="md:col-span-2">
+                  <input
+                    type="datetime-local"
+                    value={draft.scheduledAt}
+                    onChange={(event) => update('scheduledAt', event.target.value)}
+                    className={inputClass}
+                  />
+                </Field>
+              )}
             </section>
           )}
 
@@ -404,7 +504,8 @@ export default function NewBulkSignatureCampaignPage() {
               <dl className="grid gap-px bg-slate-200 sm:grid-cols-2 dark:bg-border">
                 <Review label="Nombre" value={draft.name} />
                 <Review label="Origen" value={BULK_TYPE_LABELS[draft.campaignType]} />
-                <Review label="Archivo" value={draft.sourceName} />
+                <Review label="Documento base" value={draft.sourceDocumentName} />
+                <Review label="Destinatarios" value={draft.sourceName} />
                 <Review label="Instancias" value={draft.recipientCount.toLocaleString('es-MX')} />
                 <Review label="Firma" value={signatureLabel(draft.signatureMethod)} />
                 <Review
@@ -457,6 +558,11 @@ export default function NewBulkSignatureCampaignPage() {
             )}
           </footer>
         </main>
+        <DocuboxSourceSelector
+          open={showSourceSelector}
+          onClose={() => setShowSourceSelector(false)}
+          onSelect={selectDocumentSource}
+        />
       </div>
     </AppLayout>
   );
@@ -473,7 +579,7 @@ function Field({
   label: string;
   required?: boolean;
   className?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <label className={className}>
@@ -496,7 +602,7 @@ function Toggle({
   description: string;
   checked: boolean;
   onChange: (value: boolean) => void;
-  icon: React.ElementType;
+  icon: ElementType;
 }) {
   return (
     <button

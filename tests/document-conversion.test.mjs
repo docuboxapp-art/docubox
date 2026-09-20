@@ -64,8 +64,8 @@ test('PDF bypasses conversion while supported Office formats are prepared before
   assert.match(client, /if \(extension === 'pdf'\) return file/);
   assert.match(step, /application\/pdf,\.pdf,\.doc,\.docx,\.xls,\.xlsx,\.ppt,\.pptx/);
   assert.match(step, /PDF recomendado\. También Word \(\.doc, \.docx\), Excel \(\.xls, \.xlsx\) y/);
-  assert.match(step, /PowerPoint \(\.ppt, \.pptx\), hasta 25 MB\./);
-  assert.match(page, /prepareDocument\(selectedFile, session\.access_token/);
+  assert.match(step, /PowerPoint\s+\(\.ppt, \.pptx\), hasta 25 MB\./);
+  assert.match(page, /prepareDocument\(\s*selectedFile,\s*session\.access_token/);
   assert.match(page, /setFile\(preparedFile\)/);
   assert.match(page, /setShowPreparationMessage\(true\)/);
   assert.match(page, /2_500/);
@@ -78,6 +78,15 @@ test('quota exhaustion stays generic in the UI and never advances the document f
     /No fue posible preparar el documento en este momento\. Intenta nuevamente más tarde\./
   );
   assert.doesNotMatch(page, /CloudConvert|créditos|proveedor/);
+});
+
+test('an unavailable Office converter is explained without exposing provider details', () => {
+  assert.match(page, /case 'CONVERSION_PROVIDER_UNAVAILABLE'/);
+  assert.match(
+    page,
+    /La conversión de archivos Word, Excel y PowerPoint no está disponible en este entorno\./
+  );
+  assert.match(page, /setDocumentPreparationError\(getDocumentPreparationErrorMessage\(error\)\)/);
 });
 
 test('the legacy mobile relay only accepts PDF so Office content cannot cross a Vercel Function', () => {

@@ -18,6 +18,14 @@ const editRoute = readFileSync(
   new URL('../src/app/api/documentos/[documentId]/edit/route.ts', import.meta.url),
   'utf8'
 );
+const contentAccess = readFileSync(
+  new URL('../src/lib/security/document-content-access.ts', import.meta.url),
+  'utf8'
+);
+const documentAccess = readFileSync(
+  new URL('../src/lib/security/document-access.ts', import.meta.url),
+  'utf8'
+);
 
 test('document access permissions are private and grant only explicit capabilities', () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.document_access_permissions/);
@@ -36,8 +44,13 @@ test('permission API prevents invited readers from escalating or managing anothe
 });
 
 test('viewer and editor routes enforce the corresponding capability server-side', () => {
-  assert.match(viewerRoute, /document_access_permissions/);
-  assert.match(viewerRoute, /!owner && !participant && !workspaceManager && !explicitPermission/);
+  assert.match(viewerRoute, /requireDocumentContentAccess\(request, documentId\)/);
+  assert.match(contentAccess, /requireDocumentAccess\(request, documentId\)/);
+  assert.match(documentAccess, /document_access_permissions/);
+  assert.match(
+    documentAccess,
+    /!isOwner[\s\S]{0,180}!listedParticipant[\s\S]{0,180}!explicitPermission/
+  );
   assert.match(editRoute, /requireEdit: true/);
   assert.match(editRoute, /ALLOWED_DOCUMENT_FIELDS/);
 });

@@ -1,7 +1,19 @@
 'use client';
 
 import React, { useState } from 'react';
-import { GitBranch, X, Flag, Save, Trash2, Plus, Zap, Settings2, AlertCircle, Target, ChevronDown } from 'lucide-react';
+import {
+  GitBranch,
+  X,
+  Flag,
+  Save,
+  Trash2,
+  Plus,
+  Zap,
+  Settings2,
+  AlertCircle,
+  Target,
+  ChevronDown,
+} from 'lucide-react';
 import type { Participant } from './types';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
@@ -15,7 +27,15 @@ interface Condition {
 }
 
 type ActionType =
-  | 'enviar_siguiente' |'saltar_paso' |'enviar_notificacion' |'cambiar_estado' |'autocompletar_campos' |'bloquear_seccion' |'redirigir_aprobador' |'expirar_documento' |'detener_flujo';
+  | 'enviar_siguiente'
+  | 'saltar_paso'
+  | 'enviar_notificacion'
+  | 'cambiar_estado'
+  | 'autocompletar_campos'
+  | 'bloquear_seccion'
+  | 'redirigir_aprobador'
+  | 'expirar_documento'
+  | 'detener_flujo';
 
 interface Action {
   id: string;
@@ -198,7 +218,9 @@ function getOperatorOptions(basadoEn: string, campo: string) {
 }
 
 function needsValueInput(operador: string) {
-  return !['vacio', 'no_vacio', 'es_verdadero', 'es_falso', 'ocurrio', 'no_ocurrio'].includes(operador);
+  return !['vacio', 'no_vacio', 'es_verdadero', 'es_falso', 'ocurrio', 'no_ocurrio'].includes(
+    operador
+  );
 }
 
 function getParticipantLabel(p: Participant) {
@@ -216,7 +238,9 @@ function ConditionRow({
   onChange: (updated: Condition) => void;
   onRemove: () => void;
 }) {
-  const campoOptions = CAMPO_OPTIONS[condition.basadoEn] || [{ value: '', label: 'Seleccionar atributo...' }];
+  const campoOptions = CAMPO_OPTIONS[condition.basadoEn] || [
+    { value: '', label: 'Seleccionar atributo...' },
+  ];
   const operatorOptions = getOperatorOptions(condition.basadoEn, condition.campo);
   const showValueInput = needsValueInput(condition.operador);
 
@@ -232,20 +256,32 @@ function ConditionRow({
     <div className="space-y-2 bg-gray-50 rounded-lg p-2.5 border border-gray-100">
       <div className="flex items-center gap-2">
         <div className="flex-1">
-          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Basado en</label>
+          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+            Basado en
+          </label>
           <select
             value={condition.basadoEn}
             onChange={(e) => handleBasadoEnChange(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
           >
             {BASADO_EN_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
             ))}
           </select>
         </div>
         <div className="flex-1">
           <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
-            {condition.basadoEn === 'participante' ? 'Atributo' : condition.basadoEn === 'evento' ? 'Evento' : condition.basadoEn === 'fecha' ? 'Tipo de fecha' : condition.basadoEn === 'estado' ? 'Estado' : 'Campo'}
+            {condition.basadoEn === 'participante'
+              ? 'Atributo'
+              : condition.basadoEn === 'evento'
+                ? 'Evento'
+                : condition.basadoEn === 'fecha'
+                  ? 'Tipo de fecha'
+                  : condition.basadoEn === 'estado'
+                    ? 'Estado'
+                    : 'Campo'}
           </label>
           <select
             value={condition.campo}
@@ -254,7 +290,9 @@ function ConditionRow({
             className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-gray-100 disabled:text-gray-400"
           >
             {campoOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
             ))}
           </select>
         </div>
@@ -267,7 +305,9 @@ function ConditionRow({
       </div>
       <div className="flex items-center gap-2">
         <div className="flex-1">
-          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Operador</label>
+          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+            Operador
+          </label>
           <select
             value={condition.operador}
             onChange={(e) => onChange({ ...condition, operador: e.target.value })}
@@ -276,13 +316,17 @@ function ConditionRow({
           >
             <option value="">Seleccionar operador...</option>
             {operatorOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
             ))}
           </select>
         </div>
         {showValueInput && (
           <div className="flex-1">
-            <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Valor a comparar</label>
+            <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+              Valor a comparar
+            </label>
             <input
               type="text"
               placeholder="Ingresa un valor..."
@@ -318,7 +362,9 @@ function ActionExtraConfig({
       return (
         <div className="mt-2 space-y-1.5">
           <div>
-            <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Canal</label>
+            <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+              Canal
+            </label>
             <select
               value={action.config.canal || ''}
               onChange={(e) => setConfig('canal', e.target.value)}
@@ -331,7 +377,9 @@ function ActionExtraConfig({
             </select>
           </div>
           <div>
-            <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Mensaje</label>
+            <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+              Mensaje
+            </label>
             <input
               type="text"
               placeholder="Mensaje de notificación..."
@@ -345,7 +393,9 @@ function ActionExtraConfig({
     case 'cambiar_estado':
       return (
         <div className="mt-2">
-          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Nuevo estado</label>
+          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+            Nuevo estado
+          </label>
           <select
             value={action.config.estado || ''}
             onChange={(e) => setConfig('estado', e.target.value)}
@@ -353,7 +403,9 @@ function ActionExtraConfig({
           >
             <option value="">Seleccionar estado...</option>
             {DOCUMENT_STATES.map((state) => (
-              <option key={state.value} value={state.value}>{state.label}</option>
+              <option key={state.value} value={state.value}>
+                {state.label}
+              </option>
             ))}
           </select>
         </div>
@@ -361,7 +413,9 @@ function ActionExtraConfig({
     case 'autocompletar_campos':
       return (
         <div className="mt-2">
-          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Campo a completar</label>
+          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+            Campo a completar
+          </label>
           <input
             type="text"
             placeholder="Nombre del campo..."
@@ -374,7 +428,9 @@ function ActionExtraConfig({
     case 'bloquear_seccion':
       return (
         <div className="mt-2">
-          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Sección a bloquear</label>
+          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+            Sección a bloquear
+          </label>
           <input
             type="text"
             placeholder="Nombre de la sección..."
@@ -387,7 +443,9 @@ function ActionExtraConfig({
     case 'redirigir_aprobador':
       return (
         <div className="mt-2">
-          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Redirigir a</label>
+          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+            Redirigir a
+          </label>
           <select
             value={action.config.aprobador || ''}
             onChange={(e) => setConfig('aprobador', e.target.value)}
@@ -395,7 +453,9 @@ function ActionExtraConfig({
           >
             <option value="">Seleccionar participante...</option>
             {participants.map((p) => (
-              <option key={p.id} value={p.id}>{getParticipantLabel(p)}</option>
+              <option key={p.id} value={p.id}>
+                {getParticipantLabel(p)}
+              </option>
             ))}
           </select>
         </div>
@@ -403,7 +463,9 @@ function ActionExtraConfig({
     case 'expirar_documento':
       return (
         <div className="mt-2">
-          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Días hasta expiración</label>
+          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+            Días hasta expiración
+          </label>
           <input
             type="number"
             placeholder="Ej: 7"
@@ -436,19 +498,28 @@ function ActionRow({
     <div className="bg-orange-50/60 border border-orange-100 rounded-lg p-2.5 space-y-1.5">
       <div className="flex items-start gap-2">
         <div className="flex-1">
-          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Acción</label>
+          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+            Acción
+          </label>
           <div className="relative">
             <select
               value={action.tipo}
-              onChange={(e) => onChange({ ...action, tipo: e.target.value as ActionType | '', config: {} })}
+              onChange={(e) =>
+                onChange({ ...action, tipo: e.target.value as ActionType | '', config: {} })
+              }
               className="w-full appearance-none border border-orange-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-orange-300/40 focus:border-orange-400 pr-7"
             >
               <option value="">Seleccionar acción...</option>
               {ACTION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
-            <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <ChevronDown
+              size={13}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+            />
           </div>
         </div>
         <button
@@ -462,7 +533,9 @@ function ActionRow({
       {/* Participant assignment */}
       {action.tipo && (
         <div>
-          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">Asignar a participante</label>
+          <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 block">
+            Asignar a participante
+          </label>
           <select
             value={action.asignadoA}
             onChange={(e) => onChange({ ...action, asignadoA: e.target.value })}
@@ -471,7 +544,9 @@ function ActionRow({
             <option value="">Sin asignar</option>
             <option value="todos">Todos los participantes</option>
             {participants.map((p) => (
-              <option key={p.id} value={p.id}>{getParticipantLabel(p)}</option>
+              <option key={p.id} value={p.id}>
+                {getParticipantLabel(p)}
+              </option>
             ))}
           </select>
         </div>
@@ -560,7 +635,9 @@ function StepCard({
                 <option value="">Sin asignar</option>
                 <option value="todos">Todos los participantes</option>
                 {participants.map((p) => (
-                  <option key={p.id} value={p.id}>{getParticipantLabel(p)}</option>
+                  <option key={p.id} value={p.id}>
+                    {getParticipantLabel(p)}
+                  </option>
                 ))}
               </select>
             </div>
@@ -594,7 +671,9 @@ function StepCard({
           <div className="space-y-3">
             {step.conditions.length === 0 ? (
               <div className="flex items-center justify-center py-6 px-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-400 italic text-center">Sin condiciones. Este paso se ejecutará siempre.</p>
+                <p className="text-sm text-gray-400 italic text-center">
+                  Sin condiciones. Este paso se ejecutará siempre.
+                </p>
               </div>
             ) : (
               step.conditions.map((cond) => (
@@ -650,7 +729,15 @@ function StepCard({
 
 // ─── WorkflowEditorModal ──────────────────────────────────────────────────────
 
-function WorkflowEditorModal({ participants, onClose, documentoId }: { participants: Participant[]; onClose: () => void; documentoId?: string }) {
+function WorkflowEditorModal({
+  participants,
+  onClose,
+  documentoId,
+}: {
+  participants: Participant[];
+  onClose: () => void;
+  documentoId?: string;
+}) {
   const [steps, setSteps] = useState<WorkflowStep[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -675,7 +762,9 @@ function WorkflowEditorModal({ participants, onClose, documentoId }: { participa
     try {
       const { createClient } = await import('@/lib/supabase/client');
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) {
         setSaveError('Debes iniciar sesión para guardar el flujo.');
         return;
@@ -687,11 +776,7 @@ function WorkflowEditorModal({ participants, onClose, documentoId }: { participa
         ...(documentoId ? { documento_id: documentoId } : {}),
         updated_at: new Date().toISOString(),
       };
-      const { error } = await supabase
-        .from('workflow_flows')
-        .insert(payload)
-        .select()
-        .single();
+      const { error } = await supabase.from('workflow_flows').insert(payload).select().single();
       if (error) {
         setSaveError('Error al guardar el flujo: ' + error.message);
         return;
@@ -709,25 +794,26 @@ function WorkflowEditorModal({ participants, onClose, documentoId }: { participa
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 flex flex-col" style={{ maxHeight: '90vh' }}>
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 flex flex-col"
+        style={{ maxHeight: '90vh' }}
+      >
         {/* Header */}
-        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-200">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Editor de Flujo de Trabajo Avanzado</h2>
             <p className="text-sm text-gray-500 mt-0.5">
-              Configura condiciones complejas y acciones automatizadas. Arrastra los elementos para reordenar.
+              Configura condiciones complejas y acciones automatizadas. Arrastra los elementos para
+              reordenar.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5"
-          >
-            <X size={20} />
-          </button>
         </div>
 
         {/* Canvas area */}
-        <div className="flex-1 overflow-auto bg-gray-50 px-6 py-6 flex flex-col items-center gap-0" style={{ minHeight: 0 }}>
+        <div
+          className="flex-1 overflow-auto bg-gray-50 px-6 py-6 flex flex-col items-center gap-0"
+          style={{ minHeight: 0 }}
+        >
           {/* INICIO node */}
           <div className="mb-2">
             <div className="flex items-center gap-2 px-5 py-2 bg-green-100 border border-green-300 rounded-full text-green-700 font-bold text-sm shadow-sm">
@@ -748,7 +834,9 @@ function WorkflowEditorModal({ participants, onClose, documentoId }: { participa
               <div className="text-center">
                 <p className="text-gray-600 font-semibold text-lg">El flujo está vacío</p>
                 <p className="text-gray-400 text-sm mt-1">
-                  Comienza añadiendo un paso para definir las reglas de<br />negocio y automatización.
+                  Comienza añadiendo un paso para definir las reglas de
+                  <br />
+                  negocio y automatización.
                 </p>
               </div>
               <button
@@ -834,7 +922,13 @@ function WorkflowEditorModal({ participants, onClose, documentoId }: { participa
 
 // ─── StepFlujoTrabajo ─────────────────────────────────────────────────────────
 
-export function StepFlujoTrabajo({ participants = [], documentoId }: { participants?: Participant[]; documentoId?: string }) {
+export function StepFlujoTrabajo({
+  participants = [],
+  documentoId,
+}: {
+  participants?: Participant[];
+  documentoId?: string;
+}) {
   const [showModal, setShowModal] = useState(false);
 
   return (
@@ -843,7 +937,8 @@ export function StepFlujoTrabajo({ participants = [], documentoId }: { participa
         <div className="mb-6">
           <h2 className="text-xl font-bold text-gray-900">Flujo de Trabajo Condicional</h2>
           <p className="text-sm text-gray-500 mt-1">
-            Define la secuencia de pasos, condiciones lógicas y acciones automatizadas para el proceso de firma.
+            Define la secuencia de pasos, condiciones lógicas y acciones automatizadas para el
+            proceso de firma.
           </p>
         </div>
 
@@ -866,7 +961,13 @@ export function StepFlujoTrabajo({ participants = [], documentoId }: { participa
         </div>
       </div>
 
-      {showModal && <WorkflowEditorModal participants={participants} documentoId={documentoId} onClose={() => setShowModal(false)} />}
+      {showModal && (
+        <WorkflowEditorModal
+          participants={participants}
+          documentoId={documentoId}
+          onClose={() => setShowModal(false)}
+        />
+      )}
     </div>
   );
 }

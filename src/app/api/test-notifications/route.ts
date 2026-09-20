@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isInternalAdminRequest } from '@/lib/security/internal-admin';
+import { sendSms, SmsConfigurationError } from '@/lib/smsNotifications';
+import {
+  consumeServerRateLimit,
+  ServerRateLimitUnavailableError,
+} from '@/lib/security/server-rate-limit';
 
 const TEST_EMAIL = 'luishb.mzt@gmail.com';
 const TEST_PHONE = '+526691074369';
-
-const ENVIA_SMS_TOKEN = process.env.ENVIA_SMS_TOKEN || '';
-const ENVIA_SMS_PROJECT = process.env.ENVIA_SMS_PROJECT || '822486';
-const ENVIA_SMS_TEMPLATE_ID = process.env.ENVIA_SMS_TEMPLATE_ID || '02';
-const ENVIA_SMS_BASE_URL = 'https://envia-sms.com/api/sms/send';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,12 +30,14 @@ function buildEdgePayload(templateType: string, recipient: string, recipientName
       return {
         ...base,
         type: 'participant_invitation',
-        documentDescription: 'Contrato de prestación de servicios profesionales de consultoría tecnológica para el período enero–diciembre 2026.',
+        documentDescription:
+          'Contrato de prestación de servicios profesionales de consultoría tecnológica para el período enero–diciembre 2026.',
         senderName: 'Carlos Mendoza (DocuBox)',
         documentUrl: `${APP_URL}/portal-participante/test-token-prueba`,
         participantRole: 'Firmante',
         signatureMethod: 'Firma Autógrafa Digital',
-        personalMessage: 'Por favor revisa el contrato y fírmalo antes del viernes. Cualquier duda, contáctame.',
+        personalMessage:
+          'Por favor revisa el contrato y fírmalo antes del viernes. Cualquier duda, contáctame.',
       };
 
     case 'participation_reminder':
@@ -183,12 +185,14 @@ function buildEdgePayload(templateType: string, recipient: string, recipientName
         to: recipient,
         recipientName: recipientName || 'Usuario de Prueba',
         documentName: '📧 Correo de Prueba — DocuBox',
-        documentDescription: 'Este es un correo de prueba para verificar que el sistema de notificaciones funciona correctamente.',
+        documentDescription:
+          'Este es un correo de prueba para verificar que el sistema de notificaciones funciona correctamente.',
         senderName: 'Sistema DocuBox (Prueba)',
         documentUrl: `${APP_URL}/portal-participante/test-token-prueba`,
         participantRole: 'Prueba',
         signatureMethod: 'Prueba de Sistema',
-        personalMessage: 'Este correo fue generado automáticamente desde la página de pruebas de notificaciones.',
+        personalMessage:
+          'Este correo fue generado automáticamente desde la página de pruebas de notificaciones.',
       };
   }
 }
@@ -212,7 +216,7 @@ export async function POST(request: Request) {
   const results: {
     email_direct: { success: boolean; message: string; details?: unknown };
     edge_function: { success: boolean; message: string; details?: unknown };
-    sms: { success: boolean; message: string; details?: unknown; debugUrl?: string };
+    sms: { success: boolean; message: string; details?: unknown };
   } = {
     email_direct: { success: false, message: 'No ejecutado' },
     edge_function: { success: false, message: 'No ejecutado' },
@@ -224,7 +228,10 @@ export async function POST(request: Request) {
     try {
       const resendApiKey = process.env.RESEND_API_KEY;
       if (!resendApiKey || resendApiKey.includes('your-')) {
-        results.email_direct = { success: false, message: 'RESEND_API_KEY no configurada o es un placeholder.' };
+        results.email_direct = {
+          success: false,
+          message: 'RESEND_API_KEY no configurada o es un placeholder.',
+        };
       } else {
         const fromEmail = 'Docubox <noreply@docubox.com.mx>';
         const emailPayload = {
@@ -281,7 +288,12 @@ export async function POST(request: Request) {
     try {
       const edgePayload = buildEdgePayload(emailTemplate, testRecipient, recipientName);
 
-      console.log('[test-notifications] Calling edge function send-email-notifications with type:', edgePayload.type, 'to:', testRecipient);
+      console.info(
+        '[test-notifications] Calling edge function send-email-notifications with type:',
+        edgePayload.type,
+        'to:',
+        testRecipient
+      );
 
       const { data: edgeData, error: edgeError } = await supabaseAdmin.functions.invoke(
         'send-email-notifications',
@@ -313,7 +325,8 @@ export async function POST(request: Request) {
       console.error('[test-notifications] Unexpected error calling edge function:', err);
       results.edge_function = {
         success: false,
-        message: err instanceof Error ? err.message : 'Error inesperado al llamar al edge function.',
+        message:
+          err instanceof Error ? err.message : 'Error inesperado al llamar al edge function.',
       };
     }
   }
@@ -321,63 +334,64 @@ export async function POST(request: Request) {
   // ── SMS TEST ────────────────────────────────────────────────────────────────
   if (testTarget === 'all' || testTarget === 'sms') {
     try {
-      const digits = TEST_PHONE.replace(/[^\d]/g, '');
-      const prefix = '52';
-      const number = digits.startsWith('52') ? digits.slice(2) : digits;
-      const numeroParam = `${prefix},${number}`;
-
-      const tokenParam = testMode ? `pruebas_${ENVIA_SMS_TOKEN}` : ENVIA_SMS_TOKEN;
-
-      const url = new URL(ENVIA_SMS_BASE_URL);
-      url.searchParams.set('plantilla', ENVIA_SMS_TEMPLATE_ID);
-      url.searchParams.set('token', tokenParam);
-      url.searchParams.set('numero', numeroParam);
-      url.searchParams.set('proyecto', ENVIA_SMS_PROJECT);
-      url.searchParams.set('duplicado', '1');
-
-      for (const [key, value] of Object.entries(varNames)) {
-        if (key.startsWith('var_') && value) {
-          url.searchParams.set(key, String(value));
-        }
-      }
-
-      const debugUrl = url.toString().replace(ENVIA_SMS_TOKEN, '***TOKEN***');
-
-      const response = await fetch(url.toString());
-
-      let data: unknown;
-      try {
-        data = await response.json();
-      } catch {
+      const ip =
+        request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() ||
+        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        'unknown';
+      const allowed = await consumeServerRateLimit({
+        scope: 'internal.notifications.sms-test',
+        identifiers: [ip],
+        limit: 5,
+        windowSeconds: 60,
+      });
+      if (!allowed) {
         results.sms = {
           success: false,
-          message: `HTTP ${response.status}: ${response.statusText}`,
-          debugUrl,
-        };
-        return NextResponse.json({ timestamp: new Date().toISOString(), testMode, testTarget, emailTemplate, results });
-      }
-
-      const smsData = data as { error?: boolean; codigo_error?: string; mensaje_error?: string };
-
-      if (!smsData.error) {
-        results.sms = {
-          success: true,
-          message: testMode
-            ? `SMS enviado en MODO PRUEBA (sin costo) a ${TEST_PHONE}.`
-            : `SMS enviado a ${TEST_PHONE}.`,
-          details: data,
-          debugUrl,
+          message: 'Demasiadas pruebas SMS. Intenta nuevamente más tarde.',
         };
       } else {
-        results.sms = {
-          success: false,
-          message: smsData.mensaje_error || smsData.codigo_error || 'Error al enviar SMS.',
-          details: data,
-          debugUrl,
-        };
+        const smsData = await sendSms({
+          phone: TEST_PHONE,
+          recipientName: varNames.var_nombre || recipientName,
+          documentName: varNames.var_documento || 'Prueba Docubox',
+          message: varNames.var_mensaje || 'Mensaje de prueba Docubox.',
+          testMode,
+        });
+        const outcome = smsData.error ? 'failed' : 'success';
+        await supabaseAdmin.from('platform_audit_events').insert({
+          actor_role: 'internal_service',
+          action: 'notifications.sms.test',
+          entity_type: 'notification_provider',
+          entity_id: 'envia-sms',
+          request_id: request.headers.get('x-request-id'),
+          outcome,
+          after_data: {
+            test_mode: testMode,
+            provider_code: smsData.codigo_error || null,
+          },
+          ip_address: ip === 'unknown' ? null : ip,
+          user_agent: request.headers.get('user-agent'),
+        });
+        if (!smsData.error) {
+          results.sms = {
+            success: true,
+            message: testMode ? 'SMS enviado en modo de prueba.' : 'SMS de prueba enviado.',
+          };
+        } else {
+          results.sms = {
+            success: false,
+            message: smsData.mensaje_error || smsData.codigo_error || 'Error al enviar SMS.',
+          };
+        }
       }
     } catch (err) {
-      results.sms = { success: false, message: err instanceof Error ? err.message : 'Error inesperado en SMS.' };
+      if (err instanceof SmsConfigurationError) {
+        results.sms = { success: false, message: 'El servicio SMS no está configurado.' };
+      } else if (err instanceof ServerRateLimitUnavailableError) {
+        results.sms = { success: false, message: 'El control de pruebas SMS no está disponible.' };
+      } else {
+        results.sms = { success: false, message: 'No fue posible ejecutar la prueba SMS.' };
+      }
     }
   }
 

@@ -30,6 +30,16 @@ function isAdditionalMetadataColumnMissing(
   );
 }
 
+function isTemplateOriginColumnMissing(
+  error: { code?: string | null; message?: string | null } | null
+) {
+  return Boolean(
+    error &&
+    /source_template_id/i.test(error.message || '') &&
+    (error.code === 'PGRST204' || /schema cache|does not exist|column/i.test(error.message || ''))
+  );
+}
+
 async function isAdditionalMetadataColumnReady() {
   const result = await supabaseAdmin.from('documentos').select('additional_metadata').limit(1);
 
@@ -133,6 +143,7 @@ export async function POST(req: NextRequest) {
       estampaAutenticacion,
       metadatosAdicionales,
       additionalMetadata,
+      sourceTemplateId,
       otroTipoDocumento,
       camposSolicitados,
     } = body;
@@ -154,6 +165,30 @@ export async function POST(req: NextRequest) {
     // If no valid workspace provided, find the user's personal workspace
     if (!resolvedWorkspaceId) {
       resolvedWorkspaceId = await resolvePersonalWorkspace(user.id);
+    }
+
+    let verifiedSourceTemplateId: string | null = null;
+    if (sourceTemplateId) {
+      if (!resolvedWorkspaceId || typeof sourceTemplateId !== 'string') {
+        return NextResponse.json(
+          { error: 'La plantilla de origen no pertenece al espacio de trabajo activo.' },
+          { status: 403 }
+        );
+      }
+      const sourceTemplate = await supabaseAdmin
+        .from('plantillas')
+        .select('id')
+        .eq('id', sourceTemplateId)
+        .eq('workspace_id', resolvedWorkspaceId)
+        .maybeSingle();
+      if (sourceTemplate.error) throw sourceTemplate.error;
+      if (!sourceTemplate.data) {
+        return NextResponse.json(
+          { error: 'La plantilla de origen no pertenece al espacio de trabajo activo.' },
+          { status: 403 }
+        );
+      }
+      verifiedSourceTemplateId = sourceTemplate.data.id;
     }
 
     const resolvedOtherDocumentType =
@@ -257,32 +292,34 @@ export async function POST(req: NextRequest) {
       blockchain_evidence_enabled: true,
       metadatos_adicionales: metadatosAdicionales ?? false,
       campos_solicitados: camposSolicitados || [],
+      source_template_id: verifiedSourceTemplateId,
     };
     if (normalizedAdditionalMetadata.length > 0) {
       payload.additional_metadata = normalizedAdditionalMetadata;
     }
-    let result: { data: unknown; error: any } = { data: null, error: null };
+    const persistDraft = () =>
+      draftDbId
+        ? supabaseAdmin
+            .from('documentos')
+            .update({ ...payload, updated_at: new Date().toISOString() })
+            .eq('id', draftDbId)
+            .eq('owner_id', user.id)
+            .select()
+            .single()
+        : supabaseAdmin
+            .from('documentos')
+            .insert({
+              ...payload,
+              documento_id: documentoId,
+              file_hash_sha256: fileHash || 'draft',
+            })
+            .select()
+            .single();
 
-    if (draftDbId) {
-      // Update existing draft
-      result = await supabaseAdmin
-        .from('documentos')
-        .update({ ...payload, updated_at: new Date().toISOString() })
-        .eq('id', draftDbId)
-        .eq('owner_id', user.id)
-        .select()
-        .single();
-    } else {
-      // Insert new draft
-      result = await supabaseAdmin
-        .from('documentos')
-        .insert({
-          ...payload,
-          documento_id: documentoId,
-          file_hash_sha256: fileHash || 'draft',
-        })
-        .select()
-        .single();
+    let result: { data: unknown; error: any } = await persistDraft();
+    if (isTemplateOriginColumnMissing(result.error)) {
+      delete payload.source_template_id;
+      result = await persistDraft();
     }
 
     const { data, error } = result;

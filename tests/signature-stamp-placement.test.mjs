@@ -11,6 +11,7 @@ const viewerPath = new URL('../src/app/visor-documento/[id]/page.tsx', import.me
 const nom151RoutePath = new URL('../src/app/api/nom151/generate/route.ts', import.meta.url);
 const nom151ServicePath = new URL('../src/lib/nom151/service.ts', import.meta.url);
 const signingPagePath = new URL('../src/app/firmar-documento/[id]/page.tsx', import.meta.url);
+const evidenceOrchestratorPath = new URL('../src/lib/evidence-v2/orchestrator.ts', import.meta.url);
 
 test('signature renderer never invents a fallback evidence page', async () => {
   const source = await readFile(stampPath, 'utf8');
@@ -62,10 +63,11 @@ test('viewer only requests a derived stamped PDF when a signature field exists',
 });
 
 test('NOM-151 waits for the exact final PDF when signature fields are configured', async () => {
-  const [viewerSource, serviceSource, sealSource] = await Promise.all([
+  const [viewerSource, serviceSource, sealSource, orchestratorSource] = await Promise.all([
     readFile(viewerPath, 'utf8'),
     readFile(nom151ServicePath, 'utf8'),
     readFile(routePath, 'utf8'),
+    readFile(evidenceOrchestratorPath, 'utf8'),
   ]);
 
   // Automatic issuance is backend-owned. The viewer only refreshes evidence
@@ -76,7 +78,9 @@ test('NOM-151 waits for the exact final PDF when signature fields are configured
   );
   assert.match(sealSource, /await integratePadesFinalDocument/);
   assert.match(sealSource, /pades\.profile !== 'PAdES-B-T' \|\| !pades\.timestamp/);
-  assert.match(sealSource, /await issueNom151ForVerifiedPadesBt/);
+  assert.match(sealSource, /await finalizeAfterVerifiedPadesBt/);
+  assert.match(orchestratorSource, /issueNom151ForVerifiedPadesBt/);
+  assert.match(orchestratorSource, /WAITING_FOR_PADES[\s\S]*WAITING_FOR_NOM151/);
   assert.match(
     viewerSource,
     /hasConfiguredSignatureFields &&[\s\S]*?!document\.sealed_pdf_path[\s\S]*?void ensureFinalSignedPdf\(\);[\s\S]*?return;/,
@@ -97,10 +101,11 @@ test('NOM-151 waits for the exact final PDF when signature fields are configured
 });
 
 test('the final participant automatically requests NOM-151 after PDF sealing', async () => {
-  const [signingSource, routeSource, sealSource] = await Promise.all([
+  const [signingSource, routeSource, sealSource, orchestratorSource] = await Promise.all([
     readFile(signingPagePath, 'utf8'),
     readFile(nom151RoutePath, 'utf8'),
     readFile(routePath, 'utf8'),
+    readFile(evidenceOrchestratorPath, 'utf8'),
   ]);
 
   const sealPosition = signingSource.indexOf('/seal-signatures');
@@ -112,10 +117,13 @@ test('the final participant automatically requests NOM-151 after PDF sealing', a
     'await finalizeAfterVerifiedPadesBt',
     padesPosition,
   );
-  const nom151Position = sealSource.indexOf('await issueNom151ForVerifiedPadesBt');
-  const emailPosition = sealSource.indexOf('queueVerifiedDocumentCompletionEmails', nom151Position);
   assert.ok(padesPosition >= 0 && finalizationPosition > padesPosition);
-  assert.ok(emailPosition > nom151Position);
+  const nom151Position = orchestratorSource.indexOf('issueNom151ForVerifiedPadesBt');
+  const emailPosition = orchestratorSource.indexOf(
+    'queueVerifiedDocumentCompletionEmails',
+    nom151Position,
+  );
+  assert.ok(nom151Position >= 0 && emailPosition > nom151Position);
   assert.match(routeSource, /access\.role === 'AUTHORIZED'/);
   assert.match(routeSource, /PARTICIPATION_NOT_COMPLETED/);
 });
@@ -154,18 +162,24 @@ test('viewer separates audit evidence from ordinary downloads', async () => {
   assert.match(viewerSource, /title: 'Auditoría',\s*label: 'Auditoría'/);
   assert.match(viewerSource, /activeTab === 'descargas' \|\| activeTab === 'auditoria'/);
 
-  for (const heading of [
-    'Constancia de Integridad y Evidencia Digital',
+  const auditGuardPosition = viewerSource.indexOf("{activeTab === 'auditoria' && (");
+  const downloadsGuardPosition = viewerSource.indexOf("{activeTab === 'descargas' && (");
+  assert.ok(auditGuardPosition >= 0 && downloadsGuardPosition > auditGuardPosition);
+
+  const integrityHeading = viewerSource.indexOf('Integridad y Evidencia Digital', auditGuardPosition);
+  const auditCertificateHeading = viewerSource.indexOf(
     'Constancia de auditoría hasta el cierre',
-    'XML de Evidencia',
-  ]) {
-    const headingPosition = viewerSource.indexOf(heading);
-    const auditGuardPosition = viewerSource.indexOf(
-      "{activeTab === 'auditoria' && (",
-      headingPosition,
-    );
-    assert.ok(auditGuardPosition > headingPosition && auditGuardPosition - headingPosition < 200);
-  }
+    auditGuardPosition,
+  );
+  assert.ok(integrityHeading > auditGuardPosition && integrityHeading < downloadsGuardPosition);
+  assert.ok(
+    auditCertificateHeading > auditGuardPosition && auditCertificateHeading < downloadsGuardPosition,
+  );
+
+  const xmlHeading = viewerSource.indexOf('XML de Evidencia');
+  const xmlAuditGuard = viewerSource.lastIndexOf("{activeTab === 'auditoria' && (", xmlHeading);
+  const xmlDownloadsGuard = viewerSource.lastIndexOf("{activeTab === 'descargas' && (", xmlHeading);
+  assert.ok(xmlAuditGuard > xmlDownloadsGuard);
 
   assert.match(viewerSource, /\{activeTab === 'descargas' && \(\s*<>/);
 });

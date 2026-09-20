@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { createServiceClient } from '@/lib/supabase/server';
+import { isPhaseEFeatureEnabled, PHASE_E_FEATURES } from '@/lib/phase-e/feature-flags';
 import {
   DOCUMENT_INTELLIGENCE_DISABLED_MESSAGE,
   isDocumentIntelligenceEnabled,
@@ -194,6 +195,7 @@ const SPECIALIZED_CONTEXT_MODULES = new Set([
 ]);
 
 const DOCUMENT_INTELLIGENCE_INTENTS = new Set<LuciaIntent>([
+  'contractual_search',
   'document_intelligence_profile',
   'document_classification',
   'document_extracted_fields',
@@ -216,9 +218,12 @@ function intelligenceSchemaUnavailable(error: unknown) {
 async function documentIntelligenceContext(
   workspaceId: string,
   authorization: LuciaAuthorizationContext,
-  opts: StructuredOptions
+  opts: StructuredOptions,
+  intent: LuciaIntent
 ) {
   const startedAt = Date.now();
+  const service = createServiceClient();
+  const contractualSearch = intent === 'contractual_search';
   const documentId = opts.documentId || opts.routeContext?.currentResourceIds.documentId || null;
   const ids = allowedIds(authorization, documentId);
   const empty = {
@@ -240,7 +245,11 @@ async function documentIntelligenceContext(
     error_code: null,
     _context_meta: { rpc: 'document_intelligence_read_model', latency_ms: Date.now() - startedAt },
   };
-  if (!isDocumentIntelligenceEnabled()) {
+  if (
+    !isDocumentIntelligenceEnabled() ||
+    (contractualSearch &&
+      !(await isPhaseEFeatureEnabled(service, PHASE_E_FEATURES.contractualIntelligence)))
+  ) {
     return {
       ...empty,
       permission: {
@@ -253,8 +262,6 @@ async function documentIntelligenceContext(
     };
   }
   if (!ids.length) return empty;
-
-  const service = createServiceClient();
 
   let versionId: string | null | undefined = opts.versionId;
   if (documentId && versionId === undefined) {
@@ -288,23 +295,35 @@ async function documentIntelligenceContext(
     }
     return query;
   };
-  const [profiles, fields, obligations, classifications, checks] = await Promise.all([
+  let fieldsQuery = scoped(
+    'ai_document_extracted_fields',
+    'id,document_id,document_version_id,analysis_run_id,field_key,field_label,field_value,normalized_value,value_type,confidence,page_number,chunk_id,evidence_text,status'
+  ).not('value_type', 'in', '(rfc,curp,email,phone,address)');
+  if (contractualSearch) fieldsQuery = fieldsQuery.like('field_key', 'contract_%');
+  let obligationsQuery = scoped(
+    'ai_document_obligations',
+    'id,document_id,document_version_id,analysis_run_id,obligation_type,description,due_date,recurrence_rule,priority,confidence,page_number,chunk_id,evidence_text,suggested_task,status'
+  );
+  if (contractualSearch) obligationsQuery = obligationsQuery.not('analysis_run_id', 'is', null);
+  const emptyResult = Promise.resolve({ data: [], error: null });
+  const [
+    profiles,
+    fields,
+    obligations,
+    classifications,
+    checks,
+    contractualJobs,
+    reviews,
+    documents,
+  ] = await Promise.all([
     scoped(
       'ai_document_profiles',
       'id,document_id,document_version_id,detected_document_type,detected_document_category,title_suggestion,short_summary,executive_summary,language,confidence,quality_score,risk_score,completeness_score,status,extraction_status,source_chunk_ids,evidence,warnings,updated_at'
     )
       .order('updated_at', { ascending: false })
       .limit(documentId ? 1 : 50),
-    scoped(
-      'ai_document_extracted_fields',
-      'id,document_id,document_version_id,field_key,field_label,field_value,normalized_value,value_type,confidence,page_number,chunk_id,evidence_text,status'
-    )
-      .not('value_type', 'in', '(rfc,curp,email,phone,address)')
-      .limit(documentId ? 100 : 50),
-    scoped(
-      'ai_document_obligations',
-      'id,document_id,document_version_id,obligation_type,description,due_date,recurrence_rule,priority,confidence,page_number,chunk_id,evidence_text,suggested_task,status'
-    ).limit(documentId ? 100 : 50),
+    fieldsQuery.limit(contractualSearch ? 500 : documentId ? 100 : 50),
+    obligationsQuery.limit(contractualSearch ? 500 : documentId ? 100 : 50),
     scoped(
       'ai_document_classifications',
       'id,document_id,document_version_id,classification_type,classification_value,confidence,reason,evidence'
@@ -313,8 +332,44 @@ async function documentIntelligenceContext(
       'ai_document_completeness_checks',
       'id,document_id,document_version_id,check_key,check_label,status,severity,description,recommendation,evidence'
     ).limit(documentId ? 50 : 50),
+    contractualSearch
+      ? scoped(
+          'ai_document_processing_jobs',
+          'id,document_id,document_version_id,job_type,status,created_at,completed_at'
+        )
+          .eq('job_type', 'contractual_analysis')
+          .eq('status', 'completed')
+          .order('created_at', { ascending: false })
+          .limit(500)
+      : emptyResult,
+    contractualSearch
+      ? scoped(
+          'ai_document_fact_reviews',
+          'id,document_id,document_version_id,analysis_run_id,fact_type,fact_id,review_status,reviewed_value,reviewed_by,reviewed_at'
+        )
+          .order('reviewed_at', { ascending: false })
+          .limit(500)
+      : emptyResult,
+    contractualSearch
+      ? service
+          .from('documentos')
+          .select('id,nombre,estado,fecha_vencimiento,updated_at')
+          .eq('workspace_id', workspaceId)
+          .in('id', ids)
+          .is('deleted_at', null)
+          .limit(500)
+      : emptyResult,
   ]);
-  const results = [profiles, fields, obligations, classifications, checks];
+  const results = [
+    profiles,
+    fields,
+    obligations,
+    classifications,
+    checks,
+    contractualJobs,
+    reviews,
+    documents,
+  ];
   const schemaFailure = results.find((result) => intelligenceSchemaUnavailable(result.error));
   if (schemaFailure) {
     return {
@@ -339,8 +394,20 @@ async function documentIntelligenceContext(
     };
   }
   const profileRows = profiles.data || [];
-  const fieldRows = fields.data || [];
-  const obligationRows = obligations.data || [];
+  const latestContractualRuns = new Map<string, string>();
+  for (const job of contractualJobs.data || []) {
+    if (!latestContractualRuns.has(job.document_id)) {
+      latestContractualRuns.set(job.document_id, job.id);
+    }
+  }
+  const fieldRows = (fields.data || []).filter(
+    (row: any) =>
+      !contractualSearch || latestContractualRuns.get(row.document_id) === row.analysis_run_id
+  );
+  const obligationRows = (obligations.data || []).filter(
+    (row: any) =>
+      !contractualSearch || latestContractualRuns.get(row.document_id) === row.analysis_run_id
+  );
   const classificationRows = classifications.data || [];
   const checkRows = checks.data || [];
   const evidenceSources = [
@@ -397,6 +464,8 @@ async function documentIntelligenceContext(
     obligations: obligationRows,
     classifications: classificationRows,
     completeness_checks: checkRows,
+    contractual_reviews: contractualSearch ? reviews.data || [] : undefined,
+    documents: contractualSearch ? documents.data || [] : undefined,
     evidence_sources: evidenceSources,
     row_count:
       profileRows.length +
@@ -1130,7 +1199,7 @@ export async function buildStructuredContext(
   }
 
   if (DOCUMENT_INTELLIGENCE_INTENTS.has(intent)) {
-    return documentIntelligenceContext(workspaceId, authorization, opts);
+    return documentIntelligenceContext(workspaceId, authorization, opts, intent);
   }
 
   if (moduleKey && SPECIALIZED_CONTEXT_MODULES.has(moduleKey)) {

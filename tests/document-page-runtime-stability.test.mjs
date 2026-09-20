@@ -77,7 +77,10 @@ test('a profile e.firma check cannot falsely enable cryptographic signing', () =
   const source = read('src/app/firmar-documento/[id]/page.tsx');
   assert.match(source, /setProfileValidationNotice\(/);
   assert.doesNotMatch(source, /onValidated\(undefined, undefined, undefined, undefined,/);
-  assert.match(source, /if \(isEfirmaSAT && \(!efirmaValidated \|\| !efirmaCerB64 \|\| !efirmaKeyB64 \|\| !efirmaPassword\)\)/);
+  assert.match(
+    source,
+    /isEfirmaSAT[\s\S]{0,180}if \(!efirmaValidated \|\| !efirmaCerB64 \|\| !efirmaKeyB64 \|\| !efirmaPassword\)/
+  );
   assert.match(source, /Para firmar con e\.firma, carga y valida los archivos \.cer y \.key/);
 });
 

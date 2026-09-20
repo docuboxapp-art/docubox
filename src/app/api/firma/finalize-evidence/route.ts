@@ -4,6 +4,7 @@ import { requireDocumentAccess, documentAccessResponse } from '@/lib/security/do
 import { signatureConsentSnapshot } from '@/lib/evidence-v2/consent';
 
 const METHODS = new Set(['autografa', 'efirma', 'clicksign']);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function normalized(value: unknown) {
   return String(value || '')
@@ -16,9 +17,9 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as Record<string, unknown>;
     const documentId = String(body.documentId || '');
     const method = String(body.method || '');
-    const participantRecordId = String(body.participantRecordId || '');
+    const requestedParticipantRecordId = String(body.participantRecordId || '');
     const signedAt = new Date(String(body.signedAt || '')).toISOString();
-    if (!documentId || !participantRecordId || !METHODS.has(method)) {
+    if (!documentId || !requestedParticipantRecordId || !METHODS.has(method)) {
       return NextResponse.json(
         { error: 'Datos de firma incompletos.', code: 'FINAL_SIGNATURE_INPUT_INVALID' },
         { status: 422 }
@@ -26,10 +27,17 @@ export async function POST(request: NextRequest) {
     }
     const { user, document, service } = await requireDocumentAccess(request, documentId);
     const participant = Array.isArray(document.participantes)
-      ? (document.participantes.find(
-          (candidate: Record<string, unknown>) =>
-            String(candidate.id || candidate.user_id || '') === participantRecordId
-        ) as Record<string, unknown> | undefined)
+      ? (document.participantes.find((candidate: Record<string, unknown>) => {
+          const candidateIds = [candidate.user_id, candidate.id].map((value) =>
+            String(value || '').trim()
+          );
+          return (
+            candidateIds.includes(requestedParticipantRecordId) ||
+            candidateIds.includes(user.id) ||
+            (normalized(candidate.email) !== '' &&
+              normalized(candidate.email) === normalized(user.email))
+          );
+        }) as Record<string, unknown> | undefined)
       : undefined;
     const participantBelongsToUser =
       participant &&
@@ -42,6 +50,10 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
+    const participantRecordId =
+      [participant?.user_id, participant?.id, requestedParticipantRecordId, user.id]
+        .map((value) => String(value || '').trim())
+        .find((value) => UUID_PATTERN.test(value)) || user.id;
     const versionResult = await service
       .from('document_versions')
       .select('id,sha256')
@@ -51,44 +63,81 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (versionResult.error) throw versionResult.error;
     const consent = signatureConsentSnapshot(signedAt);
-    const signatureId = randomUUID();
+    const requestedAttemptId = String(body.attemptId || '');
+    const signatureId = UUID_PATTERN.test(requestedAttemptId) ? requestedAttemptId : randomUUID();
     let evidenceId = String(body.evidenceId || '');
 
     if (method === 'clicksign') {
-      const inserted = await service
+      const existing = await service
         .from('signature_evidence')
-        .insert({
-          capture_id: signatureId,
-          signature_id: signatureId,
-          document_id: documentId,
-          document_version_id: versionResult.data?.id || null,
-          participant_record_id: participantRecordId,
-          captured_by: user.id,
-          evidence_type: 'click_sign',
-          evidence_role: 'FINAL_SIGNATURE',
-          document_sha256: versionResult.data?.sha256 || null,
-          digital_seal_sha256: body.signatureHash || null,
-          captured_at: signedAt,
-          signed_at: signedAt,
-          consent_text_version: consent.textVersion,
-          consent_text_sha256: consent.textHash,
-          consent_accepted: true,
-          consent_accepted_at: consent.acceptedAt,
-          context_ip_status: body.ipAddress ? 'available' : 'unavailable',
-          context_geo_status:
-            body.latitude !== null && body.longitude !== null ? 'available' : 'unavailable',
-          context_user_agent_status: request.headers.get('user-agent')
-            ? 'available'
-            : 'unavailable',
-          ip_address: body.ipAddress || null,
-          geo_latitude: body.latitude ?? null,
-          geo_longitude: body.longitude ?? null,
-          user_agent: request.headers.get('user-agent'),
-        })
-        .select('id')
-        .single();
-      if (inserted.error) throw inserted.error;
-      evidenceId = inserted.data.id;
+        .select('id,evidence_role,document_version_id')
+        .eq('capture_id', signatureId)
+        .eq('document_id', documentId)
+        .eq('captured_by', user.id)
+        .maybeSingle();
+      if (existing.error) throw existing.error;
+      if (existing.data) {
+        if (
+          existing.data.evidence_role !== 'FINAL_SIGNATURE' ||
+          existing.data.document_version_id !== (versionResult.data?.id || null)
+        ) {
+          return NextResponse.json(
+            {
+              error: 'El intento de firma no coincide con la evidencia.',
+              code: 'SIGNATURE_ATTEMPT_CONFLICT',
+            },
+            { status: 409 }
+          );
+        }
+        evidenceId = existing.data.id;
+      } else {
+        const inserted = await service
+          .from('signature_evidence')
+          .insert({
+            capture_id: signatureId,
+            signature_id: signatureId,
+            document_id: documentId,
+            document_version_id: versionResult.data?.id || null,
+            participant_record_id: participantRecordId,
+            captured_by: user.id,
+            evidence_type: 'click_sign',
+            evidence_role: 'FINAL_SIGNATURE',
+            document_sha256: versionResult.data?.sha256 || null,
+            digital_seal_sha256: body.signatureHash || null,
+            captured_at: signedAt,
+            signed_at: signedAt,
+            consent_text_version: consent.textVersion,
+            consent_text_sha256: consent.textHash,
+            consent_accepted: true,
+            consent_accepted_at: consent.acceptedAt,
+            context_ip_status: body.ipAddress ? 'available' : 'unavailable',
+            context_geo_status:
+              body.latitude !== null && body.longitude !== null ? 'available' : 'unavailable',
+            context_user_agent_status: request.headers.get('user-agent')
+              ? 'available'
+              : 'unavailable',
+            ip_address: body.ipAddress || null,
+            geo_latitude: body.latitude ?? null,
+            geo_longitude: body.longitude ?? null,
+            user_agent: request.headers.get('user-agent'),
+          })
+          .select('id')
+          .single();
+        if (inserted.error) {
+          const concurrent = await service
+            .from('signature_evidence')
+            .select('id')
+            .eq('capture_id', signatureId)
+            .eq('document_id', documentId)
+            .eq('captured_by', user.id)
+            .eq('evidence_role', 'FINAL_SIGNATURE')
+            .maybeSingle();
+          if (concurrent.error || !concurrent.data) throw inserted.error;
+          evidenceId = concurrent.data.id;
+        } else {
+          evidenceId = inserted.data.id;
+        }
+      }
     } else {
       if (!evidenceId) {
         return NextResponse.json(
@@ -117,7 +166,10 @@ export async function POST(request: NextRequest) {
         .eq('id', evidenceId)
         .eq('document_id', documentId)
         .eq('captured_by', user.id)
-        .in('evidence_role', method === 'autografa' ? ['CAPTURE'] : ['FINAL_SIGNATURE'])
+        .in(
+          'evidence_role',
+          method === 'autografa' ? ['CAPTURE', 'FINAL_SIGNATURE'] : ['FINAL_SIGNATURE']
+        )
         .select('id')
         .maybeSingle();
       if (updated.error) throw updated.error;

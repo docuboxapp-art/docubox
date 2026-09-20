@@ -17,6 +17,7 @@ export type SignatureStampResponse = {
 };
 
 export type SignatureStampField = {
+  id?: string | null;
   participantId?: string | null;
   participantName?: string | null;
   page?: number | null;

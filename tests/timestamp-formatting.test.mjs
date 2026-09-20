@@ -35,9 +35,9 @@ test('localized date styles do not mix incompatible Intl component options', () 
 
 test('viewer formats legal, cryptographic, and audit timestamps through the shared formatter', () => {
   assert.match(viewer, /formatEvidenceTimestamp\(dateStr\)/);
-  assert.match(viewer, /formatEvidenceTimestamp\(\s*nom151Data\.issued_at/);
+  assert.match(viewer, /formatEvidenceTimestamp\(\s*nom151Data\.issued_at \|\| nom151Data\.created_at/);
   assert.match(viewer, /formatEvidenceTimestamp\(\s*blockchainEvidence\.submitted_at/);
-  assert.match(viewer, /formatEvidenceTimestamp\(xmlEvidenceData\.xml_generated_at\)/);
+  assert.doesNotMatch(viewer, /toLocaleString\([^)]*issued_at/);
 });
 
 test('expiration retains both a UTC instant and the creator-selected IANA timezone', () => {

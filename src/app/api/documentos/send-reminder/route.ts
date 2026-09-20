@@ -81,7 +81,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Sin permisos para enviar recordatorios' }, { status: 403 });
     }
 
-    const participantForReminder = (authorizedDocument.participantes as any[] | null)?.find(
+    const activeParticipants = ((authorizedDocument.participantes as any[] | null) || []).filter(
+      (participant: any) => participant.current_access !== false
+    );
+    const participantForReminder = activeParticipants.find(
       (participant: any) =>
         String(participant.email || '').trim().toLowerCase()
         === String(participantEmail).trim().toLowerCase()
@@ -89,6 +92,18 @@ export async function POST(req: NextRequest) {
     if (!participantForReminder || participantForReminder.current_access === false) {
       return NextResponse.json(
         { error: 'El participante ya no tiene acceso a este documento.' },
+        { status: 409 }
+      );
+    }
+    const isCreatorOnlyParticipant =
+      authorizedDocument.owner_id === user.id &&
+      activeParticipants.length === 1 &&
+      (String(participantForReminder.id || participantForReminder.user_id || '') === user.id ||
+        String(participantForReminder.email || '').trim().toLowerCase() ===
+          String(user.email || '').trim().toLowerCase());
+    if (isCreatorOnlyParticipant) {
+      return NextResponse.json(
+        { error: 'No se envían recordatorios cuando el creador es el único participante.' },
         { status: 409 }
       );
     }

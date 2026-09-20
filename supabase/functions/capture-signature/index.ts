@@ -23,6 +23,12 @@ function toNullableInteger(value: unknown) {
   return Number.isFinite(numericValue) ? Math.round(numericValue) : null
 }
 
+function resolveParticipantRecordId(value: unknown, authenticatedUserId: string) {
+  const candidate = String(value || '').trim()
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return uuidPattern.test(candidate) ? candidate : authenticatedUserId
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -128,7 +134,7 @@ serve(async (req) => {
     const { error: dbError } = await supabase.from('signature_evidence').insert({
       id: evidenceId,
       capture_id: evidenceId,
-      participant_record_id: participant_id || user.id,
+      participant_record_id: resolveParticipantRecordId(participant_id, user.id),
       evidence_role: 'CAPTURE',
       document_id,
       evidence_type: 'autograph_signature',

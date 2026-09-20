@@ -47,7 +47,9 @@ test('viewer resolves secondary metadata concurrently without changing its loadi
     source.indexOf('const loadActivity = async () =>')
   );
 
-  assert.match(bootstrap, /await Promise\.all\(\[[\s\S]*setDocument\(\{[\s\S]*file_url: viewerFileUrl/);
+  assert.match(bootstrap, /await Promise\.all\(\[/);
+  assert.match(bootstrap, /const loadedDocument: DocumentData = \{[\s\S]*file_url: viewerFileUrl/);
+  assert.match(bootstrap, /setDocument\(loadedDocument\)/);
   assert.match(bootstrap, /from\('user_profiles'\)/);
   assert.match(bootstrap, /from\('carpetas'\)/);
   assert.match(bootstrap, /from\('workspaces'\)/);
