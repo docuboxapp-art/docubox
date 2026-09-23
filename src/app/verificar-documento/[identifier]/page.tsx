@@ -42,14 +42,14 @@ export default function PublicVerificationDetailPage() {
       <main className="mx-auto min-h-[calc(100vh-129px)] w-full max-w-[1180px] px-4 py-8 sm:px-6 sm:py-10">
         <Link
           href="/verificar-documento"
-          className="inline-flex items-center gap-2 text-sm font-600 text-[#52525b] hover:text-[#18181b]"
+          className="inline-flex items-center gap-2 text-sm font-600 text-slate-600 transition-colors hover:text-slate-950"
         >
           <ArrowLeft size={16} />
           Nueva verificación
         </Link>
         {!result && !error && (
-          <div className="flex min-h-[460px] flex-col items-center justify-center gap-3 text-sm text-[#71717a]">
-            <Loader2 size={26} className="animate-spin text-[#4f46e5]" />
+          <div className="flex min-h-[460px] flex-col items-center justify-center gap-3 text-sm text-slate-500">
+            <Loader2 size={26} className="animate-spin text-primary" />
             Ejecutando verificación integral...
           </div>
         )}
@@ -59,7 +59,7 @@ export default function PublicVerificationDetailPage() {
               <AlertCircle size={24} />
             </span>
             <h1 className="mt-4 text-xl font-650">Verificación no disponible</h1>
-            <p className="mt-2 text-sm leading-6 text-[#52525b]">{error}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{error}</p>
           </div>
         )}
         {result && <VerificationResultView result={result} />}

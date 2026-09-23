@@ -69,7 +69,7 @@ export function CaseModuleNav() {
 }
 
 export function SectionHeader({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
-  return <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between dark:border-border"><div className="min-w-0"><h1 className="text-2xl font-700 text-slate-950 dark:text-foreground">{title}</h1><p className="mt-1 text-sm text-slate-500 dark:text-muted-foreground">{description}</p></div>{action && <div className="flex shrink-0 items-center gap-2">{action}</div>}</div>;
+  return <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between dark:border-border"><div className="min-w-0"><h1 className="text-2xl font-600 text-slate-950 dark:text-foreground">{title}</h1><p className="mt-1 text-sm text-slate-500 dark:text-muted-foreground">{description}</p></div>{action && <div className="flex shrink-0 items-center gap-2">{action}</div>}</div>;
 }
 
 export function MetricCard({ label, value, detail, tone = 'gray' }: { label: string; value: string | number; detail: string; tone?: TrafficLight }) {

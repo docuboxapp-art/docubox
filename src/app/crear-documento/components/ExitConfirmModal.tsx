@@ -27,7 +27,7 @@ export function ExitConfirmModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         <div className="p-6">
           <div className="mb-4">
-              <h2 className="text-lg font-bold text-gray-900">¿Deseas salir?</h2>
+              <h2 className="text-lg font-semibold text-gray-900">¿Deseas salir?</h2>
               <p className="text-sm text-gray-500">Tienes cambios sin guardar en este documento.</p>
           </div>
           <p className="text-sm text-gray-600 mb-4">

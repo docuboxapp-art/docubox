@@ -49,6 +49,7 @@ import {
   Paperclip,
   Building2,
   Sparkles,
+  LayoutTemplate,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
@@ -80,10 +81,16 @@ import { StepParticipantes } from '@/app/crear-documento/components/StepParticip
 import { StepAjustes } from '@/app/crear-documento/components/StepAjustes';
 import { TemplateDocumentPreview } from '@/components/templates/TemplateDocumentPreview';
 import {
+  applyTemplateFieldValues,
+  isTemplateDocumentMimeType,
   loadTemplateDocumentSource,
   type TemplateFieldValues,
 } from '@/lib/templates/document-flow';
-import type { PublishedTemplateDocument } from '@/lib/templates/preview';
+import {
+  createPdfFromPublishedTemplate,
+  type PublishedTemplateDocument,
+  type TemplateRenderedFieldMeasurement,
+} from '@/lib/templates/preview';
 import type {
   Participant,
   DocumentSettings,
@@ -415,7 +422,7 @@ function isConfiguredSignatureField(field: CampoSolicitado) {
   const type = String(field.tipo || '')
     .trim()
     .toLowerCase();
-  if (type === 'firma') return true;
+  if (type === 'firma' || type === 'signature') return true;
 
   const legacyLabel = String(field.label || '')
     .normalize('NFD')
@@ -631,14 +638,23 @@ function PdfCanvas({
 
       const scale = zoom / 100;
       const viewport = pdfPage.getViewport({ scale });
+      const outputScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
 
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+      canvas.width = Math.ceil(viewport.width * outputScale);
+      canvas.height = Math.ceil(viewport.height * outputScale);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
 
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
-      const renderTask = pdfPage.render({ canvasContext: ctx, viewport });
+      const renderTask = pdfPage.render({
+        canvasContext: ctx,
+        viewport,
+        transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
+      });
       renderTaskRef.current = renderTask;
       await renderTask.promise;
       renderTaskRef.current = null;
@@ -732,7 +748,7 @@ function PdfCanvas({
             <Lock size={22} />
           </div>
           <div>
-            <p className="text-base font-700 text-slate-900">Documento protegido</p>
+          <p className="text-base font-600 text-slate-900">Documento protegido</p>
             <p className="mt-1 text-sm text-slate-500">
               Introduce el código de acceso para visualizar este documento.
             </p>
@@ -888,6 +904,7 @@ export default function VisorDocumentoPage() {
     | 'package'
     | 'governance'
     | 'lucia'
+    | 'template-origin'
   >('details');
   const [accessSummary, setAccessSummary] = useState({
     loaded: false,
@@ -905,6 +922,10 @@ export default function VisorDocumentoPage() {
     ready: false,
     hasContent: false,
     blockers: [] as unknown[],
+  });
+  const [luciaAvailability, setLuciaAvailability] = useState({
+    loaded: false,
+    enabled: false,
   });
   const [documentPermissions, setDocumentPermissions] = useState<DocumentAccessPermission[]>([]);
   const [permissionsLoading, setPermissionsLoading] = useState(false);
@@ -961,6 +982,7 @@ export default function VisorDocumentoPage() {
 
   // NEW: participation responses for filled field values
   const [participationResponses, setParticipationResponses] = useState<ParticipationResponse[]>([]);
+  const [participationResponsesLoaded, setParticipationResponsesLoaded] = useState(false);
 
   const [notes, setNotes] = useState<DocumentNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
@@ -1187,6 +1209,43 @@ export default function VisorDocumentoPage() {
     return () => window.clearTimeout(timer);
   }, [refreshPackageReadiness]);
 
+  const refreshLuciaAvailability = useCallback(async () => {
+    const workspaceId = document?.workspace_id;
+    if (!docId || !user || document?.estado !== 'completado' || !workspaceId) {
+      setLuciaAvailability({ loaded: true, enabled: false });
+      return;
+    }
+
+    setLuciaAvailability({ loaded: false, enabled: false });
+    try {
+      const response = await fetch(
+        `/api/ai/document-intelligence/${encodeURIComponent(docId)}?workspaceId=${encodeURIComponent(workspaceId)}`,
+        {
+          headers: await apiAuthHeaders(),
+          cache: 'no-store',
+        }
+      );
+      const payload = await response.json().catch(() => null);
+      setLuciaAvailability({
+        loaded: true,
+        enabled: response.ok && payload?.features?.contractual === true,
+      });
+    } catch {
+      setLuciaAvailability({ loaded: true, enabled: false });
+    }
+  }, [docId, document?.estado, document?.workspace_id, user]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void refreshLuciaAvailability(), 0);
+    return () => window.clearTimeout(timer);
+  }, [refreshLuciaAvailability]);
+
+  useEffect(() => {
+    if (!luciaAvailability.loaded || luciaAvailability.enabled || activeTab !== 'lucia') return;
+    const timer = window.setTimeout(() => setActiveTab('details'), 0);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, luciaAvailability]);
+
   useEffect(() => {
     if (!legalHoldSummary.loaded) return;
     const requested = searchParams.get('tab') === 'legal-hold';
@@ -1301,8 +1360,12 @@ export default function VisorDocumentoPage() {
     if (!document?.id) return;
 
     const requestedArchivo = new URLSearchParams(window.location.search).get('archivo');
+    const completedTemplate =
+      document.estado === 'completado' && isTemplateDocumentMimeType(document.file_type);
     const requestedVariant =
-      requestedArchivo === 'original' || !padesBtVerified ? 'original' : 'certified';
+      completedTemplate || (requestedArchivo !== 'original' && padesBtVerified)
+        ? 'certified'
+        : 'original';
     const nextFileUrl = `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=${requestedVariant}`;
 
     const variantFrame = window.requestAnimationFrame(() => {
@@ -1313,7 +1376,7 @@ export default function VisorDocumentoPage() {
       );
     });
     return () => window.cancelAnimationFrame(variantFrame);
-  }, [document?.id, padesBtVerified]);
+  }, [document?.estado, document?.file_type, document?.id, padesBtVerified]);
 
   // ── Signed PDF state ───────────────────────────────────────────────────────
   const [downloadingSignedPdf, setDownloadingSignedPdf] = useState(false);
@@ -1803,89 +1866,6 @@ export default function VisorDocumentoPage() {
     },
     [docId, nom151Generating, user]
   );
-
-  const ensureFinalSignedPdf = useCallback(async () => {
-    if (!docId || signatureStampGenerationRef.current.has(docId)) return;
-    signatureStampGenerationRef.current.add(docId);
-
-    try {
-      setSignedPdfError('');
-      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/seal-signatures`, {
-        method: 'POST',
-        headers: await apiAuthHeaders(),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.storage_path) {
-        throw new Error(
-          payload.error || response.statusText || 'No se pudo generar el PDF final firmado.'
-        );
-      }
-
-      setDocument((current) =>
-        current
-          ? {
-              ...current,
-              sealed_pdf_path: payload.storage_path,
-            }
-          : current
-      );
-      await loadCryptographicCertification();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'No se pudo generar el PDF final firmado.';
-      console.error('[auto-generate] PDF final firmado:', error);
-      setSignedPdfError(message);
-      signatureStampGenerationRef.current.delete(docId);
-    }
-  }, [apiAuthHeaders, docId, loadCryptographicCertification]);
-
-  // Regulariza documentos completados antes de que existiera la generacion
-  // automatica. No depende de abrir Descargas: al cargar el documento el
-  // propietario solicita los artefactos pendientes una sola vez.
-  useEffect(() => {
-    if (document?.estado !== 'completado' || !docId || !user?.id || user.id !== document.owner_id)
-      return;
-
-    if (
-      hasConfiguredSignatureFields &&
-      !document.sealed_pdf_path &&
-      !signatureStampGenerationRef.current.has(docId)
-    ) {
-      void ensureFinalSignedPdf();
-      return;
-    }
-
-    const nom151AttemptKey = `${docId}:nom151`;
-    if (
-      padesBtVerified &&
-      nom151Ready &&
-      nom151LookupComplete &&
-      !nom151Data &&
-      !nom151Error &&
-      !nom151Polling &&
-      !nom151Generating &&
-      !artifactGenerationAttemptsRef.current.has(nom151AttemptKey)
-    ) {
-      artifactGenerationAttemptsRef.current.add(nom151AttemptKey);
-      void generateNom151({ silent: true });
-    }
-  }, [
-    docId,
-    document?.estado,
-    document?.owner_id,
-    document?.sealed_pdf_path,
-    ensureFinalSignedPdf,
-    generateNom151,
-    hasConfiguredSignatureFields,
-    nom151Data,
-    nom151Error,
-    nom151Generating,
-    nom151LookupComplete,
-    nom151Polling,
-    nom151Ready,
-    padesBtVerified,
-    user?.id,
-  ]);
 
   // ── Download NOM-151 info PDF (request/response data) ─────────────────────
   const downloadNom151InfoPdf = useCallback(async () => {
@@ -2620,7 +2600,9 @@ export default function VisorDocumentoPage() {
 
         // A derived PDF can exist before its PAdES-B-T verification finishes.
         // Start with the original and let the verified certification state switch variants.
-        const requestedFileVariant = 'original';
+        const completedPdfAvailable =
+          data.estado === 'completado' && Boolean(data.sealed_pdf_path);
+        const requestedFileVariant = completedPdfAvailable ? 'certified' : 'original';
         const viewerFileUrl = `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=${requestedFileVariant}`;
 
         // Preserve the existing loading state and visible values while removing
@@ -2669,7 +2651,7 @@ export default function VisorDocumentoPage() {
           owner_nombre: ownerNombre,
           carpeta_nombre: carpetaNombre,
           organizacion,
-          formato: data.file_type || 'application/pdf',
+          formato: completedPdfAvailable ? 'application/pdf' : data.file_type || 'application/pdf',
           hash_sha256: data.file_hash_sha256 || '—',
           firma_completa: 'Pendiente',
           fecha_constancia: 'Pendiente',
@@ -3196,6 +3178,7 @@ export default function VisorDocumentoPage() {
 
     // Load participation responses via API (service role bypasses RLS so all responses are visible)
     const loadParticipationResponses = async () => {
+      setParticipationResponsesLoaded(false);
       try {
         const supabase = createClient();
         const {
@@ -3224,6 +3207,8 @@ export default function VisorDocumentoPage() {
         }
       } catch (err) {
         console.warn('[visor-documento] Could not load participation responses:', err);
+      } finally {
+        setParticipationResponsesLoaded(true);
       }
     };
 
@@ -4211,14 +4196,14 @@ export default function VisorDocumentoPage() {
       dot: 'bg-green-500',
     },
     rechazo: {
-      label: 'Rechazado',
+      label: 'Rechazó',
       color: 'text-red-700',
       bg: 'bg-red-50',
       borderColor: 'border-red-200',
       dot: 'bg-red-500',
     },
     rechazado: {
-      label: 'Rechazado',
+      label: 'Rechazó',
       color: 'text-red-700',
       bg: 'bg-red-50',
       borderColor: 'border-red-200',
@@ -4566,11 +4551,139 @@ export default function VisorDocumentoPage() {
       const key = campo.valueKey || campo.id;
       if (!key) return;
       const type = String(campo.tipo || '').toLowerCase();
-      const value = type === 'firma' ? getFirmaDataForCampo(campo) : getFilledValueForCampo(campo);
+      const value =
+        type === 'firma' || type === 'signature'
+          ? getFirmaDataForCampo(campo)
+          : getFilledValueForCampo(campo);
       if (value) values[key] = value;
     });
     return values;
   }, [effectiveCampos, getFilledValueForCampo, getFirmaDataForCampo]);
+
+  const ensureFinalSignedPdf = useCallback(async () => {
+    if (!docId || signatureStampGenerationRef.current.has(docId)) return;
+    signatureStampGenerationRef.current.add(docId);
+
+    try {
+      setSignedPdfError('');
+      let sealBody: FormData | undefined;
+      if (templateDocument) {
+        const materializationValues: TemplateFieldValues = { ...templateFieldValues };
+        camposSolicitados.forEach((field) => {
+          if (!isConfiguredSignatureField(field)) return;
+          const key = field.valueKey || field.id;
+          if (key) delete materializationValues[key];
+        });
+        const materializedTemplate = applyTemplateFieldValues(
+          templateDocument,
+          materializationValues,
+          { final: true }
+        );
+        let templateFieldMeasurements: TemplateRenderedFieldMeasurement[] = [];
+        const templatePdf = await createPdfFromPublishedTemplate(materializedTemplate, {
+          onFieldsMeasured: (fields) => {
+            templateFieldMeasurements = fields;
+          },
+        });
+        sealBody = new FormData();
+        sealBody.append('templatePdf', templatePdf, templatePdf.name);
+        sealBody.append('templateFieldMeasurements', JSON.stringify(templateFieldMeasurements));
+      }
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/seal-signatures`, {
+        method: 'POST',
+        headers: await apiAuthHeaders(),
+        body: sealBody,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.storage_path) {
+        throw new Error(
+          payload.error || response.statusText || 'No se pudo generar el PDF final firmado.'
+        );
+      }
+
+      setDocument((current) =>
+        current
+          ? {
+              ...current,
+              sealed_pdf_path: payload.storage_path,
+              file_url: `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=certified`,
+              formato: 'application/pdf',
+            }
+          : current
+      );
+      await loadCryptographicCertification();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'No se pudo generar el PDF final firmado.';
+      console.error('[auto-generate] PDF final firmado:', error);
+      setSignedPdfError(message);
+      signatureStampGenerationRef.current.delete(docId);
+    }
+  }, [
+    camposSolicitados,
+    docId,
+    loadCryptographicCertification,
+    templateDocument,
+    templateFieldValues,
+  ]);
+
+  // Regulariza documentos completados antes de que existiera la generacion
+  // automatica. No depende de abrir Descargas: al cargar el documento el
+  // propietario solicita los artefactos pendientes una sola vez.
+  useEffect(() => {
+    if (document?.estado !== 'completado' || !docId || !user?.id || user.id !== document.owner_id)
+      return;
+
+    if (
+      hasConfiguredSignatureFields &&
+      !document.sealed_pdf_path &&
+      !signatureStampGenerationRef.current.has(docId)
+    ) {
+      const templateSource = isTemplateDocumentMimeType(document.file_type);
+      if (
+        templateSource &&
+        (!templateDocument || !participationResponsesLoaded || participationResponses.length === 0)
+      )
+        return;
+      void ensureFinalSignedPdf();
+      return;
+    }
+
+    const nom151AttemptKey = `${docId}:nom151`;
+    if (
+      padesBtVerified &&
+      nom151Ready &&
+      nom151LookupComplete &&
+      !nom151Data &&
+      !nom151Error &&
+      !nom151Polling &&
+      !nom151Generating &&
+      !artifactGenerationAttemptsRef.current.has(nom151AttemptKey)
+    ) {
+      artifactGenerationAttemptsRef.current.add(nom151AttemptKey);
+      void generateNom151({ silent: true });
+    }
+  }, [
+    docId,
+    document?.estado,
+    document?.file_type,
+    document?.owner_id,
+    document?.sealed_pdf_path,
+    ensureFinalSignedPdf,
+    generateNom151,
+    hasConfiguredSignatureFields,
+    nom151Data,
+    nom151Error,
+    nom151Generating,
+    nom151LookupComplete,
+    nom151Polling,
+    nom151Ready,
+    padesBtVerified,
+    participationResponses.length,
+    participationResponsesLoaded,
+    templateDocument,
+    user?.id,
+  ]);
 
   // Helper: render a field value correctly based on its type
   const renderFieldDisplayValue = (
@@ -5182,6 +5295,51 @@ export default function VisorDocumentoPage() {
     );
   }
 
+  const isTemplateOriginDocument = Boolean(
+    document.source_template_id ||
+      isTemplateDocumentMimeType(document.file_type) ||
+      templateDocument
+  );
+  const normalizedParticipantEmail = (email?: string | null) =>
+    String(email || '')
+      .trim()
+      .toLowerCase();
+  const templateParticipantEntries: Array<{
+    key: string;
+    participant: Participante | null;
+    response: ParticipationResponse | null;
+  }> = participantes.map((participant) => ({
+    key: participant.id,
+    participant,
+    response:
+      participationResponses.find(
+        (response) =>
+          (response.participante_id && response.participante_id === participant.id) ||
+          (normalizedParticipantEmail(response.participante_email) &&
+            normalizedParticipantEmail(response.participante_email) ===
+              normalizedParticipantEmail(participant.email))
+      ) || null,
+  }));
+  participationResponses.forEach((response, index) => {
+    const alreadyIncluded = templateParticipantEntries.some(
+      ({ participant }) =>
+        Boolean(
+          participant &&
+            ((response.participante_id && response.participante_id === participant.id) ||
+              (normalizedParticipantEmail(response.participante_email) &&
+                normalizedParticipantEmail(response.participante_email) ===
+                  normalizedParticipantEmail(participant.email)))
+        )
+    );
+    if (!alreadyIncluded) {
+      templateParticipantEntries.push({
+        key: response.participante_id || response.participante_email || `response-${index}`,
+        participant: null,
+        response,
+      });
+    }
+  });
+
   const allToolbarItems: {
     key: typeof activeTab;
     icon: React.ReactNode;
@@ -5200,6 +5358,16 @@ export default function VisorDocumentoPage() {
       title: 'Participantes',
       label: 'Participantes',
     },
+    ...(isTemplateOriginDocument
+      ? [
+          {
+            key: 'template-origin' as typeof activeTab,
+            icon: <LayoutTemplate size={20} />,
+            title: 'Detalle de la plantilla de origen',
+            label: 'Plantilla',
+          },
+        ]
+      : []),
     ...(packageReadiness.loaded && packageReadiness.hasContent
       ? [
           {
@@ -5232,7 +5400,10 @@ export default function VisorDocumentoPage() {
           },
         ]
       : []),
-    ...(document.estado === 'completado' && document.workspace_id
+    ...(luciaAvailability.loaded &&
+    luciaAvailability.enabled &&
+    document.estado === 'completado' &&
+    document.workspace_id
       ? [
           {
             key: 'lucia' as typeof activeTab,
@@ -5338,7 +5509,7 @@ export default function VisorDocumentoPage() {
 
     return (
       <div
-        className={`${modal ? 'absolute bottom-6 left-1/2 -translate-x-1/2 z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
+        className={`${modal ? 'relative z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
       >
         <div className="flex items-center gap-1 rounded-full border border-border bg-white/90 px-3 py-1.5 shadow-md backdrop-blur-sm select-none">
           <button
@@ -5439,7 +5610,7 @@ export default function VisorDocumentoPage() {
             )}
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-                <h1 className="truncate text-[15px] font-700 text-slate-950 md:text-base">
+              <h1 className="truncate text-[15px] font-600 text-slate-950 md:text-base">
                   {document.nombre}
                 </h1>
                 {(document.legal_hold === true || document.legal_hold_status === 'ACTIVE') && (
@@ -5447,7 +5618,7 @@ export default function VisorDocumentoPage() {
                 )}
                 {estadoInfo && (
                   <span
-                    className={`hidden flex-shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-700 uppercase md:inline-flex ${estadoInfo.bg} ${estadoInfo.color} border-current`}
+                    className={`hidden flex-shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-600 uppercase md:inline-flex ${estadoInfo.bg} ${estadoInfo.color} border-current`}
                   >
                     {estadoInfo.label}
                   </span>
@@ -5587,7 +5758,7 @@ export default function VisorDocumentoPage() {
           <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-gray-100">
             <div className="pointer-events-none absolute left-4 right-4 top-3 z-10 flex items-center justify-between">
               <div className="pointer-events-auto">
-                {!(templateDocument && document.estado !== 'completado') && (
+                {!isTemplateDocumentMimeType(document.file_type) && (
                   <button
                     onClick={() => setShowCampos((v) => !v)}
                     aria-pressed={showCampos}
@@ -5634,6 +5805,13 @@ export default function VisorDocumentoPage() {
                     onPageCountChange={handleTotalPages}
                   />
                 </div>
+              ) : isTemplateDocumentMimeType(document.file_type) &&
+                document.estado === 'completado' &&
+                !document.sealed_pdf_path ? (
+                <div className="flex h-full min-h-[360px] flex-col items-center justify-center gap-3 text-slate-500">
+                  <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+                  <p className="text-sm">Preparando PDF final...</p>
+                </div>
               ) : document.file_url ? (
                 <div className="flex min-h-full min-w-full items-start justify-center p-4 md:p-6">
                   <div className="relative flex-shrink-0 border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.12)]">
@@ -5643,7 +5821,9 @@ export default function VisorDocumentoPage() {
                       zoom={zoom}
                       onTotalPages={handleTotalPages}
                     >
-                      {showCampos && camposEnPaginaActual.length > 0 && (
+                      {showCampos &&
+                        !isTemplateDocumentMimeType(document.file_type) &&
+                        camposEnPaginaActual.length > 0 && (
                         <div
                           className="absolute inset-0 pointer-events-none"
                           style={{ zIndex: 10 }}
@@ -6004,12 +6184,12 @@ export default function VisorDocumentoPage() {
                                   >
                                     <div className="flex items-center gap-2 mb-2">
                                       <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-[10px] font-bold text-blue-600">
+                                        <span className="text-[10px] font-semibold text-blue-600">
                                           {initials}
                                         </span>
                                       </div>
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-bold text-foreground truncate">
+                                        <p className="text-xs font-medium text-foreground truncate">
                                           {p.nombre}
                                         </p>
                                         {p.email && (
@@ -6700,7 +6880,9 @@ export default function VisorDocumentoPage() {
                     participants={participantes}
                   />
                 </>
-              ) : activeTab === 'lucia' && document.workspace_id ? (
+              ) : activeTab === 'lucia' &&
+                luciaAvailability.enabled &&
+                document.workspace_id ? (
                 <>
                   <div className="viewer-panel-header">
                     <span className="viewer-panel-title">LucIA contractual</span>
@@ -6709,6 +6891,279 @@ export default function VisorDocumentoPage() {
                     documentId={document.id}
                     workspaceId={document.workspace_id}
                   />
+                </>
+              ) : activeTab === 'template-origin' && isTemplateOriginDocument ? (
+                <>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Detalle de plantilla</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3">
+                    <section className="rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-primary">
+                          <LayoutTemplate size={18} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="break-words text-sm font-semibold text-slate-900">
+                            {templateDocument?.nombre || document.nombre}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            Plantilla de origen
+                          </p>
+                        </div>
+                      </div>
+
+                      {templateDocument?.descripcion && (
+                        <p className="mt-3 whitespace-pre-wrap break-words text-xs leading-5 text-slate-600">
+                          {templateDocument.descripcion}
+                        </p>
+                      )}
+
+                      <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-100 pt-3">
+                        <div>
+                          <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                            Versión
+                          </dt>
+                          <dd className="mt-0.5 text-xs text-slate-700">
+                            {templateDocument?.version_publicada || 'Sin versión'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                            Estado
+                          </dt>
+                          <dd className="mt-0.5 text-xs capitalize text-slate-700">
+                            {templateDocument?.estado_plantilla ||
+                              templateDocument?.estado ||
+                              'No disponible'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                            Tipo de documento
+                          </dt>
+                          <dd className="mt-0.5 break-words text-xs text-slate-700">
+                            {templateDocument?.tipo_documento?.nombre || 'Sin clasificar'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                            Hoja
+                          </dt>
+                          <dd className="mt-0.5 text-xs text-slate-700">
+                            {templateDocument?.hoja_tamano || 'Sin especificar'}
+                            {templateDocument?.hoja_orientacion
+                              ? ` · ${templateDocument.hoja_orientacion}`
+                              : ''}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                            Campos
+                          </dt>
+                          <dd className="mt-0.5 text-xs text-slate-700">
+                            {effectiveCampos.length}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                            Participantes
+                          </dt>
+                          <dd className="mt-0.5 text-xs text-slate-700">
+                            {templateParticipantEntries.length}
+                          </dd>
+                        </div>
+                        {templateDocument?.updated_at && (
+                          <div className="col-span-2">
+                            <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                              Última actualización de la plantilla
+                            </dt>
+                            <dd className="mt-0.5 text-xs text-slate-700">
+                              {formatDate(templateDocument.updated_at)}
+                            </dd>
+                          </div>
+                        )}
+                      </dl>
+                    </section>
+
+                    <div className="mb-2 mt-5 flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        Información completada
+                      </h3>
+                      <span className="text-[10px] font-medium text-slate-400">
+                        Por participante
+                      </span>
+                    </div>
+
+                    {templateParticipantEntries.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-500">
+                        No hay participantes vinculados a este documento.
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {templateParticipantEntries.map(({ key, participant, response }, index) => {
+                          const participantName =
+                            participant?.nombre || response?.participante_nombre || 'Participante';
+                          const participantEmail =
+                            participant?.email || response?.participante_email || '';
+                          const completedFields = (response?.campos_completados || []).flatMap(
+                            (completed) => {
+                              const configuredField = effectiveCampos.find(
+                                (field) =>
+                                  (field.valueKey || field.id) === completed.campo_id ||
+                                  (!completed.campo_id && field.label === completed.label)
+                              );
+                              const signatureField = Boolean(
+                                configuredField && isConfiguredSignatureField(configuredField)
+                              );
+                              if (signatureField && !response?.firma_completada) return [];
+                              if (!signatureField && !completed.value) return [];
+                              return [
+                                {
+                                  key: completed.campo_id || `${completed.label}-${index}`,
+                                  label:
+                                    configuredField?.fieldConfig?.customName ||
+                                    completed.label ||
+                                    configuredField?.label ||
+                                    'Campo',
+                                  value: signatureField
+                                    ? 'Firma registrada'
+                                    : completed.value === 'true'
+                                      ? 'Sí'
+                                      : completed.value === 'false'
+                                        ? 'No'
+                                        : completed.value,
+                                },
+                              ];
+                            }
+                          );
+                          const hasSignatureField = completedFields.some(
+                            (field) => field.value === 'Firma registrada'
+                          );
+
+                          return (
+                            <article
+                              key={key}
+                              className="rounded-lg border border-slate-200 bg-white p-4"
+                            >
+                              <div className="flex items-start gap-3">
+                                <div
+                                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                                    AVATAR_COLORS[index % AVATAR_COLORS.length].bg
+                                  }`}
+                                >
+                                  <span
+                                    className={`text-xs font-semibold ${
+                                      AVATAR_COLORS[index % AVATAR_COLORS.length].text
+                                    }`}
+                                  >
+                                    {getInitials(participantName)}
+                                  </span>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="break-words text-xs font-semibold text-slate-900">
+                                    {formatDisplayName(participantName)}
+                                  </p>
+                                  {participantEmail && (
+                                    <p className="mt-0.5 break-all text-[11px] text-slate-500">
+                                      {participantEmail}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+
+                              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+                                <div>
+                                  <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                                    Acto
+                                  </dt>
+                                  <dd className="mt-0.5 text-xs text-slate-700">
+                                    {participant?.acto || 'Sin especificar'}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                                    Rol
+                                  </dt>
+                                  <dd className="mt-0.5 break-words text-xs text-slate-700">
+                                    {participant?.rolDocumento || 'Sin especificar'}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                                    Estado
+                                  </dt>
+                                  <dd className="mt-0.5 text-xs capitalize text-slate-700">
+                                    {participant?.sub_estado ||
+                                      participant?.estado ||
+                                      (response ? 'Respondido' : 'Pendiente')}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                                    Método de firma
+                                  </dt>
+                                  <dd className="mt-0.5 break-words text-xs text-slate-700">
+                                    {participant?.metodo_firma || 'No aplica'}
+                                  </dd>
+                                </div>
+                                {participant?.fecha_participacion && (
+                                  <div className="col-span-2">
+                                    <dt className="text-[10px] font-semibold uppercase text-slate-400">
+                                      Fecha de participación
+                                    </dt>
+                                    <dd className="mt-0.5 text-xs text-slate-700">
+                                      {formatDate(participant.fecha_participacion)}
+                                    </dd>
+                                  </div>
+                                )}
+                              </dl>
+
+                              <div className="mt-4 border-t border-slate-100 pt-3">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <p className="text-[10px] font-semibold uppercase text-slate-400">
+                                    Campos completados
+                                  </p>
+                                  <span className="text-[10px] text-slate-400">
+                                    {completedFields.length +
+                                      (response?.firma_completada && !hasSignatureField ? 1 : 0)}
+                                  </span>
+                                </div>
+                                {completedFields.length === 0 && !response?.firma_completada ? (
+                                  <p className="text-xs text-slate-500">
+                                    Este participante aún no ha completado campos.
+                                  </p>
+                                ) : (
+                                  <dl className="flex flex-col gap-2">
+                                    {completedFields.map((field) => (
+                                      <div key={field.key}>
+                                        <dt className="text-[10px] font-medium text-slate-500">
+                                          {field.label}
+                                        </dt>
+                                        <dd className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-5 text-slate-800">
+                                          {field.value}
+                                        </dd>
+                                      </div>
+                                    ))}
+                                    {response?.firma_completada && !hasSignatureField && (
+                                      <div>
+                                        <dt className="text-[10px] font-medium text-slate-500">
+                                          Firma
+                                        </dt>
+                                        <dd className="mt-0.5 text-xs text-emerald-700">
+                                          Firma registrada
+                                        </dd>
+                                      </div>
+                                    )}
+                                  </dl>
+                                )}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : activeTab === 'participants' ? (
                 /* ── Participants Panel ─────────────────────────────────── */
@@ -6755,12 +7210,12 @@ export default function VisorDocumentoPage() {
                                 <div
                                   className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${avatarColor.bg}`}
                                 >
-                                  <span className={`text-sm font-bold ${avatarColor.text}`}>
+                            <span className={`text-sm font-semibold ${avatarColor.text}`}>
                                     {initials}
                                   </span>
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-bold text-foreground leading-tight mb-1.5 break-words whitespace-normal">
+                          <p className="text-xs font-medium text-foreground leading-tight mb-1.5 break-words whitespace-normal">
                                     {p.nombre ? formatDisplayName(p.nombre) : 'Participante'}
                                   </p>
                                   {/* Main estado badge (terminal states) */}
@@ -6897,99 +7352,6 @@ export default function VisorDocumentoPage() {
                                   </div>
                                 </div>
                               )}
-                              {/* Participation response: signature + filled fields */}
-                              {(() => {
-                                const resp = participationResponses.find(
-                                  (r) => r.participante_email === p.email
-                                );
-                                if (!resp) return null;
-                                const hasSignature = resp.firma_data && resp.firma_completada;
-                                const hasFields =
-                                  resp.campos_completados && resp.campos_completados.length > 0;
-                                if (!hasSignature && !hasFields) return null;
-                                return (
-                                  <div className="mt-3 border-t border-slate-100 pt-3">
-                                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                                      Datos de participación
-                                    </p>
-                                    {hasSignature && (
-                                      <div className="mb-2">
-                                        <p className="text-[10px] font-medium text-slate-500 mb-1">
-                                          Firma registrada
-                                        </p>
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img
-                                          src={resp.firma_data!}
-                                          alt={`Firma de ${p.nombre}`}
-                                          className="max-w-full rounded border border-slate-200 bg-white"
-                                          style={{ maxHeight: '64px', objectFit: 'contain' }}
-                                        />
-                                      </div>
-                                    )}
-                                    {hasFields && (
-                                      <div className="flex flex-col gap-1">
-                                        {resp.campos_completados
-                                          .filter((c) => c.value)
-                                          .map((c, ci) => {
-                                            const isCheckbox =
-                                              c.value === 'true' || c.value === 'false';
-                                            return (
-                                              <div key={ci} className="flex items-start gap-1.5">
-                                                <span className="text-[10px] font-medium text-slate-500 shrink-0">
-                                                  {c.label}:
-                                                </span>
-                                                {isCheckbox ? (
-                                                  <span className="flex items-center gap-1">
-                                                    <span
-                                                      style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        width: '13px',
-                                                        height: '13px',
-                                                        border: `2px solid ${c.value === 'true' ? '#2dd4bf' : '#94a3b8'}`,
-                                                        borderRadius: '3px',
-                                                        background:
-                                                          c.value === 'true' ? '#2dd4bf' : '#fff',
-                                                        flexShrink: 0,
-                                                      }}
-                                                    >
-                                                      {c.value === 'true' && (
-                                                        <svg
-                                                          width="8"
-                                                          height="6"
-                                                          viewBox="0 0 9 7"
-                                                          fill="none"
-                                                        >
-                                                          <path
-                                                            d="M1 3.5L3.5 6L8 1"
-                                                            stroke="white"
-                                                            strokeWidth="1.5"
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                          />
-                                                        </svg>
-                                                      )}
-                                                    </span>
-                                                    <span className="text-[10px] text-slate-700">
-                                                      {c.value === 'true'
-                                                        ? 'Marcado'
-                                                        : 'No marcado'}
-                                                    </span>
-                                                  </span>
-                                                ) : (
-                                                  <span className="text-[10px] text-slate-700 break-words">
-                                                    {c.value}
-                                                  </span>
-                                                )}
-                                              </div>
-                                            );
-                                          })}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })()}
                               {/* Send Reminder button — only for pending/non-terminal participants with email */}
                               {isAuthenticatedParticipant && ownSignedResponse && (
                                 <button
@@ -7215,7 +7577,7 @@ export default function VisorDocumentoPage() {
                                 <div
                                   className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${avatarColor.bg}`}
                                 >
-                                  <span className={`text-[10px] font-bold ${avatarColor.text}`}>
+                              <span className={`text-[10px] font-semibold ${avatarColor.text}`}>
                                     {initials}
                                   </span>
                                 </div>
@@ -7537,7 +7899,7 @@ export default function VisorDocumentoPage() {
                                           <span className="text-[10px] text-muted-foreground">
                                             ·
                                           </span>
-                                          <span className="text-[10px] font-bold text-primary uppercase tracking-wide">
+                              <span className="text-[10px] font-semibold text-primary uppercase tracking-wide">
                                             {actorDisplay}
                                           </span>
                                         </>
@@ -7602,11 +7964,11 @@ export default function VisorDocumentoPage() {
                         <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
                           <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
                             <Shield size={15} className="text-primary" />
-                            <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                               Integridad y Evidencia Digital
                             </span>
                             <span
-                              className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                                 integralEvidenceVerified
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                   : padesBtVerified
@@ -7912,10 +8274,10 @@ export default function VisorDocumentoPage() {
                       {activeTab === 'auditoria' && (
                         <div className="rounded-xl border border-border bg-white shadow-sm">
                           <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                            <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                               Constancia de auditoría
                             </span>
-                            <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                            <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                               PDF
                             </span>
                           </div>
@@ -7960,11 +8322,11 @@ export default function VisorDocumentoPage() {
                           {/* ── 1. Documento derivado del proceso de firma ── */}
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                                 Documento firmado
                               </span>
                               <span
-                                className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                                   padesUiStatus === 'PAdES VERIFICADO'
                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                     : padesUiStatus === 'PAdES ERROR'
@@ -8199,10 +8561,10 @@ export default function VisorDocumentoPage() {
                           {/* ── 2. Documento Original ── */}
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                                 Documento Original
                               </span>
-                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                                 PDF
                               </span>
                             </div>
@@ -8233,10 +8595,10 @@ export default function VisorDocumentoPage() {
                           {/* ── 3. Constancia General de Firma ── */}
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                                 Constancia General de Firma
                               </span>
-                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                                 PDF
                               </span>
                             </div>
@@ -8267,11 +8629,11 @@ export default function VisorDocumentoPage() {
                           {/* ── 4. Constancia NOM-151 ── */}
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                                 Constancia NOM-151
                               </span>
                               <span
-                                className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                                   nom151Presentation.verificationStatus === 'verified'
                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                     : nom151Presentation.verificationStatus === 'failed'
@@ -8291,6 +8653,11 @@ export default function VisorDocumentoPage() {
                                       Constancia NOM-151 verificada
                                     </p>
                                   </div>
+                                  {!nom151Data.production_trusted && (
+                                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                      Emisión de desarrollo verificada técnicamente; no confirmada como constancia productiva.
+                                    </p>
+                                  )}
                                   <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -8403,11 +8770,11 @@ export default function VisorDocumentoPage() {
                         <>
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
-                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                                 Evidencia Blockchain
                               </span>
                               <span
-                                className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${blockchainEvidenceReady ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : blockchainEvidenceFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
+                                className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold ${blockchainEvidenceReady ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : blockchainEvidenceFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
                               >
                                 {blockchainEvidenceStatusLabel}
                               </span>
@@ -8731,7 +9098,7 @@ export default function VisorDocumentoPage() {
 
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
-                              <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                                 XML de Evidencia
                               </span>
                               <span
@@ -8876,19 +9243,19 @@ export default function VisorDocumentoPage() {
                       {activeTab === 'auditoria' && (
                         <div className="rounded-xl border border-border bg-white shadow-sm">
                           <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                            <span className="text-xs font-bold uppercase tracking-wide text-foreground">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                               Paquete de Evidencia
                             </span>
                             {evidenceV2?.packageAvailable ? (
-                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
+                              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
                                 Disponible
                               </span>
                             ) : evidenceV2Loading || evidenceV2?.state === 'generating' ? (
-                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                                 Preparando…
                               </span>
                             ) : (
-                              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                                 Pendiente
                               </span>
                             )}
@@ -9267,7 +9634,7 @@ export default function VisorDocumentoPage() {
                 Cerrar
               </button>
             </div>
-            <div className="relative flex flex-1 items-start justify-center overflow-auto p-6">
+            <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto p-6">
               {templateDocument && document.estado !== 'completado' ? (
                 <TemplateDocumentPreview
                   template={templateDocument}
@@ -9277,6 +9644,13 @@ export default function VisorDocumentoPage() {
                   title={`Documento de plantilla ${document.nombre}`}
                   onPageCountChange={handleTotalPages}
                 />
+              ) : isTemplateDocumentMimeType(document.file_type) &&
+                document.estado === 'completado' &&
+                !document.sealed_pdf_path ? (
+                <div className="flex h-full min-h-[360px] flex-col items-center justify-center gap-3 text-slate-500">
+                  <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+                  <p className="text-sm">Preparando PDF final...</p>
+                </div>
               ) : (
                 <div className="relative flex-shrink-0 border border-slate-700 bg-white shadow-[0_18px_48px_rgba(0,0,0,0.35)]">
                   <PdfCanvas
@@ -9285,7 +9659,9 @@ export default function VisorDocumentoPage() {
                     zoom={zoom}
                     onTotalPages={handleTotalPages}
                   >
-                    {showCampos && camposEnPaginaActual.length > 0 && (
+                    {showCampos &&
+                      !isTemplateDocumentMimeType(document.file_type) &&
+                      camposEnPaginaActual.length > 0 && (
                       <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
                         {camposEnPaginaActual.map((campo, idx) =>
                           renderCampoOverlay(campo, idx, 'modal')
@@ -9295,6 +9671,8 @@ export default function VisorDocumentoPage() {
                   </PdfCanvas>
                 </div>
               )}
+            </div>
+            <div className="flex h-16 flex-shrink-0 items-center justify-center border-t border-slate-200 bg-white px-4">
               {renderPaginationBar(true)}
             </div>
           </div>
@@ -9305,7 +9683,7 @@ export default function VisorDocumentoPage() {
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
               <div className="p-6">
-                <h3 className="text-base font-bold text-foreground mb-1">Rechazar documento</h3>
+              <h3 className="text-base font-semibold text-foreground mb-1">Rechazar documento</h3>
                 <p className="text-sm text-muted-foreground mb-4">Indica el motivo del rechazo</p>
                 {!rejectConfirmStep ? (
                   <>
@@ -9395,7 +9773,7 @@ export default function VisorDocumentoPage() {
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
               <div className="p-6">
-                <h3 className="text-base font-bold text-foreground mb-1">Solicitar cambios</h3>
+              <h3 className="text-base font-semibold text-foreground mb-1">Solicitar cambios</h3>
                 <p className="text-sm text-muted-foreground mb-4">Indica qué cambios necesitas</p>
                 <div className="mb-3">
                   <label className="text-xs font-semibold text-foreground mb-1 block">
@@ -9455,7 +9833,7 @@ export default function VisorDocumentoPage() {
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
               <div className="p-6">
-                <h3 className="text-base font-bold text-foreground mb-1">Cancelar documento</h3>
+              <h3 className="text-base font-semibold text-foreground mb-1">Cancelar documento</h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   Esta acción cancelará el proceso de firma
                 </p>

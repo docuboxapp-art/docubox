@@ -194,7 +194,7 @@ function NotificationDetailModal({
             <div className="min-w-0">
               <h2
                 id="notification-detail-title"
-                className="text-base font-700 leading-snug text-slate-950 dark:text-white"
+                className="text-base font-600 leading-snug text-slate-950 dark:text-white"
               >
                 {n.title}
               </h2>
@@ -530,7 +530,7 @@ function NotificationsContent() {
           {/* Header */}
           <header className="mb-5 flex flex-col gap-4 border-b border-slate-200/80 pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
-              <h1 className="text-2xl font-700 tracking-normal text-slate-950 dark:text-white">
+              <h1 className="text-2xl font-600 tracking-normal text-slate-950 dark:text-white">
                 Notificaciones
               </h1>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -673,7 +673,7 @@ function NotificationsContent() {
                   >
                     <span>{t.label}</span>
                     <span
-                      className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-700 tabular-nums ${
+                      className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-600 tabular-nums ${
                         tab === t.key
                           ? 'bg-[#1E6BFF]/10 text-[#1E6BFF]'
                           : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
@@ -833,7 +833,7 @@ function NotificationsContent() {
                       </div>
                       <div className="min-w-0">
                         <p
-                          className={`flex items-center gap-2 text-sm leading-tight text-slate-800 dark:text-slate-100 ${!n.read ? 'font-700' : 'font-500'}`}
+                          className={`flex items-center gap-2 text-sm leading-tight text-slate-800 dark:text-slate-100 ${!n.read ? 'font-600' : 'font-500'}`}
                         >
                           <button
                             onClick={(event) => {

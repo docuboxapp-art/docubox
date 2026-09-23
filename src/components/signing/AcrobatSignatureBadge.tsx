@@ -35,7 +35,7 @@ export default function AcrobatSignatureBadge({
       >
         {/* Encabezado */}
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-green-600 text-lg font-bold">✓</span>
+          <span className="text-green-600 text-lg font-semibold">✓</span>
           <h3 className="text-green-800 font-semibold text-sm">
             Firma pendiente de verificación independiente
           </h3>

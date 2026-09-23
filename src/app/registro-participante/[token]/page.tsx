@@ -753,7 +753,7 @@ export default function RegistroParticipantePage() {
           <div className="w-24 h-24 rounded-full bg-white/20 flex items-center justify-center mb-2">
             <CheckCircle2 size={52} className="text-white" />
           </div>
-          <h1 className="text-3xl font-bold">¡Registro exitoso!</h1>
+          <h1 className="text-3xl font-semibold">¡Registro exitoso!</h1>
           <p className="text-emerald-100 text-lg">
             Tu cuenta ha sido creada y verificada correctamente.
           </p>
@@ -794,7 +794,7 @@ export default function RegistroParticipantePage() {
                 router.push('/login');
               }
             }}
-            className="mt-2 bg-white text-emerald-600 font-bold px-8 py-3 rounded-xl hover:bg-emerald-50 transition-colors duration-200 text-sm"
+            className="mt-2 bg-white text-emerald-600 font-semibold px-8 py-3 rounded-xl hover:bg-emerald-50 transition-colors duration-200 text-sm"
           >
             {participantData?.documentId ? 'Ver documento' : 'Ir al inicio de sesión'}
           </button>
@@ -831,7 +831,7 @@ export default function RegistroParticipantePage() {
                 <AlertCircle size={20} className="text-amber-600" />
               </div>
               <div>
-                <h2 className="text-base font-bold text-amber-900">Correo ya registrado</h2>
+                <h2 className="text-base font-semibold text-amber-900">Correo ya registrado</h2>
                 <p className="text-sm text-amber-700 mt-0.5">
                   Este correo electrónico ya tiene una cuenta en DocuBox.
                 </p>
@@ -879,8 +879,8 @@ export default function RegistroParticipantePage() {
       {/* Step 1: Contacto */}
       <div>
         <div className="flex items-center gap-2 mb-4">
-          <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold flex-shrink-0">1</div>
-          <h3 className="text-base font-bold text-foreground">Contacto</h3>
+          <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center text-xs font-semibold flex-shrink-0">1</div>
+          <h3 className="text-base font-semibold text-foreground">Contacto</h3>
         </div>
         <div className="space-y-4 pl-8">
           {/* Email — read only */}
@@ -946,8 +946,8 @@ export default function RegistroParticipantePage() {
       {/* Step 2: Tipo de cuenta */}
       <div>
         <div className="flex items-center gap-2 mb-4">
-          <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold flex-shrink-0">2</div>
-          <h3 className="text-base font-bold text-foreground">Tipo de cuenta</h3>
+          <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center text-xs font-semibold flex-shrink-0">2</div>
+          <h3 className="text-base font-semibold text-foreground">Tipo de cuenta</h3>
         </div>
         <div className="pl-8">
           <div className="flex items-start gap-4 p-4 rounded-xl border-2 border-primary bg-primary/5">
@@ -956,7 +956,7 @@ export default function RegistroParticipantePage() {
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <p className="font-bold text-base text-foreground">Personal</p>
+                <p className="font-semibold text-base text-foreground">Personal</p>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/15 text-primary">Seleccionado</span>
               </div>
               <p className="text-sm text-muted-foreground mt-0.5">Para uso individual, freelancers y profesionistas independientes.</p>
@@ -974,8 +974,8 @@ export default function RegistroParticipantePage() {
       {/* Step 3: Personalidad */}
       <div>
         <div className="flex items-center gap-2 mb-4">
-          <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold flex-shrink-0">3</div>
-          <h3 className="text-base font-bold text-foreground">Personalidad</h3>
+          <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center text-xs font-semibold flex-shrink-0">3</div>
+          <h3 className="text-base font-semibold text-foreground">Personalidad</h3>
         </div>
         <div className="pl-8">
           {participantData?.tipoPersona === 'moral' ? (
@@ -985,7 +985,7 @@ export default function RegistroParticipantePage() {
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="font-bold text-base text-foreground">Persona Moral</p>
+                  <p className="font-semibold text-base text-foreground">Persona Moral</p>
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/15 text-primary">RFC empresarial</span>
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5">Entidad jurídica como empresa, asociación o sociedad.</p>
@@ -1001,7 +1001,7 @@ export default function RegistroParticipantePage() {
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="font-bold text-base text-foreground">Persona Física</p>
+                  <p className="font-semibold text-base text-foreground">Persona Física</p>
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/15 text-primary">RFC con CURP</span>
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5">Individuo que actúa en nombre propio.</p>
@@ -1099,7 +1099,7 @@ export default function RegistroParticipantePage() {
       <div className="space-y-6">
         {/* Identity section */}
         <div>
-          <h3 className="text-base font-bold text-foreground mb-1">Acredita tu Identidad</h3>
+          <h3 className="text-base font-semibold text-foreground mb-1">Acredita tu Identidad</h3>
           <p className="text-sm text-muted-foreground mb-4">Verifica tu identidad para activar tu cuenta</p>
 
           {/* Method selection */}
@@ -1119,7 +1119,7 @@ export default function RegistroParticipantePage() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <p className="font-bold text-sm text-foreground">{opt.title}</p>
+                        <p className="font-semibold text-sm text-foreground">{opt.title}</p>
                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${opt.badgeColor}`}>{opt.badge}</span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
@@ -1151,7 +1151,7 @@ export default function RegistroParticipantePage() {
               </button>
               <div className="flex items-center gap-2 justify-center">
                 <FileKey size={16} className="text-primary" />
-                <h4 className="text-sm font-bold text-foreground">Archivos e.Firma</h4>
+                <h4 className="text-sm font-semibold text-foreground">Archivos e.Firma</h4>
               </div>
               <FileUploadZone label="Certificado (.cer)" accept=".cer" file={data.cerFile} onFile={(f) => update({ cerFile: f })} icon={<Upload size={18} />} />
               <FileUploadZone label="Llave privada (.key)" accept=".key" file={data.keyFile} onFile={(f) => update({ keyFile: f })} icon={<Lock size={18} />} />
@@ -1170,7 +1170,7 @@ export default function RegistroParticipantePage() {
                 </div>
               )}
               <button onClick={handleValidateEfirma} disabled={!data.cerFile || !data.keyFile || !data.efirmaPassword || isValidating}
-                className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
+                className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
                 {isValidating ? <><RefreshCw size={14} className="animate-spin" /> Validando...</> : <><Shield size={14} /> Validar e.Firma</>}
               </button>
             </div>
@@ -1184,14 +1184,14 @@ export default function RegistroParticipantePage() {
                   <CheckCircle2 size={20} className="text-emerald-600" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-foreground">e.Firma Validada</h4>
+                  <h4 className="text-sm font-semibold text-foreground">e.Firma Validada</h4>
                   <p className="text-xs text-muted-foreground">Certificado verificado correctamente</p>
                 </div>
               </div>
               {data.efirmaValidationResult.curpResult && (
                 <div className="border border-border rounded-xl overflow-hidden">
                   <div className="bg-muted/40 px-4 py-2 border-b border-border">
-                    <p className="text-xs font-bold text-foreground">Información Personal</p>
+                    <p className="text-xs font-semibold text-foreground">Información Personal</p>
                   </div>
                   <div className="p-3 grid grid-cols-2 gap-x-4 gap-y-3">
                     <div><p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">NOMBRE</p><p className="text-sm font-semibold text-foreground">{data.efirmaValidationResult.curpResult.nombre || '—'}</p></div>
@@ -1209,7 +1209,7 @@ export default function RegistroParticipantePage() {
                 <ArrowLeft size={14} /> Cambiar método
               </button>
               <div className="flex flex-col items-center gap-3">
-                <div className="flex items-center gap-2"><QrCode size={16} className="text-primary" /><h4 className="text-sm font-bold text-foreground">Código QR de enrolamiento</h4></div>
+                <div className="flex items-center gap-2"><QrCode size={16} className="text-primary" /><h4 className="text-sm font-semibold text-foreground">Código QR de enrolamiento</h4></div>
                 <div className="bg-white border-2 border-border rounded-xl p-4 flex flex-col items-center gap-3 w-full">
                   {qrLoading ? (
                     <div className="w-40 h-40 flex items-center justify-center"><Loader2 size={32} className="text-primary animate-spin" /></div>
@@ -1260,13 +1260,13 @@ export default function RegistroParticipantePage() {
                   <CheckCircle2 size={20} className="text-emerald-600" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-foreground">Identidad Verificada</h4>
+                  <h4 className="text-sm font-semibold text-foreground">Identidad Verificada</h4>
                   <p className="text-xs text-muted-foreground">Enrolamiento biométrico completado</p>
                 </div>
               </div>
               <div className="border border-border rounded-xl overflow-hidden">
                 <div className="bg-muted/40 px-4 py-2 border-b border-border">
-                  <p className="text-xs font-bold text-foreground">Información Personal</p>
+                  <p className="text-xs font-semibold text-foreground">Información Personal</p>
                 </div>
                 <div className="p-3 grid grid-cols-2 gap-x-4 gap-y-3">
                   <div><p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">NOMBRE</p><p className="text-sm font-semibold text-foreground">{enrollmentResult.nombre || '—'}</p></div>
@@ -1303,7 +1303,7 @@ export default function RegistroParticipantePage() {
                 handleConfirmAndRegister();
               }}
               disabled={!data.acceptTerms || isRegistering}
-              className="w-full py-3 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full py-3 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isRegistering ? <><Loader2 size={16} className="animate-spin" /> Registrando...</> : <><CheckCircle2 size={16} /> Completar registro</>}
             </button>
@@ -1348,7 +1348,7 @@ export default function RegistroParticipantePage() {
             {WIZARD_PAGES.map((page, idx) => (
               <React.Fragment key={page.id}>
                 <div className="flex flex-col items-center gap-1.5">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300 ${
                     page.id < currentPage ? 'bg-primary text-white' : page.id === currentPage ? 'bg-primary text-white ring-4 ring-primary/20' : 'bg-muted text-muted-foreground'
                   }`}>
                     {page.id < currentPage ? <Check size={14} strokeWidth={3} /> : page.id}
@@ -1376,7 +1376,7 @@ export default function RegistroParticipantePage() {
           <div className="bg-white rounded-2xl shadow-modal border border-border/50 overflow-hidden">
             {/* Card header */}
             <div className="px-7 pt-7 pb-5 border-b border-border/50">
-              <h1 className="text-xl font-bold text-foreground">{pageTitles[currentPage]?.title}</h1>
+              <h1 className="text-xl font-semibold text-foreground">{pageTitles[currentPage]?.title}</h1>
               <p className="text-sm text-muted-foreground mt-1">{pageTitles[currentPage]?.subtitle}</p>
             </div>
 

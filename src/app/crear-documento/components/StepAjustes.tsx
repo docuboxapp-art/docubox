@@ -57,6 +57,7 @@ import {
   getTemplatePageDimensions,
   type PublishedTemplateDocument,
 } from '@/lib/templates/preview';
+import { STAMP_SIZE_PRESETS } from '@/lib/signatures/stamp-sizing';
 
 // ── Participant user data cache ───────────────────────────────────────────────
 interface ParticipantUserData {
@@ -66,6 +67,16 @@ interface ParticipantUserData {
   email?: string;
   telefono?: string;
   direccion?: string;
+}
+
+function normalizeParticipantFieldLabel(value: unknown) {
+  return String(value || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
 }
 
 type TemplateInsertedField = {
@@ -210,7 +221,7 @@ function FieldLabelConfigModal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-1">
-          <h3 className="text-lg font-bold text-gray-900">Configuración del Campo</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Configuración del Campo</h3>
         </div>
         <p className="text-sm text-gray-500 mb-5">
           Personaliza el nombre y la visibilidad de la etiqueta para este campo.
@@ -337,7 +348,7 @@ function FieldTypeConfigModal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-1">
-          <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
         </div>
         <p className="text-sm text-gray-500 mb-5">
           Configura las opciones específicas para este tipo de campo.
@@ -543,7 +554,7 @@ function CasillaLabelModal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-1">
-          <h3 className="text-lg font-bold text-gray-900">
+          <h3 className="text-lg font-semibold text-gray-900">
             Editar Etiqueta para &quot;Casilla&quot;
           </h3>
         </div>
@@ -722,7 +733,7 @@ function DropdownOptionsModal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-1">
-          <h3 className="text-lg font-bold text-gray-900">
+          <h3 className="text-lg font-semibold text-gray-900">
             Editar Opciones para &quot;{fieldLabel}&quot;
           </h3>
         </div>
@@ -852,21 +863,30 @@ function PlacedFieldWidget({
   const isFirma = field.label === 'Firma';
   const isCryptographic = field.placementKind === 'cryptographic' || !!field.cryptographicType;
   const isCasilla = field.label === 'Casilla' || field.casillaLabel !== undefined;
-  const isNombreCompleto = field.label === 'Nombre Completo';
-  const isRFC = field.label === 'RFC';
-  const isCURP = field.label === 'CURP';
-  const isCorreo = field.label === 'Correo Electrónico';
-  const isTelefono = field.label === 'Número Telefónico';
-  const isDireccion = field.label === 'Dirección';
+  const participantFieldLabel = normalizeParticipantFieldLabel(field.label);
+  const isNombreCompleto = participantFieldLabel === 'nombre completo';
+  const isRFC = participantFieldLabel === 'rfc';
+  const isCURP = participantFieldLabel === 'curp';
+  const isCorreo = ['correo electronico', 'correo', 'email'].includes(participantFieldLabel);
+  const isTelefono = ['numero telefonico', 'telefono', 'phone'].includes(participantFieldLabel);
+  const isDireccion = ['direccion', 'address'].includes(participantFieldLabel);
   const hasTypeConfigOption = hasTypeConfig(field.label);
   const minDimensions =
     field.cryptographicType === 'document_chain'
       ? { width: 60, height: 14 }
-      : field.cryptographicType === 'document_seal'
-        ? { width: 60, height: 22 }
-        : isFirma
-          ? { width: 24, height: 8 }
+        : field.cryptographicType === 'document_seal'
+          ? { width: 60, height: 22 }
           : { width: 5, height: 3 };
+
+  const applySuggestedStampSize = (width: number, height: number) => {
+    const centerX = field.x + field.width / 2;
+    const centerY = field.y + field.height / 2;
+    const nextWidth = Math.min(width, 100);
+    const nextHeight = Math.min(height, 100);
+    const nextX = Math.max(0, Math.min(100 - nextWidth, centerX - nextWidth / 2));
+    const nextY = Math.max(0, Math.min(100 - nextHeight, centerY - nextHeight / 2));
+    onResize(field.id, nextWidth, nextHeight, nextX, nextY);
+  };
 
   const colorHex = field.colorHex || '#2dd4bf';
 
@@ -1225,6 +1245,34 @@ function PlacedFieldWidget({
             )}
 
             {!isFirma && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
+
+            {isFirma && (
+              <select
+                value=""
+                onChange={(event) => {
+                  const preset = STAMP_SIZE_PRESETS.find(
+                    (candidate) => candidate.id === event.target.value
+                  );
+                  if (preset) {
+                    applySuggestedStampSize(preset.widthPercent, preset.heightPercent);
+                  }
+                }}
+                aria-label="Aplicar tamaño sugerido para la estampa"
+                title="Tamaños sugeridos. La estampa también se adapta a medidas personalizadas."
+                className="max-w-32 cursor-pointer rounded border border-gray-200 bg-white px-1.5 py-1 text-[10px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-teal-400"
+              >
+                <option value="" disabled>
+                  Tamaño sugerido
+                </option>
+                {STAMP_SIZE_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label} · {preset.widthPercent} × {preset.heightPercent}%
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {isFirma && <div className="w-px h-4 bg-gray-200 mx-0.5" />}
 
             {/* Delete */}
             <button
@@ -2164,6 +2212,21 @@ export function StepAjustes({
   const [participantUserData, setParticipantUserData] = useState<
     Record<string, ParticipantUserData>
   >({});
+  const resolvedParticipantUserData = useMemo(() => {
+    const resolved: Record<string, ParticipantUserData> = {};
+    participants.forEach((participant) => {
+      resolved[participant.id] = {
+        nombre_completo: participant.name,
+        rfc: participant.rfc,
+        curp: participant.curp,
+        email: participant.email,
+        telefono: participant.phone,
+        direccion: participant.direccion,
+        ...(participantUserData[participant.id] || {}),
+      };
+    });
+    return resolved;
+  }, [participantUserData, participants]);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const docSheetRef = useRef<HTMLDivElement>(null);
   const cryptoPlacementEnabled =
@@ -2325,14 +2388,14 @@ export function StepAjustes({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placedFields, documentoId]);
 
-  // Fetch user data for the current user (first participant = "yo")
+  // Fetch the creator's profile and bind it only to that participant.
   useEffect(() => {
     if (!user?.id) return;
     const fetchUserData = async () => {
       const { data } = await supabase
         .from('user_profiles')
         .select(
-          'full_name, rfc, curp, email, telefono, calle, num_exterior, num_interior, colonia, municipio, estado, codigo_postal'
+          'full_name, rfc, curp, email, telefono, calle, num_exterior, num_interior, colonia, municipio, estado, codigo_postal, efirma_rfc, efirma_nombre'
         )
         .eq('id', user.id)
         .maybeSingle();
@@ -2350,22 +2413,25 @@ export function StepAjustes({
         const direccion = addressParts.length > 0 ? addressParts.join(', ') : undefined;
 
         const userData: ParticipantUserData = {
-          nombre_completo: data.full_name,
-          rfc: data.rfc,
+          nombre_completo: data.full_name || data.efirma_nombre,
+          rfc: data.rfc || data.efirma_rfc,
           curp: data.curp,
           email: data.email,
           telefono: data.telefono,
           direccion,
         };
 
-        // Map user data to the first real participant (creator) if participants are loaded,
-        // otherwise fall back to the default placeholder id
-        const targetParticipants = participants.length > 0 ? participants : [{ id: 'default-1' }];
-        const firstParticipant = targetParticipants[0];
-        if (firstParticipant) {
+        const currentParticipant =
+          participants.find(
+            (participant) =>
+              participant.id === 'current-user' ||
+              participant.id === user.id ||
+              (user.email && participant.email.toLowerCase() === user.email.toLowerCase())
+          ) || (participants.length === 0 ? { id: 'default-1' } : null);
+        if (currentParticipant) {
           setParticipantUserData((prev) => ({
             ...prev,
-            [firstParticipant.id]: userData,
+            [currentParticipant.id]: userData,
           }));
         }
       }
@@ -2762,7 +2828,7 @@ export function StepAjustes({
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-base font-700 text-slate-950">
+                <h2 className="text-base font-600 text-slate-950">
                   Asignar campos de la plantilla
                 </h2>
                 <p className="mt-1 text-sm leading-5 text-slate-500">
@@ -2943,7 +3009,7 @@ export function StepAjustes({
           className={`${templateSource ? 'hidden' : ''} rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]`}
         >
           <div className="mb-4">
-            <h2 className="text-base font-700 text-slate-950">Configuración de campos</h2>
+            <h2 className="text-base font-600 text-slate-950">Configuración de campos</h2>
             <p className="mt-1 text-sm leading-5 text-slate-500">
               Define si los participantes deben completar información dentro del documento.
             </p>
@@ -3010,7 +3076,7 @@ export function StepAjustes({
         {standardFieldPlacementEnabled && !templateSource && (
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div className="mb-3">
-              <h2 className="text-base font-700 text-slate-950">Campos por participante</h2>
+              <h2 className="text-base font-600 text-slate-950">Campos por participante</h2>
               <p className="mt-1 text-sm leading-5 text-slate-500">
                 Selecciona una persona y coloca los campos que deberá completar.
               </p>
@@ -3171,7 +3237,7 @@ export function StepAjustes({
             {standardPlacedFields.length > 0 && (
               <div className="mt-4 border-t border-gray-100 pt-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-gray-900">
+                <h3 className="text-sm font-semibold text-gray-900">
                     Campos colocados ({standardPlacedFields.length})
                   </h3>
                   <button
@@ -3221,7 +3287,7 @@ export function StepAjustes({
         {cryptoPlacementEnabled && (
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div className="mb-4">
-              <h2 className="text-base font-700 text-slate-950">Cadena original y sello digital</h2>
+              <h2 className="text-base font-600 text-slate-950">Cadena original y sello digital</h2>
               <p className="mt-1 text-sm leading-5 text-slate-500">
                 Coloca al menos uno de los campos en el documento. Sus valores reales se generan y
                 firman al completar el proceso.
@@ -3268,7 +3334,7 @@ export function StepAjustes({
             {placedFields.some((field) => field.placementKind === 'cryptographic') && (
               <div className="mt-4 border-t border-slate-100 pt-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-900">Elementos colocados</h3>
+              <h3 className="text-sm font-semibold text-slate-900">Elementos colocados</h3>
                   <span className="text-xs text-slate-400">Se requiere al menos un campo</span>
                 </div>
                 <div className="space-y-1.5">
@@ -3304,7 +3370,7 @@ export function StepAjustes({
         {showDeleteConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-3">¿Eliminar todos los campos?</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">¿Eliminar todos los campos?</h3>
               <p className="text-sm text-gray-600 mb-6">
                 Estás a punto de desactivar la fijación de campos. Esta acción eliminará
                 permanentemente todos los campos que has colocado en el documento. ¿Deseas
@@ -3341,7 +3407,7 @@ export function StepAjustes({
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-full overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
-            <h2 className="text-base font-700 text-slate-950">Vista previa del documento</h2>
+            <h2 className="text-base font-600 text-slate-950">Vista previa del documento</h2>
             <div className="flex items-center gap-2">
               {canPlaceFields && (
                 <span className="mr-2 rounded-md bg-primary/10 px-2.5 py-1 text-xs font-600 text-primary">
@@ -3509,7 +3575,9 @@ export function StepAjustes({
                       )
                     }
                     userData={
-                      field.participantId ? participantUserData[field.participantId] : undefined
+                      field.participantId
+                        ? resolvedParticipantUserData[field.participantId]
+                        : undefined
                     }
                   />
                 ))}

@@ -96,7 +96,7 @@ function SuccessCheckmark({ size = 48 }: { size?: number }) {
 
 function PrimaryBtn({ onClick, disabled, children }: { onClick?: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} disabled={disabled} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: disabled ? '#d1d5db' : BRAND.blueGradient, color: '#fff', fontWeight: 700, fontSize: 15, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: disabled ? 0.6 : 1 }}>
+    <button onClick={onClick} disabled={disabled} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: disabled ? '#d1d5db' : BRAND.blueGradient, color: '#fff', fontWeight: 600, fontSize: 15, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: disabled ? 0.6 : 1 }}>
       {children}
     </button>
   );
@@ -291,13 +291,13 @@ function IdScannerScreen({
       {showTimeoutMsg && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
           <Loader2 size={40} color="#f59e0b" style={{ animation: 'spin 1s linear infinite' }} />
-          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 700, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
+          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 600, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
           <p style={{ color: '#fcd34d', fontSize: 14, textAlign: 'center', margin: 0, lineHeight: 1.5 }}>Se repetirá el proceso automáticamente en unos segundos...</p>
         </div>
       )}
       {retryCount > 0 && retryCount < MAX_RETRY_ATTEMPTS && (
         <div style={{ position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 16px))', right: 16, background: 'rgba(245,158,11,0.9)', borderRadius: 20, padding: '4px 10px', zIndex: 30 }}>
-          <p style={{ color: '#fff', fontSize: 11, fontWeight: 700, margin: 0 }}>Intento {retryCount}/{MAX_RETRY_ATTEMPTS}</p>
+          <p style={{ color: '#fff', fontSize: 11, fontWeight: 600, margin: 0 }}>Intento {retryCount}/{MAX_RETRY_ATTEMPTS}</p>
         </div>
       )}
       {isAndroid && cameraStarted && !captured && (
@@ -355,13 +355,13 @@ function IdScannerScreen({
             <button onClick={handleRetry} style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <RefreshCw size={15} /> Repetir
             </button>
-            <button onClick={handleUsePhoto} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
+            <button onClick={handleUsePhoto} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 600, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
               {side === 'anverso' ? 'Usar foto — Continuar al reverso' : 'Usar foto — Continuar'}
             </button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button onClick={handleCapture} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 700, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: !isReady ? 'none' : '0 2px 12px rgba(0,0,0,0.3)' }}>
+            <button onClick={handleCapture} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 600, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: !isReady ? 'none' : '0 2px 12px rgba(0,0,0,0.3)' }}>
               {!isReady ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Cargando cámara...</> : <><span style={{ width: 14, height: 14, borderRadius: '50%', background: '#ef4444', display: 'inline-block', flexShrink: 0 }} /> Capturar Foto</>}
             </button>
             <button onClick={handleBack} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -419,7 +419,7 @@ function PassportScannerScreen({ onCapture, onBack }: { onCapture: (img: string)
       {showTimeoutMsg && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
           <Loader2 size={40} color="#f59e0b" style={{ animation: 'spin 1s linear infinite' }} />
-          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 700, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
+          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 600, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
           <p style={{ color: '#fcd34d', fontSize: 14, textAlign: 'center', margin: 0, lineHeight: 1.5 }}>Se repetirá el proceso automáticamente en unos segundos...</p>
         </div>
       )}
@@ -467,13 +467,13 @@ function PassportScannerScreen({ onCapture, onBack }: { onCapture: (img: string)
             <button onClick={() => { setCaptured(null); startCamera(); }} style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <RefreshCw size={15} /> Repetir
             </button>
-            <button onClick={() => onCapture(captured)} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
+            <button onClick={() => onCapture(captured)} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 600, fontSize: 14, border: 'none', cursor: 'pointer' }}>
               Usar foto — Continuar
             </button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button onClick={handleCapture} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 700, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <button onClick={handleCapture} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 600, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               {!isReady ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Cargando cámara...</> : <><Camera size={18} /> Capturar Foto</>}
             </button>
             <button onClick={() => { stopCamera(); onBack(); }} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -649,13 +649,13 @@ function SelfieCaptureScreen({ onCapture, onBack }: { onCapture: (img: string, v
       {showTimeoutMsg && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
           <Loader2 size={40} color="#f59e0b" style={{ animation: 'spin 1s linear infinite' }} />
-          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 700, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
+          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 600, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
           <p style={{ color: '#fcd34d', fontSize: 14, textAlign: 'center', margin: 0, lineHeight: 1.5 }}>Se repetirá el proceso automáticamente en unos segundos...</p>
         </div>
       )}
       {retryCount > 0 && (
         <div style={{ position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 16px))', left: 16, background: 'rgba(245,158,11,0.9)', borderRadius: 20, padding: '4px 10px', zIndex: 30 }}>
-          <p style={{ color: '#fff', fontSize: 11, fontWeight: 700, margin: 0 }}>Intento {retryCount + 1}/{MAX_RETRY_ATTEMPTS}</p>
+          <p style={{ color: '#fff', fontSize: 11, fontWeight: 600, margin: 0 }}>Intento {retryCount + 1}/{MAX_RETRY_ATTEMPTS}</p>
         </div>
       )}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 'max(56px, calc(env(safe-area-inset-top, 0px) + 48px))', paddingBottom: 16, textAlign: 'center', paddingLeft: 24, paddingRight: 24, zIndex: 30 }}>
@@ -694,7 +694,7 @@ function SelfieCaptureScreen({ onCapture, onBack }: { onCapture: (img: string, v
               </div>
             )}
             {isRecording && (
-              <div key={currentStep.id} style={{ animation: 'instructionPop 0.3s ease', color: '#fff', fontSize: 'clamp(14px, 4vw, 17px)', fontWeight: 700, textAlign: 'center', textShadow: '0 2px 8px rgba(0,0,0,0.8)', padding: '8px 16px', borderRadius: 12, background: 'rgba(59,130,246,0.75)', backdropFilter: 'blur(4px)', maxWidth: 320 }}>
+              <div key={currentStep.id} style={{ animation: 'instructionPop 0.3s ease', color: '#fff', fontSize: 'clamp(14px, 4vw, 17px)', fontWeight: 600, textAlign: 'center', textShadow: '0 2px 8px rgba(0,0,0,0.8)', padding: '8px 16px', borderRadius: 12, background: 'rgba(59,130,246,0.75)', backdropFilter: 'blur(4px)', maxWidth: 320 }}>
                 {currentStep.text}
               </div>
             )}
@@ -726,7 +726,7 @@ function SelfieCaptureScreen({ onCapture, onBack }: { onCapture: (img: string, v
             <button onClick={handleRetry} disabled={retryCount >= MAX_RETRY_ATTEMPTS - 1} style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: retryCount >= MAX_RETRY_ATTEMPTS - 1 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <RefreshCw size={15} /> Repetir
             </button>
-            <button onClick={handleUseCapture} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
+            <button onClick={handleUseCapture} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 600, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
               Usar video y foto
             </button>
           </div>
@@ -742,7 +742,7 @@ function SelfieCaptureScreen({ onCapture, onBack }: { onCapture: (img: string, v
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button onClick={startRecording} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 700, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <button onClick={startRecording} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 600, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               {!isReady ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Cargando cámara...</> : <><Video size={18} /> Iniciar grabación (3s)</>}
             </button>
             <button onClick={() => { stopCamera(); onBack(); }} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -886,7 +886,7 @@ function OcrValidationScreen({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Validación de identificación</h2>
+        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Validación de identificación</h2>
         <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>Extrayendo y verificando datos de tu ID</p>
       </div>
 
@@ -905,7 +905,7 @@ function OcrValidationScreen({
         <div style={{ background: BRAND.redLight, border: `1.5px solid ${BRAND.redBorder}`, borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <AlertCircle size={18} color={BRAND.red} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
-            <p style={{ color: '#991b1b', fontWeight: 700, fontSize: 13, margin: 0 }}>Error al leer la identificación</p>
+            <p style={{ color: '#991b1b', fontWeight: 600, fontSize: 13, margin: 0 }}>Error al leer la identificación</p>
             <p style={{ color: '#b91c1c', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{ocrError}</p>
           </div>
         </div>
@@ -915,7 +915,7 @@ function OcrValidationScreen({
         <div style={{ background: BRAND.redLight, border: `1.5px solid ${BRAND.redBorder}`, borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <UserX size={18} color={BRAND.red} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
-            <p style={{ color: '#991b1b', fontWeight: 700, fontSize: 13, margin: 0 }}>Identidad no coincidente</p>
+            <p style={{ color: '#991b1b', fontWeight: 600, fontSize: 13, margin: 0 }}>Identidad no coincidente</p>
             <p style={{ color: '#b91c1c', fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>{identityMismatch}</p>
           </div>
         </div>
@@ -927,7 +927,7 @@ function OcrValidationScreen({
             <div style={{ background: BRAND.amberLight, border: `1.5px solid ${BRAND.amberBorder}`, borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <AlertCircle size={18} color={BRAND.amber} style={{ flexShrink: 0, marginTop: 1 }} />
               <div>
-                <p style={{ color: '#92400e', fontWeight: 700, fontSize: 13, margin: 0 }}>Credencial vencida</p>
+                <p style={{ color: '#92400e', fontWeight: 600, fontSize: 13, margin: 0 }}>Credencial vencida</p>
                 <p style={{ color: '#b45309', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>Tu credencial venció en {ocrResult.vigencia}. Por favor usa una identificación vigente.</p>
               </div>
             </div>
@@ -942,7 +942,7 @@ function OcrValidationScreen({
             <Card style={{ background: '#eff4ff', border: '1.5px solid #bfdbfe' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <CheckCircle2 size={16} color={BRAND.blue} />
-                <p style={{ color: '#1e40af', fontSize: 12, fontWeight: 700, margin: 0 }}>Datos confirmados por RENAPO</p>
+                <p style={{ color: '#1e40af', fontSize: 12, fontWeight: 600, margin: 0 }}>Datos confirmados por RENAPO</p>
               </div>
               {[
                 { label: 'Nombre', value: curpData.nombre },
@@ -968,7 +968,7 @@ function OcrValidationScreen({
       )}
 
       {(!loading && (ocrError || identityMismatch)) && (
-        <button onClick={onBack} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <button onClick={onBack} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 600, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <RefreshCw size={16} /> Volver a capturar
         </button>
       )}
@@ -1067,7 +1067,7 @@ function FaceValidationScreen({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }`}</style>
       <div>
-        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Validación facial</h2>
+        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Validación facial</h2>
         <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>Comparando selfie con tu identificación</p>
       </div>
 
@@ -1085,7 +1085,7 @@ function FaceValidationScreen({
         <div style={{ background: BRAND.redLight, border: `1.5px solid ${BRAND.redBorder}`, borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <AlertCircle size={18} color={BRAND.red} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
-            <p style={{ color: '#991b1b', fontWeight: 700, fontSize: 13, margin: 0 }}>Error en validación facial</p>
+            <p style={{ color: '#991b1b', fontWeight: 600, fontSize: 13, margin: 0 }}>Error en validación facial</p>
             <p style={{ color: '#b91c1c', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{faceApiError}</p>
           </div>
         </div>
@@ -1101,7 +1101,7 @@ function FaceValidationScreen({
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             {aprobado ? <CheckCircle2 size={20} color={BRAND.green} /> : <AlertCircle size={20} color={BRAND.red} />}
-            <p style={{ color: aprobado ? '#166534' : '#991b1b', fontWeight: 700, fontSize: 14, margin: 0 }}>
+            <p style={{ color: aprobado ? '#166534' : '#991b1b', fontWeight: 600, fontSize: 14, margin: 0 }}>
               {aprobado ? 'Identidad verificada' : 'No se pudo verificar la identidad'}
             </p>
           </div>
@@ -1112,7 +1112,7 @@ function FaceValidationScreen({
       )}
 
       {!validating && faceApiError && (
-        <button onClick={onBack} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <button onClick={onBack} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 600, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <RefreshCw size={16} /> Volver a capturar
         </button>
       )}
@@ -1147,7 +1147,7 @@ function PruebaDeVidaIntroScreen({ onStart, usingStoredId }: { onStart: () => vo
 
       {/* Title & subtitle */}
       <div style={{ textAlign: 'center' }}>
-        <h1 style={{ color: BRAND.text, fontSize: 24, fontWeight: 800, margin: 0 }}>Prueba de Vida</h1>
+        <h1 style={{ color: BRAND.text, fontSize: 24, fontWeight: 600, margin: 0 }}>Prueba de Vida</h1>
         <p style={{ color: BRAND.textMuted, fontSize: 14, marginTop: 8, lineHeight: 1.6 }}>
           {usingStoredId
             ? 'Necesitamos verificar tu identidad mediante una videoselfie.'
@@ -1160,7 +1160,7 @@ function PruebaDeVidaIntroScreen({ onStart, usingStoredId }: { onStart: () => vo
         <div style={{ background: BRAND.greenLight, border: `1.5px solid ${BRAND.greenBorder}`, borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <CheckCircle2 size={20} color={BRAND.green} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
-            <p style={{ color: '#166534', fontWeight: 700, fontSize: 14, margin: 0 }}>Identificación ya registrada</p>
+            <p style={{ color: '#166534', fontWeight: 600, fontSize: 14, margin: 0 }}>Identificación ya registrada</p>
             <p style={{ color: '#15803d', fontSize: 13, marginTop: 4, lineHeight: 1.5 }}>
               Ya tienes una identificación pregrabada en el sistema. <strong>No será necesario capturar tu identificación nuevamente.</strong> Solo necesitarás grabar una videoselfie para confirmar tu identidad.
             </p>
@@ -1550,7 +1550,7 @@ export default function CapturaIdMovilPage() {
       <div style={{ minHeight: '100dvh', background: BRAND.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <div style={{ background: BRAND.card, border: `1.5px solid ${BRAND.cardBorder}`, borderRadius: 20, padding: 32, maxWidth: 360, width: '100%', textAlign: 'center' }}>
           <AlertTriangle size={40} color={BRAND.amber} style={{ margin: '0 auto 16px' }} />
-          <h2 style={{ color: BRAND.text, fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Enlace inválido o expirado</h2>
+          <h2 style={{ color: BRAND.text, fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Enlace inválido o expirado</h2>
           <p style={{ color: BRAND.textMuted, fontSize: 14, lineHeight: 1.6 }}>
             Este enlace ya no es válido. Regresa a tu computadora y genera un nuevo código QR.
           </p>
@@ -1567,7 +1567,7 @@ export default function CapturaIdMovilPage() {
           <div style={{ width: 72, height: 72, borderRadius: '50%', background: BRAND.redLight, border: `2px solid ${BRAND.redBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
             <AlertTriangle size={34} color={BRAND.red} />
           </div>
-          <h2 style={{ color: '#991b1b', fontSize: 20, fontWeight: 800, marginBottom: 10 }}>Enrolamiento cancelado</h2>
+          <h2 style={{ color: '#991b1b', fontSize: 20, fontWeight: 600, marginBottom: 10 }}>Enrolamiento cancelado</h2>
           <p style={{ color: '#b91c1c', fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
             Se ha superado el número máximo de intentos permitidos. El proceso de verificación ha sido cancelado por seguridad.
           </p>
@@ -1579,7 +1579,7 @@ export default function CapturaIdMovilPage() {
               </p>
             </div>
           </div>
-          <button onClick={handleClose} style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <button onClick={handleClose} style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <X size={16} /> Cerrar ventana
           </button>
           {showCloseHint && (
@@ -1601,7 +1601,7 @@ export default function CapturaIdMovilPage() {
           <div style={{ width: 72, height: 72, borderRadius: '50%', background: BRAND.redLight, border: `2px solid ${BRAND.redBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
             <UserX size={34} color={BRAND.red} />
           </div>
-          <h2 style={{ color: '#991b1b', fontSize: 20, fontWeight: 800, marginBottom: 10 }}>Identidad no coincidente</h2>
+          <h2 style={{ color: '#991b1b', fontSize: 20, fontWeight: 600, marginBottom: 10 }}>Identidad no coincidente</h2>
           <p style={{ color: '#b91c1c', fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
             La persona capturada no coincide con el usuario registrado en el sistema.
           </p>
@@ -1609,7 +1609,7 @@ export default function CapturaIdMovilPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <AlertCircle size={16} color={BRAND.red} style={{ flexShrink: 0, marginTop: 1 }} />
               <div>
-                <p style={{ color: '#991b1b', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Motivo del rechazo</p>
+                <p style={{ color: '#991b1b', fontWeight: 600, fontSize: 13, marginBottom: 4 }}>Motivo del rechazo</p>
                 <p style={{ color: '#b91c1c', fontSize: 13, lineHeight: 1.5 }}>{mismatchReason}</p>
                 {nubariumSimilitud !== null && (
                   <p style={{ color: '#b91c1c', fontSize: 12, marginTop: 6, fontWeight: 600 }}>
@@ -1626,7 +1626,7 @@ export default function CapturaIdMovilPage() {
                   Por seguridad, este intento ha sido registrado. Te queda <strong>{attemptsLeft} intento{attemptsLeft !== 1 ? 's' : ''}</strong> antes de que el enrolamiento sea cancelado.
                 </p>
               </div>
-              <button onClick={handleRetryFromMismatch} style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
+              <button onClick={handleRetryFromMismatch} style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
                 <RefreshCw size={16} /> Intentar nuevamente
               </button>
             </>
@@ -1657,7 +1657,7 @@ export default function CapturaIdMovilPage() {
           <div style={{ width: 72, height: 72, borderRadius: '50%', background: identityMismatch ? BRAND.redLight : BRAND.greenLight, border: `2px solid ${identityMismatch ? BRAND.redBorder : BRAND.greenBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
             {identityMismatch ? <AlertTriangle size={36} color={BRAND.red} /> : <CheckCircle2 size={36} color={BRAND.green} />}
           </div>
-          <h2 style={{ color: identityMismatch ? '#991b1b' : BRAND.text, fontSize: 20, fontWeight: 800, marginBottom: 8 }}>
+          <h2 style={{ color: identityMismatch ? '#991b1b' : BRAND.text, fontSize: 20, fontWeight: 600, marginBottom: 8 }}>
             {identityMismatch ? 'Identidad no reconocida' : '¡Prueba de vida completada!'}
           </h2>
           <p style={{ color: identityMismatch ? '#b91c1c' : BRAND.textMuted, fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>
@@ -1670,19 +1670,19 @@ export default function CapturaIdMovilPage() {
           <div style={{ background: nubariumAprobado ? BRAND.greenLight : nubariumAprobado === false ? BRAND.redLight : BRAND.amberLight, border: `1.5px solid ${nubariumAprobado ? BRAND.greenBorder : nubariumAprobado === false ? BRAND.redBorder : BRAND.amberBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 16, textAlign: 'left' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               {nubariumAprobado ? <ShieldCheck size={20} color={BRAND.green} /> : <ShieldAlert size={20} color={nubariumAprobado === false ? BRAND.red : BRAND.amber} />}
-              <p style={{ color: nubariumAprobado ? '#166534' : nubariumAprobado === false ? '#991b1b' : '#92400e', fontWeight: 700, fontSize: 14, margin: 0 }}>
+              <p style={{ color: nubariumAprobado ? '#166534' : nubariumAprobado === false ? '#991b1b' : '#92400e', fontWeight: 600, fontSize: 14, margin: 0 }}>
                 {nubariumAprobado ? 'Prueba de vida — Identidad verificada' : nubariumAprobado === false ? 'Prueba de vida — No verificada' : 'Prueba de vida — Procesada'}
               </p>
             </div>
             {nubariumSimilitud !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: `1px solid ${nubariumAprobado ? BRAND.greenBorder : nubariumAprobado === false ? BRAND.redBorder : BRAND.amberBorder}` }}>
                 <p style={{ color: nubariumAprobado ? '#15803d' : '#b45309', fontSize: 13, margin: 0 }}>Similitud facial</p>
-                <p style={{ color: nubariumAprobado ? '#166534' : '#92400e', fontSize: 13, fontWeight: 700, margin: 0 }}>{nubariumSimilitud.toFixed(2)}%</p>
+                <p style={{ color: nubariumAprobado ? '#166534' : '#92400e', fontSize: 13, fontWeight: 600, margin: 0 }}>{nubariumSimilitud.toFixed(2)}%</p>
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: `1px solid ${nubariumAprobado ? BRAND.greenBorder : nubariumAprobado === false ? BRAND.redBorder : BRAND.amberBorder}` }}>
               <p style={{ color: nubariumAprobado ? '#15803d' : '#b45309', fontSize: 13, margin: 0 }}>Resultado biométrico</p>
-              <p style={{ color: nubariumAprobado ? '#166534' : '#92400e', fontSize: 13, fontWeight: 700, margin: 0 }}>
+              <p style={{ color: nubariumAprobado ? '#166534' : '#92400e', fontSize: 13, fontWeight: 600, margin: 0 }}>
                 {nubariumAprobado ? '✅ Aprobado' : nubariumAprobado === false ? '❌ No aprobado' : '⚠️ Sin comparación'}
               </p>
             </div>
@@ -1693,7 +1693,7 @@ export default function CapturaIdMovilPage() {
             <div style={{ background: curpMatchResult.match === true ? BRAND.greenLight : curpMatchResult.match === false ? BRAND.redLight : BRAND.amberLight, border: `1.5px solid ${curpMatchResult.match === true ? BRAND.greenBorder : curpMatchResult.match === false ? BRAND.redBorder : BRAND.amberBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 16, textAlign: 'left' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                 {curpMatchResult.match === true ? <ShieldCheck size={18} color={BRAND.green} /> : curpMatchResult.match === false ? <UserX size={18} color={BRAND.red} /> : <ShieldAlert size={18} color={BRAND.amber} />}
-                <p style={{ color: curpMatchResult.match === true ? '#166534' : curpMatchResult.match === false ? '#991b1b' : '#92400e', fontWeight: 700, fontSize: 14, margin: 0 }}>
+                <p style={{ color: curpMatchResult.match === true ? '#166534' : curpMatchResult.match === false ? '#991b1b' : '#92400e', fontWeight: 600, fontSize: 14, margin: 0 }}>
                   {curpMatchResult.match === true ? 'Identidad confirmada — CURP coincide' : curpMatchResult.match === false ? 'Advertencia — CURP no coincide' : 'CURP extraída — Sin perfil para comparar'}
                 </p>
               </div>
@@ -1706,18 +1706,18 @@ export default function CapturaIdMovilPage() {
               {curpMatchResult.curpExtracted && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: `1px solid ${curpMatchResult.match === true ? BRAND.greenBorder : curpMatchResult.match === false ? BRAND.redBorder : BRAND.amberBorder}` }}>
                   <p style={{ color: curpMatchResult.match === true ? '#15803d' : '#b45309', fontSize: 12, margin: 0 }}>CURP en identificación</p>
-                  <p style={{ color: curpMatchResult.match === true ? '#166534' : '#92400e', fontSize: 12, fontWeight: 700, margin: 0, fontFamily: 'monospace' }}>{curpMatchResult.curpExtracted}</p>
+                  <p style={{ color: curpMatchResult.match === true ? '#166534' : '#92400e', fontSize: 12, fontWeight: 600, margin: 0, fontFamily: 'monospace' }}>{curpMatchResult.curpExtracted}</p>
                 </div>
               )}
               {curpMatchResult.curpProfile && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: `1px solid ${curpMatchResult.match === true ? BRAND.greenBorder : curpMatchResult.match === false ? BRAND.redBorder : BRAND.amberBorder}` }}>
                   <p style={{ color: curpMatchResult.match === true ? '#15803d' : '#b45309', fontSize: 12, margin: 0 }}>CURP en perfil registrado</p>
-                  <p style={{ color: curpMatchResult.match === true ? '#166534' : '#92400e', fontSize: 12, fontWeight: 700, margin: 0, fontFamily: 'monospace' }}>{curpMatchResult.curpProfile}</p>
+                  <p style={{ color: curpMatchResult.match === true ? '#166534' : '#92400e', fontSize: 12, fontWeight: 600, margin: 0, fontFamily: 'monospace' }}>{curpMatchResult.curpProfile}</p>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: `1px solid ${curpMatchResult.match === true ? BRAND.greenBorder : curpMatchResult.match === false ? BRAND.redBorder : BRAND.amberBorder}` }}>
                 <p style={{ color: curpMatchResult.match === true ? '#15803d' : '#b45309', fontSize: 12, margin: 0 }}>Verificación de identidad</p>
-                <p style={{ color: curpMatchResult.match === true ? '#166534' : '#92400e', fontSize: 12, fontWeight: 700, margin: 0 }}>
+                <p style={{ color: curpMatchResult.match === true ? '#166534' : '#92400e', fontSize: 12, fontWeight: 600, margin: 0 }}>
                   {curpMatchResult.match === true ? '✅ Mismo usuario' : curpMatchResult.match === false ? '❌ Usuario diferente' : '⚠️ Sin comparación'}
                 </p>
               </div>
@@ -1729,18 +1729,18 @@ export default function CapturaIdMovilPage() {
             <div style={{ background: '#fff7ed', border: `1.5px solid #fdba74`, borderRadius: 14, padding: '14px 16px', marginBottom: 16, textAlign: 'left' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <AlertTriangle size={16} color='#ea580c' />
-                <p style={{ color: '#9a3412', fontWeight: 700, fontSize: 13, margin: 0 }}>Datos extraídos de la identificación</p>
+                <p style={{ color: '#9a3412', fontWeight: 600, fontSize: 13, margin: 0 }}>Datos extraídos de la identificación</p>
               </div>
               {captureData.curp && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderTop: '1px solid #fdba74' }}>
                   <p style={{ color: '#c2410c', fontSize: 12, margin: 0 }}>CURP</p>
-                  <p style={{ color: '#9a3412', fontSize: 12, fontWeight: 700, margin: 0, fontFamily: 'monospace' }}>{captureData.curp}</p>
+                  <p style={{ color: '#9a3412', fontSize: 12, fontWeight: 600, margin: 0, fontFamily: 'monospace' }}>{captureData.curp}</p>
                 </div>
               )}
             </div>
           )}
 
-          <button onClick={handleClose} style={{ background: BRAND.blueGradient, color: '#fff', border: 'none', borderRadius: 14, padding: '14px 0', fontWeight: 700, fontSize: 15, cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <button onClick={handleClose} style={{ background: BRAND.blueGradient, color: '#fff', border: 'none', borderRadius: 14, padding: '14px 0', fontWeight: 600, fontSize: 15, cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <Check size={16} /> Finalizar y cerrar
           </button>
           <p style={{ marginTop: 14, fontSize: 13, color: BRAND.textMuted, lineHeight: 1.5 }}>
@@ -1801,7 +1801,7 @@ export default function CapturaIdMovilPage() {
           {screen === 'id_type' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Tipo de identificación</h2>
+                <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Tipo de identificación</h2>
                 <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>Selecciona el documento que usarás para verificar tu identidad</p>
               </div>
               {idAttempts > 0 && (
@@ -1824,7 +1824,7 @@ export default function CapturaIdMovilPage() {
                   style={{ background: opt.disabled ? '#f3f4f6' : BRAND.card, border: `1.5px solid ${opt.disabled ? '#e5e7eb' : BRAND.cardBorder}`, borderRadius: 14, padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: opt.disabled ? 'not-allowed' : 'pointer', textAlign: 'left', width: '100%', opacity: opt.disabled ? 0.5 : 1 }}
                 >
                   <div>
-                    <p style={{ color: opt.disabled ? BRAND.textLight : BRAND.text, fontWeight: 700, fontSize: 15, margin: 0 }}>{opt.label}</p>
+                    <p style={{ color: opt.disabled ? BRAND.textLight : BRAND.text, fontWeight: 600, fontSize: 15, margin: 0 }}>{opt.label}</p>
                     <p style={{ color: BRAND.textMuted, fontSize: 13, margin: '2px 0 0' }}>{opt.desc}</p>
                   </div>
                   <ChevronRight size={18} color={BRAND.textLight} />
@@ -1855,7 +1855,7 @@ export default function CapturaIdMovilPage() {
           {screen === 'selfie_instructions' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Captura de video facial</h2>
+                <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Captura de video facial</h2>
                 <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>Ahora necesitamos grabar un video corto de tu rostro</p>
               </div>
               {usingStoredId && (

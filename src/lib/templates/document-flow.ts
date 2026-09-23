@@ -129,7 +129,7 @@ function setResolvedFieldAppearance(
     field.innerHTML = '';
     field.style.display = 'inline-flex';
     field.style.verticalAlign = 'middle';
-    if (value.startsWith('data:image/')) {
+    if (!final && value.startsWith('data:image/')) {
       const image = field.ownerDocument.createElement('img');
       image.src = value;
       image.alt = 'Firma';
@@ -151,7 +151,19 @@ function setResolvedFieldAppearance(
   field.style.resize = 'none';
   field.style.whiteSpace = 'pre-wrap';
   field.style.width = 'auto';
-  field.textContent = value;
+  const previousText = field.previousSibling?.textContent || '';
+  const nextText = field.nextSibling?.textContent || '';
+  const needsLeadingSpace =
+    Boolean(previousText) &&
+    !/\s$/.test(previousText) &&
+    !/[([{¿¡/]$/.test(previousText) &&
+    !/^[,.;:!?%)\]}]/.test(value);
+  const needsTrailingSpace =
+    Boolean(nextText) &&
+    !/^\s/.test(nextText) &&
+    !/^[,.;:!?%)\]}]/.test(nextText) &&
+    !/[([{¿¡/]$/.test(value);
+  field.textContent = `${needsLeadingSpace ? ' ' : ''}${value}${needsTrailingSpace ? ' ' : ''}`;
 }
 
 export function applyTemplateFieldValues(

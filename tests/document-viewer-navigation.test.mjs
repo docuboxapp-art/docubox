@@ -19,6 +19,18 @@ test('the document viewer accepts a direct page number only for longer documents
   assert.match(source, /Página \{currentPage\} de \{totalPages\}/);
 });
 
+test('fullscreen pagination stays outside the scrollable document canvas', () => {
+  assert.match(source, /modal \? 'relative z-20'/);
+  assert.match(
+    source,
+    /className="flex min-h-0 flex-1 items-start justify-center overflow-auto p-6"/
+  );
+  assert.match(
+    source,
+    /className="flex h-16 flex-shrink-0 items-center justify-center border-t border-slate-200 bg-white px-4">\s*\{renderPaginationBar\(true\)\}/
+  );
+});
+
 test('field placement preview uses the same page-navigation behavior', () => {
   assert.match(adjustmentSource, /const canJumpToPage = totalPages > 5;/);
   assert.match(adjustmentSource, /aria-label="Ir a página"/);
@@ -29,7 +41,10 @@ test('field placement preview uses the same page-navigation behavior', () => {
 
 test('viewer loading is keyed by stable user identity instead of auth object refreshes', () => {
   assert.match(source, /const userId = user\?\.id \?\? '';/);
-  assert.match(source, /\[authLoading, docId, loadAdditionalMetadata, userDisplayName, userEmail, userId\]/);
+  assert.match(
+    source,
+    /\[authLoading, docId, loadAdditionalMetadata, userDisplayName, userEmail, userId\]/
+  );
   assert.doesNotMatch(source, /\}, \[docId, user, authLoading, loadAdditionalMetadata\]\);/);
 });
 
@@ -67,5 +82,19 @@ test('viewer renders protected PDF bytes before showing fields or signature stam
   assert.match(source, /configuredParticipantId\.toLowerCase\(\) === 'current-user'/);
   assert.match(source, /values\.length === 1 \? values\[0\] : ''/);
   assert.doesNotMatch(source, /use first available firma/);
-  assert.doesNotMatch(source, /campo\.participantName && r\.participante_nombre === campo\.participantName/);
+  assert.doesNotMatch(
+    source,
+    /campo\.participantName && r\.participante_nombre === campo\.participantName/
+  );
+});
+
+test('viewer renders PDF pages at the physical display density', () => {
+  assert.match(source, /window\.devicePixelRatio \|\| 1/);
+  assert.match(source, /canvas\.width = Math\.ceil\(viewport\.width \* outputScale\)/);
+  assert.match(source, /canvas\.style\.width = `\$\{viewport\.width\}px`/);
+  assert.match(source, /imageSmoothingQuality = 'high'/);
+  assert.match(
+    source,
+    /transform: outputScale === 1 \? undefined : \[outputScale, 0, 0, outputScale, 0, 0\]/
+  );
 });

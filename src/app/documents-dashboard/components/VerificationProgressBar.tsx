@@ -682,7 +682,7 @@ export default function VerificationProgressBar() {
 
                 {/* How it works */}
                 <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 space-y-1">
-                  <p className="text-[10px] font-bold text-blue-700">¿Cómo funciona?</p>
+                  <p className="text-[10px] font-semibold text-blue-700">¿Cómo funciona?</p>
                   {[
                     '1. Haz clic en "Generar código QR"',
                     '2. Escanea el QR con la cámara de tu teléfono',
@@ -717,7 +717,7 @@ export default function VerificationProgressBar() {
             <ShieldAlert size={22} className="text-amber-400 flex-shrink-0" />
           )}
           <div className="flex flex-col items-start">
-            <span className="text-sm font-bold text-slate-950">
+            <span className="text-sm font-semibold text-slate-950">
               {loading
                 ? 'Cargando estado de verificación...'
                 : 'Verificación de identidad pendiente'}
@@ -729,13 +729,13 @@ export default function VerificationProgressBar() {
             )}
           </div>
           {!loading && (
-            <span className="text-xs font-bold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full border border-amber-200 ml-1">
+            <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full border border-amber-200 ml-1">
               {requiredCompleted}/{requiredTotal} completados
             </span>
           )}
         </div>
         <div className="flex items-center gap-1.5 text-slate-500 flex-shrink-0">
-          <span className="text-sm font-bold text-slate-600">
+          <span className="text-sm font-semibold text-slate-600">
             {expanded ? 'Ocultar métodos' : 'Iniciar verificación'}
           </span>
           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -747,7 +747,7 @@ export default function VerificationProgressBar() {
         <div className="mx-auto mt-2 max-w-[1600px] space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-[0_6px_20px_-18px_rgba(15,23,42,0.45)]">
           {/* Required steps */}
           <div>
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
               Métodos requeridos ({requiredCompleted}/{requiredTotal})
             </p>
             <div className="flex items-start gap-2">

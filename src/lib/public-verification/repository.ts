@@ -83,6 +83,8 @@ function sanitizeParticipants(
         configuredMethods[0] || matchingEvidence?.evidence_type
       ),
       signedAt: matchingEvidence?.captured_at || null,
+      signatureHash:
+        matchingEvidence?.signature_hash || matchingEvidence?.digital_seal_sha256 || null,
     };
   });
 }
@@ -176,7 +178,7 @@ export async function locateVerificationDocument(
       supabase
         .from('signature_evidence')
         .select(
-          'evidence_type,captured_at,participant_name,participant_email,participant_role,efirma_nombre'
+          'evidence_type,captured_at,participant_name,participant_email,participant_role,efirma_nombre,signature_hash,digital_seal_sha256'
         )
         .eq('document_id', document.id)
         .eq('is_voided', false)

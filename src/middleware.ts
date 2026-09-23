@@ -32,6 +32,7 @@ const PUBLIC_PREFIXES = [
   '/verificar-documento/',
   '/verificar-certificacion/',
   '/verificar-evidencia/',
+  '/api/public/v1/verifications/',
   '/api/public/v2/verifications/',
   '/v/',
   '/verify/promissory-note/',

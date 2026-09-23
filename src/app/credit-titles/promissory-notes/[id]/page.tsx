@@ -301,7 +301,7 @@ function DocumentTab({ detail }: { detail: Detail }) {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex min-h-[420px] items-center justify-center rounded-md border border-slate-200 bg-[#f3f4f6] p-8 dark:border-border dark:bg-muted/30">
         <div className="w-full max-w-2xl rounded-sm bg-white p-8 shadow-sm">
-          <p className="text-center text-xl font-700 tracking-[0.12em]">PAGARE</p>
+          <p className="text-center text-xl font-600 tracking-[0.12em]">PAGARE</p>
           <p className="mt-2 text-center text-xs text-slate-500">
             Representacion del registro electronico {detail.folio}
           </p>

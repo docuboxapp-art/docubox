@@ -1107,6 +1107,9 @@ export async function getDocumentIntelligenceSummary(
   return {
     document_id: documentId,
     document_version_id: versionId,
+    features: {
+      contractual: contractualEnabled,
+    },
     status: profile.data ? (stale ? 'stale' : profile.data.status) : 'not_analyzed',
     profile: profile.data,
     fields: (fields.data || []).filter(

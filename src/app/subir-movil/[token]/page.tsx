@@ -107,7 +107,7 @@ export default function MobileUploadPage() {
           <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle2 size={32} className="text-emerald-500" />
           </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">¡Archivo enviado!</h1>
+          <h1 className="text-xl font-semibold text-gray-900 mb-2">¡Archivo enviado!</h1>
           <p className="text-sm text-gray-500 mb-6">
             Tu documento fue cargado exitosamente. Puedes cerrar esta ventana y continuar en tu computadora.
           </p>
@@ -128,7 +128,7 @@ export default function MobileUploadPage() {
                   style={{ transition: 'stroke-dashoffset 1s linear' }}
                 />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-lg font-bold text-emerald-600">
+              <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold text-emerald-600">
                 {countdown}
               </span>
             </div>
@@ -157,7 +157,7 @@ export default function MobileUploadPage() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg p-6">
-          <h1 className="text-lg font-bold text-gray-900 mb-1">Subir documento</h1>
+          <h1 className="text-lg font-semibold text-gray-900 mb-1">Subir documento</h1>
           <p className="text-sm text-gray-500 mb-5">
             Selecciona un archivo PDF desde tu dispositivo.
           </p>

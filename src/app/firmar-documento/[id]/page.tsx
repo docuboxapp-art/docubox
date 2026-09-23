@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -40,16 +41,26 @@ import {
   CheckSquare,
   Download,
   EyeOff,
+  Upload,
+  LayoutTemplate,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { Toaster, toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
+import { SignatureQrCode } from '@/components/signatures/SignatureQrCode';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
 import { isDocumentGeneratedCryptographicField } from '@/lib/documentFields';
 import AutographSignatureFlow from './AutographSignatureFlow';
-import { useEfirmaEvidence, fileToBase64 } from '@/hooks/useEfirmaEvidence';
+import {
+  useEfirmaEvidence,
+  type DeviceFingerprint as EfirmaDeviceFingerprint,
+  type SessionEvidence as EfirmaSessionEvidence,
+  type FramesManifest as EfirmaFramesManifest,
+  type EfirmaEvidenceResult,
+} from '@/hooks/useEfirmaEvidence';
 import { GroupMemberDelegationControl } from '@/components/documents/GroupMemberDelegationControl';
 import { TemplateDocumentPreview } from '@/components/templates/TemplateDocumentPreview';
 import {
@@ -62,6 +73,41 @@ import {
   type TemplateRenderedFieldMeasurement,
   type PublishedTemplateDocument,
 } from '@/lib/templates/preview';
+import {
+  DEFAULT_SIGNATURE_STAMP_STYLES,
+  STAMP_SIZE_PRESETS,
+  getStampSizePreset,
+} from '@/lib/signatures/stamp-sizing';
+import {
+  encryptEfirmaKeyForStorage,
+  decryptStoredEfirmaKey,
+  fileToBytes,
+  signEfirmaPayloadLocally,
+  validateEfirmaKeyLocally,
+  type EncryptedEfirmaKeyMaterial,
+  type StoredEfirmaKey,
+} from '@/lib/efirma/client-vault';
+import {
+  loadStoredEfirmaKey,
+  markStoredEfirmaKeyUsed,
+  saveStoredEfirmaKey,
+} from '@/lib/efirma/vault-storage';
+import { normalizeEfirmaHolderName } from '@/lib/efirma/certificate-holder';
+
+const AutografaStampSelector = dynamic(
+  () => import('@/app/mi-perfil/components/AutografaStampSelector'),
+  { ssr: false }
+);
+const EfirmaStampSelector = dynamic(
+  () => import('@/app/mi-perfil/components/EfirmaStampSelector'),
+  {
+    ssr: false,
+  }
+);
+const ClickSignStampSelector = dynamic(
+  () => import('@/app/mi-perfil/components/ClickSignStampSelector'),
+  { ssr: false }
+);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -164,6 +210,7 @@ interface UserProfileData {
 
 interface DocumentData {
   id: string;
+  documento_id?: string;
   nombre: string;
   estado: string;
   owner_id: string;
@@ -175,27 +222,40 @@ interface DocumentData {
   participantes?: any[];
 }
 
+function normalizeParticipantFieldToken(value: unknown) {
+  return String(value || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('es-MX');
+}
+
 // ─── Helper: derive tipo from label (fallback for legacy docs) ────────────────
 function deriveTipoFromLabel(label: string): CampoPersonalizado['tipo'] {
   const map: Record<string, CampoPersonalizado['tipo']> = {
-    Firma: 'firma',
-    'Nombre Completo': 'nombre_completo',
-    RFC: 'rfc',
-    CURP: 'curp',
-    'Correo Electrónico': 'correo',
-    'Número Telefónico': 'telefono',
-    Dirección: 'direccion',
-    Texto: 'texto',
-    Fecha: 'fecha',
-    Hora: 'hora',
-    Número: 'numero',
-    Moneda: 'moneda',
-    Casilla: 'checkbox',
-    Imagen: 'imagen',
-    'Botones de opción': 'radio',
-    Desplegable: 'dropdown',
+    firma: 'firma',
+    'nombre completo': 'nombre_completo',
+    rfc: 'rfc',
+    curp: 'curp',
+    'correo electronico': 'correo',
+    correo: 'correo',
+    email: 'correo',
+    'numero telefonico': 'telefono',
+    telefono: 'telefono',
+    direccion: 'direccion',
+    texto: 'texto',
+    fecha: 'fecha',
+    hora: 'hora',
+    numero: 'numero',
+    moneda: 'moneda',
+    casilla: 'checkbox',
+    imagen: 'imagen',
+    'botones de opcion': 'radio',
+    desplegable: 'dropdown',
   };
-  return map[label] || 'texto';
+  return map[normalizeParticipantFieldToken(label)] || 'texto';
 }
 
 function getCampoValueKey(campo: CampoSolicitado, index: number) {
@@ -216,9 +276,7 @@ function resolveParticipantRecordId(
 }
 
 function normalizeFieldTipo(value: unknown): CampoPersonalizado['tipo'] | null {
-  const normalized = String(value || '')
-    .trim()
-    .toLocaleLowerCase('es-MX');
+  const normalized = normalizeParticipantFieldToken(value);
   const aliases: Record<string, CampoPersonalizado['tipo']> = {
     signature: 'firma',
     firma: 'firma',
@@ -245,9 +303,39 @@ function normalizeFieldTipo(value: unknown): CampoPersonalizado['tipo'] | null {
     imagen: 'imagen',
     currency: 'moneda',
     moneda: 'moneda',
-    nombre_completo: 'nombre_completo',
+    'nombre completo': 'nombre_completo',
   };
   return aliases[normalized] || null;
+}
+
+function mergeAssignedParticipantProfile(
+  profile: UserProfileData,
+  participant: Record<string, unknown> | null | undefined,
+  authenticatedUser?: { email?: string | null; user_metadata?: Record<string, unknown> }
+): UserProfileData {
+  const participantValue = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = String(participant?.[key] || '').trim();
+      if (value) return value;
+    }
+    return '';
+  };
+  const participantName = participantValue(
+    'nombre_completo',
+    'full_name',
+    'name',
+    'nombre'
+  ).replace(/\s*\((?:tu|tú)\)\s*$/i, '');
+  const metadataName = String(authenticatedUser?.user_metadata?.full_name || '').trim();
+
+  return {
+    nombre_completo: profile.nombre_completo || participantName || metadataName,
+    rfc: profile.rfc || participantValue('rfc', 'efirma_rfc'),
+    curp: profile.curp || participantValue('curp'),
+    email: profile.email || participantValue('email', 'correo') || authenticatedUser?.email || '',
+    telefono: profile.telefono || participantValue('telefono', 'phone'),
+    direccion: profile.direccion || participantValue('direccion', 'address'),
+  };
 }
 
 // ─── Helper: smart tipo resolution considering field data ─────────────────────
@@ -370,6 +458,24 @@ function parseAsn1TimeFirmar(value: Uint8Array): string {
   } catch {
     return '';
   }
+}
+
+function extractEfirmaHolderName(subject: string | null | undefined, fallback = '') {
+  return normalizeEfirmaHolderName(subject, fallback);
+}
+
+function formatEfirmaEvidenceDate(value: string | null | undefined) {
+  const date = new Date(String(value || ''));
+  if (Number.isNaN(date.getTime())) return value || 'No disponible';
+  return date.toLocaleString('es-MX', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  });
 }
 
 async function parseCerFileFirmar(file: File): Promise<{
@@ -531,36 +637,46 @@ interface NubariumValidationResult {
   codigoValidacion: string | null;
 }
 
+interface EfirmaCertificateInfo {
+  cert_serial: string;
+  cert_rfc: string;
+  cert_curp?: string;
+  cert_subject: string;
+  cert_not_after?: string;
+}
+
 function EfirmaFirmarFlow({
-  profileEfirma,
   isDark,
   geoDenied,
   onValidated,
   onRegenerate,
   documentId,
-  supabaseAccessToken,
 }: {
-  profileEfirma: EfirmaProfileData | null;
   isDark: boolean;
   geoDenied: boolean;
   onValidated: (
-    certInfo?: any,
+    certInfo?: EfirmaCertificateInfo,
     cerB64?: string,
-    keyB64?: string,
+    keyMaterial?: EncryptedEfirmaKeyMaterial,
     password?: string,
-    nubariumResult?: NubariumValidationResult
+    nubariumResult?: NubariumValidationResult,
+    evidence?: EfirmaEvidenceResult
   ) => void;
   onRegenerate: () => void;
   documentId?: string;
-  supabaseAccessToken?: string;
 }) {
-  const hasProfileEfirma = !!(profileEfirma?.serial && profileEfirma?.rfc);
-
-  // UX states — mirrors autógrafa flow
-  // usePreloaded: null = asking, true = using preloaded, false = rejected
-  const [usePreloaded, setUsePreloaded] = useState<boolean | null>(hasProfileEfirma ? null : false);
+  const { user } = useAuth();
   // noticeAccepted: whether user clicked "Entendido — Continuar" on the info box
   const [noticeAccepted, setNoticeAccepted] = useState(false);
+  const [credentialSource, setCredentialSource] = useState<'stored' | 'upload'>('upload');
+  const [storedKeyState, setStoredKeyState] = useState<{
+    userId: string;
+    key: StoredEfirmaKey | null;
+  } | null>(null);
+  const storedKey =
+    storedKeyState && storedKeyState.userId === user?.id ? storedKeyState.key : null;
+  const storedKeyLoading = Boolean(user?.id && storedKeyState?.userId !== user.id);
+  const [saveForFuture, setSaveForFuture] = useState(true);
 
   // Upload form states
   const [cerFile, setCerFile] = useState<File | null>(null);
@@ -569,7 +685,6 @@ function EfirmaFirmarFlow({
   const [showPassword, setShowPassword] = useState(false);
   const [validating, setValidating] = useState(false);
   const [validationError, setValidationError] = useState('');
-  const [profileValidationNotice, setProfileValidationNotice] = useState('');
   const [validated, setValidated] = useState(false);
 
   // User profile data for CURP/RFC cross-validation
@@ -580,9 +695,22 @@ function EfirmaFirmarFlow({
   } | null>(null);
 
   // Evidence capture
-  const { captureFrame, collectAllEvidence } = useEfirmaEvidence(documentId || '');
+  const { captureFrame, buildFramesManifest, collectAllEvidence } = useEfirmaEvidence(
+    documentId || ''
+  );
   const [cerLoaded, setCerLoaded] = useState(false);
   const [keyLoaded, setKeyLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const supabase = createClient();
+    loadStoredEfirmaKey(supabase, user.id)
+      .then((key) => {
+        setStoredKeyState({ userId: user.id, key });
+        if (key) setCredentialSource('stored');
+      })
+      .catch(() => setStoredKeyState({ userId: user.id, key: null }));
+  }, [user?.id]);
 
   // Fetch user profile for CURP/RFC validation
   useEffect(() => {
@@ -613,395 +741,194 @@ function EfirmaFirmarFlow({
     }
   }, [cerLoaded, keyLoaded, captureFrame]);
 
-  // Check if profile e.firma is still valid (not expired)
-  const profileIsExpired = profileEfirma?.vigenciaFin
-    ? new Date(profileEfirma.vigenciaFin) < new Date()
-    : false;
-
-  const handleValidateProfileEfirma = async () => {
-    if (!profileEfirma?.serial || (!profileEfirma?.rfc && !profileEfirma?.curp)) return;
-    setValidating(true);
-    setValidationError('');
-    try {
-      // Build identifier: prefer rfc, fall back to curp
-      const identifierPayload = profileEfirma.rfc
-        ? { rfc: profileEfirma.rfc, serial: profileEfirma.serial }
-        : { curp: profileEfirma.curp, serial: profileEfirma.serial };
-
-      const res = await fetch('/api/nubarium/validar-serial', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(identifierPayload),
-      });
-      const data = await res.json();
-      // Use _es_valido (server-computed) or fall back to legacy field checks
-      const isValid =
-        data._es_valido === true ||
-        data.clave_mensaje === 0 ||
-        data.estado === 'Vigente' ||
-        data.estatus === 'Vigente' ||
-        data.estado === 'Activo' ||
-        data.estatus === 'Activo';
-      if (isValid) {
-        // The profile retains public certificate metadata only. Producing a
-        // signature still requires the temporary .cer, .key, and password.
-        setProfileValidationNotice(
-          'La e.firma registrada está vigente. Para generar la firma criptográfica, carga tus archivos .cer, .key y la contraseña. No se almacenan.'
-        );
-        setUsePreloaded(false);
-        setNoticeAccepted(true);
-      } else {
-        const cm = data.clave_mensaje || data._clave_mensaje_detectada || 0;
-        const msg =
-          cm === 2
-            ? 'La e.firma está revocada.'
-            : cm === 3
-              ? 'La e.firma está suspendida.'
-              : cm === 4
-                ? 'La e.firma ha expirado.'
-                : data.error
-                  ? data.error?.includes('RFC') || data.error?.includes('serial')
-                    ? 'No se pudo extraer el RFC o número de serie del certificado registrado en tu perfil. Vuelve a vincular tu e.firma en Mi Perfil.'
-                    : `Error del servicio SAT: ${data.error}`
-                  : `La e.firma no está vigente (${data._estado_normalizado || data.estado || data.estatus || 'sin estado'}).`;
-        setValidationError(msg);
-      }
-    } catch {
-      setValidationError('Error al conectar con el servicio de validación. Intenta nuevamente.');
-    } finally {
-      setValidating(false);
+  const validateNubariumCertificate = async (
+    rfc: string,
+    curp: string,
+    serial: string
+  ): Promise<NubariumValidationResult> => {
+    if (!rfc && !curp) throw new Error('EFIRMA_IDENTITY_MISSING');
+    const response = await fetch('/api/nubarium/validar-serial', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rfc ? { rfc, serial } : { curp, serial }),
+    });
+    const result = await response.json();
+    const valid =
+      result._es_valido === true ||
+      result.clave_mensaje === 0 ||
+      ['Vigente', 'Activo'].includes(result.estado) ||
+      ['Vigente', 'Activo'].includes(result.estatus);
+    if (!response.ok || !valid) {
+      if (result.clave_mensaje === 2) throw new Error('EFIRMA_REVOKED');
+      if (result.clave_mensaje === 3) throw new Error('EFIRMA_SUSPENDED');
+      if (result.clave_mensaje === 4) throw new Error('EFIRMA_EXPIRED');
+      throw new Error('EFIRMA_STATUS_UNAVAILABLE');
     }
+    return {
+      estado: result._estado_normalizado || result.estado || result.estatus || 'Vigente',
+      fechaConsulta: new Date().toISOString(),
+      codigoValidacion: result.codigo_validacion || null,
+    };
   };
 
-  const handleValidateUploadedEfirma = async () => {
-    if (!cerFile || !keyFile || !password) return;
+  const localValidationMessage = (error: unknown) => {
+    const code = error instanceof Error ? error.message : '';
+    const messages: Record<string, string> = {
+      EFIRMA_PASSWORD_INVALID: 'La contraseña es incorrecta o la llave privada no es válida.',
+      EFIRMA_KEY_UNSUPPORTED: 'El formato de la llave privada no es compatible.',
+      EFIRMA_KEY_CERTIFICATE_MISMATCH:
+        'La llave privada no corresponde al certificado seleccionado.',
+      EFIRMA_IDENTITY_MISSING: 'No se pudo extraer el RFC o CURP del certificado seleccionado.',
+      EFIRMA_REVOKED: 'La e.firma está revocada ante el SAT.',
+      EFIRMA_SUSPENDED: 'La e.firma está suspendida ante el SAT.',
+      EFIRMA_EXPIRED: 'La e.firma está vencida. Renueva tu certificado ante el SAT.',
+      EFIRMA_STATUS_UNAVAILABLE: 'No fue posible confirmar la vigencia de la e.firma ante el SAT.',
+    };
+    return messages[code] || 'No fue posible validar la e.firma. Intenta nuevamente.';
+  };
+
+  const finishLocalValidation = async (
+    material: EncryptedEfirmaKeyMaterial,
+    certInfo: EfirmaCertificateInfo,
+    nubariumResult: NubariumValidationResult
+  ) => {
+    const { deviceFingerprint, sessionEvidence } = await collectAllEvidence();
+    await captureFrame('efirma_validated').catch(() => {});
+    const framesManifest = await buildFramesManifest();
+    setValidated(true);
+    onValidated(certInfo, material.certificate_der_base64, material, password, nubariumResult, {
+      deviceFingerprint,
+      sessionEvidence,
+      framesManifest,
+    });
+  };
+
+  const handleValidateEfirmaLocally = async () => {
+    if (!password) return;
     setValidating(true);
     setValidationError('');
     try {
-      // ── PASO 1: Parsear .cer para validaciones previas ──────────────────
-      const parsed = await parseCerFileFirmar(cerFile);
-      if (!parsed || !parsed.serial) {
-        setValidationError(
-          'No se pudo extraer el número de serie del certificado. Verifica el archivo .cer.'
+      if (credentialSource === 'stored') {
+        if (!storedKey) throw new Error('EFIRMA_VAULT_EMPTY');
+        if (
+          storedKey.certificate_not_after &&
+          new Date(storedKey.certificate_not_after).getTime() <= Date.now()
+        ) {
+          throw new Error('EFIRMA_EXPIRED');
+        }
+        const keyBytes = await decryptStoredEfirmaKey(storedKey, password);
+        try {
+          await validateEfirmaKeyLocally(keyBytes, password, storedKey.certificate_der_base64);
+        } finally {
+          keyBytes.fill(0);
+        }
+        const nubariumResult = await validateNubariumCertificate(
+          storedKey.certificate_rfc || '',
+          '',
+          storedKey.certificate_serial || ''
         );
-        setValidating(false);
+        await finishLocalValidation(
+          storedKey,
+          {
+            cert_serial: storedKey.certificate_serial || '',
+            cert_rfc: storedKey.certificate_rfc || '',
+            cert_subject: storedKey.certificate_subject || '',
+            cert_not_after: storedKey.certificate_not_after || undefined,
+          },
+          nubariumResult
+        );
         return;
       }
 
-      // ── PASO 2: Verificar vigencia del certificado ──────────────────────
-      const now = new Date();
-      const notAfterDate = parsed.notAfter
+      if (!cerFile || !keyFile) return;
+      const parsed = await parseCerFileFirmar(cerFile);
+      if (!parsed?.serial) throw new Error('EFIRMA_CERTIFICATE_INVALID');
+      const notAfter = parsed.notAfter
         ? new Date(parsed.notAfter.replace(' ', 'T') + (parsed.notAfter.includes('Z') ? '' : 'Z'))
         : null;
-      const notBeforeDate = parsed.notBefore
-        ? new Date(parsed.notBefore.replace(' ', 'T') + (parsed.notBefore.includes('Z') ? '' : 'Z'))
-        : null;
-      if (notAfterDate && now > notAfterDate) {
-        const fechaVencimiento = notAfterDate.toLocaleDateString('es-MX', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
+      if (notAfter && notAfter.getTime() <= Date.now()) throw new Error('EFIRMA_EXPIRED');
+
+      if (
+        userProfileData?.curp &&
+        parsed.curp &&
+        userProfileData.curp !== parsed.curp.toUpperCase()
+      ) {
+        throw new Error('EFIRMA_PROFILE_MISMATCH');
+      }
+      if (
+        userProfileData?.personalidad_juridica === 'moral' &&
+        userProfileData.rfc &&
+        parsed.rfc &&
+        userProfileData.rfc !== parsed.rfc.toUpperCase()
+      ) {
+        throw new Error('EFIRMA_PROFILE_MISMATCH');
+      }
+
+      const keyBytes = await fileToBytes(keyFile);
+      let material: EncryptedEfirmaKeyMaterial;
+      try {
+        material = await encryptEfirmaKeyForStorage(keyBytes, password, parsed.base64);
+      } finally {
+        keyBytes.fill(0);
+      }
+      const nubariumResult = await validateNubariumCertificate(
+        parsed.rfc,
+        parsed.curp,
+        parsed.serial
+      );
+      const holderName = extractEfirmaHolderName(parsed.subject);
+
+      if (saveForFuture && user?.id) {
+        const supabase = createClient();
+        await saveStoredEfirmaKey(supabase, user.id, material, {
+          serial: parsed.serial,
+          rfc: parsed.rfc,
+          subject: parsed.subject,
+          notAfter: parsed.notAfter,
         });
-        setValidationError(
-          `El certificado está vencido. Venció el ${fechaVencimiento}. Renueva tu e.firma ante el SAT para continuar.`
-        );
-        setValidating(false);
-        return;
-      }
-      if (notBeforeDate && now < notBeforeDate) {
-        setValidationError(
-          'El certificado aún no es vigente. Verifica la fecha de inicio de vigencia.'
-        );
-        setValidating(false);
-        return;
-      }
-
-      // ── PASO 3: Verificar CURP del certificado vs perfil ────────────────
-      if (userProfileData && parsed.curp) {
-        const certCurp = parsed.curp.trim().toUpperCase();
-        const profileCurp = userProfileData.curp;
-        if (profileCurp && certCurp && certCurp !== profileCurp) {
-          setValidationError(
-            `La CURP del certificado (${certCurp}) no coincide con la CURP registrada en tu perfil (${profileCurp}). Verifica que estés usando el certificado correcto.`
-          );
-          setValidating(false);
-          return;
-        }
-      }
-
-      // ── PASO 4: Verificar RFC si es persona moral ───────────────────────
-      if (userProfileData && userProfileData.personalidad_juridica === 'moral' && parsed.rfc) {
-        const certRfc = parsed.rfc.trim().toUpperCase();
-        const profileRfc = userProfileData.rfc;
-        if (profileRfc && certRfc && certRfc !== profileRfc) {
-          setValidationError(
-            `El RFC del certificado (${certRfc}) no coincide con el RFC registrado en tu perfil (${profileRfc}). Verifica que estés usando el certificado de tu empresa.`
-          );
-          setValidating(false);
-          return;
-        }
-      }
-
-      // ── PASO 5: Convertir archivos a base64 ─────────────────────────────
-      const cerB64 = await fileToBase64(cerFile);
-      const keyB64 = await fileToBase64(keyFile);
-
-      // Collect evidence in parallel (non-blocking)
-      const { deviceFingerprint, sessionEvidence } = await collectAllEvidence();
-
-      // ── PASO 6: Validar par criptográfico con Edge Function ─────────────
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      if (supabaseUrl && supabaseAccessToken && documentId) {
-        const edgeRes = await fetch(`${supabaseUrl}/functions/v1/validate-efirma`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${supabaseAccessToken}`,
+        await supabase
+          .from('user_profiles')
+          .update({
+            efirma_rfc: parsed.rfc || null,
+            efirma_serial: parsed.serial,
+            efirma_nombre: holderName || null,
+            efirma_vigencia_fin: parsed.notAfter || null,
+            efirma_linked_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id);
+        setStoredKeyState({
+          userId: user.id,
+          key: {
+            ...material,
+            user_id: user.id,
+            certificate_serial: parsed.serial,
+            certificate_rfc: parsed.rfc,
+            certificate_subject: parsed.subject,
+            certificate_not_after: parsed.notAfter,
           },
-          body: JSON.stringify({
-            document_id: documentId,
-            cer_b64: cerB64,
-            key_b64: keyB64,
-            password,
-            device_fingerprint: deviceFingerprint,
-            session_evidence: sessionEvidence,
-          }),
         });
-
-        if (edgeRes.ok) {
-          const edgeData = await edgeRes.json();
-          if (edgeData.valid) {
-            // ── PASO 7: Validar serial con Nubarium ────────────────────────
-            // Prefer client-side parsed values (ASCII-decoded serial, OID-aware RFC/CURP)
-            // over edge function values as primary source of truth
-            const certRfc = (parsed.rfc || edgeData.cert_rfc || '').trim();
-            const certCurpFallback = (parsed.curp || edgeData.cert_curp || '').trim();
-            const certSerial = (parsed.serial || edgeData.cert_serial || '').trim();
-            if (!certRfc && !certCurpFallback) {
-              setValidationError(
-                'No se pudo extraer el RFC o CURP del certificado. Verifica que el archivo .cer sea válido y pertenezca a tu e.firma.'
-              );
-              setValidating(false);
-              return;
-            }
-            // Build identifier payload: prefer rfc, fall back to curp
-            const nubariumIdentifier = certRfc
-              ? { rfc: certRfc, serial: certSerial }
-              : { curp: certCurpFallback, serial: certSerial };
-            // Proceed with Nubarium validation — certSerial may be empty but RFC/CURP is enough to identify
-            {
-              let nubariumOk = false;
-              let nubariumError = '';
-              let capturedNubariumResult: NubariumValidationResult | undefined;
-              try {
-                const nubariumRes = await fetch('/api/nubarium/validar-serial', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(nubariumIdentifier),
-                });
-                const nubariumData = await nubariumRes.json();
-                // Check for connection/auth errors returned as success:false
-                if (nubariumData.success === false && nubariumData.fetch_error) {
-                  nubariumError =
-                    'No se pudo conectar con el servicio de validación del SAT. Intenta nuevamente.';
-                } else if (nubariumData.success === false && nubariumData.error) {
-                  nubariumError =
-                    nubariumData.error?.includes('RFC') || nubariumData.error?.includes('serial')
-                      ? 'No se pudo extraer el RFC o número de serie del certificado. Verifica que el archivo .cer sea válido.'
-                      : `Error del servicio SAT: ${nubariumData.error}`;
-                } else {
-                  // Use server-computed _es_valido or fall back to legacy field checks
-                  const nubariumIsValid =
-                    nubariumData._es_valido === true ||
-                    nubariumData.clave_mensaje === 0 ||
-                    nubariumData.estado === 'Vigente' ||
-                    nubariumData.estatus === 'Vigente' ||
-                    nubariumData.estado === 'Activo' ||
-                    nubariumData.estatus === 'Activo';
-                  if (nubariumIsValid) {
-                    nubariumOk = true;
-                    capturedNubariumResult = {
-                      estado:
-                        nubariumData._estado_normalizado ||
-                        nubariumData.estado ||
-                        nubariumData.estatus ||
-                        'Vigente',
-                      fechaConsulta: new Date().toISOString(),
-                      codigoValidacion: nubariumData.codigo_validacion || null,
-                    };
-                  } else {
-                    const cm =
-                      nubariumData.clave_mensaje || nubariumData._clave_mensaje_detectada || 0;
-                    nubariumError =
-                      cm === 2
-                        ? 'La e.firma está revocada ante el SAT.'
-                        : cm === 3
-                          ? 'La e.firma está suspendida ante el SAT.'
-                          : cm === 4
-                            ? 'La e.firma ha expirado ante el SAT.'
-                            : nubariumData.error
-                              ? `Error del servicio SAT: ${nubariumData.error}`
-                              : `La e.firma no está vigente ante el SAT (${nubariumData._estado_normalizado || nubariumData.estado || nubariumData.estatus || 'sin estado'}).`;
-                  }
-                }
-              } catch {
-                nubariumError =
-                  'No se pudo conectar con el servicio de validación del SAT. Verifica tu conexión e intenta nuevamente.';
-              }
-
-              if (!nubariumOk) {
-                setValidationError(nubariumError);
-                setValidating(false);
-                return;
-              }
-
-              // ── PASO 8: Re-verificar CURP/RFC con datos del Edge Function ──
-              const edgeCurp = (edgeData.cert_curp || '').trim().toUpperCase();
-              const edgeRfc = (edgeData.cert_rfc || '').trim().toUpperCase();
-
-              if (userProfileData && edgeCurp) {
-                const profileCurp = userProfileData.curp;
-                if (profileCurp && edgeCurp !== profileCurp) {
-                  setValidationError(
-                    `La CURP del certificado (${edgeCurp}) no coincide con la CURP registrada en tu perfil (${profileCurp}). Verifica que estés usando el certificado correcto.`
-                  );
-                  setValidating(false);
-                  return;
-                }
-              }
-
-              if (userProfileData && userProfileData.personalidad_juridica === 'moral' && edgeRfc) {
-                const profileRfc = userProfileData.rfc;
-                if (profileRfc && edgeRfc !== profileRfc) {
-                  setValidationError(
-                    `El RFC del certificado (${edgeRfc}) no coincide con el RFC registrado en tu perfil (${profileRfc}). Verifica que estés usando el certificado de tu empresa.`
-                  );
-                  setValidating(false);
-                  return;
-                }
-              }
-
-              // Frame 2 — validación exitosa
-              await captureFrame('efirma_validated').catch(() => {});
-              setValidated(true);
-              onValidated(edgeData, cerB64, keyB64, password, capturedNubariumResult);
-              return;
-            }
-          } else {
-            // Edge Function returned explicit error (e.g. expired cert, wrong password)
-            const errMsg = edgeData.error || 'La e.firma no es válida.';
-            // Improve expiry error message
-            if (
-              errMsg.toLowerCase().includes('expirado') ||
-              errMsg.toLowerCase().includes('vigente') ||
-              errMsg.toLowerCase().includes('expired')
-            ) {
-              const fechaVenc = edgeData.cert_not_after
-                ? new Date(edgeData.cert_not_after).toLocaleDateString('es-MX', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  })
-                : null;
-              setValidationError(
-                fechaVenc
-                  ? `El certificado está vencido. Venció el ${fechaVenc}. Renueva tu e.firma ante el SAT para continuar.`
-                  : 'El certificado está vencido. Renueva tu e.firma ante el SAT para continuar.'
-              );
-            } else {
-              setValidationError(errMsg);
-            }
-            setValidating(false);
-            return;
-          }
-        }
-        // Fall through to legacy validation if Edge Function fails
       }
 
-      // ── Legacy fallback: validate-key API + Nubarium ────────────────────
-      const keyFormData = new FormData();
-      keyFormData.append('keyFile', keyFile);
-      keyFormData.append('password', password);
-      const keyRes = await fetch('/api/efirma/validate-key', { method: 'POST', body: keyFormData });
-      const keyData = await keyRes.json();
-      if (!keyData.isPasswordValid) {
-        setValidationError(keyData.message || 'Contraseña incorrecta para el archivo .key.');
-        setValidating(false);
-        return;
-      }
-      // Validate serial with Nubarium (legacy path)
-      if ((!parsed.rfc || !parsed.rfc.trim()) && (!parsed.curp || !parsed.curp.trim())) {
-        setValidationError(
-          'No se pudo extraer el RFC o CURP del certificado. Verifica que el archivo .cer sea válido y pertenezca a tu e.firma.'
-        );
-        setValidating(false);
-        return;
-      }
-      // Build identifier: prefer rfc, fall back to curp
-      const legacyIdentifier = parsed.rfc?.trim()
-        ? { rfc: parsed.rfc.trim(), serial: parsed.serial.trim() }
-        : { curp: parsed.curp?.trim(), serial: parsed.serial.trim() };
-      const nubariumRes = await fetch('/api/nubarium/validar-serial', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(legacyIdentifier),
-      });
-      const nubariumData = await nubariumRes.json();
-      // Check for connection/auth errors returned as success:false
-      if (nubariumData.success === false && (nubariumData.fetch_error || nubariumData.error)) {
-        const errMsg = nubariumData.fetch_error
-          ? 'No se pudo conectar con el servicio de validación del SAT. Intenta nuevamente.'
-          : nubariumData.error?.includes('RFC') || nubariumData.error?.includes('serial')
-            ? 'No se pudo extraer el RFC o número de serie del certificado. Verifica que el archivo .cer sea válido.'
-            : `Error del servicio SAT: ${nubariumData.error}`;
-        setValidationError(errMsg);
-        setValidating(false);
-        return;
-      }
-      // Use server-computed _es_valido or fall back to legacy field checks
-      const legacyIsValid =
-        nubariumData._es_valido === true ||
-        nubariumData.clave_mensaje === 0 ||
-        nubariumData.estado === 'Vigente' ||
-        nubariumData.estatus === 'Vigente' ||
-        nubariumData.estado === 'Activo' ||
-        nubariumData.estatus === 'Activo';
-      if (legacyIsValid) {
-        // Frame 2 — validación exitosa (legacy path)
-        await captureFrame('efirma_validated').catch(() => {});
-        setValidated(true);
-        const legacyNubariumResult: NubariumValidationResult = {
-          estado:
-            nubariumData._estado_normalizado ||
-            nubariumData.estado ||
-            nubariumData.estatus ||
-            'Vigente',
-          fechaConsulta: new Date().toISOString(),
-          codigoValidacion: nubariumData.codigo_validacion || null,
-        };
-        onValidated(
-          { cert_serial: parsed.serial, cert_rfc: parsed.rfc, cert_subject: parsed.subject },
-          cerB64,
-          keyB64,
-          password,
-          legacyNubariumResult
-        );
+      await finishLocalValidation(
+        material,
+        {
+          cert_serial: parsed.serial,
+          cert_rfc: parsed.rfc,
+          cert_curp: parsed.curp,
+          cert_subject: parsed.subject,
+          cert_not_after: parsed.notAfter,
+        },
+        nubariumResult
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === 'EFIRMA_PROFILE_MISMATCH') {
+        setValidationError('El certificado no corresponde a los datos registrados en tu perfil.');
+      } else if (error instanceof Error && error.message === 'EFIRMA_VAULT_EMPTY') {
+        setValidationError('No se encontró una e.firma guardada. Cárgala nuevamente.');
       } else {
-        const cm = nubariumData.clave_mensaje || nubariumData._clave_mensaje_detectada || 0;
-        const msg =
-          cm === 2
-            ? 'La e.firma está revocada ante el SAT.'
-            : cm === 3
-              ? 'La e.firma está suspendida ante el SAT.'
-              : cm === 4
-                ? 'La e.firma ha expirado ante el SAT.'
-                : nubariumData.error
-                  ? `Error del servicio SAT: ${nubariumData.error}`
-                  : `La e.firma no está vigente ante el SAT (${nubariumData._estado_normalizado || nubariumData.estado || nubariumData.estatus || 'sin estado'}).`;
-        setValidationError(msg);
+        setValidationError(localValidationMessage(error));
       }
-    } catch {
-      setValidationError('Error al validar la e.firma. Intenta nuevamente.');
     } finally {
       setValidating(false);
     }
@@ -1044,170 +971,8 @@ function EfirmaFirmarFlow({
 
   return (
     <div className="space-y-4">
-      {/* ── STEP 1: Ask if user wants to use preloaded e.firma ─────────────── */}
-      {hasProfileEfirma && !profileIsExpired && usePreloaded === null && (
-        <div
-          className={`border rounded-xl overflow-hidden ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}
-        >
-          <div className="p-4 space-y-3">
-            <div className="flex items-start gap-2">
-              <ShieldCheck
-                size={16}
-                className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
-              />
-              <p className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
-                Hay una e.firma registrada en tu perfil. Puedes verificar su vigencia antes de
-                cargar los archivos para firmar.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setUsePreloaded(true)}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
-              >
-                <Check size={14} />
-                Ver datos
-              </button>
-              <button
-                type="button"
-                onClick={() => setUsePreloaded(false)}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
-              >
-                Cargar archivos
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Expired warning — show directly if expired */}
-      {hasProfileEfirma && profileIsExpired && usePreloaded === null && (
-        <div
-          className={`flex items-start gap-2 rounded-lg p-3 border ${isDark ? 'bg-amber-900/20 border-amber-700' : 'bg-amber-50 border-amber-200'}`}
-        >
-          <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
-          <div>
-            <p className={`text-xs font-medium ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
-              La e.firma registrada en tu perfil está vencida.
-            </p>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-              Carga una nueva e.firma vigente para continuar.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ── STEP 2A: Using preloaded e.firma — show data card ──────────────── */}
-      {usePreloaded === true && hasProfileEfirma && (
-        <div
-          className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
-        >
-          <div
-            className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/30 border-border'}`}
-          >
-            <div className="flex items-center gap-2">
-              <Shield size={13} className="text-primary" />
-              <p
-                className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
-              >
-                DATOS DE E.FIRMA REGISTRADOS
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setUsePreloaded(null);
-                setValidationError('');
-              }}
-              className={`text-xs underline ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              Cambiar
-            </button>
-          </div>
-          <div className={`p-4 space-y-3 ${isDark ? 'bg-gray-800' : ''}`}>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p
-                  className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
-                >
-                  RFC
-                </p>
-                <p
-                  className={`text-sm font-mono font-medium ${isDark ? 'text-gray-200' : 'text-foreground'}`}
-                >
-                  {profileEfirma?.rfc || '—'}
-                </p>
-              </div>
-              <div>
-                <p
-                  className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
-                >
-                  NO. DE SERIE
-                </p>
-                <p
-                  className={`text-xs font-mono ${isDark ? 'text-gray-300' : 'text-slate-600'} truncate`}
-                >
-                  {profileEfirma?.serial || '—'}
-                </p>
-              </div>
-              {profileEfirma?.nombre && (
-                <div className="col-span-2">
-                  <p
-                    className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
-                  >
-                    TITULAR
-                  </p>
-                  <p className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
-                    {profileEfirma.nombre}
-                  </p>
-                </div>
-              )}
-              {profileEfirma?.vigenciaFin && (
-                <div className="col-span-2">
-                  <p
-                    className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
-                  >
-                    VIGENCIA
-                  </p>
-                  <p className={`text-sm ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
-                    {new Date(profileEfirma.vigenciaFin).toLocaleDateString('es-MX', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </p>
-                </div>
-              )}
-            </div>
-            {validationError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                <AlertTriangle size={13} className="text-red-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{validationError}</p>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={handleValidateProfileEfirma}
-              disabled={validating}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {validating ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" /> Validando ante SAT...
-                </>
-              ) : (
-                <>
-                  <Shield size={14} /> Verificar vigencia y continuar
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── STEP 2B: User rejected preloaded — show info notice ────────────── */}
-      {(usePreloaded === false || !hasProfileEfirma || profileIsExpired) && !noticeAccepted && (
+      {/* ── STEP 1: Explain the one-time signing process ──────────────────── */}
+      {!noticeAccepted && (
         <div
           className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
         >
@@ -1216,14 +981,14 @@ function EfirmaFirmarFlow({
           >
             <Shield size={15} className="text-primary" />
             <p className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-foreground'}`}>
-              Iniciar proceso de obtención de firma
+              Preparar firma con e.firma SAT
             </p>
           </div>
           <div className={`p-4 space-y-4 ${isDark ? 'bg-gray-800' : ''}`}>
             <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
-              Generamos automáticamente un registro del proceso para brindar plena validez legal a
-              tu firma en el documento, por lo que se emitirá un registro de tiempo, dispositivo,
-              ubicación y trazo de firma.
+              {storedKey
+                ? 'Tu perfil tiene una e.firma cifrada. Puedes utilizarla ingresando su contraseña o cargar nuevamente tus archivos.'
+                : 'Puedes guardar tu llave cifrada para futuras firmas. El cifrado y la firma se realizan en este dispositivo; la contraseña no se almacena.'}
             </p>
             {geoDenied && (
               <div
@@ -1248,20 +1013,54 @@ function EfirmaFirmarFlow({
                 </div>
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => setNoticeAccepted(true)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
-            >
-              <Check size={15} />
-              Entendido — Continuar
-            </button>
+            {storedKeyLoading ? (
+              <div className="flex h-11 items-center justify-center text-sm text-muted-foreground">
+                <Loader2 size={15} className="mr-2 animate-spin" /> Preparando e.firma...
+              </div>
+            ) : storedKey ? (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCredentialSource('stored');
+                    setNoticeAccepted(true);
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+                >
+                  <Check size={15} />
+                  Utilizar mi e.firma guardada
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCredentialSource('upload');
+                    setNoticeAccepted(true);
+                  }}
+                  className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition-colors ${isDark ? 'border-gray-600 text-gray-200 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted/50'}`}
+                >
+                  <Upload size={15} />
+                  Cargar de nuevo mi e.firma
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setCredentialSource('upload');
+                  setNoticeAccepted(true);
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+              >
+                <Upload size={15} />
+                Cargar mi e.firma
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {/* ── STEP 3: Upload form — shown after notice accepted ──────────────── */}
-      {(usePreloaded === false || !hasProfileEfirma || profileIsExpired) && noticeAccepted && (
+      {/* ── STEP 2: Upload form — shown after notice accepted ──────────────── */}
+      {noticeAccepted && (
         <div
           className={`border rounded-xl overflow-hidden ${isDark ? 'border-gray-700' : 'border-border'}`}
         >
@@ -1271,127 +1070,136 @@ function EfirmaFirmarFlow({
             <p
               className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-foreground'}`}
             >
-              Cargar archivos de e.firma
+              {credentialSource === 'stored'
+                ? 'Utilizar mi e.firma guardada'
+                : 'Cargar y proteger mi e.firma'}
             </p>
           </div>
           <div className={`p-4 space-y-4 ${isDark ? 'bg-gray-800' : ''}`}>
-            {profileValidationNotice && (
-              <div
-                className={`flex items-start gap-2 rounded-lg border px-3 py-2 ${isDark ? 'border-green-800 bg-green-900/20' : 'border-green-200 bg-green-50'}`}
-              >
-                <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-green-600" />
-                <p
-                  className={`text-xs leading-relaxed ${isDark ? 'text-green-300' : 'text-green-700'}`}
+            {credentialSource === 'upload' && (
+              <>
+                {/* .cer file */}
+                <div>
+                  <label
+                    className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                  >
+                    Certificado (.cer) <span className="text-red-500">*</span>
+                  </label>
+                  <div
+                    className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${cerFile ? (isDark ? 'border-green-600 bg-green-900/20' : 'border-green-300 bg-green-50') : isDark ? 'border-gray-600' : 'border-border'}`}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={cerFile ? 'text-green-500' : 'text-slate-400'}
+                    >
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <label className="flex-1 cursor-pointer">
+                      <span
+                        className={`text-xs ${cerFile ? (isDark ? 'text-green-400' : 'text-green-700') : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                      >
+                        {cerFile ? cerFile.name : 'Seleccionar archivo .cer'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".cer"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] || null;
+                          setCerFile(f);
+                          setCerLoaded(!!f);
+                          setValidationError('');
+                        }}
+                      />
+                    </label>
+                    {cerFile && (
+                      <button
+                        type="button"
+                        onClick={() => setCerFile(null)}
+                        className="text-slate-400 hover:text-red-500 transition-colors"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {/* .key file */}
+                <div>
+                  <label
+                    className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
+                  >
+                    Llave privada (.key) <span className="text-red-500">*</span>
+                  </label>
+                  <div
+                    className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${keyFile ? (isDark ? 'border-green-600 bg-green-900/20' : 'border-green-300 bg-green-50') : isDark ? 'border-gray-600' : 'border-border'}`}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={keyFile ? 'text-green-500' : 'text-slate-400'}
+                    >
+                      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                    </svg>
+                    <label className="flex-1 cursor-pointer">
+                      <span
+                        className={`text-xs ${keyFile ? (isDark ? 'text-green-400' : 'text-green-700') : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
+                      >
+                        {keyFile ? keyFile.name : 'Seleccionar archivo .key'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".key"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] || null;
+                          setKeyFile(f);
+                          setKeyLoaded(!!f);
+                          setValidationError('');
+                        }}
+                      />
+                    </label>
+                    {keyFile && (
+                      <button
+                        type="button"
+                        onClick={() => setKeyFile(null)}
+                        className="text-slate-400 hover:text-red-500 transition-colors"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <label
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${isDark ? 'border-gray-600 bg-gray-700/40' : 'border-blue-200 bg-blue-50'}`}
                 >
-                  {profileValidationNotice}
-                </p>
-              </div>
+                  <input
+                    type="checkbox"
+                    checked={saveForFuture}
+                    onChange={(event) => setSaveForFuture(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary/30"
+                  />
+                  <span
+                    className={`text-xs leading-relaxed ${isDark ? 'text-gray-300' : 'text-blue-800'}`}
+                  >
+                    Guardar mi llave cifrada para futuras firmas. La contraseña no se guardará.
+                  </span>
+                </label>
+              </>
             )}
-            {/* .cer file */}
-            <div>
-              <label
-                className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
-              >
-                Certificado (.cer) <span className="text-red-500">*</span>
-              </label>
-              <div
-                className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${cerFile ? (isDark ? 'border-green-600 bg-green-900/20' : 'border-green-300 bg-green-50') : isDark ? 'border-gray-600' : 'border-border'}`}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={cerFile ? 'text-green-500' : 'text-slate-400'}
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-                <label className="flex-1 cursor-pointer">
-                  <span
-                    className={`text-xs ${cerFile ? (isDark ? 'text-green-400' : 'text-green-700') : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
-                  >
-                    {cerFile ? cerFile.name : 'Seleccionar archivo .cer'}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".cer"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      setCerFile(f);
-                      setCerLoaded(!!f);
-                      setValidationError('');
-                    }}
-                  />
-                </label>
-                {cerFile && (
-                  <button
-                    type="button"
-                    onClick={() => setCerFile(null)}
-                    className="text-slate-400 hover:text-red-500 transition-colors"
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
-            </div>
-            {/* .key file */}
-            <div>
-              <label
-                className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-foreground'}`}
-              >
-                Llave privada (.key) <span className="text-red-500">*</span>
-              </label>
-              <div
-                className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${keyFile ? (isDark ? 'border-green-600 bg-green-900/20' : 'border-green-300 bg-green-50') : isDark ? 'border-gray-600' : 'border-border'}`}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={keyFile ? 'text-green-500' : 'text-slate-400'}
-                >
-                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-                </svg>
-                <label className="flex-1 cursor-pointer">
-                  <span
-                    className={`text-xs ${keyFile ? (isDark ? 'text-green-400' : 'text-green-700') : isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
-                  >
-                    {keyFile ? keyFile.name : 'Seleccionar archivo .key'}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".key"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      setKeyFile(f);
-                      setKeyLoaded(!!f);
-                      setValidationError('');
-                    }}
-                  />
-                </label>
-                {keyFile && (
-                  <button
-                    type="button"
-                    onClick={() => setKeyFile(null)}
-                    className="text-slate-400 hover:text-red-500 transition-colors"
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
-            </div>
             {/* Password */}
             <div>
               <label
@@ -1427,8 +1235,12 @@ function EfirmaFirmarFlow({
             )}
             <button
               type="button"
-              onClick={handleValidateUploadedEfirma}
-              disabled={!cerFile || !keyFile || !password || validating}
+              onClick={handleValidateEfirmaLocally}
+              disabled={
+                !password ||
+                validating ||
+                (credentialSource === 'stored' ? !storedKey : !cerFile || !keyFile)
+              }
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {validating ? (
@@ -1437,14 +1249,21 @@ function EfirmaFirmarFlow({
                 </>
               ) : (
                 <>
-                  <Shield size={14} /> Validar e.firma y firmar
+                  <Shield size={14} />
+                  {credentialSource === 'stored'
+                    ? 'Utilizar e.firma y continuar'
+                    : 'Validar e.firma y continuar'}
                 </>
               )}
             </button>
             <p
               className={`text-[10px] text-center ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
             >
-              La contraseña se usa únicamente para descifrar la llave y no se almacena.
+              {credentialSource === 'stored'
+                ? 'La contraseña sólo se usa en este dispositivo para descifrar la llave y no se almacena.'
+                : saveForFuture
+                  ? 'La llave se cifra antes de guardarse. La contraseña no sale de este dispositivo.'
+                  : 'La llave y la contraseña sólo permanecerán en memoria durante esta firma.'}
             </p>
           </div>
         </div>
@@ -1887,7 +1706,7 @@ function FieldLabelConfigModalFirmar({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-lg font-bold text-gray-900">Configuración del Campo</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Configuración del Campo</h3>
           <button
             type="button"
             onClick={onClose}
@@ -2015,7 +1834,7 @@ function FieldTypeConfigModalFirmar({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-lg font-bold text-gray-900">Configuración de {label}</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Configuración de {label}</h3>
           <button
             type="button"
             onClick={onClose}
@@ -2244,7 +2063,7 @@ function DropdownOptionsModalFirmar({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-lg font-bold text-gray-900">
+          <h3 className="text-lg font-semibold text-gray-900">
             Editar Opciones para &quot;{fieldLabel}&quot;
           </h3>
           <button
@@ -2341,7 +2160,7 @@ function CasillaLabelModalFirmar({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-lg font-bold text-gray-900">
+          <h3 className="text-lg font-semibold text-gray-900">
             Editar Etiqueta para &quot;Casilla&quot;
           </h3>
           <button
@@ -2395,6 +2214,7 @@ function CasillaLabelModalFirmar({
 function PlacedFieldOverlay({
   field,
   signatureDataUrl,
+  stampDisplayProps,
   onRemove,
   onMove,
   onResize,
@@ -2407,6 +2227,7 @@ function PlacedFieldOverlay({
 }: {
   field: PlacedFieldFirmar;
   signatureDataUrl?: string | null;
+  stampDisplayProps?: StampDisplayProps;
   onRemove: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onResize: (id: string, width: number, height: number, x: number, y: number) => void;
@@ -2885,7 +2706,11 @@ function PlacedFieldOverlay({
               background: signatureDataUrl ? 'rgba(255,255,255,0.96)' : `${colorHex}15`,
             }}
           >
-            {signatureDataUrl ? (
+            {signatureDataUrl && stampDisplayProps ? (
+              <div className="h-full w-full pointer-events-none">
+                <FittedSignatureStamp {...stampDisplayProps} />
+              </div>
+            ) : signatureDataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={signatureDataUrl}
@@ -3202,7 +3027,7 @@ function CompletedFieldStamp({
               alignItems: 'stretch',
             }}
           >
-            <SignatureStampDisplay {...stampDisplayProps} />
+            <FittedSignatureStamp {...stampDisplayProps} />
           </div>
         ) : sigSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -3481,12 +3306,66 @@ interface StampDisplayProps {
   signatureUrl: string | null;
   userName: string;
   userRfc: string;
+  userCurp?: string;
+  participantRole?: string;
+  participantAct?: string;
   signatureHash: string;
   signedAt: string;
   ipAddress: string;
   coordinates: { lat: number; lng: number } | null;
   efirmaSerial?: string | null;
   efirmaVigenciaFin?: string | null;
+  verificationUrl?: string;
+}
+
+function FittedSignatureStamp(props: StampDisplayProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState({ width: 220, scale: 1, left: 0, top: 0 });
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const content = contentRef.current;
+    if (!container || !content) return;
+    const measure = () => {
+      const width = Math.max(
+        getStampSizePreset(props.stampStyle).minimumRenderWidth,
+        container.clientWidth
+      );
+      content.style.width = `${width}px`;
+      const height = Math.max(content.scrollHeight, 1);
+      const scale = Math.min(1, container.clientWidth / width, container.clientHeight / height);
+      setLayout({
+        width,
+        scale,
+        left: Math.max(0, (container.clientWidth - width * scale) / 2),
+        top: Math.max(0, (container.clientHeight - height * scale) / 2),
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    observer.observe(content);
+    measure();
+    return () => observer.disconnect();
+  }, [props.stampStyle, props.signatureUrl, props.signatureHash]);
+
+  return (
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-white">
+      <div
+        ref={contentRef}
+        className="absolute"
+        style={{
+          width: layout.width,
+          left: layout.left,
+          top: layout.top,
+          transform: `scale(${layout.scale})`,
+          transformOrigin: 'top left',
+        }}
+      >
+        <SignatureStampDisplay {...props} />
+      </div>
+    </div>
+  );
 }
 
 function SignatureStampDisplay({
@@ -3495,27 +3374,63 @@ function SignatureStampDisplay({
   signatureUrl,
   userName,
   userRfc,
+  userCurp,
+  participantRole,
+  participantAct,
   signatureHash,
   signedAt,
   ipAddress,
   coordinates,
   efirmaSerial,
   efirmaVigenciaFin,
+  verificationUrl,
 }: StampDisplayProps) {
   const nombre = userName || 'Firmante';
   const rfc = userRfc || '—';
   const hashShort = signatureHash
     ? signatureHash.slice(0, 16) + '...' + signatureHash.slice(-6)
     : '—';
+  const efirmaHashShort = signatureHash
+    ? signatureHash.slice(0, 12) + '...' + signatureHash.slice(-8)
+    : '—';
   const hashFull = signatureHash || '—';
-  const signedDate = signedAt ? new Date(signedAt) : new Date();
-  const fecha =
-    signedDate.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
-    ' CST';
+  const signedDate = signedAt ? new Date(signedAt) : null;
+  const fecha = signedDate
+    ? signedDate.toLocaleDateString('es-MX', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }) + ' CST'
+    : 'Pendiente de firmar';
+  const fechaHora = signedDate
+    ? signedDate.toLocaleString('es-MX', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }) + ' CST'
+    : 'Pendiente de firmar';
+  const role = participantRole || 'Firmante';
+  const act = participantAct || 'Firmante';
+  const maskIdentifier = (value?: string) => {
+    const normalized = String(value || '')
+      .trim()
+      .toUpperCase();
+    if (!normalized) return 'No disponible';
+    if (normalized.length <= 7) return `${normalized.slice(0, 2)}***${normalized.slice(-2)}`;
+    return `${normalized.slice(0, 4)}******${normalized.slice(-3)}`;
+  };
+  const maskedRfc = maskIdentifier(userRfc);
+  const maskedCurp = maskIdentifier(userCurp);
   const ip = ipAddress && ipAddress !== '—' ? ipAddress : '—';
   const geoloc = coordinates
     ? `${coordinates.lat.toFixed(2)}°N ${Math.abs(coordinates.lng).toFixed(2)}°W ±80m`
     : '—';
+  const clickSignLocation = geoloc === '—' ? 'Ubicación no disponible' : geoloc;
+  const clickSignDevice = 'Navegador web';
+  const clickSignChannel = 'Click & Sign';
   const vigencia = efirmaVigenciaFin
     ? new Date(efirmaVigenciaFin).toLocaleDateString('es-MX', {
         year: 'numeric',
@@ -3526,20 +3441,10 @@ function SignatureStampDisplay({
   const serial = efirmaSerial ? efirmaSerial.slice(0, 20) : '—';
 
   const qrBlock = (
-    <div className="w-10 h-10 bg-gray-800 rounded flex-shrink-0 flex items-center justify-center">
-      <svg viewBox="0 0 20 20" width="32" height="32" fill="white">
-        <rect x="1" y="1" width="7" height="7" rx="1" />
-        <rect x="12" y="1" width="7" height="7" rx="1" />
-        <rect x="1" y="12" width="7" height="7" rx="1" />
-        <rect x="3" y="3" width="3" height="3" fill="#1f2937" />
-        <rect x="14" y="3" width="3" height="3" fill="#1f2937" />
-        <rect x="3" y="14" width="3" height="3" fill="#1f2937" />
-        <rect x="12" y="12" width="2" height="2" />
-        <rect x="15" y="12" width="2" height="2" />
-        <rect x="12" y="15" width="2" height="2" />
-        <rect x="15" y="15" width="2" height="2" />
-      </svg>
-    </div>
+    <SignatureQrCode
+      value={verificationUrl || `${getPublicAppUrl()}/verificar-documento`}
+      example={!verificationUrl}
+    />
   );
 
   const fieldRow = (label: string, value: string) => (
@@ -3559,7 +3464,7 @@ function SignatureStampDisplay({
         className={`text-[6px] font-semibold uppercase tracking-wide ${signatureType === 'efirma' ? 'text-amber-700' : signatureType === 'autografa' ? 'text-amber-700' : 'text-gray-500'}`}
       >
         {signatureType === 'efirma'
-          ? '🔑 HASH FIRMADO RSA / SHA-256'
+          ? 'HUELLA SHA-256'
           : signatureType === 'autografa'
             ? '🔑 HASH FIRMADO SHA-256'
             : '○ HASH ACEPTACIÓN SHA-256'}
@@ -3571,7 +3476,7 @@ function SignatureStampDisplay({
   );
 
   const sigBox = () => (
-    <div className="border border-gray-300 rounded bg-gray-50 flex items-center justify-center p-1 min-h-[32px]">
+    <div className="flex min-h-[32px] items-center justify-center rounded border-[1.5px] border-blue-400 bg-blue-50/40 p-1 ring-1 ring-blue-100">
       {signatureUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -3596,14 +3501,57 @@ function SignatureStampDisplay({
   const certLine = (expanded = false) => (
     <p className="text-[7px] text-gray-500 leading-tight">
       {expanded
-        ? `Cert.: ${serial} · RSA-2048/SHA-256 · OCSP: Válido ✓ · Vigencia: → ${vigencia}`
-        : `Cert.: ${serial} · RSA-2048 · → ${vigencia}`}
+        ? `Serie: ${serial} · RSA/SHA-256 · OCSP vigente · Válido hasta ${vigencia}`
+        : `Serie: ${serial} · Válido hasta ${vigencia}`}
     </p>
+  );
+
+  const validationPill = (label = 'Certificado vigente') => (
+    <span className="inline-flex w-fit items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[7px] font-semibold text-emerald-700">
+      <svg
+        width="8"
+        height="8"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+      {label}
+    </span>
+  );
+
+  const shieldBlock = <ShieldCheck size={14} className="flex-shrink-0 text-blue-500" />;
+
+  const qrVerificationBlock = (
+    <div className="flex flex-col items-center gap-0.5">
+      {qrBlock}
+      <span className="text-[6px] text-blue-600">Verificar</span>
+    </div>
+  );
+
+  const evidenceHashBlock = (
+    <div className="rounded bg-blue-50 px-2 py-1.5">
+      <p className="text-[7px] font-semibold text-blue-700 uppercase">HUELLA SHA-256</p>
+      <p className="mt-0.5 break-all font-mono text-[7px] leading-tight text-gray-700">
+        {hashFull}
+      </p>
+    </div>
+  );
+
+  const autographIdentityBlock = (
+    <div className="w-full min-w-0 text-left leading-tight">
+      <p className="break-words text-[9px] font-bold text-gray-800">{nombre}</p>
+      <p className="text-[7px] text-gray-600">Rol: {role} · Acto: {act}</p>
+    </div>
   );
 
   const urlLine = () => (
     <p className="text-[7px] text-blue-600 leading-tight">
-      verify.docubox.mx/{hashShort.slice(0, 8)}
+      {verificationUrl || 'Verificación disponible al finalizar'}
     </p>
   );
 
@@ -3641,358 +3589,320 @@ function SignatureStampDisplay({
     </div>
   );
 
+  const acceptancePill = (
+    <span className="inline-flex w-fit items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[7px] font-semibold text-blue-700">
+      <svg
+        width="8"
+        height="8"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+      Aceptación confirmada
+    </span>
+  );
+
   // ── e.Firma stamps ──────────────────────────────────────────────────────────
   if (signatureType === 'efirma') {
     if (stampStyle === 'EC1')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-          <p className="text-[7px] text-gray-500">RFC: {rfc} · #1</p>
-          {certLine()}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('OCSP', 'Válido ✓')}
-            {fieldRow('FECHA/TZ', fecha)}
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-2 w-full">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+              <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
+            </div>
+            {shieldBlock}
           </div>
-          {urlLine()}
+          <div className="grid grid-cols-2 gap-2 rounded bg-slate-50 px-2 py-1.5">
+            {fieldRow('HUELLA SHA-256', efirmaHashShort)}
+            {fieldRow('FECHA Y HORA', fechaHora)}
+          </div>
+          <p className="text-[7px] text-gray-500">Firmado con e.firma</p>
         </div>
       );
     if (stampStyle === 'EC2')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-start justify-between gap-1">
-            <div className="flex items-center gap-1">
-              <div className="w-4 h-4 rounded border-2 border-blue-500 flex items-center justify-center flex-shrink-0">
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#3b82f6"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-                <p className="text-[7px] text-gray-500">{rfc}</p>
-              </div>
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-2 w-full">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+              <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
             </div>
-            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
-              OCSP ✓
-            </span>
+            {shieldBlock}
           </div>
-          {certLine(true)}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
+          <div className="flex items-center gap-3">
+            <div className="flex flex-1 flex-col gap-1.5">
+              {validationPill('Certificado válido')}
+              {fieldRow('HUELLA SHA-256', efirmaHashShort)}
+              {fieldRow('FECHA Y HORA', fechaHora)}
+            </div>
+            {qrVerificationBlock}
           </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
-            {qrBlock}
-          </div>
+          <p className="text-[7px] text-gray-500">Firmado con e.firma</p>
         </div>
       );
     if (stampStyle === 'EC3')
       return (
         <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
           <div className="w-1.5 bg-blue-500 flex-shrink-0" />
-          <div className="flex-1 p-2 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-            {certLine(true)}
-            {hashBlock()}
-            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-              {fieldRow('FECHA/TZ', fecha)}
-              {fieldRow('IP', ip)}
+          <div className="flex-1 p-2 flex flex-col gap-2">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+                <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
+              </div>
+              {shieldBlock}
             </div>
-            {urlLine()}
+            {fieldRow('SERIE DEL CERTIFICADO', serial)}
+            {fieldRow('HUELLA SHA-256', efirmaHashShort)}
+            {fieldRow('FECHA Y HORA', fechaHora)}
+            <p className="text-right text-[7px] text-gray-500">Firmado con e.firma</p>
           </div>
         </div>
       );
     if (stampStyle === 'EC4')
       return (
         <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full items-center">
-          <p className="text-[9px] font-bold text-gray-800 leading-tight text-center">{nombre}</p>
-          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-          {certLine(true)}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1 w-full">
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP', ip)}
+          <div className="flex w-full items-start justify-center gap-2">
+            <div className="text-center">
+              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+              <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
+            </div>
+            {shieldBlock}
           </div>
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          <p className="text-[7px] text-gray-600 text-center">HUELLA SHA-256: {efirmaHashShort}</p>
+          <p className="text-[7px] text-gray-600 text-center">FECHA Y HORA: {fechaHora}</p>
+          {qrVerificationBlock}
         </div>
       );
     if (stampStyle === 'EC5')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex w-full gap-2">
-          <div className="flex-1 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-            <p className="text-[7px] text-gray-500">RFC: {rfc} · #1</p>
-            {certLine()}
-            {hashBlock()}
-            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-              {fieldRow('FECHA/TZ', fecha)}
-              {fieldRow('OCSP', 'Válido ✓')}
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-2 w-full">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+              <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
             </div>
+            {shieldBlock}
           </div>
-          {qrBlock}
+          <div className="flex items-center gap-3">
+            <div className="flex flex-1 flex-col gap-2">
+              {fieldRow('SERIE DEL CERTIFICADO', serial)}
+              {fieldRow('HUELLA SHA-256', efirmaHashShort)}
+            </div>
+            {qrVerificationBlock}
+          </div>
         </div>
       );
     // Medianas
     if (stampStyle === 'EM1')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-start gap-1.5">
-            <div className="w-4 h-4 rounded border-2 border-blue-500 flex items-center justify-center flex-shrink-0">
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#3b82f6"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col justify-between gap-2 w-full">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+              <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
+              <p className="text-[7px] text-gray-500">
+                Rol: {role} · Acto: {act}
+              </p>
             </div>
-            <div className="flex-1">
-              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
-            </div>
-            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
-              OCSP ✓
-            </span>
+            {qrVerificationBlock}
           </div>
-          {certLine(true)}
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('OCSP', 'Válido ✓')}
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('DISPOSITIVO', 'Navegador Web')}
-            {fieldRow('SELLO RFC 3161', 'No configurado')}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
-            {qrBlock}
+          {evidenceHashBlock}
+          <div className="grid grid-cols-2 gap-3">
+            {fieldRow('FECHA Y HORA', fechaHora)}
+            {fieldRow('SERIE DEL CERTIFICADO', serial)}
           </div>
         </div>
       );
     if (stampStyle === 'EM2')
       return (
-        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-          {certLine(true)}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('OCSP', 'Válido ✓')}
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col items-center justify-between gap-2 w-full">
+          <div className="text-center">
+            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+            <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
+            <p className="text-[7px] text-gray-500">
+              Rol: {role} · Acto: {act}
+            </p>
           </div>
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          <div className="w-full">{evidenceHashBlock}</div>
+          <div className="grid w-full grid-cols-2 gap-3">
+            {fieldRow('FECHA Y HORA', fechaHora)}
+            {fieldRow('SERIE DEL CERTIFICADO', serial)}
+          </div>
+          {qrVerificationBlock}
         </div>
       );
     if (stampStyle === 'EM3')
       return (
         <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-          <div className="w-1.5 bg-blue-500 flex-shrink-0" />
-          <div className="flex-1 p-2 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            {certLine(true)}
-            {hashBlock(true)}
-            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-              {fieldRow('FECHA', fecha)}
-              {fieldRow('IP', ip)}
-              {fieldRow('GEOLOC', geoloc)}
-              {fieldRow('OCSP', 'Válido ✓')}
-              {fieldRow('DISPOSITIVO', 'Web')}
-              {fieldRow('SELLO', 'No configurado')}
+          <div className="w-1.5 bg-blue-300 flex-shrink-0" />
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
+            <div>
+              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+              <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
+              <p className="text-[7px] text-gray-500">
+                Rol: {role} · Acto: {act}
+              </p>
             </div>
-            {urlLine()}
+            <div className="flex items-center gap-3">
+              <div className="flex-1">{evidenceHashBlock}</div>
+              {qrVerificationBlock}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {fieldRow('FECHA Y HORA', fechaHora)}
+              {fieldRow('SERIE DEL CERTIFICADO', serial)}
+            </div>
           </div>
         </div>
       );
     if (stampStyle === 'EM4')
       return (
         <div className="border border-gray-200 rounded-lg bg-white text-left flex flex-col w-full overflow-hidden">
-          <div className="bg-gray-800 px-2 py-1.5 flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="white"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <p className="text-[8px] font-bold text-white">{nombre}</p>
-            </div>
-            <span className="text-[6px] text-gray-300 font-semibold border border-gray-500 rounded px-1">
-              Avanzada
-            </span>
+          <div className="bg-slate-800 px-2 py-2">
+            <p className="text-[9px] font-bold text-white leading-tight">{nombre}</p>
           </div>
-          <div className="p-2 flex flex-col gap-1.5">
-            <p className="text-[7px] text-gray-500">{rfc}</p>
-            {certLine(true)}
-            {hashBlock(true)}
-            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-              {fieldRow('FECHA', fecha)}
-              {fieldRow('IP', ip)}
-              {fieldRow('GEOLOC', geoloc)}
-              {fieldRow('OCSP', 'Válido ✓')}
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
+            <div>
+              <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
+              <p className="text-[7px] text-gray-500">
+                Rol: {role} · Acto: {act}
+              </p>
             </div>
-            <div className="flex items-end justify-between gap-2">
-              <div className="flex-1">{urlLine()}</div>
-              {qrBlock}
+            <div className="flex items-center gap-3">
+              <div className="flex-1">{evidenceHashBlock}</div>
+              {qrVerificationBlock}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {fieldRow('FECHA Y HORA', fechaHora)}
+              {fieldRow('SERIE DEL CERTIFICADO', serial)}
             </div>
           </div>
         </div>
       );
     if (stampStyle === 'EM5')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-          {certLine()}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex w-3/5 mx-auto flex-col items-center justify-between gap-2">
+          <div className="w-full text-center">
+            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+            <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
+            <p className="text-[7px] text-gray-500">Rol: {role}</p>
+            <p className="text-[7px] text-gray-500">Acto: {act}</p>
           </div>
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          <div className="w-full">{evidenceHashBlock}</div>
+          <div className="w-full">{fieldRow('FECHA Y HORA', fechaHora)}</div>
+          <div className="w-full">{fieldRow('SERIE DEL CERTIFICADO', serial)}</div>
+          {qrVerificationBlock}
         </div>
       );
     // Largas — EL1-EL4
     if (stampStyle === 'EL1')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-start gap-1.5">
-            <div className="flex-1">
-              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc}</p>
+        <div className="border border-gray-200 rounded-lg p-3 bg-white text-left flex flex-col justify-between gap-2 w-full">
+          <p className="border-b border-gray-200 pb-2 text-[10px] font-bold text-gray-800">
+            {nombre}
+          </p>
+          <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-3 gap-2">
+              {fieldRow('RFC', rfc)}
+              {fieldRow('ROL', role)}
+              {fieldRow('ACTO', act)}
             </div>
-            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
-              Avanzada
-            </span>
+            <div className="grid grid-cols-3 gap-2">
+              {fieldRow('FECHA Y HORA', fechaHora)}
+              {fieldRow('SERIE DEL CERTIFICADO', serial)}
+              {fieldRow('VIGENCIA', `Hasta ${vigencia}`)}
+            </div>
           </div>
-          {certLine(true)}
-          {hashBlock(true)}
-          <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('OCSP', 'Válido ✓')}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('SELLO RFC 3161', 'No configurado')}
-            {fieldRow('NIVEL', 'Avanzada')}
-            {fieldRow('ORDEN', '#1')}
-            {fieldRow('VIGENCIA', vigencia)}
-            {fieldRow('CERT No.', serial)}
-            {fieldRow('ALGORITMO', 'RSA-2048/SHA-256')}
-            {fieldRow('XML EVIDENCE', 'Incluido ✓')}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
-            {qrBlock}
+          <div className="flex items-center gap-3 border-t border-gray-200 pt-2">
+            <div className="flex-1">{evidenceHashBlock}</div>
+            {qrVerificationBlock}
           </div>
         </div>
       );
     if (stampStyle === 'EL2')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FIRMANTE', nombre)}
-            {fieldRow('RFC', rfc)}
-            {fieldRow('CERT No.', serial)}
-            {fieldRow('ALGORITMO', 'RSA-2048/SHA-256')}
-            {fieldRow('OCSP', 'Válido ✓')}
-            {fieldRow('VIGENCIA', vigencia)}
-            {fieldRow('EMISOR', 'SAT México')}
-            {fieldRow('NIVEL', 'Avanzada')}
-            {fieldRow('CURP', '—')}
-            {fieldRow('SERIE', serial)}
+        <div className="border border-gray-200 rounded-lg p-3 bg-white text-left flex flex-col justify-between gap-2 w-full">
+          <p className="border-b border-gray-200 pb-2 text-[10px] font-bold text-gray-800">
+            {nombre}
+          </p>
+          <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-3 gap-2">
+              {fieldRow('RFC', rfc)}
+              {fieldRow('ROL', role)}
+              {fieldRow('ACTO', act)}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {fieldRow('FECHA Y HORA', fechaHora)}
+              {fieldRow('SERIE DEL CERTIFICADO', serial)}
+              {fieldRow('VIGENCIA', `Hasta ${vigencia}`)}
+            </div>
           </div>
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('OTP CANAL', 'Correo ✓')}
-            {fieldRow('XML EVIDENCE', 'Incluido ✓')}
+          {evidenceHashBlock}
+          <div className="grid grid-cols-2 gap-5">
+            {fieldRow('ALGORITMO', 'RSA-2048 / SHA-256')}
+            <div>
+              <p className="text-[7px] font-semibold text-gray-400 uppercase leading-none">
+                VALIDACIÓN
+              </p>
+              <div className="mt-1">{validationPill('Certificado verificado')}</div>
+            </div>
           </div>
-          {urlLine()}
         </div>
       );
     if (stampStyle === 'EL3')
       return (
         <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-          <div className="w-1.5 bg-blue-500 flex-shrink-0" />
-          <div className="flex-1 p-2 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            {certLine(true)}
-            {hashBlock(true)}
-            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-              {fieldRow('FECHA', fecha)}
-              {fieldRow('IP', ip)}
-              {fieldRow('GEOLOC', geoloc)}
-              {fieldRow('OCSP', 'Válido ✓')}
-              {fieldRow('DISPOSITIVO', 'Web')}
-              {fieldRow('SELLO', 'No configurado')}
-              {fieldRow('NIVEL', 'Avanzada')}
-              {fieldRow('ORDEN', '#1')}
-              {fieldRow('VIGENCIA', vigencia)}
-              {fieldRow('CERT No.', serial)}
-              {fieldRow('ALGORITMO', 'RSA-2048')}
-              {fieldRow('XML EVIDENCE', 'Incluido ✓')}
+          <div className="w-2 bg-blue-500 flex-shrink-0" />
+          <div className="flex flex-1 flex-col justify-between gap-2 p-3">
+            <p className="text-[10px] font-bold text-gray-800">{nombre}</p>
+            <div className="grid grid-cols-2 gap-5">
+              <div className="grid grid-cols-3 gap-2">
+                {fieldRow('RFC', rfc)}
+                {fieldRow('ROL', role)}
+                {fieldRow('ACTO', act)}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {fieldRow('FECHA Y HORA', fechaHora)}
+                {fieldRow('SERIE DEL CERTIFICADO', serial)}
+                <div>
+                  <p className="text-[7px] font-semibold text-gray-400 uppercase leading-none">
+                    VALIDACIÓN
+                  </p>
+                  <div className="mt-1">{validationPill('Certificado verificado')}</div>
+                </div>
+              </div>
             </div>
-            {urlLine()}
+            <div className="flex items-center gap-3 border-t border-gray-200 pt-2">
+              <div className="flex-1">{evidenceHashBlock}</div>
+              {qrVerificationBlock}
+            </div>
           </div>
         </div>
       );
     if (stampStyle === 'EL4')
       return (
-        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-          <div className="flex justify-center mb-1">{avatarBlock()}</div>
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-          {certLine(true)}
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('OCSP', 'Válido ✓')}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('SELLO RFC 3161', 'No configurado')}
-            {fieldRow('NIVEL', 'Avanzada')}
-            {fieldRow('XML EVIDENCE', 'Incluido ✓')}
+        <div className="border border-gray-200 rounded-lg p-3 bg-white text-left flex flex-col justify-between gap-2 w-full">
+          <div className="flex items-start border-b border-gray-200 pb-2">
+            <p className="flex-1 text-center text-[10px] font-bold text-gray-800">{nombre}</p>
+            {qrVerificationBlock}
           </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
-            {qrBlock}
+          <div className="grid grid-cols-3 divide-x divide-gray-200 text-center">
+            {fieldRow('RFC', rfc)}
+            {fieldRow('ROL', role)}
+            {fieldRow('ACTO', act)}
+          </div>
+          {evidenceHashBlock}
+          <div className="grid grid-cols-3 gap-3">
+            {fieldRow('FECHA Y HORA', fechaHora)}
+            {fieldRow('SERIE DEL CERTIFICADO', serial)}
+            {fieldRow('VIGENCIA', `Hasta ${vigencia}`)}
           </div>
         </div>
       );
@@ -4002,324 +3912,237 @@ function SignatureStampDisplay({
   if (signatureType === 'autografa') {
     if (stampStyle === 'AC0')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full items-center justify-center">
-          <div className="border border-gray-300 rounded bg-gray-50 flex items-center justify-center p-1.5 min-h-[36px] w-full">
+        <div className="flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white p-1.5 text-left">
+          <div className="w-full">
             {sigBox()}
           </div>
-          {hashBlock()}
+          {evidenceHashBlock}
+          <p className="w-full text-left text-[7px] text-gray-600">Rol: {role} · Acto: {act}</p>
         </div>
       );
     if (stampStyle === 'AC1')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-          <p className="text-[7px] text-gray-500">RFC: {rfc}</p>
-          {sigBox()}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP', ip)}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
-            {qrBlock}
-          </div>
+        <div className="flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white p-1.5 text-left">
+          <div className="w-full">{sigBox()}</div>
+          {evidenceHashBlock}
+          {autographIdentityBlock}
         </div>
       );
     if (stampStyle === 'AC2')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-start gap-1.5">
-            {avatarBlock()}
-            <div className="flex-1">
-              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
-            </div>
-          </div>
+        <div className="flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
           {sigBox()}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('RFC', rfc)}
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('OTP', 'Correo ✓')}
-            {fieldRow('GEOLOC', geoloc)}
+          {evidenceHashBlock}
+          {autographIdentityBlock}
+          <div className="flex items-end justify-between gap-2">
+            <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
+            {qrBlock}
           </div>
         </div>
       );
     if (stampStyle === 'AC3')
       return (
-        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+        <div className="relative flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="absolute left-1 top-1 h-2 w-2 border-l-2 border-t-2 border-blue-500" />
+          <div className="absolute right-1 top-1 h-2 w-2 border-r-2 border-t-2 border-blue-500" />
+          <div className="absolute bottom-1 left-1 h-2 w-2 border-b-2 border-l-2 border-blue-500" />
+          <div className="absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 border-blue-500" />
           {sigBox()}
-          {hashBlock()}
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">{evidenceHashBlock}</div>
+            {qrBlock}
+          </div>
+          {autographIdentityBlock}
+          <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
         </div>
       );
     if (stampStyle === 'AC4')
       return (
-        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-          <div className="w-1.5 bg-green-500 flex-shrink-0" />
-          <div className="flex-1 p-2 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+        <div className="flex w-full overflow-hidden rounded-lg border border-gray-200 bg-white text-left">
+          <div className="w-1.5 flex-shrink-0 bg-blue-600" />
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
             {sigBox()}
-            {hashBlock()}
-            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-              {fieldRow('FECHA/TZ', fecha)}
-              {fieldRow('IP', ip)}
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1">{evidenceHashBlock}</div>
+              {qrBlock}
             </div>
-            {urlLine()}
+            {autographIdentityBlock}
+            <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
           </div>
         </div>
       );
     if (stampStyle === 'AC5')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
+        <div className="mx-auto flex w-3/5 flex-col items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
           {sigBox()}
-          {hashBlock()}
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          {evidenceHashBlock}
+          {autographIdentityBlock}
+          <p className="text-center text-[7px] text-gray-500">Firmado: {fechaHora}</p>
+          <div className="flex justify-center">{qrBlock}</div>
         </div>
       );
     // Medianas
     if (stampStyle === 'AM1')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-start gap-1.5">
+        <div className="flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="flex items-center gap-2">
             {avatarBlock()}
             <div className="flex-1">
-              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+              <p className="text-[8px] text-gray-600">Firma autógrafa</p>
             </div>
-            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
-              Simple
-            </span>
           </div>
           {sigBox()}
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('RFC', rfc)}
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('OTP', 'Correo ✓')}
-            {fieldRow('NIVEL', 'Simple')}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">{evidenceHashBlock}</div>
             {qrBlock}
           </div>
+          {autographIdentityBlock}
+          <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
         </div>
       );
     if (stampStyle === 'AM2')
       return (
-        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
+        <div className="relative flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="absolute left-1 top-1 h-2 w-2 border-l-2 border-t-2 border-blue-500" />
+          <div className="absolute right-1 top-1 h-2 w-2 border-r-2 border-t-2 border-blue-500" />
+          <div className="absolute bottom-1 left-1 h-2 w-2 border-b-2 border-l-2 border-blue-500" />
+          <div className="absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 border-blue-500" />
           {sigBox()}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('OTP', 'Correo ✓')}
-            {fieldRow('NIVEL', 'Simple')}
-            {fieldRow('RFC', rfc)}
+          {evidenceHashBlock}
+          {autographIdentityBlock}
+          <p className="text-center text-[7px] text-gray-500">Firmado: {fechaHora}</p>
+          <div className="flex justify-center">{qrBlock}</div>
+          <div className="flex justify-center">
+            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[7px] font-semibold text-blue-700">
+              Autenticación verificada
+            </span>
           </div>
-          <div className="flex justify-center mt-1">{qrBlock}</div>
         </div>
       );
     if (stampStyle === 'AM3')
       return (
-        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-          <div className="w-1.5 bg-green-500 flex-shrink-0" />
-          <div className="flex-1 p-2 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            {sigBox()}
-            {hashBlock(true)}
-            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-              {fieldRow('FECHA', fecha)}
-              {fieldRow('IP', ip)}
-              {fieldRow('GEOLOC', geoloc)}
-              {fieldRow('OTP', 'Correo ✓')}
-              {fieldRow('DISPOSITIVO', 'Web')}
-              {fieldRow('NIVEL', 'Simple')}
+        <div className="flex w-full overflow-hidden rounded-lg border border-gray-200 bg-white text-left">
+          <div className="w-1.5 flex-shrink-0 bg-blue-600" />
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
+            <p className="text-[7px] text-gray-500">Firma autógrafa</p>
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">{sigBox()}</div>
+              {qrBlock}
             </div>
-            {urlLine()}
+            {evidenceHashBlock}
+            {autographIdentityBlock}
+            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
+              {fieldRow('FECHA', fechaHora)}
+              {fieldRow('AUTENTICACIÓN', 'OTP verificado')}
+              {fieldRow('MÉTODO', 'Autógrafa')}
+            </div>
           </div>
         </div>
       );
     if (stampStyle === 'AM4')
       return (
-        <div className="border border-gray-200 rounded-lg bg-white text-left flex flex-col w-full overflow-hidden">
-          <div className="bg-gray-800 px-2 py-1.5 flex items-center gap-1.5">
+        <div className="flex w-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white text-left">
+          <div className="flex items-center gap-1.5 bg-slate-800 px-2 py-1.5">
             {avatarBlock()}
-            <p className="text-[8px] font-bold text-white">{nombre}</p>
-          </div>
-          <div className="p-2 flex flex-col gap-1.5">
-            <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
-            {sigBox()}
-            {hashBlock(true)}
-            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-              {fieldRow('FECHA', fecha)}
-              {fieldRow('IP', ip)}
-              {fieldRow('GEOLOC', geoloc)}
-              {fieldRow('OTP', 'Correo ✓')}
-              {fieldRow('DISPOSITIVO', 'Web')}
-              {fieldRow('NIVEL', 'Simple')}
+            <div>
+              <p className="text-[8px] font-bold text-white">Firma autógrafa</p>
             </div>
-            <div className="flex items-end justify-between gap-2">
-              <div className="flex-1">{urlLine()}</div>
+          </div>
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
+            {sigBox()}
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1">{evidenceHashBlock}</div>
               {qrBlock}
             </div>
+            {autographIdentityBlock}
+            <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
           </div>
         </div>
       );
     if (stampStyle === 'AM5')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-center gap-1.5">
-            {avatarBlock()}
-            <div>
-              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-              <p className="text-[7px] text-gray-500">Firmante #1 · Simple</p>
-            </div>
-          </div>
+        <div className="mx-auto flex w-3/5 flex-col items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
           {sigBox()}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-          </div>
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          {evidenceHashBlock}
+          {autographIdentityBlock}
+          <p className="text-center text-[7px] text-gray-500">Firmado: {fechaHora}</p>
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[7px] font-semibold text-blue-700">
+            Firma autógrafa
+          </span>
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[7px] font-semibold text-blue-700">
+            OTP verificado
+          </span>
+          <div className="flex justify-center">{qrBlock}</div>
         </div>
       );
     // Largas
     if (stampStyle === 'AL1')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-start gap-1.5">
+        <div className="flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2">
             {avatarBlock()}
-            <div className="flex-1">
-              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+            <div>
+              <p className="text-[8px] text-gray-600">Firma autógrafa</p>
             </div>
-            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
-              Simple
-            </span>
-          </div>
-          {sigBox()}
-          {hashBlock(true)}
-          <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('OTP', 'Correo ✓')}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('NIVEL', 'Simple')}
-            {fieldRow('BIOMETRÍA', 'Presión · Vel.')}
-            {fieldRow('PRECISIÓN GPS', '±80m')}
-            {fieldRow('ORDEN', '#1')}
-            {fieldRow('CURP', '—')}
-            {fieldRow('RFC', rfc)}
-            {fieldRow('SELLO', 'No configurado')}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
+            {sigBox()}
             {qrBlock}
           </div>
+          {evidenceHashBlock}
+          {autographIdentityBlock}
+          <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
         </div>
       );
     if (stampStyle === 'AL2')
       return (
-        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-          <div className="flex justify-center mb-1">{avatarBlock()}</div>
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-          {sigBox()}
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('OTP', 'Correo ✓')}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('NIVEL', 'Simple')}
-            {fieldRow('BIOMETRÍA', 'Presión · Vel.')}
-            {fieldRow('ORDEN', '#1')}
-            {fieldRow('CURP', '—')}
-            {fieldRow('RFC', rfc)}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
+        <div className="relative flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="absolute left-1 top-1 h-2 w-2 border-l-2 border-t-2 border-blue-500" />
+          <div className="absolute right-1 top-1 h-2 w-2 border-r-2 border-t-2 border-blue-500" />
+          <div className="absolute bottom-1 left-1 h-2 w-2 border-b-2 border-l-2 border-blue-500" />
+          <div className="absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 border-blue-500" />
+          <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+            {sigBox()}
             {qrBlock}
           </div>
+          {evidenceHashBlock}
+          {autographIdentityBlock}
+          <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
         </div>
       );
     if (stampStyle === 'AL3')
       return (
-        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-          <div className="w-1.5 bg-green-500 flex-shrink-0" />
-          <div className="flex-1 p-2 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            {sigBox()}
-            {hashBlock(true)}
-            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-              {fieldRow('FECHA', fecha)}
-              {fieldRow('IP', ip)}
-              {fieldRow('GEOLOC', geoloc)}
-              {fieldRow('OTP', 'Correo ✓')}
-              {fieldRow('DISPOSITIVO', 'Web')}
-              {fieldRow('NIVEL', 'Simple')}
-              {fieldRow('BIOMETRÍA', 'Presión · Vel.')}
-              {fieldRow('PRECISIÓN GPS', '±80m')}
-              {fieldRow('ORDEN', '#1')}
-              {fieldRow('CURP', '—')}
-              {fieldRow('RFC', rfc)}
-              {fieldRow('SELLO', 'No configurado')}
+        <div className="flex w-full overflow-hidden rounded-lg border border-gray-200 bg-white text-left">
+          <div className="w-1.5 flex-shrink-0 bg-blue-600" />
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
+            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+              <p className="text-[8px] text-gray-600">Firma autógrafa</p>
+              {sigBox()}
+              {qrBlock}
             </div>
-            {urlLine()}
+            {evidenceHashBlock}
+            {autographIdentityBlock}
+            <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
           </div>
         </div>
       );
     if (stampStyle === 'AL4')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FIRMANTE', nombre)}
-            {fieldRow('RFC', rfc)}
-            {fieldRow('CURP', '—')}
-            {fieldRow('ROL', 'Firmante')}
-            {fieldRow('NIVEL', 'Firma Electrónica Simple')}
-            {fieldRow('ORDEN', '#1')}
+        <div className="flex w-full flex-col justify-between gap-2 overflow-hidden rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="grid grid-cols-3 border-b border-gray-200">
+            <div className="border-r border-gray-200 p-1.5">
+              <p className="text-[8px] text-gray-600">Firma autógrafa</p>
+            </div>
+            <div className="border-r border-gray-200 p-1.5">
+              {fieldRow('RFC (OPCIONAL)', maskedRfc)}
+            </div>
+            <div className="p-1.5">{fieldRow('CURP (OPCIONAL)', maskedCurp)}</div>
           </div>
-          {sigBox()}
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA / TZ', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('OTP CANAL', 'Correo ✓')}
-            {fieldRow('SELLO RFC 3161', 'No configurado')}
-            {fieldRow('BIOMETRÍA TRAZO', 'Presión · Velocidad')}
-            {fieldRow('NIVEL FIRMA', 'Simple')}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
+          <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+            <div>{sigBox()}</div>
             {qrBlock}
           </div>
+          {evidenceHashBlock}
+          {autographIdentityBlock}
+          <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
         </div>
       );
   }
@@ -4328,378 +4151,277 @@ function SignatureStampDisplay({
   if (signatureType === 'clicksign') {
     if (stampStyle === 'CC1')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col justify-between gap-2 w-full">
           <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-          <p className="text-[7px] text-gray-500">RFC: {rfc} · #1</p>
-          {acceptBox()}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP', ip)}
-          </div>
-          {urlLine()}
+          <p className="text-[7px] text-gray-500">
+            Rol: {role} · Acto: {act}
+          </p>
+          {evidenceHashBlock}
+          {fieldRow('FECHA Y HORA', fechaHora)}
         </div>
       );
     if (stampStyle === 'CC2')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-start justify-between gap-1">
-            <div className="flex items-center gap-1">
-              <div className="w-5 h-5 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0">
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#374151"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-                <p className="text-[7px] text-gray-500">{rfc} · #1</p>
-              </div>
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col justify-between gap-2 w-full">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+              <p className="text-[7px] text-gray-500">
+                Rol: {role} · Acto: {act}
+              </p>
             </div>
-            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
-              OTP ✓
-            </span>
+            {acceptancePill}
           </div>
-          {acceptBox(false)}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1">{evidenceHashBlock}</div>
             {qrBlock}
           </div>
+          {fieldRow('FECHA Y HORA', fechaHora)}
         </div>
       );
     if (stampStyle === 'CC3')
       return (
         <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-          <div className="w-1.5 bg-gray-700 flex-shrink-0" />
-          <div className="flex-1 p-2 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-            <p className="text-[7px] text-gray-500">{rfc}</p>
-            {acceptBox(false)}
-            {hashBlock()}
-            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-              {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
-              {fieldRow('FECHA', fecha)}
+          <div className="w-2 bg-blue-600 flex-shrink-0" />
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+                <p className="text-[7px] text-gray-500">
+                  Rol: {role} · Acto: {act}
+                </p>
+              </div>
+              {acceptancePill}
             </div>
-            {urlLine()}
+            {evidenceHashBlock}
+            {fieldRow('FECHA Y HORA', fechaHora)}
           </div>
         </div>
       );
     if (stampStyle === 'CC4')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-6 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0">
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#374151"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc} · #1</p>
-            </div>
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col items-center justify-between gap-2 w-full">
+          {acceptancePill}
+          <div className="text-center">
+            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+            <p className="text-[7px] text-gray-500">
+              Rol: {role} · Acto: {act}
+            </p>
           </div>
-          {acceptBox(false)}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('OTP', 'Correo ✓')}
-          </div>
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          <div className="w-full">{evidenceHashBlock}</div>
+          {fieldRow('FECHA Y HORA', fechaHora)}
+          {qrBlock}
         </div>
       );
     if (stampStyle === 'CC5')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-          {acceptBox()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('Clic + OTP ✓', fecha)}
-            {fieldRow('IP', ip)}
+        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex w-3/5 mx-auto flex-col items-center justify-between gap-2">
+          {acceptancePill}
+          <div className="text-center">
+            <p className="text-[9px] font-bold text-gray-800 leading-tight">{nombre}</p>
+            <p className="text-[7px] text-gray-500">Rol: {role}</p>
+            <p className="text-[7px] text-gray-500">Acto: {act}</p>
           </div>
-          {hashBlock()}
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          <div className="w-full">{evidenceHashBlock}</div>
+          {fieldRow('FECHA Y HORA', fechaHora)}
+          {qrBlock}
         </div>
       );
     // Medianas
     if (stampStyle === 'CM1')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-start gap-1.5">
-            {avatarBlock()}
-            <div className="flex-1">
-              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+        <div className="flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[9px] font-bold leading-tight text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">
+                Rol: {role} · Acto: {act}
+              </p>
             </div>
-            <span className="text-[6px] text-gray-600 font-semibold border border-gray-300 rounded px-1">
-              Simple
-            </span>
+            {acceptancePill}
           </div>
-          {acceptBox(false)}
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('RFC', rfc)}
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('OTP CANAL', 'Correo ✓')}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1">{evidenceHashBlock}</div>
             {qrBlock}
           </div>
+          {fieldRow('FECHA Y HORA', fechaHora)}
         </div>
       );
     if (stampStyle === 'CM2')
       return (
-        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-          <div className="w-1.5 bg-gray-700 flex-shrink-0" />
-          <div className="flex-1 p-2 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            <p className="text-[7px] text-gray-500">{rfc} · #1</p>
-            {acceptBox(false)}
-            {hashBlock()}
-            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-              {fieldRow('RFC', rfc)}
-              {fieldRow('FECHA', fecha)}
-              {fieldRow('IP', ip)}
-              {fieldRow('GEOLOC', geoloc)}
-              {fieldRow('DISPOSITIVO', 'Web')}
-              {fieldRow('OTP', 'Correo ✓')}
+        <div className="flex w-full overflow-hidden rounded-lg border border-gray-200 bg-white text-left">
+          <div className="w-2 flex-shrink-0 bg-blue-600" />
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[9px] font-bold leading-tight text-gray-800">{nombre}</p>
+              {acceptancePill}
             </div>
-            {urlLine()}
-          </div>
-        </div>
-      );
-    if (stampStyle === 'CM3')
-      return (
-        <div className="border border-gray-200 rounded-lg bg-white text-left flex flex-col w-full overflow-hidden">
-          <div className="bg-gray-800 px-2 py-1.5 flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="white"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <p className="text-[8px] font-bold text-white">{nombre}</p>
+            <div className="grid grid-cols-3 gap-x-2">
+              {fieldRow('ROL', role)}
+              {fieldRow('ACTO', act)}
+              {fieldRow('FECHA Y HORA', fechaHora)}
             </div>
-            <span className="text-[6px] text-gray-300 font-semibold border border-gray-500 rounded px-1">
-              Simple
-            </span>
-          </div>
-          <div className="p-2 flex flex-col gap-1.5">
-            <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
-            {acceptBox(false)}
-            {hashBlock()}
-            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-              {fieldRow('FECHA/TZ', fecha)}
-              {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
-              {fieldRow('DISPOSITIVO', 'Web')}
-              {fieldRow('OTP', 'Correo ✓')}
-            </div>
-            <div className="flex items-end justify-between gap-2">
-              <div className="flex-1">{urlLine()}</div>
+            <div className="flex items-center gap-3">
+              <div className="flex-1">{evidenceHashBlock}</div>
               {qrBlock}
             </div>
           </div>
         </div>
       );
+    if (stampStyle === 'CM3')
+      return (
+        <div className="flex w-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white text-left">
+          <div className="flex items-center justify-between gap-2 bg-slate-800 px-2 py-2">
+            <p className="text-[9px] font-bold leading-tight text-white">{nombre}</p>
+            {acceptancePill}
+          </div>
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
+            <p className="text-[7px] text-gray-500">
+              Rol: {role} · Acto: {act}
+            </p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1">{evidenceHashBlock}</div>
+              {qrBlock}
+            </div>
+            {fieldRow('FECHA Y HORA', fechaHora)}
+          </div>
+        </div>
+      );
     if (stampStyle === 'CM4')
       return (
-        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-          <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
-            <p className="text-[7px] text-gray-700 leading-tight">
-              Aceptó expresamente el documento mediante clic confirmado + OTP ✓ · {fecha}
+        <div className="relative flex w-full flex-col items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="absolute left-1 top-1 h-2 w-2 border-l-2 border-t-2 border-blue-500" />
+          <div className="absolute right-1 top-1 h-2 w-2 border-r-2 border-t-2 border-blue-500" />
+          <div className="absolute bottom-1 left-1 h-2 w-2 border-b-2 border-l-2 border-blue-500" />
+          <div className="absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 border-blue-500" />
+          {acceptancePill}
+          <div className="text-center">
+            <p className="text-[9px] font-bold leading-tight text-gray-800">{nombre}</p>
+            <p className="text-[7px] text-gray-500">
+              Rol: {role} · Acto: {act}
             </p>
           </div>
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA/TZ', fecha)}
-            {fieldRow('IP/GEOLOC', `${ip} · ${geoloc}`)}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('OTP CANAL', 'Correo ✓')}
-          </div>
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          <div className="w-full">{evidenceHashBlock}</div>
+          {fieldRow('FECHA Y HORA', fechaHora)}
+          {qrBlock}
         </div>
       );
     if (stampStyle === 'CM5')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-center gap-1.5">
-            {avatarBlock()}
-            <div>
-              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-              <p className="text-[7px] text-gray-500">Firmante #1 · Simple</p>
-            </div>
+        <div className="mx-auto flex w-3/5 flex-col items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          {acceptancePill}
+          <div className="text-center">
+            <p className="text-[9px] font-bold leading-tight text-gray-800">{nombre}</p>
+            <p className="text-[7px] text-gray-500">Rol: {role}</p>
+            <p className="text-[7px] text-gray-500">Acto: {act}</p>
           </div>
-          {acceptBox(false)}
-          {hashBlock()}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-          </div>
-          <div className="flex justify-center mt-1">{qrBlock}</div>
+          <div className="w-full">{evidenceHashBlock}</div>
+          {fieldRow('FECHA Y HORA', fechaHora)}
+          <div className="scale-125">{qrBlock}</div>
         </div>
       );
     // Largas
     if (stampStyle === 'CL1')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="flex items-start gap-1.5">
+        <div className="flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="flex items-start gap-2">
             {avatarBlock()}
             <div className="flex-1">
-              <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-              <p className="text-[7px] text-gray-500">{rfc} · Firmante #1</p>
+              <p className="text-[9px] font-bold leading-tight text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">
+                RFC: {rfc} · Rol: {role} · Acto: {act}
+              </p>
             </div>
-            <span className="text-[6px] text-blue-600 font-semibold border border-blue-300 rounded px-1">
-              OTP ✓
-            </span>
+            {acceptancePill}
           </div>
-          <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
-            <p className="text-[7px] text-gray-700 leading-tight">
-              El firmante aceptó expresamente el contenido del documento mediante clic confirmado y
-              código OTP de un solo uso · {fecha}
-            </p>
-          </div>
-          {hashBlock(true)}
-          <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-            {fieldRow('RFC', rfc)}
-            {fieldRow('CURP', '—')}
-            {fieldRow('ROL', 'Firmante')}
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('HORA/TZ', 'CST')}
+          {evidenceHashBlock}
+          <div className="grid grid-cols-[1.1fr_0.8fr_1.4fr_auto] items-end gap-x-2 border-t border-gray-200 pt-2">
+            {fieldRow('FECHA Y HORA', fechaHora)}
             {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('PRECISIÓN GPS', '±80m')}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('OTP CANAL', 'Correo ✓')}
-            {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
-            {fieldRow('ORDEN / TOTAL', '#1')}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
+            {fieldRow('UBICACIÓN', clickSignLocation)}
             {qrBlock}
           </div>
         </div>
       );
     if (stampStyle === 'CL2')
       return (
-        <div className="border border-gray-200 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full">
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FIRMANTE', nombre)}
-            {fieldRow('RFC', rfc)}
-            {fieldRow('CURP', '—')}
-            {fieldRow('ROL', 'Firmante')}
-            {fieldRow('NIVEL', 'Firma Electrónica Simple')}
-            {fieldRow('ORDEN', '#1')}
+        <div className="flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[9px] font-bold leading-tight text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">
+                RFC: {rfc} · Rol: {role} · Acto: {act}
+              </p>
+            </div>
+            {acceptancePill}
           </div>
-          <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
-            <p className="text-[7px] text-gray-700 leading-tight">
-              Aceptó expresamente el documento mediante clic confirmado + OTP ✓ · {fecha}
-            </p>
+          {evidenceHashBlock}
+          <div className="grid grid-cols-2 gap-x-4 border-t border-gray-200 pt-2">
+            <div className="flex flex-col gap-1.5 border-r border-gray-200 pr-3">
+              {fieldRow('FECHA Y HORA', fechaHora)}
+              {fieldRow('IP', ip)}
+              {fieldRow('DISPOSITIVO', clickSignDevice)}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {fieldRow('CANAL / MÉTODO', clickSignChannel)}
+              {fieldRow('UBICACIÓN', clickSignLocation)}
+              {fieldRow('ACEPTACIÓN', 'Documento aceptado electrónicamente')}
+            </div>
           </div>
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('OTP CANAL', 'Correo ✓')}
-            {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
-          </div>
-          {urlLine()}
         </div>
       );
     if (stampStyle === 'CL3')
       return (
-        <div className="border border-gray-200 rounded-lg bg-white text-left flex w-full overflow-hidden">
-          <div className="w-1.5 bg-gray-700 flex-shrink-0" />
-          <div className="flex-1 p-2 flex flex-col gap-1.5">
-            <p className="text-[9px] font-bold text-gray-800">{nombre}</p>
-            {acceptBox(false)}
-            {hashBlock(true)}
-            <div className="grid grid-cols-3 gap-x-1 gap-y-1">
-              {fieldRow('RFC', rfc)}
-              {fieldRow('CURP', '—')}
-              {fieldRow('ROL', 'Firmante')}
-              {fieldRow('FECHA', fecha)}
-              {fieldRow('IP', ip)}
-              {fieldRow('GEOLOC', geoloc)}
-              {fieldRow('PRECISIÓN GPS', '±80m')}
-              {fieldRow('DISPOSITIVO', 'Web')}
-              {fieldRow('OTP', 'Correo ✓')}
-              {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
-              {fieldRow('NIVEL', 'Simple')}
-              {fieldRow('ORDEN', '#1')}
+        <div className="flex w-full overflow-hidden rounded-lg border border-gray-200 bg-white text-left">
+          <div className="w-2 flex-shrink-0 bg-blue-600" />
+          <div className="flex flex-1 flex-col justify-between gap-2 p-2">
+            <div className="flex items-start gap-2">
+              {avatarBlock()}
+              <div className="flex-1">
+                <p className="text-[9px] font-bold leading-tight text-gray-800">{nombre}</p>
+                <p className="text-[7px] text-gray-500">
+                  RFC: {rfc} · Rol: {role} · Acto: {act}
+                </p>
+              </div>
+              {acceptancePill}
             </div>
-            {urlLine()}
+            {evidenceHashBlock}
+            <div className="grid grid-cols-[1fr_1.2fr_1fr_auto] items-end gap-x-2 border-t border-gray-200 pt-2">
+              <div className="flex flex-col gap-1.5">
+                {fieldRow('FECHA Y HORA', fechaHora)}
+                {fieldRow('IP', ip)}
+              </div>
+              {fieldRow('UBICACIÓN', clickSignLocation)}
+              <div className="flex flex-col gap-1.5">
+                {fieldRow('DISPOSITIVO', clickSignDevice)}
+                {fieldRow('CANAL / MÉTODO', clickSignChannel)}
+              </div>
+              {qrBlock}
+            </div>
           </div>
         </div>
       );
     if (stampStyle === 'CL4')
       return (
-        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white text-left flex flex-col gap-1.5 w-full relative">
-          <div className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2 border-gray-400" />
-          <div className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2 border-gray-400" />
-          <div className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2 border-gray-400" />
-          <div className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2 border-gray-400" />
-          <div className="flex justify-center mb-1">{avatarBlock()}</div>
-          <p className="text-[9px] font-bold text-gray-800 text-center">{nombre}</p>
-          <p className="text-[7px] text-gray-500 text-center">RFC: {rfc}</p>
-          <div className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1">
-            <p className="text-[7px] text-gray-700 leading-tight">
-              Aceptó expresamente el documento mediante clic confirmado + OTP ✓ · {fecha}
-            </p>
+        <div className="relative flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
+          <div className="absolute left-1 top-1 h-2 w-2 border-l-2 border-t-2 border-blue-500" />
+          <div className="absolute right-1 top-1 h-2 w-2 border-r-2 border-t-2 border-blue-500" />
+          <div className="absolute bottom-1 left-1 h-2 w-2 border-b-2 border-l-2 border-blue-500" />
+          <div className="absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 border-blue-500" />
+          <div className="flex items-start gap-2 px-1">
+            {avatarBlock()}
+            <div className="flex-1">
+              <p className="text-[9px] font-bold leading-tight text-gray-800">{nombre}</p>
+              <p className="text-[7px] text-gray-500">
+                RFC: {rfc} · Rol: {role} · Acto: {act}
+              </p>
+            </div>
           </div>
-          {hashBlock(true)}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {fieldRow('FECHA', fecha)}
-            {fieldRow('IP', ip)}
-            {fieldRow('GEOLOC', geoloc)}
-            {fieldRow('DISPOSITIVO', 'Web')}
-            {fieldRow('OTP CANAL', 'Correo ✓')}
-            {fieldRow('SESSION TOKEN', hashShort.slice(0, 12))}
-            {fieldRow('NIVEL', 'Simple')}
-            {fieldRow('ORDEN', '#1')}
-          </div>
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex-1">{urlLine()}</div>
+          {evidenceHashBlock}
+          <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-x-2 border-t border-gray-200 pt-2">
+            {fieldRow('FECHA Y HORA', fechaHora)}
+            {fieldRow('DISPOSITIVO', clickSignDevice)}
+            {fieldRow('CANAL / MÉTODO', clickSignChannel)}
             {qrBlock}
           </div>
         </div>
@@ -4755,7 +4477,7 @@ function ExitConfirmModal({
             <AlertTriangle size={20} className="text-red-500" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-gray-900">¿Salir del proceso?</h3>
+            <h3 className="text-base font-semibold text-gray-900">¿Salir del proceso?</h3>
             <p className="text-sm text-gray-500 mt-0.5">Tu progreso no guardado se perderá.</p>
           </div>
         </div>
@@ -4808,7 +4530,7 @@ function NoFirmaAlertModal({
             <AlertTriangle size={20} className="text-amber-500" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-gray-900">
+            <h3 className="text-base font-semibold text-gray-900">
               Firma no insertada en el documento
             </h3>
           </div>
@@ -4846,6 +4568,88 @@ function NoFirmaAlertModal({
   );
 }
 
+// ─── Save Progress Confirm Modal ──────────────────────────────────────────────
+function SaveProgressConfirmModal({
+  isDark,
+  saving,
+  onConfirm,
+  onCancel,
+}: {
+  isDark: boolean;
+  saving: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="save-progress-title"
+      onMouseDown={(event) => {
+        if (!saving && event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div
+        className={`w-full max-w-md rounded-xl border p-6 shadow-2xl ${
+          isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'
+        }`}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start gap-3">
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+              isDark ? 'bg-blue-950/60 text-blue-300' : 'bg-blue-50 text-primary'
+            }`}
+          >
+            <Save size={19} />
+          </div>
+          <div>
+            <h3
+              id="save-progress-title"
+              className={`text-base font-semibold ${isDark ? 'text-gray-100' : 'text-slate-950'}`}
+            >
+              ¿Guardar avance?
+            </h3>
+            <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
+              Se guardarán los campos completados para que puedas continuar más tarde.
+            </p>
+          </div>
+        </div>
+
+        <p className={`mb-6 text-sm ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
+          La firma no se guardará como parte del avance. Sólo se registrará cuando completes el
+          proceso de firma.
+        </p>
+
+        <div className="flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className={`rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              isDark
+                ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
+                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={saving}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+            Guardar avance
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function FirmarDocumentoPage() {
@@ -4860,9 +4664,8 @@ export default function FirmarDocumentoPage() {
   // ── Session-storage key for this document's signing flow ──────────────────
   const sessionKey = docId ? `firmar-doc-flow-${docId}` : null;
 
-  // Flag: true once processDocData has finished restoring persisted state.
-  // Persist effects must NOT write until this is true, otherwise they fire
-  // with initial (empty) state values and overwrite the saved sessionStorage.
+  // Flag: true once processDocData has finished restoring explicitly saved state.
+  // Technical completion data must not write before the restore finishes.
   const flowRestoredRef = useRef(false);
 
   // ── Pre-fetch geolocation on mount so it's ready at submit time ───────────
@@ -5100,9 +4903,16 @@ export default function FirmarDocumentoPage() {
   const participantRecordId = resolveParticipantRecordId(myParticipantData, user?.id);
 
   // ── Stamp styles from user profile ────────────────────────────────────────
-  const [efirmaStampStyle, setEfirmaStampStyle] = useState<string>('EC1');
-  const [autografaStampStyle, setAutografaStampStyle] = useState<string>('AC0');
-  const [clickSignStampStyle, setClickSignStampStyle] = useState<string>('CC1');
+  const [efirmaStampStyle, setEfirmaStampStyle] = useState<string>(
+    DEFAULT_SIGNATURE_STAMP_STYLES.efirma
+  );
+  const [autografaStampStyle, setAutografaStampStyle] = useState<string>(
+    DEFAULT_SIGNATURE_STAMP_STYLES.autografa
+  );
+  const [clickSignStampStyle, setClickSignStampStyle] = useState<string>(
+    DEFAULT_SIGNATURE_STAMP_STYLES.clicksign
+  );
+  const [stampSelectorOpen, setStampSelectorOpen] = useState(false);
 
   // ── Protección adicional para participar ──────────────────────────────────
   const [proteccionParticipacionEnabled, setProteccionParticipacionEnabled] = useState(false);
@@ -5171,6 +4981,9 @@ export default function FirmarDocumentoPage() {
   // Autograph flow completed
   const [autographFlowDone, setAutographFlowDone] = useState(false);
   const [autographEvidenceId, setAutographEvidenceId] = useState<string | null>(null);
+  const [autographStampContext, setAutographStampContext] = useState<{
+    otpVerified: boolean;
+  } | null>(null);
   const [signatureAttemptKey, setSignatureAttemptKey] = useState(0);
   // Hide no-signature warning after "Entendido — Continuar"
   const [hideNoSignatureWarning, setHideNoSignatureWarning] = useState(false);
@@ -5178,10 +4991,10 @@ export default function FirmarDocumentoPage() {
   const [wantToSaveSignature, setWantToSaveSignature] = useState<boolean | null>(null);
   const [savingNewSignature, setSavingNewSignature] = useState(false);
   const [newSignatureSaved, setNewSignatureSaved] = useState(false);
+  const [signatureSavePromptDismissed, setSignatureSavePromptDismissed] = useState(false);
+  const [dismissSignatureSavePrompt, setDismissSignatureSavePrompt] = useState(false);
+  const [savingSignaturePreference, setSavingSignaturePreference] = useState(false);
   // Want to save e.firma to profile
-  const [wantToSaveEfirma, setWantToSaveEfirma] = useState<boolean | null>(null);
-  const [savingEfirmaToProfile, setSavingEfirmaToProfile] = useState(false);
-  const [efirmaSavedToProfile, setEfirmaSavedToProfile] = useState(false);
   // Signature mode / style
   const [signatureMode, setSignatureMode] = useState<'dibujar' | 'tipear' | 'cargar'>('dibujar');
   const [typedSignature, setTypedSignature] = useState('');
@@ -5192,10 +5005,20 @@ export default function FirmarDocumentoPage() {
   const [profileEfirma, setProfileEfirma] = useState<EfirmaProfileData | null>(null);
   const [efirmaValidated, setEfirmaValidated] = useState(false);
   // e.firma SAT evidence data (stored in memory only, never persisted directly)
-  const [efirmaCertInfo, setEfirmaCertInfo] = useState<any>(null);
+  const [efirmaCertInfo, setEfirmaCertInfo] = useState<EfirmaCertificateInfo | null>(null);
   const [efirmaCerB64, setEfirmaCerB64] = useState<string | null>(null);
-  const [efirmaKeyB64, setEfirmaKeyB64] = useState<string | null>(null);
+  const [efirmaKeyMaterial, setEfirmaKeyMaterial] = useState<EncryptedEfirmaKeyMaterial | null>(
+    null
+  );
   const [efirmaPassword, setEfirmaPassword] = useState<string | null>(null);
+  const [efirmaDeviceFingerprint, setEfirmaDeviceFingerprint] =
+    useState<EfirmaDeviceFingerprint | null>(null);
+  const [efirmaSessionEvidence, setEfirmaSessionEvidence] = useState<EfirmaSessionEvidence | null>(
+    null
+  );
+  const [efirmaFramesManifest, setEfirmaFramesManifest] = useState<EfirmaFramesManifest | null>(
+    null
+  );
   // Nubarium validation result (captured at validation time, used in constancia)
   const [nubariumValidationResult, setNubariumValidationResult] =
     useState<NubariumValidationResult | null>(null);
@@ -5205,6 +5028,9 @@ export default function FirmarDocumentoPage() {
 
   // Submission
   const [submitting, setSubmitting] = useState(false);
+  const [submissionPhase, setSubmissionPhase] = useState<
+    'registrando' | 'preparando_pdf' | 'certificando_pdf'
+  >('registrando');
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Inline success animation state
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
@@ -6357,7 +6183,7 @@ export default function FirmarDocumentoPage() {
       const { data } = await supabase
         .from('user_profiles')
         .select(
-          'nombre, apellido_paterno, apellido_materno, rfc, curp, email, telefono, calle, num_exterior, colonia, municipio, estado, codigo_postal, firma_autografa_url, metodo_firma, firma_autografa_created_at, firma_autografa_last_used, efirma_serial, efirma_rfc, efirma_nombre, efirma_vigencia_fin, efirma_stamp_style, autografa_stamp_style, click_sign_stamp_style'
+          'nombre, apellido_paterno, apellido_materno, rfc, curp, email, telefono, calle, num_exterior, colonia, municipio, estado, codigo_postal, firma_autografa_url, metodo_firma, firma_autografa_created_at, firma_autografa_last_used, efirma_serial, efirma_rfc, efirma_nombre, efirma_vigencia_fin, efirma_stamp_style, autografa_stamp_style, click_sign_stamp_style, signature_save_prompt_dismissed'
         )
         .eq('id', user.id)
         .maybeSingle();
@@ -6368,6 +6194,7 @@ export default function FirmarDocumentoPage() {
             .filter(Boolean)
             .join(' ')
             .trim() ||
+          data.efirma_nombre ||
           user.user_metadata?.full_name ||
           '';
 
@@ -6381,22 +6208,20 @@ export default function FirmarDocumentoPage() {
         ].filter(Boolean);
         const direccion = direccionParts.join(', ');
 
-        setUserProfile({
-          nombre_completo: nombreCompleto,
-          rfc: data.rfc || '',
-          curp: data.curp || '',
-          email: data.email || user.email || '',
-          telefono: data.telefono || '',
-          direccion,
-        });
-        userProfileRef.current = {
-          nombre_completo: nombreCompleto,
-          rfc: data.rfc || '',
-          curp: data.curp || '',
-          email: data.email || user.email || '',
-          telefono: data.telefono || '',
-          direccion,
-        };
+        const resolvedProfile = mergeAssignedParticipantProfile(
+          {
+            nombre_completo: nombreCompleto,
+            rfc: data.rfc || data.efirma_rfc || '',
+            curp: data.curp || '',
+            email: data.email || user.email || '',
+            telefono: data.telefono || '',
+            direccion,
+          },
+          null,
+          user
+        );
+        setUserProfile(resolvedProfile);
+        userProfileRef.current = resolvedProfile;
 
         // Load saved signature if available
         if (data.firma_autografa_url) {
@@ -6423,6 +6248,7 @@ export default function FirmarDocumentoPage() {
         if (data.efirma_stamp_style) setEfirmaStampStyle(data.efirma_stamp_style);
         if (data.autografa_stamp_style) setAutografaStampStyle(data.autografa_stamp_style);
         if (data.click_sign_stamp_style) setClickSignStampStyle(data.click_sign_stamp_style);
+        setSignatureSavePromptDismissed(data.signature_save_prompt_dismissed === true);
       } else {
         setUserProfile((prev) => ({
           ...prev,
@@ -6437,7 +6263,7 @@ export default function FirmarDocumentoPage() {
       }
     };
     fetchProfile();
-  }, [user?.id]);
+  }, [user]);
 
   // ── Load document ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -6514,22 +6340,49 @@ export default function FirmarDocumentoPage() {
       }).catch(() => null);
       setTemplateDocument(resolvedTemplate);
 
-      void fetch(`/api/documentos/participation-responses?id=${encodeURIComponent(data.id)}`, {
-        cache: 'no-store',
-        headers: authorizationHeaders,
-      })
-        .then(async (response) => (response.ok ? response.json() : null))
-        .then((payload) => {
-          const values: TemplateFieldValues = {};
-          const responses = Array.isArray(payload?.data) ? payload.data : [];
-          responses.forEach((response: { campos_completados?: CampoCompletado[] }) => {
-            (response.campos_completados || []).forEach((field) => {
-              if (field.campo_id && field.value) values[field.campo_id] = field.value;
-            });
+      let savedServerValues: Record<string, string> = {};
+      try {
+        const response = await fetch(
+          `/api/documentos/participation-responses?id=${encodeURIComponent(data.id)}`,
+          {
+            cache: 'no-store',
+            headers: authorizationHeaders,
+          }
+        );
+        const payload = response.ok ? await response.json() : null;
+        const responses: Array<{
+          participante_id?: string | null;
+          participante_email?: string | null;
+          campos_completados?: CampoCompletado[];
+        }> = Array.isArray(payload?.data) ? payload.data : [];
+        const completedValues: TemplateFieldValues = {};
+
+        responses.forEach((participationResponse) => {
+          (participationResponse.campos_completados || []).forEach((field) => {
+            if (field.campo_id && field.value) completedValues[field.campo_id] = field.value;
           });
-          setCompletedTemplateValues(values);
-        })
-        .catch(() => setCompletedTemplateValues({}));
+        });
+        setCompletedTemplateValues(completedValues);
+
+        const normalizedUserEmail = String(user?.email || '')
+          .trim()
+          .toLowerCase();
+        const currentResponse = responses.find(
+          (participationResponse) =>
+            participationResponse.participante_id === user?.id ||
+            (normalizedUserEmail &&
+              String(participationResponse.participante_email || '')
+                .trim()
+                .toLowerCase() === normalizedUserEmail)
+        );
+        savedServerValues = Object.fromEntries(
+          (currentResponse?.campos_completados || [])
+            .filter((field) => Boolean(field.campo_id))
+            .map((field) => [field.campo_id, String(field.value ?? '')])
+        );
+      } catch {
+        setCompletedTemplateValues({});
+      }
 
       const rawParts: any[] = data.participantes || [];
       const normalizedUserEmail = (user?.email || '').trim().toLowerCase();
@@ -6577,6 +6430,13 @@ export default function FirmarDocumentoPage() {
 
       if (myPart) {
         setMyParticipantData(myPart);
+        const assignedProfile = mergeAssignedParticipantProfile(
+          userProfileRef.current,
+          myPart,
+          user
+        );
+        userProfileRef.current = assignedProfile;
+        setUserProfile(assignedProfile);
         const role = myPart.role || myPart.acto || 'firmante';
         if (role === 'aprobador' || role === 'Aprobador') setMyRole('aprobador');
         else if (role === 'observador' || role === 'Observador') setMyRole('observador');
@@ -6588,14 +6448,30 @@ export default function FirmarDocumentoPage() {
       const participantCampos = campos.filter(
         (campo) => !isDocumentGeneratedCryptographicField(campo)
       );
-      // Match campos assigned to this participant by: no participantId, or matches participant's internal id, or matches user's supabase id, or matches user's email
-      const myCampos = participantCampos.filter(
-        (c: CampoSolicitado) =>
-          !c.participantId ||
-          c.participantId === myPart?.id ||
-          c.participantId === user?.id ||
-          (myPart?.email && c.participantId === myPart?.email)
+      const participantIdentityKeys = new Set(
+        [
+          myPart?.id,
+          myPart?.user_id,
+          myPart?.participant_ref_id,
+          myPart?.email,
+          user?.id,
+          user?.email,
+        ]
+          .map((value) =>
+            String(value || '')
+              .trim()
+              .toLowerCase()
+          )
+          .filter(Boolean)
       );
+      // Keep only fields assigned to the authenticated participant. Legacy
+      // documents without participantId remain available to the current signer.
+      const myCampos = participantCampos.filter((c: CampoSolicitado) => {
+        const assignedParticipant = String(c.participantId || '')
+          .trim()
+          .toLowerCase();
+        return !assignedParticipant || participantIdentityKeys.has(assignedParticipant);
+      });
       setCamposPrefijados(myCampos);
 
       // ── Convert prefixed campos to PlacedFieldFirmar overlays ──────────────
@@ -6633,28 +6509,39 @@ export default function FirmarDocumentoPage() {
         initValues[key] = autoValue || '';
       });
 
-      // ── Restore persisted flow state (merge saved values over auto-fill) ───
+      // Restore only progress the participant explicitly chose to save.
       const persisted = readPersistedFlow();
-      if (persisted) {
-        // Merge saved camposValues over auto-fill (saved values take priority)
-        const mergedValues = { ...initValues, ...(persisted.camposValues || {}) };
-        setCamposValues(mergedValues);
-        if (persisted.step && persisted.step !== 'completado') {
-          setStep(persisted.step);
+      const explicitSessionDraft = persisted?.savedByUser === true ? persisted : null;
+      const retrySubmission = persisted?.submissionStarted === true ? persisted : null;
+      const restorableSession = retrySubmission || explicitSessionDraft;
+      setCamposValues({
+        ...initValues,
+        ...savedServerValues,
+        ...(restorableSession?.camposValues || {}),
+      });
+      if (restorableSession) {
+        if (restorableSession.step && restorableSession.step !== 'completado') {
+          setStep(restorableSession.step);
         }
-        // Note: do NOT call setCamposValues(initValues) in the else branch —
-        // mergedValues is already set above and must not be overwritten.
-        if (persisted.terminosAceptados) setTerminosAceptados(persisted.terminosAceptados);
-        if (persisted.camposPersonalizados?.length > 0)
-          setCamposPersonalizados(persisted.camposPersonalizados);
-        if (persisted.firmaData) {
-          setFirmaData(persisted.firmaData);
-          setFirmaConfirmada(true);
+        if (restorableSession.terminosAceptados) {
+          setTerminosAceptados(restorableSession.terminosAceptados);
         }
-      } else {
-        setCamposValues(initValues);
+        if (restorableSession.camposPersonalizados?.length > 0) {
+          setCamposPersonalizados(restorableSession.camposPersonalizados);
+        }
       }
-      // Allow persist effects to write from this point forward
+      if (retrySubmission?.firmaData) {
+        setFirmaData(retrySubmission.firmaData);
+        setFirmaConfirmada(true);
+      }
+      const restoredAutographEvidenceId = String(
+        retrySubmission ? persisted.autographEvidenceId || '' : ''
+      );
+      if (UUID_PATTERN.test(restoredAutographEvidenceId)) {
+        setAutographEvidenceId(restoredAutographEvidenceId);
+        setAutographFlowDone(true);
+      }
+      // Allow explicit saves and technical completion data from this point forward.
       flowRestoredRef.current = true;
     };
 
@@ -6846,15 +6733,18 @@ export default function FirmarDocumentoPage() {
     let y = ((e.clientY - rect.top) / rect.height) * 100;
 
     const autoValue = getAutoFillValue(tipo, userProfile);
+    const shortStampPreset = STAMP_SIZE_PRESETS[0];
+    const fieldWidth = tipo === 'firma' ? shortStampPreset.widthPercent : 16;
+    const fieldHeight = tipo === 'firma' ? shortStampPreset.heightPercent : 4;
     const newField: PlacedFieldFirmar = {
       id: `placed-${Date.now()}-${tipo}`,
       label,
       tipo,
       value: autoValue,
-      x: Math.max(0, Math.min(84, x - 8)),
-      y: Math.max(0, Math.min(96, y - 2)),
-      width: 16,
-      height: 4,
+      x: Math.max(0, Math.min(100 - fieldWidth, x - fieldWidth / 2)),
+      y: Math.max(0, Math.min(100 - fieldHeight, y - fieldHeight / 2)),
+      width: fieldWidth,
+      height: fieldHeight,
       page: currentPage,
     };
     setPlacedFields((prev) => [...prev, newField]);
@@ -6965,6 +6855,7 @@ export default function FirmarDocumentoPage() {
   const handleFirmaClear = () => {
     setFirmaData(null);
     setFirmaConfirmada(false);
+    setAutographStampContext(null);
   };
 
   const handleRemoveCampoPersonalizado = (id: string) => {
@@ -6977,56 +6868,143 @@ export default function FirmarDocumentoPage() {
   };
 
   // ── Signature type label helper ────────────────────────────────────────────
-  // Detect if participant's firma type is e.firma SAT
-  const isEfirmaSAT = (() => {
-    const tipoFirmaArr: string[] = myParticipantData?.tipoFirma || [];
-    const metodo: string = myParticipantData?.metodo_firma || '';
-    // Check array first (tipoFirma is the authoritative source from document creation)
-    if (tipoFirmaArr.length > 0) {
-      return tipoFirmaArr.some(
-        (m: string) =>
-          m === 'efirma' || m === 'e.firma' || m === 'e.firma SAT' || m === 'efirma_sat'
-      );
-    }
-    // Fallback to metodo_firma scalar field
-    return (
-      metodo === 'efirma' ||
-      metodo === 'e.firma' ||
-      metodo === 'e.firma SAT' ||
-      metodo === 'efirma_sat'
-    );
+  // The document assignment is authoritative; the profile only supplies a legacy fallback.
+  const configuredSignatureMethods = (() => {
+    const configured = myParticipantData?.tipoFirma ?? myParticipantData?.tipo_firma;
+    const methods = Array.isArray(configured)
+      ? configured
+      : configured
+        ? [configured]
+        : [
+            myParticipantData?.metodo_firma,
+            myParticipantData?.metodoFirma,
+            myParticipantData?.signatureMethod,
+          ].filter(Boolean);
+
+    return methods.map((method) => normalizeParticipantFieldToken(method));
   })();
+
+  const isEfirmaSAT = configuredSignatureMethods.some((method) =>
+    ['efirma', 'e.firma', 'e firma', 'efirma sat', 'e.firma sat', 'e firma sat'].includes(method)
+  );
 
   // Detect if participant's firma type is autógrafa digital
   // NOTE: Only use participation config (tipoFirma), NOT the user's profile savedSignatureType
-  const isAutografaDigital = (() => {
-    const tipoFirmaArr: string[] = myParticipantData?.tipoFirma || [];
-    const metodo: string = myParticipantData?.metodo_firma || '';
-    // If e.firma SAT is configured, autógrafa is NOT active
-    if (isEfirmaSAT) return false;
-    // Check array first
-    if (tipoFirmaArr.length > 0) {
-      return tipoFirmaArr.some(
-        (m: string) =>
-          m === 'autografa' || m === 'autografa_digital' || m === 'Firma Autógrafa Digital'
-      );
-    }
-    // Fallback to metodo_firma scalar field
-    return (
-      metodo === 'autografa' ||
-      metodo === 'autografa_digital' ||
-      metodo === 'Firma Autógrafa Digital'
+  const isAutografaDigital =
+    !isEfirmaSAT &&
+    configuredSignatureMethods.some(
+      (method) => method === 'autografa' || method === 'autografa digital'
     );
-  })();
 
-  const signatureTypeLabel =
-    savedSignatureType === 'efirma'
-      ? 'e.firma (SAT)'
-      : savedSignatureType === 'firma_electronica'
-        ? 'Firma Electrónica Digital'
-        : savedSignatureType === 'autografa'
-          ? 'Firma Autógrafa Digital'
-          : 'Firma Electrónica';
+  const isClickSign = configuredSignatureMethods.some(
+    (method) => method === 'click sign' || method === 'click & sign'
+  );
+
+  const signatureTypeLabel = isEfirmaSAT
+    ? 'e.firma SAT'
+    : isAutografaDigital
+      ? 'Firma Autógrafa Digital'
+      : isClickSign
+        ? 'Click & Sign'
+        : savedSignatureType === 'efirma'
+          ? 'e.firma SAT'
+          : savedSignatureType === 'firma_electronica'
+            ? 'Firma Electrónica Digital'
+            : savedSignatureType === 'autografa'
+              ? 'Firma Autógrafa Digital'
+              : 'Firma Electrónica';
+
+  const activeStampMethod: 'efirma' | 'autografa' | 'clicksign' = isEfirmaSAT
+    ? 'efirma'
+    : isAutografaDigital
+      ? 'autografa'
+      : 'clicksign';
+  const activeStampStyle =
+    activeStampMethod === 'efirma'
+      ? efirmaStampStyle
+      : activeStampMethod === 'autografa'
+        ? autografaStampStyle
+        : clickSignStampStyle;
+  const previewStampProps: StampDisplayProps = {
+    stampStyle: activeStampStyle,
+    verificationUrl: undefined,
+    signatureType: activeStampMethod,
+    signatureUrl: firmaData,
+    userName: userProfile.nombre_completo,
+    userRfc: userProfile.rfc,
+    userCurp: userProfile.curp,
+    participantRole: myParticipantData?.role || myRole,
+    participantAct: myParticipantData?.acto || myRole,
+    signatureHash: signatureEvidence?.signatureHash || '',
+    signedAt: signatureEvidence?.signedAt || '',
+    ipAddress: signatureEvidence?.ipAddress || '',
+    coordinates: signatureEvidence?.coordinates || null,
+    efirmaSerial: efirmaCertInfo?.cert_serial || profileEfirma?.serial,
+    efirmaVigenciaFin: efirmaCertInfo?.cert_not_after || profileEfirma?.vigenciaFin,
+  };
+  const previewSignatureFieldIds = placedFields
+    .filter((field) => field.tipo === 'firma')
+    .map((field) => field.id);
+  const activeStampSize =
+    STAMP_SIZE_PRESETS.find((preset) => {
+      const sizeCode = activeStampStyle.trim().toUpperCase().charAt(1);
+      return (
+        (sizeCode === 'L' && preset.id === 'large') ||
+        (sizeCode === 'M' && preset.id === 'medium') ||
+        (!['L', 'M'].includes(sizeCode) && preset.id === 'short')
+      );
+    }) || STAMP_SIZE_PRESETS[0];
+
+  const handleSaveActiveStampStyle = async (stampStyle: string) => {
+    if (!user?.id) return;
+    const profileField =
+      activeStampMethod === 'efirma'
+        ? 'efirma_stamp_style'
+        : activeStampMethod === 'autografa'
+          ? 'autografa_stamp_style'
+          : 'click_sign_stamp_style';
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ [profileField]: stampStyle, updated_at: new Date().toISOString() })
+      .eq('id', user.id);
+    if (error) throw error;
+
+    if (activeStampMethod === 'efirma') setEfirmaStampStyle(stampStyle);
+    else if (activeStampMethod === 'autografa') setAutografaStampStyle(stampStyle);
+    else setClickSignStampStyle(stampStyle);
+
+    setStampSelectorOpen(false);
+    toast.success('Estampa de firma actualizada');
+  };
+
+  const handleDeclineSignatureSave = async () => {
+    if (!user?.id) return;
+    if (!dismissSignatureSavePrompt) {
+      setWantToSaveSignature(false);
+      return;
+    }
+
+    setSavingSignaturePreference(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({
+          signature_save_prompt_dismissed: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+      if (error) throw error;
+      setSignatureSavePromptDismissed(true);
+      setWantToSaveSignature(false);
+    } catch (error) {
+      console.error('No se pudo guardar la preferencia de firma:', error);
+      toast.error('No se pudo guardar la preferencia');
+    } finally {
+      setSavingSignaturePreference(false);
+    }
+  };
 
   const handleRegenerateSignature = () => {
     if (submitting) return;
@@ -7035,21 +7013,28 @@ export default function FirmarDocumentoPage() {
     setSubmitError(null);
     setAutographFlowDone(false);
     setAutographEvidenceId(null);
+    setAutographStampContext(null);
     setEfirmaValidated(false);
     setEfirmaCertInfo(null);
     setEfirmaCerB64(null);
-    setEfirmaKeyB64(null);
+    setEfirmaKeyMaterial(null);
     setEfirmaPassword(null);
+    setEfirmaDeviceFingerprint(null);
+    setEfirmaSessionEvidence(null);
+    setEfirmaFramesManifest(null);
     setNubariumValidationResult(null);
     setWantToSaveSignature(null);
     setNewSignatureSaved(false);
-    setWantToSaveEfirma(null);
-    setEfirmaSavedToProfile(false);
     setTypedSignature('');
     setSignatureMode('dibujar');
     setUsePreloadedSignature(savedSignature ? null : false);
     setSignatureAttemptKey((attempt) => attempt + 1);
-    writePersistedFlow({ firmaData: null });
+    writePersistedFlow({
+      firmaData: null,
+      autographEvidenceId: null,
+      completionEvidenceId: null,
+      completionSignedAt: null,
+    });
   };
 
   // ── Generate typed signature as data URL ──────────────────────────────────
@@ -7083,50 +7068,13 @@ export default function FirmarDocumentoPage() {
     []
   );
 
-  // ── Persist flow state to sessionStorage on every relevant change ──────────
-  useEffect(() => {
-    if (step === 'completado') {
-      clearPersistedFlow();
-      return;
-    }
-    writePersistedFlow({ step });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
-
-  useEffect(() => {
-    writePersistedFlow({ terminosAceptados });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminosAceptados]);
-
-  useEffect(() => {
-    if (Object.keys(camposValues).length > 0) {
-      writePersistedFlow({ camposValues });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camposValues]);
-
-  useEffect(() => {
-    if (camposPersonalizados.length > 0) {
-      writePersistedFlow({ camposPersonalizados });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camposPersonalizados]);
-
-  useEffect(() => {
-    if (firmaData) {
-      writePersistedFlow({ firmaData });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firmaData]);
-
   // ── Save progress ─────────────────────────────────────────────────────────
   const [savingProgress, setSavingProgress] = useState(false);
-  const [saveProgressMsg, setSaveProgressMsg] = useState<string | null>(null);
+  const [showSaveProgressModal, setShowSaveProgressModal] = useState(false);
 
   const handleGuardarAvance = async () => {
     if (!document || !user) return;
     setSavingProgress(true);
-    setSaveProgressMsg(null);
     try {
       const supabase = createClient();
       const camposCompletados: CampoCompletado[] = [];
@@ -7163,11 +7111,20 @@ export default function FirmarDocumentoPage() {
         .from('participation_responses')
         .upsert(progressPayload, { onConflict: 'documento_id,participante_email' });
       if (error) throw new Error(error.message);
-      setSaveProgressMsg('Avance guardado correctamente');
-      setTimeout(() => setSaveProgressMsg(null), 3000);
+      writePersistedFlow({
+        savedByUser: true,
+        submissionStarted: false,
+        step,
+        terminosAceptados,
+        camposValues,
+        camposPersonalizados,
+        firmaData: null,
+        autographEvidenceId: null,
+      });
+      setShowSaveProgressModal(false);
+      toast.success('Tu avance se guardó correctamente.');
     } catch {
-      setSaveProgressMsg('Error al guardar el avance');
-      setTimeout(() => setSaveProgressMsg(null), 3000);
+      toast.error('No fue posible guardar el avance. Inténtalo nuevamente.');
     } finally {
       setSavingProgress(false);
     }
@@ -7186,6 +7143,7 @@ export default function FirmarDocumentoPage() {
       return;
     }
     setSubmitting(true);
+    setSubmissionPhase('registrando');
     setSubmitError(null);
     try {
       const supabase = createClient();
@@ -7218,11 +7176,39 @@ export default function FirmarDocumentoPage() {
         finalFirmaData = generateTypedSignatureDataUrl(typedSignature, typedSignatureStyle);
       }
 
+      writePersistedFlow({
+        submissionStarted: true,
+        step,
+        terminosAceptados,
+        camposValues,
+        camposPersonalizados,
+        firmaData: finalFirmaData,
+        ...(autographEvidenceId ? { autographEvidenceId } : {}),
+      });
       const persistedCompletion = readPersistedFlow();
+      const persistedAutographEvidenceId = String(persistedCompletion?.autographEvidenceId || '');
+      const activeAutographEvidenceId =
+        autographEvidenceId ||
+        (UUID_PATTERN.test(persistedAutographEvidenceId) ? persistedAutographEvidenceId : null);
       const persistedSignedAt = String(persistedCompletion?.completionSignedAt || '');
       const now = Number.isFinite(Date.parse(persistedSignedAt))
         ? new Date(persistedSignedAt).toISOString()
         : new Date().toISOString();
+      const activeEfirmaSerial = isEfirmaSAT
+        ? efirmaCertInfo?.cert_serial || profileEfirma?.serial || ''
+        : '';
+      const activeEfirmaRfc = isEfirmaSAT
+        ? efirmaCertInfo?.cert_rfc || profileEfirma?.rfc || userProfile.rfc || ''
+        : '';
+      const activeEfirmaName = isEfirmaSAT
+        ? extractEfirmaHolderName(
+            efirmaCertInfo?.cert_subject || profileEfirma?.nombre,
+            userProfile.nombre_completo || profileEfirma?.nombre || ''
+          )
+        : '';
+      const activeEfirmaValidUntil = isEfirmaSAT
+        ? efirmaCertInfo?.cert_not_after || profileEfirma?.vigenciaFin || ''
+        : '';
 
       // ── Capture evidence: IP, geolocation, hash ────────────────────────────
       let ipAddress = '—';
@@ -7237,15 +7223,13 @@ export default function FirmarDocumentoPage() {
       // Generate SHA-256 hash of firma data
       try {
         // For e.firma SAT, include serial + RFC in hash for stronger binding
-        const efirmaSerial = isEfirmaSAT ? profileEfirma?.serial || '' : '';
-        const efirmaRfc = isEfirmaSAT ? profileEfirma?.rfc || userProfile.rfc || '' : '';
         const dataToHash =
           (finalFirmaData || '') +
           now +
           (user.id || '') +
           (document.id || '') +
-          efirmaSerial +
-          efirmaRfc;
+          activeEfirmaSerial +
+          activeEfirmaRfc;
         const encoder = new TextEncoder();
         const dataBuffer = encoder.encode(dataToHash);
         const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
@@ -7265,7 +7249,7 @@ export default function FirmarDocumentoPage() {
       const selectedSignatureMethod =
         isEfirmaSAT || savedSignatureType === 'efirma'
           ? 'efirma'
-          : autographFlowDone
+          : activeAutographEvidenceId
             ? 'autografa'
             : 'clicksign';
       const selectedStampStyle =
@@ -7320,7 +7304,7 @@ export default function FirmarDocumentoPage() {
       let serverEfirmaSignedAt: string | null = null;
       let finalSignatureEvidenceId: string | null =
         selectedSignatureMethod === 'autografa'
-          ? autographEvidenceId
+          ? activeAutographEvidenceId
           : typeof persistedCompletion?.completionEvidenceId === 'string'
             ? persistedCompletion.completionEvidenceId
             : null;
@@ -7333,19 +7317,80 @@ export default function FirmarDocumentoPage() {
         !completionAlreadyCommitted &&
         !finalSignatureEvidenceId
       ) {
-        if (!efirmaValidated || !efirmaCerB64 || !efirmaKeyB64 || !efirmaPassword) {
-          throw new Error(
-            'Para firmar con e.firma, carga y valida los archivos .cer y .key junto con la contraseña. Estos datos sólo se usan durante esta firma.'
-          );
+        if (!efirmaValidated || !efirmaCerB64 || !efirmaKeyMaterial || !efirmaPassword) {
+          throw new Error('Para firmar con e.firma, valida tu llave cifrada con su contraseña.');
         }
         const {
           data: { session },
         } = await supabase.auth.getSession();
         const accessToken = session?.access_token;
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        if (!accessToken || !supabaseUrl || !efirmaCerB64 || !efirmaKeyB64 || !efirmaPassword) {
+        if (
+          !accessToken ||
+          !supabaseUrl ||
+          !efirmaCerB64 ||
+          !efirmaKeyMaterial ||
+          !efirmaPassword
+        ) {
           throw new Error('No fue posible conservar la evidencia criptografica de la e.firma.');
         }
+        const activeEfirmaSessionEvidence = efirmaSessionEvidence || {
+          user_agent: navigator.userAgent,
+          language: navigator.language,
+          platform: navigator.platform || '',
+          screen: `${screen.width}x${screen.height}x${screen.colorDepth}`,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          touch_points: navigator.maxTouchPoints || 0,
+          geo: coordinates
+            ? {
+                latitude: coordinates.lat,
+                longitude: coordinates.lng,
+                accuracy_meters: 0,
+                source: 'browser_api',
+              }
+            : null,
+        };
+        const activeEfirmaDeviceFingerprint = efirmaDeviceFingerprint || {
+          fingerprint_id: signatureHash,
+          visitor_id: 'fallback',
+          screen_resolution: activeEfirmaSessionEvidence.screen,
+          language: activeEfirmaSessionEvidence.language,
+          cpu_cores: navigator.hardwareConcurrency || 0,
+          touch_points: navigator.maxTouchPoints || 0,
+          platform: navigator.platform || '',
+          timezone: activeEfirmaSessionEvidence.timezone,
+        };
+        const participantContext = {
+          name: userProfile.nombre_completo || user.user_metadata?.full_name || user.email,
+          email: user.email,
+          role: myRole,
+        };
+        const prepareRes = await fetch(`${supabaseUrl}/functions/v1/sign-efirma`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            operation: 'PREPARE_CLIENT_SIGNATURE',
+            document_id: document.id,
+            participant_id: participantRecordId,
+            session_evidence: activeEfirmaSessionEvidence,
+            device_fingerprint: activeEfirmaDeviceFingerprint,
+            client_timestamp: new Date().toISOString(),
+            participant_context: participantContext,
+          }),
+        });
+        const prepareData = await prepareRes.json().catch(() => ({}));
+        if (!prepareRes.ok || !prepareData?.challenge_id || !prepareData?.payload_utf8_base64) {
+          throw new Error(prepareData?.error || 'No fue posible preparar la firma criptográfica.');
+        }
+
+        const clientSignature = await signEfirmaPayloadLocally(
+          efirmaKeyMaterial,
+          efirmaPassword,
+          String(prepareData.payload_utf8_base64)
+        );
         const signRes = await fetch(`${supabaseUrl}/functions/v1/sign-efirma`, {
           method: 'POST',
           headers: {
@@ -7353,24 +7398,12 @@ export default function FirmarDocumentoPage() {
             Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({
+            operation: 'COMPLETE_CLIENT_SIGNATURE',
             document_id: document.id,
-            participant_id: participantRecordId,
+            challenge_id: prepareData.challenge_id,
             cer_b64: efirmaCerB64,
-            key_b64: efirmaKeyB64,
-            password: efirmaPassword,
-            session_evidence: {
-              user_agent: navigator.userAgent,
-              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              geo: coordinates
-                ? {
-                    latitude: coordinates.lat,
-                    longitude: coordinates.lng,
-                    accuracy_meters: 0,
-                    source: 'browser_api',
-                  }
-                : null,
-            },
-            device_fingerprint: { fingerprint_id: signatureHash },
+            signature_base64: clientSignature,
+            session_evidence: activeEfirmaSessionEvidence,
           }),
         });
         const signData = await signRes.json().catch(() => ({}));
@@ -7380,6 +7413,26 @@ export default function FirmarDocumentoPage() {
         serverEfirmaSignedAt = signData.signed_at || null;
         finalSignatureEvidenceId = String(signData.evidence_id);
         writePersistedFlow({ completionEvidenceId: finalSignatureEvidenceId });
+        await markStoredEfirmaKeyUsed(supabase, user.id).catch(() => {});
+
+        if (efirmaFramesManifest?.total_frames) {
+          await fetch(`${supabaseUrl}/functions/v1/upload-session-frames`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              manifest: {
+                document_id: efirmaFramesManifest.document_id,
+                frames: efirmaFramesManifest.frames,
+                chain_hash: efirmaFramesManifest.chain_hash,
+                total_frames: efirmaFramesManifest.total_frames,
+              },
+              images: efirmaFramesManifest.images,
+            }),
+          }).catch(() => null);
+        }
       }
 
       const responsePayload = {
@@ -7407,16 +7460,32 @@ export default function FirmarDocumentoPage() {
         signature_metadata:
           myRole === 'firmante'
             ? {
-                rfc: isEfirmaSAT
-                  ? profileEfirma?.rfc || userProfile.rfc || null
-                  : userProfile.rfc || null,
-                certificate_serial: isEfirmaSAT ? profileEfirma?.serial || null : null,
+                rfc: isEfirmaSAT ? activeEfirmaRfc || null : userProfile.rfc || null,
+                curp: userProfile.curp || null,
+                certificate_serial: isEfirmaSAT ? activeEfirmaSerial || null : null,
                 certificate_algorithm: isEfirmaSAT ? 'RSA / SHA-256' : null,
-                certificate_valid_until: isEfirmaSAT ? profileEfirma?.vigenciaFin || null : null,
+                certificate_valid_until: isEfirmaSAT ? activeEfirmaValidUntil || null : null,
                 ocsp_status: isEfirmaSAT
                   ? nubariumValidationResult?.estado || 'No disponible'
                   : null,
-                verification_url: `${getPublicAppUrl()}/verificar-documento?documento=${document.id}`,
+                participant_role: myRole,
+                participant_act: myParticipantData?.acto || myRole,
+                participant_capacity:
+                  myParticipantData?.capacidad ||
+                  myParticipantData?.cargo ||
+                  myParticipantData?.puesto ||
+                  myParticipantData?.role ||
+                  myParticipantData?.acto ||
+                  myRole,
+                signature_method_label: isEfirmaSAT ? 'e.firma SAT' : 'Firma autógrafa',
+                otp_verified: isEfirmaSAT ? null : (autographStampContext?.otpVerified ?? null),
+                authentication_status: isEfirmaSAT
+                  ? 'Validación SAT'
+                  : autographStampContext?.otpVerified
+                    ? 'OTP verificado'
+                    : 'Cuenta autenticada',
+                document_reference: document.documento_id || document.id,
+                verification_url: `${getPublicAppUrl()}/v/${encodeURIComponent(document.id)}`,
               }
             : {},
         aprobacion_completada: myRole === 'aprobador',
@@ -7471,13 +7540,17 @@ export default function FirmarDocumentoPage() {
       }
       if (isEfirmaSAT) {
         setEfirmaCerB64(null);
-        setEfirmaKeyB64(null);
+        setEfirmaKeyMaterial(null);
         setEfirmaPassword(null);
+        setEfirmaDeviceFingerprint(null);
+        setEfirmaSessionEvidence(null);
+        setEfirmaFramesManifest(null);
       }
       const committedDocumentState = String(commitPayload.data.documentState || 'en_proceso');
       const documentoEstado = (
         committedDocumentState === 'en_proceso' ? 'en_progreso' : committedDocumentState
       ) as 'completado' | 'firmado' | 'en_progreso';
+      if (documentoEstado === 'completado') setSubmissionPhase('preparando_pdf');
 
       if (commitPayload.data.routingRequired) {
         await fetch('/api/documentos/advance-participation', {
@@ -7525,6 +7598,7 @@ export default function FirmarDocumentoPage() {
             sealBody.append('templateFieldMeasurements', JSON.stringify(templateFieldMeasurements));
           }
 
+          setSubmissionPhase('certificando_pdf');
           const sealResponse = await fetch(`/api/documentos/${document.id}/seal-signatures`, {
             method: 'POST',
             headers: authorizationHeaders,
@@ -7552,12 +7626,10 @@ export default function FirmarDocumentoPage() {
         timestampSello: now,
         signatureType: sigTypeLabel,
         documentoEstado,
-        efirmaSerial: isEfirmaSAT ? profileEfirma?.serial || null : null,
-        efirmaRfc: isEfirmaSAT ? profileEfirma?.rfc || userProfile.rfc || null : null,
-        efirmaNombre: isEfirmaSAT
-          ? profileEfirma?.nombre || userProfile.nombre_completo || null
-          : null,
-        efirmaVigenciaFin: isEfirmaSAT ? profileEfirma?.vigenciaFin || null : null,
+        efirmaSerial: isEfirmaSAT ? activeEfirmaSerial || null : null,
+        efirmaRfc: isEfirmaSAT ? activeEfirmaRfc || null : null,
+        efirmaNombre: isEfirmaSAT ? activeEfirmaName || null : null,
+        efirmaVigenciaFin: isEfirmaSAT ? activeEfirmaValidUntil || null : null,
         serverTimestamp: serverEfirmaSignedAt,
         nubariumEstado: isEfirmaSAT ? nubariumValidationResult?.estado || null : null,
         nubariumFechaConsulta: isEfirmaSAT ? nubariumValidationResult?.fechaConsulta || null : null,
@@ -7568,6 +7640,7 @@ export default function FirmarDocumentoPage() {
 
       if (await closeKioskContext('complete')) return;
 
+      clearPersistedFlow();
       setStep('completado');
       // Trigger green success animation after a short delay
       setTimeout(() => setShowSuccessAnim(true), 150);
@@ -7575,6 +7648,7 @@ export default function FirmarDocumentoPage() {
       setSubmitError(err?.message || 'Error al enviar la participación');
     } finally {
       setSubmitting(false);
+      setSubmissionPhase('registrando');
     }
   };
 
@@ -7788,7 +7862,7 @@ export default function FirmarDocumentoPage() {
             <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center mb-4">
               <Shield size={28} className="text-primary" />
             </div>
-            <h2 className="text-xl font-bold text-gray-900 text-center">
+            <h2 className="text-xl font-semibold text-gray-900 text-center">
               Verificación de identidad
             </h2>
             <p className="text-sm text-gray-500 text-center mt-2">
@@ -8026,10 +8100,14 @@ export default function FirmarDocumentoPage() {
           : clickSignStampStyle;
     const completedStampProps: StampDisplayProps = {
       stampStyle: completedStampStyle,
+      verificationUrl: `${getPublicAppUrl()}/v/${encodeURIComponent(document.id)}`,
       signatureType: completedSigType,
       signatureUrl: displayFirmaData,
       userName: userProfile.nombre_completo,
       userRfc: userProfile.rfc,
+      userCurp: userProfile.curp,
+      participantRole: myParticipantData?.role || myRole,
+      participantAct: myParticipantData?.acto || myRole,
       signatureHash: ev?.signatureHash || '',
       signedAt: ev?.signedAt || new Date().toISOString(),
       ipAddress: ev?.ipAddress || '—',
@@ -8069,6 +8147,13 @@ export default function FirmarDocumentoPage() {
                     <TemplateDocumentPreview
                       template={templateDocument}
                       values={templateFieldValues}
+                      final={Boolean(displayFirmaData)}
+                      signatureStamp={
+                        displayFirmaData ? (
+                          <FittedSignatureStamp {...completedStampProps} />
+                        ) : undefined
+                      }
+                      signatureFieldIds={previewSignatureFieldIds}
                       pageIndex={currentPage - 1}
                       zoom={zoom}
                       title={`Documento de plantilla ${document.nombre}`}
@@ -8265,7 +8350,7 @@ export default function FirmarDocumentoPage() {
                       />
                     </div>
                     <h2
-                      className={`text-xl font-bold mb-1 ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                      className={`text-xl font-semibold mb-1 ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
                       {myRole === 'firmante'
                         ? '¡Documento firmado!'
@@ -8353,6 +8438,9 @@ export default function FirmarDocumentoPage() {
                             signatureUrl={displayFirmaData}
                             userName={userProfile.nombre_completo}
                             userRfc={userProfile.rfc}
+                            userCurp={userProfile.curp}
+                            participantRole={myParticipantData?.role || myRole}
+                            participantAct={myParticipantData?.acto || myRole}
                             signatureHash={ev?.signatureHash || ''}
                             signedAt={ev?.signedAt || new Date().toISOString()}
                             ipAddress={ev?.ipAddress || '—'}
@@ -8622,15 +8710,15 @@ export default function FirmarDocumentoPage() {
                             <p
                               className={`text-[10px] font-semibold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}
                             >
-                              e.firma SAT — Validada ante el SAT
+                              e.firma SAT validada con Nubarium
                             </p>
                             <span
-                              className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${isDark ? 'bg-green-800 text-green-300' : 'bg-green-100 text-green-700'}`}
+                              className={`ml-auto text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${isDark ? 'bg-green-800 text-green-300' : 'bg-green-100 text-green-700'}`}
                             >
-                              Vigente
+                              {ev.nubariumEstado || 'Vigente'}
                             </span>
                           </div>
-                          {/* Estampa de tiempo del servidor */}
+                          {/* Fecha de firma registrada por el servidor */}
                           {ev?.serverTimestamp && (
                             <div className="flex items-start gap-2">
                               <Clock
@@ -8641,12 +8729,12 @@ export default function FirmarDocumentoPage() {
                                 <p
                                   className={`text-[10px] font-medium ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
                                 >
-                                  Estampa de tiempo del servidor (ISO 8601)
+                                  Fecha y hora de firma (servidor)
                                 </p>
                                 <p
                                   className={`text-[10px] font-mono break-all ${isDark ? 'text-teal-300' : 'text-teal-700'}`}
                                 >
-                                  {ev.serverTimestamp}
+                                  {formatEfirmaEvidenceDate(ev.serverTimestamp)}
                                 </p>
                               </div>
                             </div>
@@ -8752,7 +8840,7 @@ export default function FirmarDocumentoPage() {
                   {/* Header */}
                   <div className="flex flex-col gap-1">
                     <h3
-                      className={`text-base font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                      className={`text-base font-semibold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
                       Documentos disponibles
                     </h3>
@@ -8843,7 +8931,7 @@ export default function FirmarDocumentoPage() {
                         Constancia de Participación
                       </p>
                       <span
-                        className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-green-900/40 text-green-400' : 'bg-green-100 text-green-700'}`}
+                        className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-green-900/40 text-green-400' : 'bg-green-100 text-green-700'}`}
                       >
                         Individual
                       </span>
@@ -8973,20 +9061,20 @@ export default function FirmarDocumentoPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-base">🔏</span>
                         <span
-                          className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-purple-300' : 'text-purple-700'}`}
+                          className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-purple-300' : 'text-purple-700'}`}
                         >
                           Constancia NOM-151
                         </span>
                       </div>
                       {nom151Data ? (
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-purple-900/40 text-purple-300' : 'bg-purple-100 text-purple-700'}`}
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-purple-900/40 text-purple-300' : 'bg-purple-100 text-purple-700'}`}
                         >
                           Emitida
                         </span>
                       ) : (
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}
                         >
                           {nom151Polling ? 'Generando…' : 'Pendiente'}
                         </span>
@@ -9125,20 +9213,20 @@ export default function FirmarDocumentoPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-base">📄</span>
                         <span
-                          className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}
+                          className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}
                         >
                           XML de Evidencia
                         </span>
                       </div>
                       {xmlEvidenceData ? (
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}
                         >
                           Generado
                         </span>
                       ) : (
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}
                         >
                           {xmlPolling ? 'Generando…' : 'Pendiente'}
                         </span>
@@ -9307,6 +9395,62 @@ export default function FirmarDocumentoPage() {
     <div
       className={`flex h-screen flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-slate-50 text-slate-950'}`}
     >
+      <Toaster position="bottom-right" richColors />
+
+      {stampSelectorOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Elegir estampa de firma"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setStampSelectorOpen(false);
+          }}
+        >
+          <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-2xl">
+            {activeStampMethod === 'autografa' ? (
+              <AutografaStampSelector
+                key={`autografa-${autografaStampStyle}`}
+                signatureUrl={firmaData || savedSignature}
+                userName={userProfile.nombre_completo || user?.email || null}
+                userRfc={userProfile.rfc || null}
+                currentStampStyle={autografaStampStyle}
+                onSave={handleSaveActiveStampStyle}
+                initiallyOpen
+                showSummary={false}
+                onCancel={() => setStampSelectorOpen(false)}
+              />
+            ) : activeStampMethod === 'efirma' ? (
+              <EfirmaStampSelector
+                key={`efirma-${efirmaStampStyle}`}
+                efirmaData={{
+                  rfc: efirmaCertInfo?.cert_rfc || profileEfirma?.rfc || userProfile.rfc || null,
+                  nombre: profileEfirma?.nombre || userProfile.nombre_completo || null,
+                  numeroSerie: efirmaCertInfo?.cert_serial || profileEfirma?.serial || null,
+                  vigenciaFin: efirmaCertInfo?.cert_not_after || profileEfirma?.vigenciaFin || null,
+                }}
+                currentStampStyle={efirmaStampStyle}
+                onSave={handleSaveActiveStampStyle}
+                initiallyOpen
+                showSummary={false}
+                onCancel={() => setStampSelectorOpen(false)}
+              />
+            ) : (
+              <ClickSignStampSelector
+                key={`clicksign-${clickSignStampStyle}`}
+                userName={userProfile.nombre_completo || user?.email || null}
+                userRfc={userProfile.rfc || null}
+                currentStampStyle={clickSignStampStyle}
+                onSave={handleSaveActiveStampStyle}
+                initiallyOpen
+                showSummary={false}
+                onCancel={() => setStampSelectorOpen(false)}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Top Bar ─────────────────────────────────────────────────────────── */}
       <header
         className={`z-10 flex h-16 shrink-0 items-center border-b px-4 transition-colors duration-300 lg:px-6 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
@@ -9316,7 +9460,7 @@ export default function FirmarDocumentoPage() {
           <div className={`hidden h-8 w-px lg:block ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`} />
           <div className="hidden min-w-0 lg:block">
             <p
-              className={`truncate text-sm font-700 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}
+              className={`truncate text-sm font-600 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}
             >
               {myRole === 'firmante' ? 'Firmar documento' : 'Revisar documento'}
             </p>
@@ -9459,6 +9603,15 @@ export default function FirmarDocumentoPage() {
         <NoFirmaAlertModal
           onConfirm={handleConfirmNoFirma}
           onCancel={() => setShowNoFirmaAlert(false)}
+        />
+      )}
+
+      {showSaveProgressModal && (
+        <SaveProgressConfirmModal
+          isDark={isDark}
+          saving={savingProgress}
+          onConfirm={handleGuardarAvance}
+          onCancel={() => setShowSaveProgressModal(false)}
         />
       )}
 
@@ -9619,6 +9772,11 @@ export default function FirmarDocumentoPage() {
                 <TemplateDocumentPreview
                   template={templateDocument}
                   values={templateFieldValues}
+                  final={Boolean(firmaData)}
+                  signatureStamp={
+                    firmaData ? <FittedSignatureStamp {...previewStampProps} /> : undefined
+                  }
+                  signatureFieldIds={previewSignatureFieldIds}
                   pageIndex={docModalPage - 1}
                   zoom={docModalZoom}
                   title={`Documento de plantilla ${document.nombre}`}
@@ -9651,7 +9809,7 @@ export default function FirmarDocumentoPage() {
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className={`text-xl font-700 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}>
+                <h1 className={`text-xl font-600 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}>
                   {currentStepData?.label}
                 </h1>
                 <span
@@ -9719,6 +9877,11 @@ export default function FirmarDocumentoPage() {
                       <TemplateDocumentPreview
                         template={templateDocument}
                         values={templateFieldValues}
+                        final={Boolean(firmaData)}
+                        signatureStamp={
+                          firmaData ? <FittedSignatureStamp {...previewStampProps} /> : undefined
+                        }
+                        signatureFieldIds={previewSignatureFieldIds}
                         pageIndex={currentPage - 1}
                         zoom={zoom}
                         title={`Documento de plantilla ${document.nombre}`}
@@ -9739,6 +9902,9 @@ export default function FirmarDocumentoPage() {
                               key={field.id}
                               field={field}
                               signatureDataUrl={field.tipo === 'firma' ? firmaData : null}
+                              stampDisplayProps={
+                                field.tipo === 'firma' && firmaData ? previewStampProps : undefined
+                              }
                               onRemove={handleRemovePlacedField}
                               onMove={handleMovePlacedField}
                               onResize={handleResizePlacedField}
@@ -9931,7 +10097,7 @@ export default function FirmarDocumentoPage() {
                 <div className="space-y-5">
                   <div>
                     <h2
-                      className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                      className={`text-lg font-semibold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
                       Términos y condiciones
                     </h2>
@@ -9982,11 +10148,7 @@ export default function FirmarDocumentoPage() {
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${isDark ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'}`}
                             >
-                              {savedSignatureType === 'efirma'
-                                ? 'e.firma (SAT)'
-                                : savedSignatureType === 'firma_electronica'
-                                  ? 'Firma Electrónica Digital'
-                                  : 'Firma Autógrafa Digital'}
+                              {signatureTypeLabel}
                             </span>
                           </span>
                         </div>
@@ -10127,7 +10289,7 @@ export default function FirmarDocumentoPage() {
                 <div className="space-y-5">
                   <div>
                     <h2
-                      className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                      className={`text-lg font-semibold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
                       {hasCamposPrefijados ? 'Completar campos requeridos' : 'Campos'}
                     </h2>
@@ -10873,7 +11035,7 @@ export default function FirmarDocumentoPage() {
                                           <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
                                         </svg>
                                       ) : (
-                                        <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                        <span className="text-slate-300 text-xs font-medium tracking-widest">
                                           ⠿
                                         </span>
                                       )}
@@ -11013,7 +11175,7 @@ export default function FirmarDocumentoPage() {
                                         {item.label}
                                       </span>
                                     </div>
-                                    <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                    <span className="text-slate-300 text-xs font-medium tracking-widest">
                                       ⠿
                                     </span>
                                   </div>
@@ -11565,7 +11727,7 @@ export default function FirmarDocumentoPage() {
                                               <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
                                             </svg>
                                           ) : (
-                                            <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                            <span className="text-slate-300 text-xs font-medium tracking-widest">
                                               ⠿
                                             </span>
                                           )}
@@ -11707,7 +11869,7 @@ export default function FirmarDocumentoPage() {
                                             {item.label}
                                           </span>
                                         </div>
-                                        <span className="text-slate-300 text-xs font-bold tracking-widest">
+                                        <span className="text-slate-300 text-xs font-medium tracking-widest">
                                           ⠿
                                         </span>
                                       </div>
@@ -11752,7 +11914,7 @@ export default function FirmarDocumentoPage() {
                 <div className="space-y-5">
                   <div>
                     <h2
-                      className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                      className={`text-lg font-semibold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
                       Asentar firma
                     </h2>
@@ -11793,18 +11955,27 @@ export default function FirmarDocumentoPage() {
                       </div>
                       <EfirmaFirmarFlow
                         key={signatureAttemptKey}
-                        profileEfirma={profileEfirma}
                         isDark={isDark}
                         geoDenied={geoBlocked}
                         onRegenerate={handleRegenerateSignature}
-                        onValidated={(certInfo, cerB64, keyB64, password, nubariumResult) => {
-                          if (!cerB64 || !keyB64 || !password) return;
+                        onValidated={(
+                          certInfo,
+                          cerB64,
+                          keyMaterial,
+                          password,
+                          nubariumResult,
+                          evidence
+                        ) => {
+                          if (!cerB64 || !keyMaterial || !password) return;
                           setEfirmaValidated(true);
                           // Store cert info and credentials in memory for sign-efirma call
                           setEfirmaCertInfo(certInfo || null);
                           setEfirmaCerB64(cerB64 || null);
-                          setEfirmaKeyB64(keyB64 || null);
+                          setEfirmaKeyMaterial(keyMaterial);
                           setEfirmaPassword(password || null);
+                          setEfirmaDeviceFingerprint(evidence?.deviceFingerprint || null);
+                          setEfirmaSessionEvidence(evidence?.sessionEvidence || null);
+                          setEfirmaFramesManifest(evidence?.framesManifest || null);
                           // Store Nubarium validation result
                           if (nubariumResult) setNubariumValidationResult(nubariumResult);
                           // Generate a visual stamp for the e.firma
@@ -11852,106 +12023,7 @@ export default function FirmarDocumentoPage() {
                           setFirmaConfirmada(true);
                         }}
                         documentId={document.id}
-                        supabaseAccessToken={sessionToken || undefined}
                       />
-
-                      {/* ── Save e.firma to profile prompt ─────────────────── */}
-                      {efirmaValidated &&
-                        wantToSaveEfirma === null &&
-                        !efirmaSavedToProfile &&
-                        (() => {
-                          // Show prompt if: no profile e.firma stored, OR the validated cert serial differs from stored serial
-                          const validatedSerial = efirmaCertInfo?.cert_serial || null;
-                          const storedSerial = profileEfirma?.serial || null;
-                          return (
-                            !storedSerial || (validatedSerial && validatedSerial !== storedSerial)
-                          );
-                        })() && (
-                          <div
-                            className={`border rounded-xl p-4 space-y-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}
-                          >
-                            <div className="flex items-start gap-2">
-                              <ShieldCheck
-                                size={16}
-                                className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
-                              />
-                              <p
-                                className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}
-                              >
-                                ¿Deseas guardar tu e.firma en tu perfil para agilizar futuros
-                                procesos de firma?
-                              </p>
-                            </div>
-                            <p className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>
-                              Solo se guardan los datos del certificado (RFC, número de serie,
-                              vigencia). Tus archivos .cer y .key nunca se almacenan.
-                            </p>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                disabled={savingEfirmaToProfile}
-                                onClick={async () => {
-                                  if (!user || !efirmaCertInfo) return;
-                                  setSavingEfirmaToProfile(true);
-                                  try {
-                                    const supabase = createClient();
-                                    await supabase.from('user_profiles').upsert(
-                                      {
-                                        id: user.id,
-                                        efirma_serial: efirmaCertInfo?.cert_serial || null,
-                                        efirma_rfc:
-                                          efirmaCertInfo?.cert_rfc || userProfile.rfc || null,
-                                        efirma_nombre:
-                                          efirmaCertInfo?.cert_subject ||
-                                          userProfile.nombre_completo ||
-                                          null,
-                                        efirma_vigencia_fin: efirmaCertInfo?.cert_not_after || null,
-                                        updated_at: new Date().toISOString(),
-                                      },
-                                      { onConflict: 'id' }
-                                    );
-                                    setWantToSaveEfirma(true);
-                                    setEfirmaSavedToProfile(true);
-                                  } catch (err) {
-                                    console.error('Error al guardar e.firma en perfil:', err);
-                                  } finally {
-                                    setSavingEfirmaToProfile(false);
-                                  }
-                                }}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-60"
-                              >
-                                {savingEfirmaToProfile ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <Check size={14} />
-                                )}
-                                Sí, guardar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setWantToSaveEfirma(false)}
-                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
-                              >
-                                No, gracias
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                      {efirmaSavedToProfile && (
-                        <div
-                          className={`border rounded-xl p-3 flex items-center gap-2 ${isDark ? 'border-gray-600 bg-gray-800/40' : 'border-gray-200 bg-gray-50'}`}
-                        >
-                          <ShieldCheck
-                            size={16}
-                            className={`flex-shrink-0 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}
-                          />
-                          <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                            e.firma guardada en tu perfil. Podrás gestionarla desde{' '}
-                            <strong>/mi-perfil</strong>.
-                          </p>
-                        </div>
-                      )}
                     </>
                   )}
 
@@ -12091,11 +12163,20 @@ export default function FirmarDocumentoPage() {
                             documentName={document.nombre}
                             isDark={isDark}
                             initialGeolocation={browserGeolocation}
-                            onComplete={(dataUrl, evidenceId) => {
+                            onComplete={(dataUrl, evidenceId, stampContext) => {
                               setFirmaData(dataUrl);
                               setAutographEvidenceId(evidenceId);
+                              setAutographStampContext(stampContext || null);
                               setFirmaConfirmada(true);
                               setAutographFlowDone(true);
+                              // Keep only the opaque evidence reference for a possible atomic retry.
+                              // The visual signature and field progress are not restored unless the
+                              // participant explicitly starts the final submission.
+                              writePersistedFlow({
+                                autographEvidenceId: evidenceId,
+                                completionEvidenceId: null,
+                                completionSignedAt: null,
+                              });
                             }}
                           />
                         )}
@@ -12124,75 +12205,99 @@ export default function FirmarDocumentoPage() {
                           </div>
 
                           {/* Save signature selector */}
-                          {wantToSaveSignature === null && !newSignatureSaved && (
-                            <div
-                              className={`border rounded-xl p-4 space-y-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}
-                            >
-                              <div className="flex items-start gap-2">
-                                <ShieldCheck
-                                  size={16}
-                                  className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
-                                />
-                                <p
-                                  className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}
-                                >
-                                  ¿Quieres guardar tu firma para utilizarla posteriormente y
-                                  agilizar el proceso de firmado?
-                                </p>
-                              </div>
-                              <p
-                                className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}
+                          {wantToSaveSignature === null &&
+                            !newSignatureSaved &&
+                            !signatureSavePromptDismissed && (
+                              <div
+                                className={`space-y-3 rounded-xl border p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-200 bg-blue-50'}`}
                               >
-                                Tu firma se almacenará de forma segura y cifrada vinculada a tu
-                                perfil.
-                              </p>
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  disabled={savingNewSignature}
-                                  onClick={async () => {
-                                    if (!user || !firmaData) return;
-                                    setSavingNewSignature(true);
-                                    try {
-                                      const supabase = createClient();
-                                      await supabase.from('user_profiles').upsert(
-                                        {
-                                          id: user.id,
-                                          firma_autografa_url: firmaData,
-                                          metodo_firma: 'autografa_digital',
-                                          firma_autografa_created_at: new Date().toISOString(),
-                                          firma_autografa_last_used: new Date().toISOString(),
-                                          updated_at: new Date().toISOString(),
-                                        },
-                                        { onConflict: 'id' }
-                                      );
-                                      setWantToSaveSignature(true);
-                                      setNewSignatureSaved(true);
-                                    } catch (err) {
-                                      console.error('Error al guardar firma:', err);
-                                    } finally {
-                                      setSavingNewSignature(false);
+                                <div className="flex items-start gap-2">
+                                  <ShieldCheck
+                                    size={16}
+                                    className={`flex-shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+                                  />
+                                  <p
+                                    className={`text-sm font-medium ${isDark ? 'text-blue-200' : 'text-blue-800'}`}
+                                  >
+                                    ¿Quieres guardar tu firma para utilizarla posteriormente y
+                                    agilizar el proceso de firmado?
+                                  </p>
+                                </div>
+                                <p
+                                  className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}
+                                >
+                                  Tu firma se almacenará de forma segura y cifrada vinculada a tu
+                                  perfil.
+                                </p>
+                                <label
+                                  className={`flex cursor-pointer items-center gap-2 text-xs ${isDark ? 'text-blue-200' : 'text-blue-700'}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={dismissSignatureSavePrompt}
+                                    onChange={(event) =>
+                                      setDismissSignatureSavePrompt(event.target.checked)
                                     }
-                                  }}
-                                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-60"
-                                >
-                                  {savingNewSignature ? (
-                                    <Loader2 size={14} className="animate-spin" />
-                                  ) : (
-                                    <Check size={14} />
-                                  )}
-                                  Sí, guardar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setWantToSaveSignature(false)}
-                                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
-                                >
-                                  No, gracias
-                                </button>
+                                    className="h-4 w-4 rounded border-blue-300 text-primary focus:ring-primary/30"
+                                  />
+                                  No volver a preguntarme en este perfil
+                                </label>
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={savingNewSignature}
+                                    onClick={async () => {
+                                      if (!user || !firmaData) return;
+                                      setSavingNewSignature(true);
+                                      try {
+                                        const supabase = createClient();
+                                        const { error } = await supabase
+                                          .from('user_profiles')
+                                          .upsert(
+                                            {
+                                              id: user.id,
+                                              firma_autografa_url: firmaData,
+                                              metodo_firma: 'autografa_digital',
+                                              firma_autografa_created_at: new Date().toISOString(),
+                                              firma_autografa_last_used: new Date().toISOString(),
+                                              updated_at: new Date().toISOString(),
+                                            },
+                                            { onConflict: 'id' }
+                                          );
+                                        if (error) throw error;
+                                        setWantToSaveSignature(true);
+                                        setNewSignatureSaved(true);
+                                        toast.success('Firma guardada en tu perfil');
+                                      } catch (err) {
+                                        console.error('Error al guardar firma:', err);
+                                        toast.error('No se pudo guardar la firma');
+                                      } finally {
+                                        setSavingNewSignature(false);
+                                      }
+                                    }}
+                                    className="inline-flex h-9 min-w-[112px] items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                                  >
+                                    {savingNewSignature ? (
+                                      <Loader2 size={14} className="animate-spin" />
+                                    ) : (
+                                      <Check size={14} />
+                                    )}
+                                    Sí, guardar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={savingSignaturePreference}
+                                    onClick={() => void handleDeclineSignatureSave()}
+                                    className={`inline-flex h-9 min-w-[112px] items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors disabled:opacity-60 ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
+                                  >
+                                    {savingSignaturePreference ? (
+                                      <Loader2 size={14} className="animate-spin" />
+                                    ) : null}
+                                    No guardar
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          )}
+                            )}
 
                           {newSignatureSaved && (
                             <div
@@ -12603,6 +12708,39 @@ export default function FirmarDocumentoPage() {
                       )}
                     </>
                   )}
+
+                  {firmaConfirmada && firmaData && (
+                    <div
+                      className={`flex items-center gap-3 rounded-xl border p-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+                    >
+                      <span
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${isDark ? 'bg-blue-900/40 text-blue-300' : 'bg-blue-50 text-primary'}`}
+                      >
+                        <LayoutTemplate size={17} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`text-sm font-medium ${isDark ? 'text-gray-100' : 'text-slate-900'}`}
+                        >
+                          Estampa de firma
+                        </p>
+                        <p
+                          className={`mt-0.5 text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+                        >
+                          {activeStampStyle} · {activeStampSize.label}. Puedes cambiar cómo se verá
+                          tu firma en el documento.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setStampSelectorOpen(true)}
+                        className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${isDark ? 'border-gray-600 text-gray-200 hover:bg-gray-700' : 'border-blue-200 text-primary hover:bg-blue-50'}`}
+                      >
+                        <LayoutTemplate size={14} />
+                        Cambiar estampa
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -12611,7 +12749,7 @@ export default function FirmarDocumentoPage() {
                 <div className="space-y-5">
                   <div>
                     <h2
-                      className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
+                      className={`text-lg font-semibold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
                       Dar visto bueno
                     </h2>
@@ -12747,6 +12885,23 @@ export default function FirmarDocumentoPage() {
                 </div>
               )}
 
+              {submitting && step === 'firma' && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${isDark ? 'border-blue-800 bg-blue-950/30 text-blue-200' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
+                >
+                  <Loader2 size={14} className="mt-0.5 shrink-0 animate-spin" />
+                  <span>
+                    {submissionPhase === 'registrando'
+                      ? 'Registrando tu firma...'
+                      : submissionPhase === 'preparando_pdf'
+                        ? 'Tu firma ya quedó registrada. Estamos preparando el PDF final.'
+                        : 'Tu firma ya quedó registrada. Estamos certificando el PDF final; puede tardar uno o dos minutos. Mantén esta página abierta.'}
+                  </span>
+                </div>
+              )}
+
               {/* Error */}
               {submitError && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
@@ -12781,7 +12936,7 @@ export default function FirmarDocumentoPage() {
               {/* Guardar avance — only in campos and firma steps */}
               {(step === 'campos' || step === 'firma') && (
                 <button
-                  onClick={handleGuardarAvance}
+                  onClick={() => setShowSaveProgressModal(true)}
                   disabled={savingProgress}
                   className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border rounded-lg transition-colors ${isDark ? 'text-gray-300 border-gray-600 hover:bg-gray-700' : 'text-primary border-primary/30 hover:bg-primary/5'} disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
@@ -12792,13 +12947,6 @@ export default function FirmarDocumentoPage() {
                   )}
                   <span className="hidden sm:inline">Guardar avance</span>
                 </button>
-              )}
-              {saveProgressMsg && (
-                <span
-                  className={`text-xs font-medium ${saveProgressMsg.startsWith('Error') ? 'text-red-500' : 'text-green-600'}`}
-                >
-                  {saveProgressMsg}
-                </span>
               )}
             </div>
 
@@ -12838,13 +12986,18 @@ export default function FirmarDocumentoPage() {
                     geoBlocked ||
                     geoLoading ||
                     (isEfirmaSAT &&
-                      (!efirmaValidated || !efirmaCerB64 || !efirmaKeyB64 || !efirmaPassword))
+                      (!efirmaValidated || !efirmaCerB64 || !efirmaKeyMaterial || !efirmaPassword))
                   }
                   className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
                     <>
-                      <Loader2 size={14} className="animate-spin" /> Enviando...
+                      <Loader2 size={14} className="animate-spin" />{' '}
+                      {submissionPhase === 'registrando'
+                        ? 'Registrando firma...'
+                        : submissionPhase === 'preparando_pdf'
+                          ? 'Preparando PDF...'
+                          : 'Certificando PDF...'}
                     </>
                   ) : (
                     <>

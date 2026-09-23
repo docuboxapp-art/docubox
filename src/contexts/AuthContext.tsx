@@ -138,6 +138,7 @@ function SessionTimeoutModal({
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [session, setSession] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
 
@@ -145,33 +146,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
-  const emailVerifiedUserRef = useRef<string | null>(null);
+  const loadedProfileUserRef = useRef<string | null>(null);
 
-  const fetchEmailVerified = useCallback(
+  const fetchUserProfile = useCallback(
     async (userId: string) => {
       try {
         const { data, error } = await supabase
           .from('user_profiles')
-          .select('email_verified')
+          .select('id,email,full_name,nombre,apellido_paterno,apellido_materno,avatar_url,email_verified')
           .eq('id', userId)
           .single();
         if (error) {
           setEmailVerified(false);
+          setUserProfile(null);
           return;
         }
+        setUserProfile(data || null);
         setEmailVerified(data?.email_verified === true);
       } catch {
         setEmailVerified(false);
+        setUserProfile(null);
       }
     },
     [supabase]
   );
 
   useEffect(() => {
-    const syncEmailVerified = (userId: string, force = false) => {
-      if (!force && emailVerifiedUserRef.current === userId) return;
-      emailVerifiedUserRef.current = userId;
-      void fetchEmailVerified(userId);
+    const syncUserProfile = (userId: string, force = false) => {
+      if (!force && loadedProfileUserRef.current === userId) return;
+      loadedProfileUserRef.current = userId;
+      void fetchUserProfile(userId);
     };
 
     // Get initial session
@@ -179,9 +183,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user?.id) {
-        syncEmailVerified(session.user.id);
+        syncUserProfile(session.user.id);
       } else {
-        emailVerifiedUserRef.current = null;
+        loadedProfileUserRef.current = null;
+        setUserProfile(null);
         setEmailVerified(null);
       }
       setLoading(false);
@@ -194,16 +199,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user?.id) {
-        syncEmailVerified(session.user.id, event === 'USER_UPDATED');
+        syncUserProfile(session.user.id, event === 'USER_UPDATED');
       } else {
-        emailVerifiedUserRef.current = null;
+        loadedProfileUserRef.current = null;
+        setUserProfile(null);
         setEmailVerified(null);
       }
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchEmailVerified, supabase]);
+  }, [fetchUserProfile, supabase]);
 
   // ── useSessionTimeout integration ─────────────────────────────────────────
   const { continueSession, signOutNow } = useSessionTimeout(!!user, {
@@ -218,8 +224,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshEmailVerified = async () => {
     if (user?.id) {
-      await fetchEmailVerified(user.id);
+      await fetchUserProfile(user.id);
     }
+  };
+
+  const refreshUserProfile = async () => {
+    if (user?.id) await fetchUserProfile(user.id);
   };
 
   const signUp = async (email: string, password: string, metadata = {}) => {
@@ -279,10 +289,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const value = {
     user,
+    userProfile,
     session,
     loading,
     emailVerified,
     refreshEmailVerified,
+    refreshUserProfile,
     signUp,
     signIn,
     signOut,

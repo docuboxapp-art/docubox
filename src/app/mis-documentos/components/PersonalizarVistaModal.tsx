@@ -253,7 +253,7 @@ export default function PersonalizarVistaModal({
                 <span>{label}</span>
                 {badge > 0 && (
                   <span
-                    className={`absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full flex items-center justify-center ${
+                    className={`absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full flex items-center justify-center ${
                       isActive ? 'bg-white text-blue-600' : 'bg-blue-600 text-white'
                     }`}
                   >

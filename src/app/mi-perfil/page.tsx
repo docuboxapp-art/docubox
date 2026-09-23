@@ -54,6 +54,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
 import { QRCodeSVG } from 'qrcode.react';
+import {
+  encryptEfirmaKeyForStorage,
+  fileToBytes,
+  type EncryptedEfirmaKeyMaterial,
+} from '@/lib/efirma/client-vault';
+import { deleteStoredEfirmaKey, saveStoredEfirmaKey } from '@/lib/efirma/vault-storage';
+import { normalizeEfirmaHolderName } from '@/lib/efirma/certificate-holder';
+import { DEFAULT_SIGNATURE_STAMP_STYLES } from '@/lib/signatures/stamp-sizing';
 
 import TotpSetupModal from '@/components/totp/TotpSetupModal';
 import EfirmaStampSelector from './components/EfirmaStampSelector';
@@ -118,11 +126,7 @@ interface DeletionHistoryEntry {
   document_created_at?: string | null;
   document_trashed_at?: string | null;
   deletion_method?:
-    | 'MOVED_TO_TRASH'
-    | 'DIRECT_DELETE'
-    | 'TRASH_PURGE'
-    | 'AUTO_RECOVERY_PURGE'
-    | null;
+    'MOVED_TO_TRASH' | 'DIRECT_DELETE' | 'TRASH_PURGE' | 'AUTO_RECOVERY_PURGE' | null;
   reason: string;
   status: 'TRASHED' | 'PENDING' | 'STORAGE_REMOVED' | 'COMPLETED' | 'FAILED';
   requested_at: string | null;
@@ -231,6 +235,8 @@ interface EfirmaValidationResult {
   apellidoMaterno: string;
   vigenciaFin: string;
   isExpired: boolean;
+  vaultMaterial: EncryptedEfirmaKeyMaterial;
+  certificateSubject: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -258,15 +264,28 @@ const REGIMENES_FISCALES = [
   'Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas',
 ];
 
-const sidebarItems = [
-  { id: 'informacion-personal', label: 'Información personal', icon: User },
-  { id: 'verificacion', label: 'Verificación', icon: ShieldCheck },
-  { id: 'proteccion-acceso', label: 'Protección de acceso', icon: Lock },
-  { id: 'firmas', label: 'Firmas', icon: PenTool },
-  { id: 'seguridad', label: 'Seguridad', icon: Shield },
-  { id: 'mi-expediente', label: 'Mi expediente', icon: FolderOpen },
-  { id: 'historial-eliminaciones', label: 'Historial de eliminaciones', icon: History },
-  { id: 'privacidad', label: 'Privacidad', icon: Lock },
+const sidebarSections = [
+  {
+    label: 'Principal',
+    items: [
+      { id: 'informacion-personal', label: 'Información personal', icon: User },
+      { id: 'verificacion', label: 'Verificación', icon: ShieldCheck },
+      { id: 'mi-expediente', label: 'Mi expediente', icon: FolderOpen },
+    ],
+  },
+  {
+    label: 'Firma y seguridad',
+    items: [
+      { id: 'firmas', label: 'Firmas', icon: PenTool },
+      { id: 'proteccion-acceso', label: 'Protección de acceso', icon: Lock },
+      { id: 'seguridad', label: 'Seguridad', icon: Shield },
+      { id: 'privacidad', label: 'Privacidad', icon: Lock },
+    ],
+  },
+  {
+    label: 'Actividad',
+    items: [{ id: 'historial-eliminaciones', label: 'Historial de eliminaciones', icon: History }],
+  },
 ];
 
 const COPOMEX_TOKEN = '076eac35-f150-43e8-88ca-21f2cb8d50cd';
@@ -281,7 +300,7 @@ function ProfileSectionHeader({ title, description, actions }: ProfileSectionHea
   return (
     <header className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between dark:border-slate-700">
       <div className="min-w-0">
-        <h1 className="text-2xl font-700 text-slate-950 dark:text-white">{title}</h1>
+        <h1 className="text-2xl font-600 text-slate-950 dark:text-white">{title}</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -623,7 +642,7 @@ function EfirmaValidationCard({
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">
             <User size={24} className="text-primary" />
             Validación Exitosa
           </h1>
@@ -664,7 +683,7 @@ function EfirmaValidationCard({
       {curpResult && (
         <div className="border border-border rounded-xl overflow-hidden">
           <div className="bg-muted/40 px-4 py-2.5 border-b border-border">
-            <p className="text-sm font-bold text-foreground">Información Personal</p>
+            <p className="text-sm font-semibold text-foreground">Información Personal</p>
           </div>
           <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-3">
             <div>
@@ -703,7 +722,7 @@ function EfirmaValidationCard({
 
       <div className="border border-border rounded-xl overflow-hidden">
         <div className="bg-muted/40 px-4 py-2.5 border-b border-border">
-          <p className="text-sm font-bold text-foreground">Información del Certificado</p>
+          <p className="text-sm font-semibold text-foreground">Información del Certificado</p>
         </div>
         <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-3">
           <div>
@@ -717,7 +736,7 @@ function EfirmaValidationCard({
               ESTADO
             </p>
             <p
-              className={`text-sm font-bold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}
+              className={`text-sm font-semibold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}
             >
               {isExpired ? 'Vencido' : serialResult?.estado || '—'}
             </p>
@@ -752,7 +771,7 @@ function EfirmaValidationCard({
       <button
         onClick={onConfirm}
         disabled={isExpired || hasBlockingError || isLoading}
-        className={`w-full py-2.5 rounded-lg text-white text-sm font-bold transition-colors flex items-center justify-center gap-2 ${
+        className={`w-full py-2.5 rounded-lg text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
           isExpired || hasBlockingError || isLoading
             ? 'bg-muted-foreground/40 cursor-not-allowed opacity-50'
             : 'bg-emerald-500 hover:bg-emerald-600'
@@ -765,7 +784,7 @@ function EfirmaValidationCard({
         ) : (
           <>
             <CheckCircle size={15} />
-            Vincular e.firma a mi perfil
+            Guardar mi e.firma cifrada
           </>
         )}
       </button>
@@ -804,54 +823,41 @@ function EfirmaModal({
     setValidationResult(null);
 
     try {
-      // Step 1: Validate .key password
-      const keyFormData = new FormData();
-      keyFormData.append('keyFile', keyFile);
-      keyFormData.append('password', efirmaPassword);
-
-      let keyValidationRes: Response;
-      try {
-        keyValidationRes = await fetch('/api/efirma/validate-key', {
-          method: 'POST',
-          body: keyFormData,
-        });
-      } catch {
-        setEfirmaError('Error de red al validar la llave privada. Intenta nuevamente.');
-        setIsValidating(false);
-        return;
-      }
-
-      const keyValidation = await keyValidationRes.json();
-      if (!keyValidation.success || !keyValidation.isPasswordValid) {
-        let msg = 'La contraseña es incorrecta o la llave privada no es válida.';
-        if (keyValidation.errorCode === 'CORRUPTED_FILE')
-          msg = 'El archivo .key está corrupto o dañado.';
-        else if (keyValidation.errorCode === 'UNSUPPORTED_FORMAT')
-          msg = 'El formato de la llave privada no es compatible.';
-        else if (keyValidation.errorCode === 'PARSE_ERROR')
-          msg = 'No se pudo procesar el archivo .key.';
-        else if (keyValidation.errorCode === 'EMPTY_PASSWORD')
-          msg = 'La contraseña no puede estar vacía.';
-        else if (keyValidation.errorCode === 'INVALID_FILE_TYPE')
-          msg = 'El archivo seleccionado no es un archivo .key válido.';
-        setEfirmaError(msg);
-        setIsValidating(false);
-        return;
-      }
-
-      // Step 2: Parse .cer file
+      // Step 1: Parse the public certificate in the browser.
       const parsed = await parseCerFile(cerFile);
       const rfc = parsed?.rfc || '';
       const curp = parsed?.curp || '';
       const serial = parsed?.serial || '';
       const notAfter = parsed?.notAfter || '';
 
-      if (!serial) {
+      if (!parsed || !serial) {
         setEfirmaError(
           'No se pudo extraer el número de serie del certificado. Verifica que el archivo .cer sea válido.'
         );
         setIsValidating(false);
         return;
+      }
+
+      // Step 2: Decrypt, match and wrap the private key locally. Neither the
+      // original key bytes nor the password are sent to an API.
+      let vaultMaterial: EncryptedEfirmaKeyMaterial;
+      let keyBytes: Uint8Array | null = null;
+      try {
+        keyBytes = await fileToBytes(keyFile);
+        vaultMaterial = await encryptEfirmaKeyForStorage(keyBytes, efirmaPassword, parsed.base64);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        const message =
+          code === 'EFIRMA_KEY_CERTIFICATE_MISMATCH'
+            ? 'La llave privada no corresponde al certificado seleccionado.'
+            : code === 'EFIRMA_KEY_UNSUPPORTED'
+              ? 'El formato de la llave privada no es compatible.'
+              : 'La contraseña es incorrecta o la llave privada no es válida.';
+        setEfirmaError(message);
+        setIsValidating(false);
+        return;
+      } finally {
+        keyBytes?.fill(0);
       }
 
       // Step 3: Check expiry
@@ -906,7 +912,7 @@ function EfirmaModal({
         }
       }
 
-      const nombre = curpResult?.nombre || '';
+      const nombre = curpResult?.nombre || normalizeEfirmaHolderName(parsed.subject);
       const apellidoPaterno = curpResult?.apellidoPaterno || '';
       const apellidoMaterno = curpResult?.apellidoMaterno || '';
       const vigenciaFin = serialResult?.fecha_fin || notAfter || '';
@@ -922,6 +928,8 @@ function EfirmaModal({
         apellidoMaterno,
         vigenciaFin,
         isExpired: isCertExpired,
+        vaultMaterial,
+        certificateSubject: parsed.subject,
       });
     } catch {
       setEfirmaError('Error al procesar el certificado. Verifica que los archivos sean válidos.');
@@ -954,8 +962,10 @@ function EfirmaModal({
               <FileKey size={20} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-base font-700 text-foreground">Vincular e.firma (SAT)</h2>
-              <p className="text-xs text-muted-foreground">Sube tus archivos .cer y .key del SAT</p>
+              <h2 className="text-base font-600 text-foreground">Guardar e.firma SAT</h2>
+              <p className="text-xs text-muted-foreground">
+                La llave se cifra en este dispositivo antes de guardarse
+              </p>
             </div>
           </div>
           <button
@@ -1021,7 +1031,7 @@ function EfirmaModal({
               <button
                 onClick={handleValidate}
                 disabled={!cerFile || !keyFile || !efirmaPassword || isValidating}
-                className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
               >
                 {isValidating ? (
                   <>
@@ -1029,16 +1039,15 @@ function EfirmaModal({
                   </>
                 ) : (
                   <>
-                    <Shield size={14} /> Validar e.Firma
+                    <Shield size={14} /> Validar y cifrar e.firma
                   </>
                 )}
               </button>
               <div className="flex items-start gap-3 px-3 py-3 bg-blue-50 border border-blue-200 rounded-xl">
                 <ShieldCheck size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-blue-700">
-                  La e.firma es emitida por el SAT y tiene la misma validez legal que una firma
-                  autógrafa. Requiere tu archivo <strong>.cer</strong>, <strong>.key</strong> y
-                  contraseña de clave privada.
+                  Docubox guardará únicamente una copia cifrada de tu llave y los datos públicos del
+                  certificado. La contraseña no sale de este dispositivo ni se almacena.
                 </p>
               </div>
             </div>
@@ -1125,7 +1134,7 @@ function JoinWorkspaceModal({ onClose }: { onClose: () => void }) {
               <Building2 size={20} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-base font-700 text-foreground">Unirse a espacio de trabajo</h2>
+              <h2 className="text-base font-600 text-foreground">Unirse a espacio de trabajo</h2>
               <p className="text-xs text-muted-foreground">Ingresa el código de invitación</p>
             </div>
           </div>
@@ -1265,7 +1274,7 @@ function SignatureCanvasModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
-            <h2 className="text-base font-700 text-foreground">Crear Firma Autógrafa</h2>
+            <h2 className="text-base font-600 text-foreground">Crear Firma Autógrafa</h2>
             <p className="text-xs text-muted-foreground">Traza tu firma en el área de abajo</p>
           </div>
           <button
@@ -1373,7 +1382,7 @@ function TotpBadge() {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function MiPerfilPage() {
-  const { user } = useAuth();
+  const { user, refreshUserProfile } = useAuth();
   const { workspaces, activeWorkspace, setActiveWorkspace, refreshWorkspaces } = useWorkspace();
   const [activeSection, setActiveSection] = useState('informacion-personal');
   const [deletionHistory, setDeletionHistory] = useState<DeletionHistoryEntry[]>([]);
@@ -1420,7 +1429,17 @@ export default function MiPerfilPage() {
   // Avatar upload state
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [avatarRemovalPending, setAvatarRemovalPending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const originalAvatarUrlRef = useRef('');
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+    };
+  }, [avatarPreviewUrl]);
 
   // Copomex state
   const [cpLoading, setCpLoading] = useState(false);
@@ -1560,9 +1579,15 @@ export default function MiPerfilPage() {
   } | null>(null);
   const [showEfirmaModal, setShowEfirmaModal] = useState(false);
   const [efirmaUnlinking, setEfirmaUnlinking] = useState(false);
-  const [efirmaStampStyle, setEfirmaStampStyle] = useState<string>('EC1');
-  const [autografaStampStyle, setAutografaStampStyle] = useState<string>('AC0');
-  const [clickSignStampStyle, setClickSignStampStyle] = useState<string>('CC1');
+  const [efirmaStampStyle, setEfirmaStampStyle] = useState<string>(
+    DEFAULT_SIGNATURE_STAMP_STYLES.efirma
+  );
+  const [autografaStampStyle, setAutografaStampStyle] = useState<string>(
+    DEFAULT_SIGNATURE_STAMP_STYLES.autografa
+  );
+  const [clickSignStampStyle, setClickSignStampStyle] = useState<string>(
+    DEFAULT_SIGNATURE_STAMP_STYLES.clicksign
+  );
   const [firmasTab, setFirmasTab] = useState<'autografa' | 'efirma' | 'clicksign'>('autografa');
 
   // Load profile from Supabase on mount
@@ -1575,6 +1600,11 @@ export default function MiPerfilPage() {
         .select('*')
         .eq('id', user.id)
         .single();
+      const { data: encryptedEfirmaKey } = await supabase
+        .from('encrypted_efirma_keys')
+        .select('user_id,certificate_subject')
+        .eq('user_id', user.id)
+        .maybeSingle();
       if (data) {
         const tipoPersona =
           data.personalidad_juridica === 'moral'
@@ -1605,6 +1635,7 @@ export default function MiPerfilPage() {
           numInterior: data.num_interior || '',
           avatarUrl: data.avatar_url || '',
         });
+        originalAvatarUrlRef.current = data.avatar_url || '';
         // Track original RFC to know if it was pre-filled
         setRfcOriginal(data.rfc || '');
         if (data.rfc) setRfcValidated(true);
@@ -1618,12 +1649,19 @@ export default function MiPerfilPage() {
         }
 
         // Load e.firma data
-        if (data.efirma_serial) {
+        if (data.efirma_serial && encryptedEfirmaKey) {
+          const profileHolderName = [data.nombre, data.apellido_paterno, data.apellido_materno]
+            .filter(Boolean)
+            .join(' ');
           setEfirmaLinked(true);
           setEfirmaData({
             rfc: data.efirma_rfc || null,
             serial: data.efirma_serial || null,
-            nombre: data.efirma_nombre || null,
+            nombre:
+              normalizeEfirmaHolderName(
+                data.efirma_nombre || encryptedEfirmaKey.certificate_subject,
+                profileHolderName
+              ) || null,
             vigenciaFin: data.efirma_vigencia_fin || null,
             linkedAt: data.efirma_linked_at || null,
           });
@@ -2469,59 +2507,63 @@ export default function MiPerfilPage() {
   const nombreCompleto = [profile.nombre, profile.apellidoPaterno, profile.apellidoMaterno]
     .filter(Boolean)
     .join(' ');
+  const displayedAvatarUrl = avatarRemovalPending ? '' : avatarPreviewUrl || profile.avatarUrl;
 
   // ─── Avatar Upload ────────────────────────────────────────────────────────
 
   const handleAvatarClick = () => {
+    if (!isEditingProfile) return;
     fileInputRef.current?.click();
   };
 
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file || !user || !isEditingProfile) return;
     if (!['image/png', 'image/jpeg', 'image/jpg', 'image/webp'].includes(file.type)) {
       setAvatarError('Solo se permiten imágenes PNG, JPG o WebP');
+      e.target.value = '';
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
       setAvatarError('La imagen no debe superar 2MB');
+      e.target.value = '';
       return;
     }
-    setAvatarUploading(true);
     setAvatarError('');
-    try {
-      const supabase = createClient();
-      const ext = file.name.split('.').pop();
-      const filePath = `avatars/${user.id}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file, { upsert: true, contentType: file.type });
-      if (uploadError) {
-        const reader = new FileReader();
-        reader.onload = async (ev) => {
-          const dataUrl = ev.target?.result as string;
-          setProfile((prev) => ({ ...prev, avatarUrl: dataUrl }));
-          await supabase
-            .from('user_profiles')
-            .update({ avatar_url: dataUrl, updated_at: new Date().toISOString() })
-            .eq('id', user.id);
-        };
-        reader.readAsDataURL(file);
-        return;
-      }
-      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      const publicUrl = urlData?.publicUrl || '';
-      setProfile((prev) => ({ ...prev, avatarUrl: publicUrl }));
-      await supabase
-        .from('user_profiles')
-        .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
-        .eq('id', user.id);
-    } catch {
-      setAvatarError('Error al subir la imagen');
-    } finally {
-      setAvatarUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+    setAvatarFile(file);
+    setAvatarPreviewUrl(URL.createObjectURL(file));
+    setAvatarRemovalPending(false);
+    e.target.value = '';
+  };
+
+  const handleRemoveAvatar = () => {
+    if (!isEditingProfile) return;
+    setAvatarFile(null);
+    setAvatarPreviewUrl(null);
+    setAvatarRemovalPending(true);
+    setAvatarError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleUndoRemoveAvatar = () => {
+    setAvatarRemovalPending(false);
+    setAvatarError('');
+  };
+
+  const resetPendingAvatar = () => {
+    setAvatarFile(null);
+    setAvatarPreviewUrl(null);
+    setAvatarRemovalPending(false);
+    setAvatarError('');
+    setProfile((current) => ({ ...current, avatarUrl: originalAvatarUrlRef.current }));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const cancelProfileEditing = () => {
+    resetPendingAvatar();
+    setIsEditingProfile(false);
+    setRfcError('');
+    setSaveError('');
   };
 
   // ─── Save ─────────────────────────────────────────────────────────────────
@@ -2534,10 +2576,41 @@ export default function MiPerfilPage() {
       return;
     }
     setSaving(true);
+    setAvatarUploading(Boolean(avatarFile || avatarRemovalPending));
     setSaveError('');
+    setAvatarError('');
     setSavedOk(false);
     try {
       const supabase = createClient();
+      let avatarUrlToPersist = profile.avatarUrl;
+      let uploadedAvatarPath: string | null = null;
+
+      if (avatarRemovalPending) {
+        avatarUrlToPersist = '';
+      } else if (avatarFile) {
+        const extensionByType: Record<string, string> = {
+          'image/jpeg': 'jpg',
+          'image/jpg': 'jpg',
+          'image/png': 'png',
+          'image/webp': 'webp',
+        };
+        const extension = extensionByType[avatarFile.type];
+        if (!extension) throw new Error('Formato de imagen no compatible');
+
+        uploadedAvatarPath = `avatars/${user.id}.${extension}`;
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(uploadedAvatarPath, avatarFile, {
+            upsert: true,
+            contentType: avatarFile.type,
+          });
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(uploadedAvatarPath);
+        if (!urlData?.publicUrl) throw new Error('No se pudo obtener la URL pública de la foto');
+        avatarUrlToPersist = `${urlData.publicUrl}?v=${Date.now()}`;
+      }
+
       const { error } = await supabase.from('user_profiles').upsert({
         id: user.id,
         nombre: profile.nombre,
@@ -2558,17 +2631,40 @@ export default function MiPerfilPage() {
         calle: profile.calle,
         num_exterior: profile.numExterior,
         num_interior: profile.numInterior,
+        avatar_url: avatarUrlToPersist || null,
         updated_at: new Date().toISOString(),
       });
       if (error) throw error;
+
+      if (avatarFile || avatarRemovalPending) {
+        const storedAvatarPaths = ['png', 'jpg', 'jpeg', 'webp']
+          .map((extension) => `avatars/${user.id}.${extension}`)
+          .filter((path) => path !== uploadedAvatarPath);
+        await supabase.storage.from('avatars').remove(storedAvatarPaths);
+        await supabase.auth.updateUser({
+          data: { ...user.user_metadata, avatar_url: avatarUrlToPersist || null },
+        });
+      }
+
+      setProfile((current) => ({ ...current, avatarUrl: avatarUrlToPersist }));
+      originalAvatarUrlRef.current = avatarUrlToPersist;
+      setAvatarFile(null);
+      setAvatarPreviewUrl(null);
+      setAvatarRemovalPending(false);
+      await refreshUserProfile?.();
       setSavedOk(true);
       setIsEditingProfile(false);
       setRfcOriginal(profile.rfc);
       setTimeout(() => setSavedOk(false), 3000);
-    } catch (err: any) {
-      setSaveError(err?.message || 'Error al guardar');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Error al guardar';
+      setSaveError(message);
+      if (avatarFile || avatarRemovalPending) {
+        setAvatarError('No se pudo guardar la foto. Intenta nuevamente.');
+      }
     } finally {
       setSaving(false);
+      setAvatarUploading(false);
     }
   };
 
@@ -2619,9 +2715,22 @@ export default function MiPerfilPage() {
   const handleSaveEfirma = async (result: EfirmaValidationResult) => {
     if (!user) throw new Error('Usuario no autenticado');
     const supabase = createClient();
-    const nombreCompleto = [result.nombre, result.apellidoPaterno, result.apellidoMaterno]
+    const validatedName = [result.nombre, result.apellidoPaterno, result.apellidoMaterno]
       .filter(Boolean)
       .join(' ');
+    const profileName = [profile.nombre, profile.apellidoPaterno, profile.apellidoMaterno]
+      .filter(Boolean)
+      .join(' ');
+    const nombreCompleto = normalizeEfirmaHolderName(
+      validatedName || result.certificateSubject,
+      profileName || result.rfc
+    );
+    await saveStoredEfirmaKey(supabase, user.id, result.vaultMaterial, {
+      serial: result.serial,
+      rfc: result.rfc,
+      subject: result.certificateSubject,
+      notAfter: result.vigenciaFin,
+    });
     const { error } = await supabase
       .from('user_profiles')
       .update({
@@ -2633,7 +2742,10 @@ export default function MiPerfilPage() {
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id);
-    if (error) throw error;
+    if (error) {
+      await deleteStoredEfirmaKey(supabase, user.id).catch(() => {});
+      throw error;
+    }
     setEfirmaLinked(true);
     setEfirmaData({
       rfc: result.rfc,
@@ -2649,6 +2761,7 @@ export default function MiPerfilPage() {
     setEfirmaUnlinking(true);
     try {
       const supabase = createClient();
+      await deleteStoredEfirmaKey(supabase, user.id);
       await supabase
         .from('user_profiles')
         .update({
@@ -3292,6 +3405,8 @@ export default function MiPerfilPage() {
                 setIsEditingProfile(true);
                 setSaveError('');
                 setSavedOk(false);
+                setAvatarError('');
+                originalAvatarUrlRef.current = profile.avatarUrl;
               }}
               className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90"
             >
@@ -3301,11 +3416,7 @@ export default function MiPerfilPage() {
           ) : (
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
-                onClick={() => {
-                  setIsEditingProfile(false);
-                  setRfcError('');
-                  setSaveError('');
-                }}
+                onClick={cancelProfileEditing}
                 className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-500 text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
               >
                 <X size={14} />
@@ -3313,7 +3424,9 @@ export default function MiPerfilPage() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || (!rfcOriginal && !!profile.rfc && !rfcValidated)}
+                disabled={
+                  saving || avatarUploading || (!rfcOriginal && !!profile.rfc && !rfcValidated)
+                }
                 className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
               >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
@@ -3325,45 +3438,89 @@ export default function MiPerfilPage() {
       />
       <div className="flex items-center gap-4">
         <div className="relative flex-shrink-0">
-          {profile.avatarUrl ? (
+          {displayedAvatarUrl ? (
             <img
-              src={profile.avatarUrl}
+              src={displayedAvatarUrl}
               alt="Foto de perfil"
               className="w-16 h-16 rounded-full object-cover shadow border border-border"
             />
           ) : (
             <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center shadow">
-              <span className="text-white text-xl font-700">
+              <span className="text-white text-xl font-600">
                 {(profile.nombre.charAt(0) || user?.email?.charAt(0) || '?').toUpperCase()}
               </span>
             </div>
           )}
-          <button
-            onClick={handleAvatarClick}
-            disabled={avatarUploading}
-            className="absolute -bottom-1 -right-1 w-6 h-6 flex items-center justify-center rounded-full bg-white border border-border shadow-sm hover:bg-gray-100 transition-colors"
-          >
-            {avatarUploading ? (
-              <Loader2 size={10} className="text-primary animate-spin" />
-            ) : (
-              <Camera size={11} className="text-muted-foreground" />
-            )}
-          </button>
+          {isEditingProfile && (
+            <button
+              type="button"
+              onClick={handleAvatarClick}
+              disabled={avatarUploading}
+              aria-label={displayedAvatarUrl ? 'Cambiar foto de perfil' : 'Subir foto de perfil'}
+              className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-white shadow-sm transition-colors hover:bg-gray-100 disabled:opacity-60"
+            >
+              {avatarUploading ? (
+                <Loader2 size={10} className="animate-spin text-primary" />
+              ) : (
+                <Camera size={11} className="text-muted-foreground" />
+              )}
+            </button>
+          )}
         </div>
         <div>
-          <button
-            onClick={handleAvatarClick}
-            disabled={avatarUploading}
-            className="flex items-center gap-1.5 text-sm text-primary font-600 hover:underline disabled:opacity-60"
-          >
-            {avatarUploading ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Camera size={14} />
-            )}
-            {avatarUploading ? 'Subiendo...' : 'Subir foto'}
-          </button>
-          <p className="text-xs text-muted-foreground mt-0.5">PNG, JPG o WebP, no mayor a 2MB.</p>
+          {isEditingProfile ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <button
+                type="button"
+                onClick={handleAvatarClick}
+                disabled={avatarUploading}
+                className="flex items-center gap-1.5 text-sm font-600 text-primary hover:underline disabled:opacity-60"
+              >
+                {avatarUploading ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Camera size={14} />
+                )}
+                {avatarUploading
+                  ? 'Guardando foto...'
+                  : displayedAvatarUrl
+                    ? 'Cambiar foto'
+                    : 'Subir foto'}
+              </button>
+              {displayedAvatarUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemoveAvatar}
+                  disabled={avatarUploading}
+                  className="flex items-center gap-1.5 text-sm font-500 text-red-600 hover:underline disabled:opacity-60"
+                >
+                  <Trash2 size={14} />
+                  Eliminar foto
+                </button>
+              )}
+              {avatarRemovalPending && profile.avatarUrl && (
+                <button
+                  type="button"
+                  onClick={handleUndoRemoveAvatar}
+                  className="flex items-center gap-1.5 text-sm font-500 text-slate-600 hover:underline"
+                >
+                  <RotateCcw size={14} />
+                  Deshacer
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm font-500 text-foreground">
+              {displayedAvatarUrl ? 'Foto de perfil' : 'Sin foto de perfil'}
+            </p>
+          )}
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {avatarRemovalPending
+              ? 'La foto se eliminará al guardar los cambios.'
+              : isEditingProfile
+                ? 'PNG, JPG o WebP, no mayor a 2MB. Se guardará con tu perfil.'
+                : 'Puedes cambiarla al actualizar tu perfil.'}
+          </p>
           {avatarError && (
             <p className="text-xs text-red-500 mt-0.5 flex items-center gap-1">
               <AlertCircle size={11} />
@@ -3381,7 +3538,7 @@ export default function MiPerfilPage() {
       </div>
 
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
-        <h3 className="text-sm font-700 text-primary flex items-center gap-2">
+        <h3 className="text-sm font-600 text-primary flex items-center gap-2">
           <User size={15} />
           Datos de Identidad
         </h3>
@@ -3495,7 +3652,7 @@ export default function MiPerfilPage() {
         className={`bg-white border rounded-xl p-5 flex flex-col gap-4 transition-all ${isEditingProfile ? 'border-primary/40 ring-1 ring-primary/20' : 'border-border'}`}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-700 text-primary flex items-center gap-2">
+          <h3 className="text-sm font-600 text-primary flex items-center gap-2">
             <FileText size={15} />
             Datos Fiscales
           </h3>
@@ -3606,7 +3763,7 @@ export default function MiPerfilPage() {
         className={`bg-white border rounded-xl p-5 flex flex-col gap-4 transition-all ${isEditingProfile ? 'border-primary/40 ring-1 ring-primary/20' : 'border-border'}`}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-700 text-primary flex items-center gap-2">
+          <h3 className="text-sm font-600 text-primary flex items-center gap-2">
             <MapPin size={15} />
             Domicilio Fiscal
           </h3>
@@ -3818,18 +3975,14 @@ export default function MiPerfilPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={handleSave}
-            disabled={saving || (!rfcOriginal && !!profile.rfc && !rfcValidated)}
+            disabled={saving || avatarUploading || (!rfcOriginal && !!profile.rfc && !rfcValidated)}
             className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-600 hover:bg-primary/90 transition-colors disabled:opacity-60"
           >
             {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
             Guardar Cambios
           </button>
           <button
-            onClick={() => {
-              setIsEditingProfile(false);
-              setRfcError('');
-              setSaveError('');
-            }}
+            onClick={cancelProfileEditing}
             className="flex items-center gap-2 px-4 py-2.5 border border-border text-foreground rounded-lg text-sm font-500 hover:bg-gray-50 transition-colors"
           >
             <X size={14} />
@@ -3893,7 +4046,7 @@ export default function MiPerfilPage() {
             <UserPlus size={15} />
             Unirse a Espacio de Trabajo
             {wsInvitations.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 bg-primary text-white text-[10px] font-700 rounded-full">
+              <span className="ml-1 px-1.5 py-0.5 bg-primary text-white text-[10px] font-600 rounded-full">
                 {wsInvitations.length}
               </span>
             )}
@@ -3905,7 +4058,7 @@ export default function MiPerfilPage() {
           <>
             {/* Workspace selector */}
             <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
-              <h3 className="text-sm font-700 text-primary flex items-center gap-2">
+              <h3 className="text-sm font-600 text-primary flex items-center gap-2">
                 <Building2 size={15} />
                 Mis Espacios de Trabajo
               </h3>
@@ -3982,7 +4135,7 @@ export default function MiPerfilPage() {
                       <Building2 size={15} className="text-primary" />
                     </div>
                     <div>
-                      <h3 className="text-sm font-700 text-primary flex items-center gap-2">
+                      <h3 className="text-sm font-600 text-primary flex items-center gap-2">
                         <Activity size={15} />
                         Estadísticas del Espacio
                         {currentWs && (
@@ -4005,7 +4158,7 @@ export default function MiPerfilPage() {
                       <FileText size={16} />
                       <span className="text-xs font-600 uppercase tracking-wide">Documentos</span>
                     </div>
-                    <span className="text-2xl font-700 text-blue-700">{totalDocumentos}</span>
+                    <span className="text-2xl font-600 text-blue-700">{totalDocumentos}</span>
                     <span className="text-xs text-blue-500">Total en el espacio</span>
                   </div>
                   <div className="flex flex-col gap-1 bg-green-50 border border-green-100 rounded-xl p-4">
@@ -4013,7 +4166,7 @@ export default function MiPerfilPage() {
                       <CheckCircle size={16} />
                       <span className="text-xs font-600 uppercase tracking-wide">Completados</span>
                     </div>
-                    <span className="text-2xl font-700 text-green-700">{completados}</span>
+                    <span className="text-2xl font-600 text-green-700">{completados}</span>
                     <span className="text-xs text-green-500">Documentos finalizados</span>
                   </div>
                   <div className="flex flex-col gap-1 bg-yellow-50 border border-yellow-100 rounded-xl p-4">
@@ -4021,7 +4174,7 @@ export default function MiPerfilPage() {
                       <Clock size={16} />
                       <span className="text-xs font-600 uppercase tracking-wide">En progreso</span>
                     </div>
-                    <span className="text-2xl font-700 text-yellow-700">{enProceso}</span>
+                    <span className="text-2xl font-600 text-yellow-700">{enProceso}</span>
                     <span className="text-xs text-yellow-500">Pendientes de firma</span>
                   </div>
                   <div className="flex flex-col gap-1 bg-red-50 border border-red-100 rounded-xl p-4">
@@ -4029,7 +4182,7 @@ export default function MiPerfilPage() {
                       <AlertCircle size={16} />
                       <span className="text-xs font-600 uppercase tracking-wide">Vencidos</span>
                     </div>
-                    <span className="text-2xl font-700 text-red-600">{vencidos}</span>
+                    <span className="text-2xl font-600 text-red-600">{vencidos}</span>
                     <span className="text-xs text-red-400">Plazo expirado</span>
                   </div>
                   <div className="flex flex-col gap-1 bg-orange-50 border border-orange-100 rounded-xl p-4">
@@ -4037,7 +4190,7 @@ export default function MiPerfilPage() {
                       <X size={16} />
                       <span className="text-xs font-600 uppercase tracking-wide">Rechazados</span>
                     </div>
-                    <span className="text-2xl font-700 text-orange-600">{rechazados}</span>
+                    <span className="text-2xl font-600 text-orange-600">{rechazados}</span>
                     <span className="text-xs text-orange-400">No aceptados</span>
                   </div>
                   <div className="flex flex-col gap-1 bg-gray-50 border border-gray-200 rounded-xl p-4">
@@ -4045,7 +4198,7 @@ export default function MiPerfilPage() {
                       <Edit3 size={16} />
                       <span className="text-xs font-600 uppercase tracking-wide">Borradores</span>
                     </div>
-                    <span className="text-2xl font-700 text-gray-700">{borradores}</span>
+                    <span className="text-2xl font-600 text-gray-700">{borradores}</span>
                     <span className="text-xs text-gray-400">En edición</span>
                   </div>
                 </div>
@@ -4055,7 +4208,7 @@ export default function MiPerfilPage() {
             {/* Shared with users section */}
             {currentWsId && (
               <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-3">
-                <h3 className="text-sm font-700 text-primary flex items-center gap-2">
+                <h3 className="text-sm font-600 text-primary flex items-center gap-2">
                   <UserPlus size={15} />
                   Compartido con
                   {membersLoading && (
@@ -4084,7 +4237,7 @@ export default function MiPerfilPage() {
                               className="w-full h-full object-cover"
                             />
                           ) : (
-                            <span className="text-primary text-xs font-700">
+                            <span className="text-primary text-xs font-600">
                               {(member.nombre || member.email || '?').charAt(0).toUpperCase()}
                             </span>
                           )}
@@ -4123,7 +4276,7 @@ export default function MiPerfilPage() {
             {/* Join by code */}
             <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
               <div>
-                <h3 className="text-sm font-700 text-primary flex items-center gap-2">
+                <h3 className="text-sm font-600 text-primary flex items-center gap-2">
                   <UserPlus size={15} />
                   Unirse a Espacio de Trabajo
                 </h3>
@@ -4171,7 +4324,7 @@ export default function MiPerfilPage() {
             <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-700 text-primary flex items-center gap-2">
+                  <h3 className="text-sm font-600 text-primary flex items-center gap-2">
                     <Mail size={15} />
                     Invitaciones Recibidas
                     {wsInvitationsLoading && (
@@ -4344,7 +4497,7 @@ export default function MiPerfilPage() {
         <div className="bg-white border border-border rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <p className="text-sm font-700 text-foreground">Progreso de verificación</p>
+              <p className="text-sm font-600 text-foreground">Progreso de verificación</p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {steps} de 2 verificaciones completadas
               </p>
@@ -4388,7 +4541,7 @@ export default function MiPerfilPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-700 text-foreground">{item.label}</p>
+                    <p className="text-sm font-600 text-foreground">{item.label}</p>
                     {item.verified ? (
                       <span
                         className={`flex items-center gap-1 text-xs font-600 px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}
@@ -4472,7 +4625,7 @@ export default function MiPerfilPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-700 text-foreground">Tóken Móvil (TOTP)</p>
+                <p className="text-sm font-600 text-foreground">Tóken Móvil (TOTP)</p>
                 {totpLoading ? (
                   <Loader2 size={12} className="animate-spin text-muted-foreground" />
                 ) : totpEnabled ? (
@@ -4537,7 +4690,7 @@ export default function MiPerfilPage() {
               <div className="flex items-center justify-between px-4 py-3 bg-indigo-50/40">
                 <div className="flex items-center gap-2">
                   <Smartphone size={14} className="text-indigo-600" />
-                  <span className="text-xs font-700 text-foreground">Dispositivos emparejados</span>
+                  <span className="text-xs font-600 text-foreground">Dispositivos emparejados</span>
                   <span className="text-xs font-600 px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
                     1
                   </span>
@@ -4591,7 +4744,7 @@ export default function MiPerfilPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-700 text-foreground">
+                <p className="text-sm font-600 text-foreground">
                   Dispositivos Biométricos (WebAuthn)
                 </p>
                 <span className="flex items-center gap-1 text-xs font-600 px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">
@@ -4618,7 +4771,7 @@ export default function MiPerfilPage() {
             <div className="flex items-center justify-between px-4 py-3 bg-violet-50/40">
               <div className="flex items-center gap-2">
                 <MonitorSmartphone size={14} className="text-violet-600" />
-                <span className="text-xs font-700 text-foreground">Dispositivos registrados</span>
+                <span className="text-xs font-600 text-foreground">Dispositivos registrados</span>
                 {webAuthnDevices.length > 0 && (
                   <span className="text-xs font-600 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">
                     {webAuthnDevices.length}
@@ -4696,7 +4849,7 @@ export default function MiPerfilPage() {
                         {categoryIcon}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-700 text-foreground truncate">
+                        <p className="text-xs font-600 text-foreground truncate">
                           {device.device_name}
                         </p>
                         <div className="flex items-center gap-2 flex-wrap mt-0.5">
@@ -5018,7 +5171,7 @@ export default function MiPerfilPage() {
           <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-sm font-700 text-foreground">Firma Autógrafa Digital</h3>
+                <h3 className="text-sm font-600 text-foreground">Firma Autógrafa Digital</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Esta firma se usará cuando elijas el método de{' '}
                   <span className="text-primary">firma autógrafa</span>.
@@ -5180,7 +5333,7 @@ export default function MiPerfilPage() {
         {firmasTab === 'efirma' && (
           <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
             <div>
-              <h3 className="text-sm font-700 text-foreground">e.Firma (SAT)</h3>
+              <h3 className="text-sm font-600 text-foreground">e.Firma (SAT)</h3>
             </div>
 
             {efirmaLinked && efirmaData ? (
@@ -5193,10 +5346,10 @@ export default function MiPerfilPage() {
                         <ShieldCheck size={18} className="text-emerald-600" />
                       </div>
                       <div>
-                        <p className="text-sm font-700 text-foreground">e.Firma (SAT) vinculada</p>
+                        <p className="text-sm font-600 text-foreground">e.firma cifrada guardada</p>
                         <span className="flex items-center gap-1 text-xs font-600 text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full w-fit mt-0.5">
                           <CheckCircle size={10} />
-                          Vinculada
+                          Protegida
                         </span>
                       </div>
                     </div>
@@ -5210,7 +5363,7 @@ export default function MiPerfilPage() {
                       ) : (
                         <Trash2 size={12} />
                       )}
-                      Desvincular
+                      Eliminar e.firma guardada
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-2 pt-1 border-t border-emerald-200">
@@ -5261,7 +5414,7 @@ export default function MiPerfilPage() {
                   className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-600 hover:bg-primary/90 transition-colors"
                 >
                   <RefreshCw size={15} />
-                  Actualizar e.Firma
+                  Cargar de nuevo mi e.firma
                 </button>
 
                 {/* Stamp Selector */}
@@ -5270,6 +5423,7 @@ export default function MiPerfilPage() {
                     efirmaData={{
                       rfc: efirmaData.rfc,
                       nombre: efirmaData.nombre,
+                      numeroSerie: efirmaData.serial,
                       vigenciaFin: efirmaData.vigenciaFin,
                     }}
                     currentStampStyle={efirmaStampStyle}
@@ -5282,23 +5436,28 @@ export default function MiPerfilPage() {
                 <div className="w-12 h-12 rounded-full border-2 border-gray-300 flex items-center justify-center">
                   <X size={20} className="text-gray-400" />
                 </div>
-                <p className="text-sm font-700 text-foreground">Sin e.Firma (SAT) vinculada</p>
+                <p className="text-sm font-600 text-foreground">Sin e.firma guardada</p>
                 <p className="text-xs text-muted-foreground text-center max-w-xs">
-                  <span className="text-primary">Vincula tu e.Firma</span> para firmar documentos
-                  con la <span className="text-primary">máxima validez legal</span>.
+                  Guarda una copia cifrada de tu llave para firmar después ingresando únicamente su
+                  contraseña.
                 </p>
                 <button
                   onClick={() => setShowEfirmaModal(true)}
                   className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-600 hover:bg-primary/90 transition-colors"
                 >
                   <Link2 size={15} />
-                  Vincular e.Firma
+                  Guardar mi e.firma
                 </button>
 
                 {/* Stamp Selector even when not linked */}
                 <div className="w-full border-t border-border pt-4 mt-2">
                   <EfirmaStampSelector
-                    efirmaData={{ rfc: null, nombre: null, vigenciaFin: null }}
+                    efirmaData={{
+                      rfc: null,
+                      nombre: null,
+                      numeroSerie: null,
+                      vigenciaFin: null,
+                    }}
                     currentStampStyle={efirmaStampStyle}
                     onSave={handleSaveEfirmaStamp}
                   />
@@ -5309,9 +5468,8 @@ export default function MiPerfilPage() {
             <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
               <ShieldCheck size={15} className="text-blue-600 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-blue-700">
-                La e.Firma es emitida por el SAT y tiene la misma validez legal que una firma
-                autógrafa. Requiere tu archivo <strong>.cer</strong>, <strong>.key</strong> y
-                contraseña de clave privada.
+                Tu llave se cifra en este dispositivo antes de enviarse. Docubox almacena el bloque
+                cifrado y el certificado público; la contraseña nunca se guarda.
               </p>
             </div>
           </div>
@@ -5321,7 +5479,7 @@ export default function MiPerfilPage() {
         {firmasTab === 'clicksign' && (
           <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
             <div>
-              <h3 className="text-sm font-700 text-foreground">Click &amp; Sign</h3>
+              <h3 className="text-sm font-600 text-foreground">Click &amp; Sign</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Firma electrónica simple mediante{' '}
                 <span className="text-primary">clic confirmado</span> y código OTP de un solo uso.
@@ -5484,7 +5642,7 @@ export default function MiPerfilPage() {
               <KeyRound size={15} className="text-primary" />
             </div>
             <div>
-              <h3 className="text-sm font-700 text-foreground">Contraseña</h3>
+              <h3 className="text-sm font-600 text-foreground">Contraseña</h3>
               <p className="text-xs text-muted-foreground">Gestiona tu contraseña de acceso</p>
             </div>
           </div>
@@ -5633,7 +5791,7 @@ export default function MiPerfilPage() {
                 <MonitorSmartphone size={15} className="text-primary" />
               </div>
               <div>
-                <h3 className="text-sm font-700 text-foreground">Sesiones Activas</h3>
+                <h3 className="text-sm font-600 text-foreground">Sesiones Activas</h3>
                 <p className="text-xs text-muted-foreground">Dispositivos con sesión iniciada</p>
               </div>
             </div>
@@ -5691,7 +5849,7 @@ export default function MiPerfilPage() {
                 <Activity size={15} className="text-primary" />
               </div>
               <div>
-                <h3 className="text-sm font-700 text-foreground">Actividad de Acceso</h3>
+                <h3 className="text-sm font-600 text-foreground">Actividad de Acceso</h3>
                 <p className="text-xs text-muted-foreground">Historial de sesiones registradas</p>
               </div>
             </div>
@@ -6067,7 +6225,7 @@ export default function MiPerfilPage() {
                   <Shield size={15} className="text-primary" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-700 text-foreground">Eventos de Seguridad</h3>
+                  <h3 className="text-sm font-600 text-foreground">Eventos de Seguridad</h3>
                   <p className="text-xs text-muted-foreground">
                     Registro completo de eventos de seguridad de la cuenta
                   </p>
@@ -6403,10 +6561,12 @@ export default function MiPerfilPage() {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-slate-200 bg-blue-50/60 px-4 py-3 text-xs text-slate-600">
           <span>Incluye tu cuenta y los espacios donde eres propietario o administrador.</span>
           <span>
-            <strong className="font-700 text-slate-800">{records.length}</strong> eliminaciones permanentes
+            <strong className="font-600 text-slate-800">{records.length}</strong> eliminaciones
+            permanentes
           </span>
           <span>
-            <strong className="font-700 text-slate-800">{recordsWithDetail}</strong> registros con detalle disponible
+            <strong className="font-600 text-slate-800">{recordsWithDetail}</strong> registros con
+            detalle disponible
           </span>
         </div>
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -6476,8 +6636,12 @@ export default function MiPerfilPage() {
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-600">
                         <div className="space-y-1">
-                          {entry.document_created_at && <p>Creado: {formatHistoryDate(entry.document_created_at)}</p>}
-                          {entry.document_trashed_at && <p>En Papelera: {formatHistoryDate(entry.document_trashed_at)}</p>}
+                          {entry.document_created_at && (
+                            <p>Creado: {formatHistoryDate(entry.document_created_at)}</p>
+                          )}
+                          {entry.document_trashed_at && (
+                            <p>En Papelera: {formatHistoryDate(entry.document_trashed_at)}</p>
+                          )}
                           {!entry.document_created_at && !entry.document_trashed_at && (
                             <p className="text-slate-400">Sin cronología previa disponible</p>
                           )}
@@ -6504,7 +6668,11 @@ export default function MiPerfilPage() {
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-600">
                         <p>Registrada: {formatHistoryDate(entry.requested_at)}</p>
-                        {entry.completed_at && <p className="mt-1">Finalizada: {formatHistoryDate(entry.completed_at)}</p>}
+                        {entry.completed_at && (
+                          <p className="mt-1">
+                            Finalizada: {formatHistoryDate(entry.completed_at)}
+                          </p>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -6526,9 +6694,7 @@ export default function MiPerfilPage() {
                 <select
                   value={deletionHistoryPageSize}
                   onChange={(event) => {
-                    setDeletionHistoryPageSize(
-                      Number(event.target.value) as 15 | 30 | 50 | 100
-                    );
+                    setDeletionHistoryPageSize(Number(event.target.value) as 15 | 30 | 50 | 100);
                     setDeletionHistoryPage(1);
                   }}
                   className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-600 text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
@@ -6617,7 +6783,7 @@ export default function MiPerfilPage() {
         {/* Documentos solicitados */}
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-700 text-foreground">Documentos solicitados</h3>
+            <h3 className="text-sm font-600 text-foreground">Documentos solicitados</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
               Documentos que un workspace ha solicitado y aún no has subido
             </p>
@@ -6639,7 +6805,7 @@ export default function MiPerfilPage() {
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-700 text-foreground">Documentos de mi expediente</h3>
+              <h3 className="text-sm font-600 text-foreground">Documentos de mi expediente</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Catálogo de documentos de identidad y respaldo
               </p>
@@ -6717,7 +6883,7 @@ export default function MiPerfilPage() {
         {/* Compartidos activos */}
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-700 text-foreground">Compartidos activos</h3>
+            <h3 className="text-sm font-600 text-foreground">Compartidos activos</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
               Documentos actualmente compartidos con workspaces
             </p>
@@ -6735,7 +6901,7 @@ export default function MiPerfilPage() {
         {/* Historial de accesos */}
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-700 text-foreground">
+            <h3 className="text-sm font-600 text-foreground">
               Historial de accesos y consentimiento
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
@@ -6780,7 +6946,7 @@ export default function MiPerfilPage() {
         {/* Alcance de visibilidad */}
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-700 text-foreground">
+            <h3 className="text-sm font-600 text-foreground">
               Alcance de visibilidad de mi perfil
             </h3>
           </div>
@@ -6825,7 +6991,7 @@ export default function MiPerfilPage() {
         {/* Visibilidad por campo */}
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-700 text-foreground">Visibilidad por campo</h3>
+            <h3 className="text-sm font-600 text-foreground">Visibilidad por campo</h3>
           </div>
           <div className="divide-y divide-border">
             {[
@@ -6872,7 +7038,7 @@ export default function MiPerfilPage() {
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-700 text-foreground">Solicitudes de acceso</h3>
+              <h3 className="text-sm font-600 text-foreground">Solicitudes de acceso</h3>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">Requerir aprobación</span>
                 <button className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors bg-gray-200 focus:outline-none">
@@ -6896,7 +7062,7 @@ export default function MiPerfilPage() {
         {/* Quién ha visto tu perfil */}
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-700 text-foreground">Quién ha visto tu perfil</h3>
+            <h3 className="text-sm font-600 text-foreground">Quién ha visto tu perfil</h3>
           </div>
           <div className="p-8 flex flex-col items-center gap-3 text-center">
             <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
@@ -6910,7 +7076,7 @@ export default function MiPerfilPage() {
         {/* Usuarios bloqueados */}
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-700 text-foreground">Usuarios bloqueados</h3>
+            <h3 className="text-sm font-600 text-foreground">Usuarios bloqueados</h3>
           </div>
           <div className="p-8 flex flex-col items-center gap-3 text-center">
             <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
@@ -6929,28 +7095,37 @@ export default function MiPerfilPage() {
         <div className="flex min-h-[calc(100vh-104px)] w-full flex-col md:flex-row">
           {/* Internal profile navigation */}
           <aside className="flex w-full flex-shrink-0 flex-col border-b border-slate-200 bg-white md:w-60 md:border-b-0 md:border-r 2xl:w-64 dark:border-slate-700 dark:bg-slate-900">
-            <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:overflow-x-visible md:p-3">
-              {sidebarItems.map((item) => {
-                const isActive = activeSection === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setActiveSection(item.id)}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={`flex h-10 flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-left text-sm transition-colors md:w-full ${
-                      isActive
-                        ? 'bg-blue-50 font-600 text-primary dark:bg-blue-950/50 dark:text-blue-300'
-                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
-                    }`}
-                  >
-                    <item.icon
-                      size={16}
-                      className={`flex-shrink-0 ${isActive ? 'text-primary dark:text-blue-300' : 'text-slate-400 dark:text-slate-500'}`}
-                    />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
+            <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:gap-0.5 md:overflow-x-visible md:px-2.5 md:pb-3 md:pt-3">
+              {sidebarSections.map((section, sectionIndex) => (
+                <div key={section.label} className="contents md:block">
+                  <div className={`mb-1 hidden px-2 md:block ${sectionIndex > 0 ? 'md:mt-3' : ''}`}>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                      {section.label}
+                    </p>
+                  </div>
+                  {section.items.map((item) => {
+                    const isActive = activeSection === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setActiveSection(item.id)}
+                        aria-current={isActive ? 'page' : undefined}
+                        className={`flex h-10 flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 text-left text-sm font-600 transition-colors md:h-auto md:w-full md:py-2 ${
+                          isActive
+                            ? 'bg-primary/10 text-primary dark:bg-blue-950/50 dark:text-blue-300'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
+                        }`}
+                      >
+                        <item.icon
+                          size={16}
+                          className={`flex-shrink-0 ${isActive ? 'text-primary dark:text-blue-300' : 'text-slate-400 dark:text-slate-500'}`}
+                        />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </nav>
           </aside>
 
@@ -6974,7 +7149,7 @@ export default function MiPerfilPage() {
                   <Fingerprint size={20} className="text-purple-600" />
                 </div>
                 <div>
-                  <h2 className="text-base font-700 text-foreground">Enrolamiento Biométrico</h2>
+                  <h2 className="text-base font-600 text-foreground">Enrolamiento Biométrico</h2>
                   <p className="text-xs text-muted-foreground">Validación facial</p>
                 </div>
               </div>
@@ -7002,7 +7177,7 @@ export default function MiPerfilPage() {
                   <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
                     <CheckCircle2 size={32} className="text-green-600" />
                   </div>
-                  <p className="text-base font-700 text-green-700 text-center">
+                  <p className="text-base font-600 text-green-700 text-center">
                     ¡Enrolamiento completado!
                   </p>
                   <p className="text-sm text-muted-foreground text-center">
@@ -7099,7 +7274,7 @@ export default function MiPerfilPage() {
                   )}
 
                   <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-1.5">
-                    <p className="text-xs font-bold text-blue-700">¿Cómo funciona?</p>
+                    <p className="text-xs font-semibold text-blue-700">¿Cómo funciona?</p>
                     {[
                       '1. Haz clic en "Generar código QR"',
                       '2. Escanea el QR con la cámara de tu teléfono',
@@ -7141,7 +7316,7 @@ export default function MiPerfilPage() {
                   <PenTool size={20} className="text-primary" />
                 </div>
                 <div>
-                  <h2 className="text-base font-700 text-foreground">Firma Autógrafa Digital</h2>
+                  <h2 className="text-base font-600 text-foreground">Firma Autógrafa Digital</h2>
                   <p className="text-xs text-muted-foreground">
                     Vista previa de tu firma registrada
                   </p>
@@ -7217,7 +7392,7 @@ export default function MiPerfilPage() {
                   <Shield size={20} className="text-red-500" />
                 </div>
                 <div>
-                  <h2 className="text-base font-700 text-foreground">
+                  <h2 className="text-base font-600 text-foreground">
                     Desactivar Tóken Móvil (TOTP)
                   </h2>
                   <p className="text-xs text-muted-foreground">

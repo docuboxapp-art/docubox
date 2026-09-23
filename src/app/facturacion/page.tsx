@@ -181,7 +181,7 @@ function InvoiceModal({ purchase, onClose }: InvoiceModalProps) {
               <Receipt size={15} className="text-primary" />
             </div>
             <div>
-              <h2 className="font-700 text-sm text-foreground">Factura {purchase.id}</h2>
+              <h2 className="font-600 text-sm text-foreground">Factura {purchase.id}</h2>
               <p className="text-xs text-muted-foreground">{purchase.billingPeriod}</p>
             </div>
           </div>
@@ -242,7 +242,7 @@ function InvoiceModal({ purchase, onClose }: InvoiceModalProps) {
 
           {/* Bill To */}
           <div className="bg-muted/40 rounded-xl p-4">
-            <p className="text-xs font-700 text-muted-foreground uppercase tracking-wide mb-2">Facturado a</p>
+            <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide mb-2">Facturado a</p>
             <p className="font-600 text-foreground text-sm">Cliente DocuBox</p>
             <div className="space-y-0.5 text-xs text-muted-foreground mt-1">
               <p>Plan: {purchase.description}</p>
@@ -252,7 +252,7 @@ function InvoiceModal({ purchase, onClose }: InvoiceModalProps) {
 
           {/* Charges */}
           <div>
-            <p className="text-xs font-700 text-muted-foreground uppercase tracking-wide mb-3">Desglose de Cargos</p>
+            <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide mb-3">Desglose de Cargos</p>
             <div className="border border-border rounded-xl overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
@@ -284,7 +284,7 @@ function InvoiceModal({ purchase, onClose }: InvoiceModalProps) {
               <div className="flex justify-between text-sm"><span className="text-muted-foreground">Descuento</span><span>{purchase.discount}</span></div>
               <div className="flex justify-between text-sm"><span className="text-muted-foreground">IVA (16%)</span><span>{purchase.tax}</span></div>
               <div className="border-t border-border pt-2.5 flex justify-between">
-                <span className="font-700 text-foreground">Total</span>
+                <span className="font-600 text-foreground">Total</span>
                 <span className="font-800 text-lg text-primary">{purchase.total}</span>
               </div>
             </div>
@@ -470,7 +470,7 @@ function PlanesTab({ onUpgrade, onPlanChanged }: { onUpgrade: () => void; onPlan
     <div className="space-y-8">
       <div>
         <div className="mb-5">
-          <h2 className="text-base font-700 text-foreground">Elige tu Plan</h2>
+          <h2 className="text-base font-600 text-foreground">Elige tu Plan</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Selecciona el plan que mejor se adapte a tus necesidades. Todos los planes incluyen CFDI y soporte.</p>
         </div>
 
@@ -501,7 +501,7 @@ function PlanesTab({ onUpgrade, onPlanChanged }: { onUpgrade: () => void; onPlan
               >
                 {plan.badge && (
                   <div className="absolute top-4 right-4">
-                    <span className={`text-xs font-700 px-2.5 py-1 rounded-full ${plan.badgeColor}`}>
+                    <span className={`text-xs font-600 px-2.5 py-1 rounded-full ${plan.badgeColor}`}>
                       {plan.badge}
                     </span>
                   </div>
@@ -514,7 +514,7 @@ function PlanesTab({ onUpgrade, onPlanChanged }: { onUpgrade: () => void; onPlan
                       <PlanIcon size={18} className={plan.iconColor} />
                     </div>
                     <div>
-                      <h3 className="font-700 text-foreground text-sm">{plan.name}</h3>
+                      <h3 className="font-600 text-foreground text-sm">{plan.name}</h3>
                       <p className="text-xs text-muted-foreground mt-0.5">{plan.description}</p>
                     </div>
                   </div>
@@ -563,7 +563,7 @@ function PlanesTab({ onUpgrade, onPlanChanged }: { onUpgrade: () => void; onPlan
             <button
               onClick={handleConfirmPlan}
               disabled={loading}
-              className="bg-white text-blue-600 text-sm font-700 px-5 py-2 rounded-xl hover:bg-blue-50 transition-colors whitespace-nowrap flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="bg-white text-blue-600 text-sm font-600 px-5 py-2 rounded-xl hover:bg-blue-50 transition-colors whitespace-nowrap flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : null}
               {loading ? 'Actualizando...' : 'Actualizar ahora'}
@@ -578,7 +578,7 @@ function PlanesTab({ onUpgrade, onPlanChanged }: { onUpgrade: () => void; onPlan
             <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center">
               <Layers size={15} className="text-violet-600" />
             </div>
-            <h2 className="text-base font-700 text-foreground">Paquetes Adicionales de Documentos</h2>
+            <h2 className="text-base font-600 text-foreground">Paquetes Adicionales de Documentos</h2>
           </div>
           <p className="text-sm text-muted-foreground ml-10.5">Amplía tu capacidad sin cambiar de plan. Los documentos no caducan y se acumulan mes a mes.</p>
         </div>
@@ -590,7 +590,7 @@ function PlanesTab({ onUpgrade, onPlanChanged }: { onUpgrade: () => void; onPlan
               className={`relative border rounded-2xl p-5 flex flex-col items-center text-center ${paq.color} ${paq.borderColor}`}
             >
               {paq.badge && (
-                <span className={`absolute -top-2.5 left-1/2 -translate-x-1/2 text-xs font-700 px-2.5 py-0.5 rounded-full whitespace-nowrap ${paq.badgeColor}`}>
+                <span className={`absolute -top-2.5 left-1/2 -translate-x-1/2 text-xs font-600 px-2.5 py-0.5 rounded-full whitespace-nowrap ${paq.badgeColor}`}>
                   {paq.badge}
                 </span>
               )}
@@ -601,7 +601,7 @@ function PlanesTab({ onUpgrade, onPlanChanged }: { onUpgrade: () => void; onPlan
               <p className="text-xs text-muted-foreground font-600 uppercase tracking-wide mt-0.5 mb-3">documentos</p>
               <p className="text-xl font-800 text-foreground">{paq.price}</p>
               <p className="text-xs text-muted-foreground mt-0.5 mb-4">{paq.pricePerDoc} / doc · + IVA</p>
-              <button className={`w-full py-2 rounded-xl text-xs font-700 bg-white border ${paq.borderColor} ${paq.textColor} hover:shadow-sm transition-all`}>
+              <button className={`w-full py-2 rounded-xl text-xs font-600 bg-white border ${paq.borderColor} ${paq.textColor} hover:shadow-sm transition-all`}>
                 Comprar
               </button>
             </div>
@@ -665,7 +665,7 @@ function PlanTab({ subscription, loading, onUpgrade }: PlanTabProps) {
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
                 <Star size={15} className="text-primary" />
               </div>
-              <h2 className="text-sm font-700 text-foreground">Detalles del Plan Actual</h2>
+              <h2 className="text-sm font-600 text-foreground">Detalles del Plan Actual</h2>
             </div>
             <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-600 text-xs font-600 px-3 py-1 rounded-full border border-gray-200">
               <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
@@ -676,7 +676,7 @@ function PlanTab({ subscription, loading, onUpgrade }: PlanTabProps) {
           <div className="p-6 space-y-5">
             <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-xl px-5 py-4">
               <div>
-                <h3 className="text-lg font-700 text-blue-600">{planName}</h3>
+                <h3 className="text-lg font-600 text-blue-600">{planName}</h3>
                 <span className="inline-block mt-1 bg-white text-blue-600 text-xs font-500 px-2.5 py-0.5 rounded-full border border-blue-200">
                   Plan Mensual · Renovable
                 </span>
@@ -688,7 +688,7 @@ function PlanTab({ subscription, loading, onUpgrade }: PlanTabProps) {
             </div>
 
             <div>
-              <p className="text-xs font-700 text-muted-foreground uppercase tracking-wide mb-3">Características incluidas</p>
+              <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide mb-3">Características incluidas</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
                 {planFeatures.map((f: string) => (
                   <div key={f} className="flex items-center gap-2 text-sm text-foreground">
@@ -704,8 +704,8 @@ function PlanTab({ subscription, loading, onUpgrade }: PlanTabProps) {
                 <AlertCircle size={15} className="text-amber-600 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-amber-800">
                   Tu plan se renueva automáticamente en{' '}
-                  <span className="font-700">{renewDays} días</span> — {renewDate} — con{' '}
-                  <span className="font-700">{docsTotal} nuevos documentos</span>.
+                  <span className="font-600">{renewDays} días</span> — {renewDate} — con{' '}
+                  <span className="font-600">{docsTotal} nuevos documentos</span>.
                 </p>
               </div>
             )}
@@ -726,7 +726,7 @@ function PlanTab({ subscription, loading, onUpgrade }: PlanTabProps) {
             <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
               <FileText size={15} className="text-blue-600" />
             </div>
-            <h2 className="text-sm font-700 text-foreground">Consumo de Documentos</h2>
+            <h2 className="text-sm font-600 text-foreground">Consumo de Documentos</h2>
           </div>
 
           <div className="p-6 flex flex-col flex-1">
@@ -753,7 +753,7 @@ function PlanTab({ subscription, loading, onUpgrade }: PlanTabProps) {
                   </div>
                   <span className="text-xs text-foreground">Plan Mensual</span>
                 </div>
-                <span className="text-xs font-700 text-foreground">{docsFromPlan} docs</span>
+                <span className="text-xs font-600 text-foreground">{docsFromPlan} docs</span>
               </div>
               <div className="flex items-center justify-between py-2.5 px-3 bg-muted/30 rounded-xl">
                 <div className="flex items-center gap-2">
@@ -762,7 +762,7 @@ function PlanTab({ subscription, loading, onUpgrade }: PlanTabProps) {
                   </div>
                   <span className="text-xs text-foreground">Paquete adicional</span>
                 </div>
-                <span className="text-xs font-700 text-foreground">{docsFromPackage} docs</span>
+                <span className="text-xs font-600 text-foreground">{docsFromPackage} docs</span>
               </div>
             </div>
 
@@ -782,7 +782,7 @@ function PlanTab({ subscription, loading, onUpgrade }: PlanTabProps) {
               <Zap size={18} className="text-white" />
             </div>
             <div>
-              <h3 className="font-700 text-base">{upgradePlan.name}</h3>
+              <h3 className="font-600 text-base">{upgradePlan.name}</h3>
               <p className="text-sm text-blue-100 mt-0.5">Desbloquea todo el potencial de DocuBox con documentos y firmas ilimitadas.</p>
               <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
                 {upgradePlan.features.slice(0, 5).map((f) => (
@@ -798,7 +798,7 @@ function PlanTab({ subscription, loading, onUpgrade }: PlanTabProps) {
               <p className="text-2xl font-800">{upgradePlan.price}</p>
               <p className="text-xs text-blue-200">/ {upgradePlan.period}</p>
             </div>
-            <button className="bg-white text-blue-600 text-sm font-700 px-5 py-2 rounded-xl hover:bg-blue-50 transition-colors whitespace-nowrap">
+            <button className="bg-white text-blue-600 text-sm font-600 px-5 py-2 rounded-xl hover:bg-blue-50 transition-colors whitespace-nowrap">
               Actualizar ahora
             </button>
           </div>
@@ -850,7 +850,7 @@ function HistorialTab({ history, loading }: HistorialTabProps) {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">{stat.label}</p>
-                <p className="text-base font-700 text-foreground tabular-nums">{stat.value}</p>
+                <p className="text-base font-600 text-foreground tabular-nums">{stat.value}</p>
               </div>
             </div>
           );
@@ -865,7 +865,7 @@ function HistorialTab({ history, loading }: HistorialTabProps) {
               <ShoppingBag size={15} className="text-primary" />
             </div>
             <div>
-              <h3 className="font-700 text-sm text-foreground">Historial de Compras</h3>
+              <h3 className="font-600 text-sm text-foreground">Historial de Compras</h3>
               <p className="text-xs text-muted-foreground">{purchases.length} transacciones registradas</p>
             </div>
           </div>
@@ -900,7 +900,7 @@ function HistorialTab({ history, loading }: HistorialTabProps) {
                       <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{p.id}</td>
                       <td className="px-5 py-3.5 text-sm text-foreground whitespace-nowrap">{p.date}</td>
                       <td className="px-5 py-3.5 text-sm text-foreground">{p.description}</td>
-                      <td className="px-5 py-3.5 text-right font-700 text-foreground tabular-nums">{p.amount}</td>
+                      <td className="px-5 py-3.5 text-right font-600 text-foreground tabular-nums">{p.amount}</td>
                       <td className="px-5 py-3.5 text-center">
                         <span className={`inline-flex items-center gap-1.5 text-xs font-600 px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
@@ -979,7 +979,7 @@ function ConsumosTab({ subscription, loading }: ConsumosTabProps) {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-muted-foreground">{m.label}</p>
-                <p className="text-base font-700 text-foreground tabular-nums">{valueLabel}</p>
+                <p className="text-base font-600 text-foreground tabular-nums">{valueLabel}</p>
                 {pct !== null ? (
                   <div className="mt-1.5">
                     <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -1009,7 +1009,7 @@ function ConsumosTab({ subscription, loading }: ConsumosTabProps) {
             <BarChart3 size={15} className="text-primary" />
           </div>
           <div>
-            <h3 className="font-700 text-sm text-foreground">Detalle de Consumo</h3>
+            <h3 className="font-600 text-sm text-foreground">Detalle de Consumo</h3>
             <p className="text-xs text-muted-foreground">Período actual de suscripción</p>
           </div>
         </div>
@@ -1151,7 +1151,7 @@ export default function FacturacionPage() {
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">
               <CreditCard size={24} className="text-primary" />
               Facturación y Planes
             </h1>

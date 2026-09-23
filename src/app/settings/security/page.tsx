@@ -105,7 +105,7 @@ export default function SecuritySettingsPage() {
       <div className="max-w-2xl mx-auto py-6 px-4 flex flex-col gap-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">
             <Shield size={24} className="text-primary" />
             Seguridad de cuenta
           </h1>
@@ -130,7 +130,7 @@ export default function SecuritySettingsPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-base font-700 text-foreground">App autenticadora</h2>
+                <h2 className="text-base font-600 text-foreground">App autenticadora</h2>
                 {loading ? (
                   <Loader2 size={14} className="text-primary animate-spin" />
                 ) : totpStatus?.isEnabled ? (
@@ -198,7 +198,7 @@ export default function SecuritySettingsPage() {
               <Activity size={16} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-sm font-700 text-foreground">Eventos de seguridad</h2>
+              <h2 className="text-sm font-600 text-foreground">Eventos de seguridad</h2>
               <p className="text-xs text-muted-foreground">Historial de actividad de autenticación</p>
             </div>
           </div>
@@ -227,7 +227,7 @@ export default function SecuritySettingsPage() {
               <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
                 <ShieldOff size={22} className="text-red-600" />
               </div>
-              <h3 className="text-base font-700 text-foreground mb-1">Desactivar app autenticadora</h3>
+              <h3 className="text-base font-600 text-foreground mb-1">Desactivar app autenticadora</h3>
               <p className="text-sm text-muted-foreground">
                 Ingresa el código de 6 dígitos de tu app autenticadora para confirmar la desactivación.
               </p>
@@ -259,7 +259,7 @@ export default function SecuritySettingsPage() {
               <button
                 onClick={handleDisable}
                 disabled={disableLoading || disableCode.length !== 6}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-red-600 text-white rounded-xl text-sm font-700 hover:bg-red-700 disabled:opacity-60 transition-all"
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-red-600 text-white rounded-xl text-sm font-600 hover:bg-red-700 disabled:opacity-60 transition-all"
               >
                 {disableLoading ? <Loader2 size={15} className="animate-spin" /> : <ShieldOff size={15} />}
                 Desactivar

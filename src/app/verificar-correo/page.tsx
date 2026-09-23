@@ -84,7 +84,7 @@ function VerificarCorreoContent() {
                     <CheckCircle2 className="w-9 h-9 text-white" />
                   </div>
                 </div>
-                <h1 className="text-2xl font-bold text-white mb-1">¡Correo verificado!</h1>
+                <h1 className="text-2xl font-semibold text-white mb-1">¡Correo verificado!</h1>
                 <p className="text-green-100 text-sm">Tu cuenta está completamente activa</p>
               </div>
               <div className="p-8 text-center">
@@ -111,7 +111,7 @@ function VerificarCorreoContent() {
                     <CheckCircle2 className="w-9 h-9 text-white" />
                   </div>
                 </div>
-                <h1 className="text-2xl font-bold text-white mb-1">Ya verificado</h1>
+                <h1 className="text-2xl font-semibold text-white mb-1">Ya verificado</h1>
                 <p className="text-blue-100 text-sm">Este enlace ya fue utilizado anteriormente</p>
               </div>
               <div className="p-8 text-center">
@@ -138,7 +138,7 @@ function VerificarCorreoContent() {
                     <AlertTriangle className="w-9 h-9 text-white" />
                   </div>
                 </div>
-                <h1 className="text-2xl font-bold text-white mb-1">Enlace expirado</h1>
+                <h1 className="text-2xl font-semibold text-white mb-1">Enlace expirado</h1>
                 <p className="text-amber-100 text-sm">Este enlace de verificación ya no es válido</p>
               </div>
               <div className="p-8 text-center">
@@ -165,7 +165,7 @@ function VerificarCorreoContent() {
                     <XCircle className="w-9 h-9 text-white" />
                   </div>
                 </div>
-                <h1 className="text-2xl font-bold text-white mb-1">Error de verificación</h1>
+                <h1 className="text-2xl font-semibold text-white mb-1">Error de verificación</h1>
                 <p className="text-red-100 text-sm">No se pudo verificar tu correo</p>
               </div>
               <div className="p-8 text-center">

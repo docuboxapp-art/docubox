@@ -93,8 +93,20 @@ async function withLeaseHeartbeat<T>(
 function internalErrorCode(error: unknown) {
   if (error instanceof Nom151ServiceError || error instanceof EvidenceV2ServiceError)
     return error.code;
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = String(error.code || '');
+    if (/^[A-Z0-9_.:-]+$/.test(code)) return code;
+  }
   if (error instanceof Error && /^[A-Z0-9_.:-]+$/.test(error.message)) return error.message;
   return 'EVIDENCE_FINALIZATION_FAILED';
+}
+
+function internalErrorDetail(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String(error.message || 'unknown').slice(0, 500);
+  }
+  return 'unknown';
 }
 
 async function finish(
@@ -286,7 +298,7 @@ export async function processEvidenceFinalization(
       state: canRetry ? 'FINALIZATION_RETRY_SCHEDULED' : 'FINALIZATION_ERROR',
       checkpoints,
       errorCode: code,
-      errorDetail: error instanceof Error ? error.message : 'unknown',
+      errorDetail: internalErrorDetail(error),
       retryAt: canRetry ? retryAt(job.attempt_count) : undefined,
     });
     if (!canRetry) throw error;

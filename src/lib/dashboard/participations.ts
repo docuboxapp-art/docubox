@@ -36,7 +36,10 @@ export function fetchDashboardParticipations(
   const pending = pendingParticipations.get(userId);
   if (pending) return pending;
 
-  const request = fetch('/api/documentos/mis-participaciones?view=dashboard&exclude_owned=true', {
+  // This widget reports the user's actions, including participation in documents
+  // they created themselves. Other document lists may still exclude owned rows to
+  // avoid showing the same document twice.
+  const request = fetch('/api/documentos/mis-participaciones?view=dashboard', {
     cache: 'no-store',
   })
     .then((response) => (response.ok ? response.json() : null))

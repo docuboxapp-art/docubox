@@ -16,7 +16,7 @@ test('mis-documentos retries temporary session-policy and schema-cache failures'
   assert.match(source, /fetchDocumentData\('\/api\/documentos\/listar\?tipo=todos'/);
   assert.match(
     source,
-    /fetchDocumentData\('\/api\/documentos\/mis-participaciones\?exclude_owned=true'/
+    /fetchDocumentData\(\s*'\/api\/documentos\/mis-participaciones\?exclude_owned=true&view=list'/
   );
 });
 

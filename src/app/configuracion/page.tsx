@@ -100,7 +100,7 @@ function SettingsSectionHeader({
   return (
     <header className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between dark:border-slate-700">
       <div className="min-w-0">
-        <h1 className="text-2xl font-700 text-slate-950 dark:text-white">{title}</h1>
+        <h1 className="text-2xl font-600 text-slate-950 dark:text-white">{title}</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -151,14 +151,39 @@ const DATE_FORMATS = [
 
 // ─── Sidebar items ────────────────────────────────────────────────────────────
 
-const sidebarItems: { id: Section; label: string; icon: React.ElementType; description: string }[] = [
-  { id: 'espacios-trabajo', label: 'Espacios de trabajo', icon: Building2, description: 'Gestiona espacios, miembros e invitaciones' },
-  { id: 'notificaciones', label: 'Notificaciones', icon: Bell, description: 'Canales, eventos y frecuencia de alertas' },
-  { id: 'auditoria', label: 'Auditoría y Reportes', icon: ShieldCheck, description: 'Visor filtrable de eventos de seguridad' },
-  { id: 'integraciones', label: 'Integraciones y API', icon: Key, description: 'API keys y webhooks por workspace' },
-  { id: 'almacenamiento', label: 'Almacenamiento', icon: Globe2, description: 'Conecta Google Drive, OneDrive y Dropbox' },
-  { id: 'plantillas', label: 'Plantillas', icon: FileText, description: 'Valores predeterminados para las nuevas plantillas' },
-  { id: 'regional', label: 'Regional y Marca', icon: Globe, description: 'Zona horaria, formato y marca blanca' },
+type SidebarItem =
+  | { type: 'section'; id: Section; label: string; icon: React.ElementType }
+  | { type: 'link'; href: string; label: string; icon: React.ElementType };
+
+const sidebarSections: { label: string; items: SidebarItem[] }[] = [
+  {
+    label: 'Principal',
+    items: [
+      { type: 'section', id: 'espacios-trabajo', label: 'Espacios de trabajo', icon: Building2 },
+      { type: 'section', id: 'notificaciones', label: 'Notificaciones', icon: Bell },
+    ],
+  },
+  {
+    label: 'Configuración del espacio',
+    items: [
+      { type: 'section', id: 'plantillas', label: 'Plantillas', icon: FileText },
+      { type: 'section', id: 'regional', label: 'Regional y marca', icon: Globe },
+      { type: 'section', id: 'almacenamiento', label: 'Almacenamiento', icon: Globe2 },
+    ],
+  },
+  {
+    label: 'Seguridad e integraciones',
+    items: [
+      { type: 'section', id: 'integraciones', label: 'Integraciones y API', icon: Key },
+      { type: 'section', id: 'auditoria', label: 'Auditoría y reportes', icon: ShieldCheck },
+      {
+        type: 'link',
+        href: '/configuracion/verificacion-identidad',
+        label: 'Verificación de identidad',
+        icon: Fingerprint,
+      },
+    ],
+  },
 ];
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -575,7 +600,7 @@ export default function ConfiguracionPage() {
 
       {/* Canales */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
-        <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Zap size={15} />Canales de notificación</h3>
+        <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Zap size={15} />Canales de notificación</h3>
         <div className="space-y-1">
           {[
             { icon: Mail, label: 'Correo electrónico', desc: 'Recibir notificaciones por email', value: notifEmail, set: setNotifEmail },
@@ -601,7 +626,7 @@ export default function ConfiguracionPage() {
 
       {/* Frecuencia */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
-        <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Clock size={15} />Frecuencia de envío</h3>
+        <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Clock size={15} />Frecuencia de envío</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             { value: 'inmediata', label: 'Inmediata', desc: 'Cada evento al instante' },
@@ -625,7 +650,7 @@ export default function ConfiguracionPage() {
 
       {/* Tipos de eventos */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
-        <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Filter size={15} />Tipos de eventos</h3>
+        <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Filter size={15} />Tipos de eventos</h3>
         <div className="space-y-1">
           {[
             { label: 'Solicitudes de firma', desc: 'Cuando alguien te envía un documento para firmar', value: notifFirma, set: setNotifFirma },
@@ -682,7 +707,7 @@ export default function ConfiguracionPage() {
 
       {/* Workspace selector */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-3">
-        <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Building2 size={15} />Workspace activo</h3>
+        <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Building2 size={15} />Workspace activo</h3>
         <div className="flex flex-wrap gap-2">
           {workspaces.map(ws => (
             <div key={ws.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm border ${ws.id === currentWsId ? 'border-primary bg-primary/5 text-primary font-600' : 'border-border text-muted-foreground'}`}>
@@ -697,7 +722,7 @@ export default function ConfiguracionPage() {
       {/* Permission profiles list */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Lock size={15} />Perfiles de permisos</h3>
+          <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Lock size={15} />Perfiles de permisos</h3>
           {permLoading && <Loader2 size={14} className="text-primary animate-spin" />}
         </div>
 
@@ -723,7 +748,7 @@ export default function ConfiguracionPage() {
                 <div key={profile.id} className="flex items-start justify-between p-4 border border-border rounded-xl hover:border-primary/20 hover:bg-primary/5 transition-all duration-150">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-700 text-foreground">{profile.name}</p>
+                      <p className="text-sm font-600 text-foreground">{profile.name}</p>
                       <span className="text-xs font-600 px-2 py-0.5 rounded-full bg-primary/10 text-primary">{enabledCount} módulos</span>
                     </div>
                     {profile.description && <p className="text-xs text-muted-foreground mt-0.5">{profile.description}</p>}
@@ -771,7 +796,7 @@ export default function ConfiguracionPage() {
                   <Users size={20} className="text-primary" />
                 </div>
                 <div>
-                  <h2 className="text-base font-700 text-foreground">{editingProfile ? 'Editar perfil' : 'Nuevo perfil de permisos'}</h2>
+                  <h2 className="text-base font-600 text-foreground">{editingProfile ? 'Editar perfil' : 'Nuevo perfil de permisos'}</h2>
                   <p className="text-xs text-muted-foreground">Define qué módulos puede acceder este perfil</p>
                 </div>
               </div>
@@ -877,7 +902,7 @@ export default function ConfiguracionPage() {
 
       {/* Filters */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
-        <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Filter size={15} />Filtros</h3>
+        <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Filter size={15} />Filtros</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Date filter */}
           <div>
@@ -1023,7 +1048,7 @@ export default function ConfiguracionPage() {
       {/* API Keys section */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Key size={15} />API Keys</h3>
+          <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Key size={15} />API Keys</h3>
           {apiKeysLoading && <Loader2 size={14} className="text-primary animate-spin" />}
         </div>
 
@@ -1064,7 +1089,7 @@ export default function ConfiguracionPage() {
               <div key={apiKey.id} className="flex items-start justify-between p-4 border border-border rounded-xl hover:border-primary/20 transition-all duration-150">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-700 text-foreground">{apiKey.name}</p>
+                    <p className="text-sm font-600 text-foreground">{apiKey.name}</p>
                     <span className={`text-[10px] font-600 px-2 py-0.5 rounded-full ${apiKey.is_active ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}>
                       {apiKey.is_active ? 'Activa' : 'Revocada'}
                     </span>
@@ -1112,7 +1137,7 @@ export default function ConfiguracionPage() {
       {/* Webhooks section */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Webhook size={15} />Webhooks</h3>
+          <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Webhook size={15} />Webhooks</h3>
           <button
             onClick={() => {
               setEditingWebhook(null);
@@ -1142,7 +1167,7 @@ export default function ConfiguracionPage() {
               <div key={wh.id} className="flex items-start justify-between p-4 border border-border rounded-xl hover:border-primary/20 transition-all duration-150">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-700 text-foreground">{wh.name}</p>
+                    <p className="text-sm font-600 text-foreground">{wh.name}</p>
                     <span className={`text-[10px] font-600 px-2 py-0.5 rounded-full ${wh.is_active ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}>
                       {wh.is_active ? 'Activo' : 'Inactivo'}
                     </span>
@@ -1189,7 +1214,7 @@ export default function ConfiguracionPage() {
                   <Webhook size={20} className="text-primary" />
                 </div>
                 <div>
-                  <h2 className="text-base font-700 text-foreground">{editingWebhook ? 'Editar webhook' : 'Nuevo webhook'}</h2>
+                  <h2 className="text-base font-600 text-foreground">{editingWebhook ? 'Editar webhook' : 'Nuevo webhook'}</h2>
                   <p className="text-xs text-muted-foreground">Configura el endpoint y los eventos</p>
                 </div>
               </div>
@@ -1288,7 +1313,7 @@ export default function ConfiguracionPage() {
 
       {/* Regional settings */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
-        <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Globe2 size={15} />Configuración Regional</h3>
+        <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Globe2 size={15} />Configuración Regional</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-600 text-muted-foreground mb-1.5">Zona horaria</label>
@@ -1317,7 +1342,7 @@ export default function ConfiguracionPage() {
 
       {/* Branding */}
       <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
-        <h3 className="text-sm font-700 text-primary flex items-center gap-2"><Palette size={15} />Marca Blanca del Workspace</h3>
+        <h3 className="text-sm font-600 text-primary flex items-center gap-2"><Palette size={15} />Marca Blanca del Workspace</h3>
         <p className="text-xs text-muted-foreground">Personaliza la identidad visual del portal de firma y los correos enviados a tus clientes.</p>
 
         {/* Logo upload */}
@@ -1447,7 +1472,7 @@ export default function ConfiguracionPage() {
                   <Building2 size={16} className="text-white" />
                 </div>
               )}
-              <p className="text-sm font-700 text-foreground">{regional.brand_email_header || regional.portal_name || 'Tu Empresa · Firma Digital'}</p>
+              <p className="text-sm font-600 text-foreground">{regional.brand_email_header || regional.portal_name || 'Tu Empresa · Firma Digital'}</p>
             </div>
             <div className="px-6 py-4 bg-white">
               <p className="text-sm text-foreground">Hola <strong>Juan Pérez</strong>,</p>
@@ -1572,7 +1597,7 @@ export default function ConfiguracionPage() {
                   {integ.icon}
                 </div>
                 <div>
-                  <p className="text-sm font-700 text-foreground">{integ.name}</p>
+                  <p className="text-sm font-600 text-foreground">{integ.name}</p>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">No conectado</span>
                 </div>
               </div>
@@ -1588,7 +1613,7 @@ export default function ConfiguracionPage() {
         {/* Connected accounts placeholder */}
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-700 text-foreground">Cuentas conectadas</h3>
+            <h3 className="text-sm font-600 text-foreground">Cuentas conectadas</h3>
           </div>
           <div className="p-8 flex flex-col items-center gap-3 text-center">
             <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
@@ -1607,33 +1632,53 @@ export default function ConfiguracionPage() {
       <div className="-mx-4 -my-4 min-h-[calc(100vh-104px)] bg-[#F5F7FA] md:-my-6 dark:bg-slate-950">
         <div className="flex min-h-[calc(100vh-104px)] w-full flex-col md:flex-row">
           <aside className="flex w-full flex-shrink-0 flex-col border-b border-slate-200 bg-white md:w-60 md:border-b-0 md:border-r 2xl:w-64 dark:border-slate-700 dark:bg-slate-900">
-            <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:overflow-x-visible md:p-3">
-              {sidebarItems.map((item) => {
-                const isActive = activeSection === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setActiveSection(item.id)}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={`flex h-10 flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-left text-sm transition-colors md:w-full ${
-                      isActive
-                        ? 'bg-blue-50 font-600 text-primary dark:bg-blue-950/50 dark:text-blue-300'
-                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
-                    }`}
-                  >
-                    <item.icon size={16} className={`flex-shrink-0 ${isActive ? 'text-primary dark:text-blue-300' : 'text-slate-400 dark:text-slate-500'}`} />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-              <div className="my-2 border-t border-slate-200 dark:border-slate-700" />
-              <Link
-                href="/configuracion/verificacion-identidad"
-                className="flex h-10 flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-left text-sm text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950 md:w-full dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
-              >
-                <Fingerprint size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
-                <span>Verificación de identidad</span>
-              </Link>
+            <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:gap-0.5 md:overflow-x-visible md:px-2.5 md:pb-3 md:pt-3">
+              {sidebarSections.map((section, sectionIndex) => (
+                <div key={section.label} className="contents md:block">
+                  <div className={`mb-1 hidden px-2 md:block ${sectionIndex > 0 ? 'md:mt-3' : ''}`}>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                      {section.label}
+                    </p>
+                  </div>
+                  {section.items.map((item) => {
+                    if (item.type === 'link') {
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className="flex h-10 flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 text-left text-sm font-600 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950 md:h-auto md:w-full md:py-2 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+                        >
+                          <item.icon
+                            size={16}
+                            className="flex-shrink-0 text-slate-400 dark:text-slate-500"
+                          />
+                          <span>{item.label}</span>
+                        </Link>
+                      );
+                    }
+
+                    const isActive = activeSection === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setActiveSection(item.id)}
+                        aria-current={isActive ? 'page' : undefined}
+                        className={`flex h-10 flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 text-left text-sm font-600 transition-colors md:h-auto md:w-full md:py-2 ${
+                          isActive
+                            ? 'bg-primary/10 text-primary dark:bg-blue-950/50 dark:text-blue-300'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
+                        }`}
+                      >
+                        <item.icon
+                          size={16}
+                          className={`flex-shrink-0 ${isActive ? 'text-primary dark:text-blue-300' : 'text-slate-400 dark:text-slate-500'}`}
+                        />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </nav>
           </aside>
 

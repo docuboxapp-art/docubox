@@ -40,6 +40,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import UserAvatar from '@/components/ui/UserAvatar';
 
 const BASE_NAV_SECTIONS = [
   {
@@ -84,7 +85,7 @@ const BASE_NAV_SECTIONS = [
 export default function Sidebar() {
   const { sidebarCollapsed: collapsed, setSidebarCollapsed: setCollapsed } = useSidebar();
   const pathname = usePathname();
-  const { user, signOut } = useAuth();
+  const { user, userProfile, signOut } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const { isModuleActive } = useAppModules();
   const { activeWorkspace } = useWorkspace();
@@ -92,8 +93,21 @@ export default function Sidebar() {
   const canManageOrganization =
     isBusinessWorkspace && (activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin');
 
-  const userFullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Usuario';
+  const profileFullName = [
+    userProfile?.nombre,
+    userProfile?.apellido_paterno,
+    userProfile?.apellido_materno,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const userFullName =
+    userProfile?.full_name ||
+    profileFullName ||
+    user?.user_metadata?.full_name ||
+    user?.email?.split('@')[0] ||
+    'Usuario';
   const userEmail = user?.email || '';
+  const userAvatarUrl = userProfile?.avatar_url || user?.user_metadata?.avatar_url || null;
   const userInitials =
     userFullName
       .split(' ')
@@ -292,7 +306,7 @@ export default function Sidebar() {
                         {item?.label}
                       </span>
                       {item?.badge !== null && (
-                        <span className="ml-auto bg-secondary text-secondary-foreground text-[10px] font-700 px-1.5 py-0.5 rounded-full tabular-nums">
+                        <span className="ml-auto bg-secondary text-secondary-foreground text-[10px] font-600 px-1.5 py-0.5 rounded-full tabular-nums">
                           {item?.badge}
                         </span>
                       )}
@@ -326,7 +340,7 @@ export default function Sidebar() {
             <>
               <span className="text-sm font-medium flex-1">Notificaciones</span>
               {unreadCount > 0 && (
-                <span className="ml-auto bg-primary text-white text-[10px] font-700 px-1.5 py-0.5 rounded-full tabular-nums">
+                <span className="ml-auto bg-primary text-white text-[10px] font-600 px-1.5 py-0.5 rounded-full tabular-nums">
                   {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
               )}
@@ -365,9 +379,12 @@ export default function Sidebar() {
         <div
           className={`flex items-center gap-2 px-2 py-2 mt-1 rounded-lg border border-border bg-muted ${collapsed ? 'justify-center' : ''}`}
         >
-          <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-[11px] font-700">{userInitials}</span>
-          </div>
+          <UserAvatar
+            src={userAvatarUrl}
+            alt={`Foto de ${userFullName}`}
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center bg-primary"
+            fallback={<span className="text-white text-[11px] font-600">{userInitials}</span>}
+          />
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-xs font-600 text-foreground truncate">{userFullName}</p>

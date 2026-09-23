@@ -5,6 +5,9 @@ export interface Participant {
   name: string;
   email: string;
   phone?: string;
+  rfc?: string;
+  curp?: string;
+  direccion?: string;
   role: 'firmante' | 'aprobador' | 'observador' | 'testigo';
   configured?: boolean;
   isNewUser?: boolean;

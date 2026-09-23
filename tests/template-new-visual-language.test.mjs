@@ -17,5 +17,5 @@ test('new-template panels use the same plain heading treatment as new-document',
   assert.doesNotMatch(propertiesHeading, /<FileText/);
   assert.match(propertiesHeading, /<div className="mb-5">/);
   assert.doesNotMatch(settingsSource, /\bRuler\b/);
-  assert.match(settingsSource, /<h2 className="text-base font-700 leading-5 text-slate-950">/);
+  assert.match(settingsSource, /<h2 className="text-base font-600 leading-5 text-slate-950">/);
 });

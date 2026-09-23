@@ -131,7 +131,7 @@ export const PARTICIPATION_STATUSES: ParticipationStatusConfig[] = [
   },
   {
     key: 'rechazo',
-    label: 'Rechazado',
+    label: 'Rechazó',
     desc: 'Ha rechazado el documento',
     color: 'text-red-700',
     bg: 'bg-red-50',

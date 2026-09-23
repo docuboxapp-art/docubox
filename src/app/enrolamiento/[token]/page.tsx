@@ -131,7 +131,7 @@ function ErrorBanner({ error, onRetry, retryCount = 0, maxRetries = MAX_RETRY_AT
           <IconComp size={16} color={BRAND.red} />
         </div>
         <div>
-          <p style={{ color: '#991b1b', fontWeight: 700, fontSize: 13 }}>{cfg.title}</p>
+          <p style={{ color: '#991b1b', fontWeight: 600, fontSize: 13 }}>{cfg.title}</p>
           <p style={{ color: '#b91c1c', fontSize: 12, marginTop: 2, lineHeight: 1.4 }}>{cfg.hint}</p>
           {retryCount > 0 && (
             <p style={{ color: '#b91c1c', fontSize: 11, marginTop: 4, fontWeight: 600 }}>
@@ -141,7 +141,7 @@ function ErrorBanner({ error, onRetry, retryCount = 0, maxRetries = MAX_RETRY_AT
         </div>
       </div>
       {retriesLeft > 0 ? (
-        <button onClick={onRetry} style={{ background: BRAND.red, color: '#fff', border: 'none', borderRadius: 10, padding: '9px 0', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer', width: '100%' }}>
+        <button onClick={onRetry} style={{ background: BRAND.red, color: '#fff', border: 'none', borderRadius: 10, padding: '9px 0', fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer', width: '100%' }}>
           <RefreshCw size={14} /> Reintentar
         </button>
       ) : (
@@ -158,10 +158,10 @@ function SessionExpiredBanner({ onRestart }: { onRestart: () => void }) {
     <div style={{ background: BRAND.amberLight, border: `1.5px solid ${BRAND.amberBorder}`, borderRadius: 14, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
       <AlertCircle size={28} color={BRAND.amber} />
       <div>
-        <p style={{ color: '#92400e', fontWeight: 700, fontSize: 14, margin: 0 }}>Sesión expirada</p>
+        <p style={{ color: '#92400e', fontWeight: 600, fontSize: 14, margin: 0 }}>Sesión expirada</p>
         <p style={{ color: '#b45309', fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>Tu sesión de enrolamiento ha expirado por inactividad. Por seguridad, debes reiniciar el proceso.</p>
       </div>
-      <button onClick={onRestart} style={{ background: BRAND.amber, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 24px', fontWeight: 700, fontSize: 13, cursor: 'pointer', width: '100%' }}>
+      <button onClick={onRestart} style={{ background: BRAND.amber, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 24px', fontWeight: 600, fontSize: 13, cursor: 'pointer', width: '100%' }}>
         Reiniciar desde el inicio
       </button>
     </div>
@@ -298,7 +298,7 @@ function SecondaryBtn({ onClick, disabled, children }: { onClick?: () => void; d
 
 function PrimaryBtn({ onClick, disabled, children, variant = 'blue' }: { onClick?: () => void; disabled?: boolean; children: React.ReactNode; variant?: 'blue' | 'green' }) {
   return (
-    <button onClick={onClick} disabled={disabled} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: disabled ? '#d1d5db' : variant === 'green' ? BRAND.green : BRAND.blueGradient, color: '#fff', fontWeight: 700, fontSize: 15, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'transform 0.15s, opacity 0.15s', opacity: disabled ? 0.6 : 1 }}>
+    <button onClick={onClick} disabled={disabled} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: disabled ? '#d1d5db' : variant === 'green' ? BRAND.green : BRAND.blueGradient, color: '#fff', fontWeight: 600, fontSize: 15, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'transform 0.15s, opacity 0.15s', opacity: disabled ? 0.6 : 1 }}>
       {children}
     </button>
   );
@@ -324,13 +324,13 @@ function ReiniciarModal({ onConfirm, onCancel }: { onConfirm: () => void; onCanc
           <div style={{ width: 56, height: 56, borderRadius: '50%', background: BRAND.amberLight, border: `2px solid ${BRAND.amberBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <AlertCircle size={26} color={BRAND.amber} />
           </div>
-          <h3 style={{ color: BRAND.text, fontSize: 18, fontWeight: 700, margin: 0 }}>¿Reiniciar enrolamiento?</h3>
+          <h3 style={{ color: BRAND.text, fontSize: 18, fontWeight: 600, margin: 0 }}>¿Reiniciar enrolamiento?</h3>
           <p style={{ color: BRAND.textMuted, fontSize: 14, lineHeight: 1.6, margin: 0 }}>
             Se perderán todos los datos capturados hasta ahora. ¿Deseas reiniciar el proceso desde el principio?
           </p>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <button onClick={onConfirm} style={{ width: '100%', padding: '13px 0', borderRadius: 14, background: BRAND.amber, color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
+          <button onClick={onConfirm} style={{ width: '100%', padding: '13px 0', borderRadius: 14, background: BRAND.amber, color: '#fff', fontWeight: 600, fontSize: 14, border: 'none', cursor: 'pointer' }}>
             Sí, reiniciar enrolamiento
           </button>
           <button onClick={onCancel} style={{ width: '100%', padding: '13px 0', borderRadius: 14, background: '#fff', color: BRAND.textMuted, fontWeight: 600, fontSize: 14, border: `1.5px solid ${BRAND.cardBorder}`, cursor: 'pointer' }}>
@@ -426,13 +426,13 @@ function IdScannerScreen({ side, tipoId, onCapture, onBack, onSessionExpired }: 
       {showTimeoutMsg && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
           <Loader2 size={40} color="#f59e0b" style={{ animation: 'spin 1s linear infinite' }} />
-          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 700, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
+          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 600, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
           <p style={{ color: '#fcd34d', fontSize: 14, textAlign: 'center', margin: 0, lineHeight: 1.5 }}>Se repetirá el proceso automáticamente en unos segundos...</p>
         </div>
       )}
       {retryCount > 0 && retryCount < MAX_RETRY_ATTEMPTS && (
         <div style={{ position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 16px))', left: 16, background: 'rgba(245,158,11,0.9)', borderRadius: 20, padding: '4px 10px', zIndex: 30 }}>
-          <p style={{ color: '#fff', fontSize: 11, fontWeight: 700, margin: 0 }}>Intento {retryCount}/{MAX_RETRY_ATTEMPTS}</p>
+          <p style={{ color: '#fff', fontSize: 11, fontWeight: 600, margin: 0 }}>Intento {retryCount}/{MAX_RETRY_ATTEMPTS}</p>
         </div>
       )}
       {/* Torch button — Android only, top-left */}
@@ -493,13 +493,13 @@ function IdScannerScreen({ side, tipoId, onCapture, onBack, onSessionExpired }: 
             <button onClick={handleRetry} style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <RefreshCw size={15} /> Repetir
             </button>
-            <button onClick={handleUsePhoto} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
+            <button onClick={handleUsePhoto} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 600, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
               {side === 'anverso' ? 'Usar foto — Continuar al reverso' : 'Usar foto — Continuar'}
             </button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button onClick={handleCapture} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 700, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: !isReady ? 'none' : '0 2px 12px rgba(0,0,0,0.3)' }}>
+            <button onClick={handleCapture} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 600, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: !isReady ? 'none' : '0 2px 12px rgba(0,0,0,0.3)' }}>
               {!isReady ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Cargando cámara...</> : <><span style={{ width: 14, height: 14, borderRadius: '50%', background: '#ef4444', display: 'inline-block', flexShrink: 0 }} /> Capturar Foto</>}
             </button>
             <button onClick={handleBack} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -592,13 +592,13 @@ function PassportScannerScreen({ onCapture, onBack, onSessionExpired }: { onCapt
       {showTimeoutMsg && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
           <Loader2 size={40} color="#f59e0b" style={{ animation: 'spin 1s linear infinite' }} />
-          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 700, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
+          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 600, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
           <p style={{ color: '#fcd34d', fontSize: 14, textAlign: 'center', margin: 0, lineHeight: 1.5 }}>Se repetirá el proceso automáticamente en unos segundos...</p>
         </div>
       )}
       {retryCount > 0 && retryCount < MAX_RETRY_ATTEMPTS && (
         <div style={{ position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 16px))', left: 16, background: 'rgba(245,158,11,0.9)', borderRadius: 20, padding: '4px 10px', zIndex: 30 }}>
-          <p style={{ color: '#fff', fontSize: 11, fontWeight: 700, margin: 0 }}>Intento {retryCount}/{MAX_RETRY_ATTEMPTS}</p>
+          <p style={{ color: '#fff', fontSize: 11, fontWeight: 600, margin: 0 }}>Intento {retryCount}/{MAX_RETRY_ATTEMPTS}</p>
         </div>
       )}
       {/* Torch button — Android only */}
@@ -662,13 +662,13 @@ function PassportScannerScreen({ onCapture, onBack, onSessionExpired }: { onCapt
             <button onClick={handleRetry} style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <RefreshCw size={15} /> Repetir
             </button>
-            <button onClick={handleUsePhoto} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
+            <button onClick={handleUsePhoto} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 600, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
               Usar foto — Continuar
             </button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button onClick={handleCapture} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 700, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: !isReady ? 'none' : '0 2px 12px rgba(0,0,0,0.3)' }}>
+            <button onClick={handleCapture} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 600, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: !isReady ? 'none' : '0 2px 12px rgba(0,0,0,0.3)' }}>
               {!isReady ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Cargando cámara...</> : <><Camera size={18} /> Capturar Foto</>}
             </button>
             <button onClick={handleBack} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -884,7 +884,7 @@ function SelfieCaptureScreen({ onCapture, onBack, onSessionExpired }: { onCaptur
     const base: React.CSSProperties = {
       color: '#fff',
       fontSize: 'clamp(14px, 4vw, 17px)',
-      fontWeight: 700,
+      fontWeight: 600,
       textAlign: 'center',
       textShadow: '0 2px 8px rgba(0,0,0,0.8)',
       padding: '8px 16px',
@@ -918,7 +918,7 @@ function SelfieCaptureScreen({ onCapture, onBack, onSessionExpired }: { onCaptur
       {showTimeoutMsg && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
           <Loader2 size={40} color="#f59e0b" style={{ animation: 'spin 1s linear infinite' }} />
-          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 700, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
+          <p style={{ color: '#fef3c7', fontSize: 16, fontWeight: 600, textAlign: 'center', margin: 0 }}>La cámara tardó en cargar</p>
           <p style={{ color: '#fcd34d', fontSize: 14, textAlign: 'center', margin: 0, lineHeight: 1.5 }}>Se repetirá el proceso automáticamente en unos segundos...</p>
         </div>
       )}
@@ -926,7 +926,7 @@ function SelfieCaptureScreen({ onCapture, onBack, onSessionExpired }: { onCaptur
       {/* Retry badge */}
       {retryCount > 0 && (
         <div style={{ position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 16px))', left: 16, background: 'rgba(245,158,11,0.9)', borderRadius: 20, padding: '4px 10px', zIndex: 30 }}>
-          <p style={{ color: '#fff', fontSize: 11, fontWeight: 700, margin: 0 }}>Intento {retryCount + 1}/{MAX_RETRY_ATTEMPTS}</p>
+          <p style={{ color: '#fff', fontSize: 11, fontWeight: 600, margin: 0 }}>Intento {retryCount + 1}/{MAX_RETRY_ATTEMPTS}</p>
         </div>
       )}
 
@@ -1017,7 +1017,7 @@ function SelfieCaptureScreen({ onCapture, onBack, onSessionExpired }: { onCaptur
             <button onClick={handleRetry} disabled={retryCount >= MAX_RETRY_ATTEMPTS - 1} style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: retryCount >= MAX_RETRY_ATTEMPTS - 1 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <RefreshCw size={15} /> Repetir
             </button>
-            <button onClick={handleUseCapture} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
+            <button onClick={handleUseCapture} style={{ flex: 2, padding: '14px 0', borderRadius: 14, background: 'linear-gradient(90deg, #1E6BFF 0%, #3b82f6 100%)', color: '#fff', fontWeight: 600, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(30, 107, 255,0.45)' }}>
               Usar video y foto
             </button>
           </div>
@@ -1033,7 +1033,7 @@ function SelfieCaptureScreen({ onCapture, onBack, onSessionExpired }: { onCaptur
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button onClick={startRecording} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 700, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: !isReady ? 'none' : '0 2px 12px rgba(0,0,0,0.3)' }}>
+            <button onClick={startRecording} disabled={!isReady} style={{ width: '100%', padding: '16px 0', borderRadius: 14, background: !isReady ? 'rgba(255,255,255,0.15)' : '#ffffff', color: !isReady ? 'rgba(255,255,255,0.5)' : '#111827', fontWeight: 600, fontSize: 'clamp(14px, 4vw, 16px)', border: 'none', cursor: !isReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: !isReady ? 'none' : '0 2px 12px rgba(0,0,0,0.3)' }}>
               {!isReady ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Cargando cámara...</> : <><Video size={18} /> Iniciar grabación (3s)</>}
             </button>
             <button onClick={() => { stopCamera(); onBack(); }} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -1144,7 +1144,7 @@ function Screen8({ selfie, selfieVideo, idAnverso, token, onConfirm, onBack, pro
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Validación facial</h2>
+        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Validación facial</h2>
         <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>Comparando selfie con tu identificación</p>
       </div>
 
@@ -1166,7 +1166,7 @@ function Screen8({ selfie, selfieVideo, idAnverso, token, onConfirm, onBack, pro
         <div style={{ background: BRAND.redLight, border: `1.5px solid ${BRAND.redBorder}`, borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <AlertCircle size={18} color={BRAND.red} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
-            <p style={{ color: '#991b1b', fontWeight: 700, fontSize: 13, margin: 0 }}>Error en validación facial</p>
+            <p style={{ color: '#991b1b', fontWeight: 600, fontSize: 13, margin: 0 }}>Error en validación facial</p>
             <p style={{ color: '#b91c1c', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{faceApiError}</p>
           </div>
         </div>
@@ -1188,7 +1188,7 @@ function Screen8({ selfie, selfieVideo, idAnverso, token, onConfirm, onBack, pro
             {aprobado
               ? <CheckCircle2 size={20} color={BRAND.green} />
               : <AlertCircle size={20} color={BRAND.red} />}
-            <p style={{ color: aprobado ? '#166534' : '#991b1b', fontWeight: 700, fontSize: 14, margin: 0 }}>
+            <p style={{ color: aprobado ? '#166534' : '#991b1b', fontWeight: 600, fontSize: 14, margin: 0 }}>
               {aprobado ? 'Identidad verificada' : 'No se pudo verificar la identidad'}
             </p>
           </div>
@@ -1199,7 +1199,7 @@ function Screen8({ selfie, selfieVideo, idAnverso, token, onConfirm, onBack, pro
       )}
 
       {!isLoading && faceApiError && (
-        <button onClick={onBack} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <button onClick={onBack} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 600, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <RefreshCw size={16} /> Volver a capturar
         </button>
       )}
@@ -1242,7 +1242,7 @@ function Screen9({ data, onConfirm, onBack, submitting, submitError, onReiniciar
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
-          <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Información validada</h2>
+          <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Información validada</h2>
           <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>Revisa y confirma tus datos</p>
         </div>
         <Card style={{ background: '#eff4ff', border: '1.5px solid #bfdbfe' }}>
@@ -1313,7 +1313,7 @@ function EnrollmentCompleteScreen() {
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: BRAND.greenLight, border: `2px solid ${BRAND.greenBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <CheckCircle2 size={28} color={BRAND.green} />
           </div>
-          <h2 style={{ color: BRAND.text, fontSize: 22, fontWeight: 800, margin: 0 }}>¡Proceso completado!</h2>
+          <h2 style={{ color: BRAND.text, fontSize: 22, fontWeight: 600, margin: 0 }}>¡Proceso completado!</h2>
           <p style={{ color: BRAND.textMuted, fontSize: 14, lineHeight: 1.6 }}>
             Tu identidad ha sido verificada exitosamente. Puedes cerrar esta pestaña de forma segura.
           </p>
@@ -1353,7 +1353,7 @@ function EnrollmentCompleteScreen() {
         <div style={{ width: 72, height: 72, borderRadius: '50%', background: BRAND.greenLight, border: `2px solid ${BRAND.greenBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <CheckCircle2 size={32} color={BRAND.green} />
         </div>
-        <h2 style={{ color: BRAND.text, fontSize: 22, fontWeight: 800, margin: 0 }}>¡Enrolamiento completado!</h2>
+        <h2 style={{ color: BRAND.text, fontSize: 22, fontWeight: 600, margin: 0 }}>¡Enrolamiento completado!</h2>
         <p style={{ color: BRAND.textMuted, fontSize: 14, lineHeight: 1.6 }}>
           Tu identidad ha sido verificada exitosamente. Esta ventana se cerrará en {countdown} segundo{countdown !== 1 ? 's' : ''}.
         </p>
@@ -1362,7 +1362,7 @@ function EnrollmentCompleteScreen() {
             Los datos han sido enviados de forma segura. El proceso puede continuar en la ventana principal.
           </p>
         </Card>
-        <button onClick={handleClose} style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <button onClick={handleClose} style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           Cerrar ahora
         </button>
       </div>
@@ -1379,7 +1379,7 @@ function Screen1({ onStart }: { onStart: () => void }) {
         <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#eff4ff', border: '2px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
           <CreditCard size={32} color={BRAND.blue} />
         </div>
-        <h1 style={{ color: BRAND.text, fontSize: 22, fontWeight: 800, margin: 0 }}>Enrolamiento biométrico</h1>
+        <h1 style={{ color: BRAND.text, fontSize: 22, fontWeight: 600, margin: 0 }}>Enrolamiento biométrico</h1>
         <p style={{ color: BRAND.textMuted, fontSize: 14, marginTop: 8, lineHeight: 1.6 }}>Necesitamos verificar tu identidad. El proceso toma aproximadamente 3 minutos.</p>
       </div>
       <Card>
@@ -1412,7 +1412,7 @@ function Screen2({ onSelect, onBack }: { onSelect: (tipo: IdType) => void; onBac
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Tipo de identificación</h2>
+        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Tipo de identificación</h2>
         <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>Selecciona el documento que usarás para verificar tu identidad</p>
       </div>
       {options.map((opt) => (
@@ -1423,7 +1423,7 @@ function Screen2({ onSelect, onBack }: { onSelect: (tipo: IdType) => void; onBac
           style={{ background: opt.disabled ? '#f3f4f6' : BRAND.card, border: `1.5px solid ${opt.disabled ? '#e5e7eb' : BRAND.cardBorder}`, borderRadius: 14, padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: opt.disabled ? 'not-allowed' : 'pointer', textAlign: 'left', width: '100%', opacity: opt.disabled ? 0.5 : 1 }}
         >
           <div>
-            <p style={{ color: opt.disabled ? BRAND.textLight : BRAND.text, fontWeight: 700, fontSize: 15, margin: 0 }}>{opt.label}</p>
+            <p style={{ color: opt.disabled ? BRAND.textLight : BRAND.text, fontWeight: 600, fontSize: 15, margin: 0 }}>{opt.label}</p>
             <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 2, margin: '2px 0 0' }}>{opt.disabled ? 'No disponible por el momento' : opt.desc}</p>
           </div>
           <ChevronRight size={18} color={opt.disabled ? BRAND.textLight : BRAND.textLight} />
@@ -1526,7 +1526,7 @@ function Screen5({ anverso, reverso, token, onConfirm, onBack }: { anverso: stri
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Validación de identificación</h2>
+        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Validación de identificación</h2>
         <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>Extrayendo y verificando datos de tu ID</p>
       </div>
 
@@ -1546,7 +1546,7 @@ function Screen5({ anverso, reverso, token, onConfirm, onBack }: { anverso: stri
         <div style={{ background: BRAND.redLight, border: `1.5px solid ${BRAND.redBorder}`, borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <AlertCircle size={18} color={BRAND.red} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
-            <p style={{ color: '#991b1b', fontWeight: 700, fontSize: 13, margin: 0 }}>Error al leer la identificación</p>
+            <p style={{ color: '#991b1b', fontWeight: 600, fontSize: 13, margin: 0 }}>Error al leer la identificación</p>
             <p style={{ color: '#b91c1c', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{ocrError}</p>
           </div>
         </div>
@@ -1558,7 +1558,7 @@ function Screen5({ anverso, reverso, token, onConfirm, onBack }: { anverso: stri
             <div style={{ background: BRAND.amberLight, border: `1.5px solid ${BRAND.amberBorder}`, borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <AlertCircle size={18} color={BRAND.amber} style={{ flexShrink: 0, marginTop: 1 }} />
               <div>
-                <p style={{ color: '#92400e', fontWeight: 700, fontSize: 13, margin: 0 }}>Credencial vencida</p>
+                <p style={{ color: '#92400e', fontWeight: 600, fontSize: 13, margin: 0 }}>Credencial vencida</p>
                 <p style={{ color: '#b45309', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>Tu credencial venció en {ocrResult.vigencia}. Por favor usa una identificación vigente.</p>
               </div>
             </div>
@@ -1574,7 +1574,7 @@ function Screen5({ anverso, reverso, token, onConfirm, onBack }: { anverso: stri
             <Card style={{ background: '#eff4ff', border: '1.5px solid #bfdbfe' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <CheckCircle2 size={16} color={BRAND.blue} />
-                <p style={{ color: '#1e40af', fontSize: 12, fontWeight: 700, margin: 0 }}>Datos confirmados por RENAPO</p>
+                <p style={{ color: '#1e40af', fontSize: 12, fontWeight: 600, margin: 0 }}>Datos confirmados por RENAPO</p>
               </div>
               {[
                 { label: 'Nombre', value: curpData.nombre },
@@ -1601,7 +1601,7 @@ function Screen5({ anverso, reverso, token, onConfirm, onBack }: { anverso: stri
       )}
 
       {!loading && ocrError && (
-        <button onClick={onBack} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <button onClick={onBack} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 600, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <RefreshCw size={16} /> Volver a capturar
         </button>
       )}
@@ -1626,7 +1626,7 @@ function Screen6({ onContinue, onBack }: { onContinue: () => void; onBack: () =>
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Captura de video facial</h2>
+        <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Captura de video facial</h2>
         <p style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>Ahora necesitamos grabar un video corto de tu rostro</p>
       </div>
       <Card>
@@ -1933,7 +1933,7 @@ export default function EnrollamientoPage({ params }: { params: Promise<{ token:
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: BRAND.redLight, border: `2px solid ${BRAND.redBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <AlertCircle size={28} color={BRAND.red} />
           </div>
-          <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 700, margin: 0 }}>Enlace no válido</h2>
+          <h2 style={{ color: BRAND.text, fontSize: 20, fontWeight: 600, margin: 0 }}>Enlace no válido</h2>
           <p style={{ color: BRAND.textMuted, fontSize: 14, lineHeight: 1.6, margin: 0 }}>{tokenError}</p>
         </div>
       </div>
@@ -1948,7 +1948,7 @@ export default function EnrollamientoPage({ params }: { params: Promise<{ token:
           <div style={{ width: 72, height: 72, borderRadius: '50%', background: BRAND.redLight, border: `2px solid ${BRAND.redBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <AlertCircle size={32} color={BRAND.red} />
           </div>
-          <h2 style={{ color: '#991b1b', fontSize: 20, fontWeight: 800, margin: 0 }}>Enrolamiento cancelado</h2>
+          <h2 style={{ color: '#991b1b', fontSize: 20, fontWeight: 600, margin: 0 }}>Enrolamiento cancelado</h2>
           <p style={{ color: '#b91c1c', fontSize: 14, lineHeight: 1.6, margin: 0 }}>
             Se ha superado el número máximo de intentos permitidos. El proceso de enrolamiento ha sido cancelado por seguridad.
           </p>
@@ -1962,7 +1962,7 @@ export default function EnrollamientoPage({ params }: { params: Promise<{ token:
           </div>
           <button
             onClick={() => { try { window.close(); } catch { /* ignore */ } }}
-            style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
           >
             Cerrar ventana
           </button>

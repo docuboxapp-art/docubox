@@ -44,9 +44,15 @@ export interface IndividualParticipationCertificateData {
   country: string;
   certificateValidity: string;
   certificateAlgorithm: string;
+  validationProvider?: string;
+  validationStatus?: string;
+  validationCode?: string;
+  validationCheckedAt?: string;
   timestampAuthority: string;
+  timestampStatus?: string;
   timestampUrl: string;
   signatureLevel: string;
+  padesVerificationStatus?: string;
   legalStandard: string;
   consentAccepted: boolean;
   consentAcceptedAt: string;
@@ -93,10 +99,82 @@ function splitCompleteLines(value: string, font: PDFFont, size: number, maxWidth
   return lines;
 }
 
-function formatUtc(value: string) {
-  const parsed = new Date(value);
+function formatUtc(value: unknown) {
+  const parsed = new Date(String(value || ''));
   if (Number.isNaN(parsed.getTime())) return text(value);
-  return parsed.toISOString();
+  return `${new Intl.DateTimeFormat('es-MX', {
+    timeZone: 'UTC',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(parsed)} UTC`;
+}
+
+function normalizedStatus(value: unknown, validLabel = 'Válido') {
+  const clean = text(value);
+  switch (clean.toLowerCase()) {
+    case 'good':
+    case 'activo':
+    case 'active':
+      return 'Vigente';
+    case 'valid':
+      return validLabel;
+    case 'completed':
+      return 'Completado';
+    case 'revoked':
+    case 'revocado':
+      return 'Revocado';
+    case 'unknown':
+      return 'No determinado';
+    default:
+      return clean;
+  }
+}
+
+function validationProviderLabel(value: unknown) {
+  const clean = text(value);
+  if (clean.toUpperCase().includes('NUBARIUM')) return 'Nubarium SAT + validación criptográfica WebCrypto';
+  return clean.replaceAll('_', ' ');
+}
+
+function issuerSummary(value: unknown) {
+  const clean = text(value);
+  const commonName = clean.match(/(?:^|,\s*)CN=([^,]+)/i)?.[1]?.trim();
+  return commonName ? `${commonName} (SAT)` : clean;
+}
+
+function wrapCompleteLines(value: string, font: PDFFont, size: number, maxWidth: number) {
+  const words = text(value).split(/\s+/);
+  const lines: string[] = [];
+  let current = '';
+  const pushLongWord = (word: string) => {
+    const fragments = splitCompleteLines(word, font, size, maxWidth);
+    if (fragments.length === 0) return;
+    lines.push(...fragments.slice(0, -1));
+    current = fragments.at(-1) || '';
+  };
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      current = candidate;
+    } else {
+      if (current) lines.push(current);
+      current = '';
+      if (font.widthOfTextAtSize(word, size) <= maxWidth) current = word;
+      else pushLongWord(word);
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [text(value)];
+}
+
+function joinedStatusLabel(value: unknown, status: unknown, validLabel?: string) {
+  const parts = [text(value), normalizedStatus(status, validLabel)].filter((item) => item !== 'No disponible');
+  return parts.length ? parts.join(' · ') : 'No disponible';
 }
 
 function drawLogo(page: PDFPage, logo: PDFImage | null, fonts: Fonts, y: number) {
@@ -154,7 +232,7 @@ function drawFooter(page: PDFPage, logo: PDFImage | null, fonts: Fonts, generate
   } else {
     page.drawText('Docubox', { x: MARGIN, y: 21, size: 11, font: fonts.bold, color: COLORS.text });
   }
-  const generatedLabel = `Generada automáticamente · ${formatUtc(generatedAt)} UTC`;
+  const generatedLabel = `Generada automáticamente · ${formatUtc(generatedAt)}`;
   const generatedSize = completeTextSize(generatedLabel, fonts.regular, 6.6, 245, 5.2);
   page.drawText(generatedLabel, {
     x: 207,
@@ -195,13 +273,19 @@ function drawRows(
   const labelWidth = options?.labelWidth ?? 155;
   const rowHeight = options?.rowHeight ?? 22;
   const valueSize = options?.valueSize ?? 7.8;
+  let currentY = y;
   rows.forEach(([label, value], index) => {
-    const rowY = y - rowHeight * (index + 1);
+    const completeValue = text(value);
+    const valueWidth = CONTENT_WIDTH - labelWidth - 18;
+    const lines = wrapCompleteLines(completeValue, fonts.regular, valueSize, valueWidth);
+    const lineHeight = valueSize + 2;
+    const actualRowHeight = Math.max(rowHeight, lines.length * lineHeight + 8);
+    const rowY = currentY - actualRowHeight;
     page.drawRectangle({
       x: MARGIN,
       y: rowY,
       width: CONTENT_WIDTH,
-      height: rowHeight,
+      height: actualRowHeight,
       color: index % 2 === 0 ? COLORS.white : COLORS.softGray,
       borderColor: COLORS.border,
       borderWidth: 0.35,
@@ -210,29 +294,29 @@ function drawRows(
       x: MARGIN,
       y: rowY,
       width: labelWidth,
-      height: rowHeight,
+      height: actualRowHeight,
       color: COLORS.softGray,
       borderColor: COLORS.border,
       borderWidth: 0.35,
     });
     page.drawText(label.toUpperCase(), {
       x: MARGIN + 9,
-      y: rowY + 7.4,
+      y: rowY + actualRowHeight / 2 - 2.4,
       size: 6.7,
       font: fonts.bold,
       color: COLORS.muted,
     });
-    const completeValue = text(value);
-    const completeValueSize = completeTextSize(completeValue, fonts.regular, valueSize, CONTENT_WIDTH - labelWidth - 18);
-    page.drawText(completeValue, {
+    const firstLineY = rowY + actualRowHeight - valueSize - 5;
+    lines.forEach((line, lineIndex) => page.drawText(line, {
       x: MARGIN + labelWidth + 9,
-      y: rowY + 7,
-      size: completeValueSize,
+      y: firstLineY - lineIndex * lineHeight,
+      size: valueSize,
       font: fonts.regular,
       color: COLORS.text,
-    });
+    }));
+    currentY = rowY;
   });
-  return y - rows.length * rowHeight;
+  return currentY;
 }
 
 function drawSummaryCards(page: PDFPage, fonts: Fonts, data: IndividualParticipationCertificateData, y: number) {
@@ -316,6 +400,14 @@ function drawWrappedText(
 
 function signatureDetailSection(data: IndividualParticipationCertificateData) {
   if (data.signatureKind === 'efirma') {
+    const validationRows: Array<[string, string]> = [
+      ['Proveedor de validación SAT', validationProviderLabel(data.validationProvider)],
+      ['Resultado validación SAT', normalizedStatus(data.validationStatus)],
+      ['Fecha de validación SAT', formatUtc(data.validationCheckedAt)],
+    ];
+    if (text(data.validationCode) !== 'No disponible') {
+      validationRows.push(['Referencia de validación', text(data.validationCode)]);
+    }
     return {
       title: 'Certificado e.firma SAT',
       rows: [
@@ -325,9 +417,10 @@ function signatureDetailSection(data: IndividualParticipationCertificateData) {
         ['Válido desde', formatUtc(data.certificateNotBefore)],
         ['Válido hasta', formatUtc(data.certificateNotAfter)],
         ['Algoritmo', data.certificateAlgorithm],
-        ['Estado OCSP', data.ocspStatus],
-        ['Sellado de tiempo (TSA)', data.timestampAuthority],
-        ['Perfil PAdES', data.signatureLevel],
+        ...validationRows,
+        ['Estado de revocación (OCSP)', normalizedStatus(data.ocspStatus)],
+        ['Sellado de tiempo (TSA)', joinedStatusLabel(data.timestampAuthority, data.timestampStatus, 'Válido')],
+        ['Perfil PAdES', joinedStatusLabel(data.signatureLevel, data.padesVerificationStatus, 'Verificado')],
       ] as Array<[string, string]>,
     };
   }
@@ -364,8 +457,15 @@ function signatureDetailSection(data: IndividualParticipationCertificateData) {
 function drawEvidenceValue(page: PDFPage, fonts: Fonts, label: string, value: string, x: number, y: number, width: number) {
   page.drawText(label.toUpperCase(), { x, y, size: 6.2, font: fonts.bold, color: COLORS.muted });
   const clean = text(value);
-  const size = completeTextSize(clean, fonts.regular, 6.8, width, 4.4);
-  page.drawText(clean, { x, y: y - 12, size, font: fonts.regular, color: COLORS.text });
+  const size = 6.2;
+  const lines = wrapCompleteLines(clean, fonts.regular, size, width).slice(0, 2);
+  lines.forEach((line, index) => page.drawText(line, {
+    x,
+    y: y - 12 - index * 7.4,
+    size,
+    font: fonts.regular,
+    color: COLORS.text,
+  }));
 }
 
 function drawEvidenceSidePanel(page: PDFPage, fonts: Fonts, data: IndividualParticipationCertificateData) {
@@ -426,8 +526,8 @@ function drawSignatureEvidenceCard(
     page.drawText('CERTIFICADO e.firma SAT', { x: MARGIN + 70, y: 650, size: 7.3, font: fonts.bold, color: COLORS.accentDark });
     drawEvidenceValue(page, fonts, 'RFC', data.participantRfc, MARGIN + 70, 633, 112);
     drawEvidenceValue(page, fonts, 'Número de serie', data.certificateSerialNumber, MARGIN + 190, 633, 102);
-    drawEvidenceValue(page, fonts, 'Entidad emisora', data.issuer, MARGIN + 18, 598, 122);
-    drawEvidenceValue(page, fonts, 'Estado OCSP', data.ocspStatus, MARGIN + 154, 598, 122);
+    drawEvidenceValue(page, fonts, 'Entidad emisora', issuerSummary(data.issuer), MARGIN + 18, 598, 122);
+    drawEvidenceValue(page, fonts, 'Estado OCSP', normalizedStatus(data.ocspStatus), MARGIN + 154, 598, 122);
   } else if (data.signatureKind === 'click_sign') {
     page.drawRectangle({
       x: MARGIN + 18,

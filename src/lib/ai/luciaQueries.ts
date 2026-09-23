@@ -1334,7 +1334,7 @@ export async function buildStructuredContext(
   if (intent === 'integrations_help' || moduleKey === 'integrations') {
     const { data } = await supabase
       .from('user_module_preferences')
-      .select('id,active_module_id,updated_at')
+      .select('id,active_module_id,active_module_ids,updated_at')
       .eq('user_id', userId)
       .maybeSingle();
     return { activation: withSource('user_module_preferences', data) };

@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const signingPage = await readFile('src/app/firmar-documento/[id]/page.tsx', 'utf8');
 const sendStep = await readFile('src/app/crear-documento/components/StepEnviar.tsx', 'utf8');
+const participantsStep = await readFile('src/app/crear-documento/components/StepParticipantes.tsx', 'utf8');
 const persistRoute = await readFile('src/app/api/firma/persist-evidence/route.ts', 'utf8');
 const finalizeRoute = await readFile('src/app/api/firma/finalize-evidence/route.ts', 'utf8');
 const completionRoute = await readFile('src/app/api/firma/completion/route.ts', 'utf8');
@@ -25,6 +26,13 @@ test('new documents persist the authenticated UUID for the creator participant',
     sendStep,
     /user_id: p\.id === 'current-user' \? user\.id : isRegisteredUser \? p\.id : null/
   );
+});
+
+test('the participant summary labels act and document role separately', () => {
+  assert.match(sendStep, /Rol: \{p\.rolDocumento \|\| 'Participante'\}/);
+  assert.match(sendStep, /Acto\s*<\/p>\s*<p[^>]*>\{p\.acto\}<\/p>/);
+  assert.doesNotMatch(sendStep, /Acto \/ rol/);
+  assert.doesNotMatch(participantsStep, /Acto\/Rol/);
 });
 
 test('signature evidence endpoints reject UI aliases before UUID persistence', () => {

@@ -73,3 +73,27 @@ test('the inserted-fields list uses normal-weight aligned metadata text', () => 
   assert.match(sidebarSource, /text-\[13px\] font-normal text-gray-900/);
   assert.match(sidebarSource, /items-start justify-between gap-2/);
 });
+
+test('a selected template field shows only its typography and color controls', () => {
+  const toolbarSource = editorSource.slice(
+    editorSource.indexOf('function SimpleEditorToolbar'),
+    editorSource.indexOf('function StepInfoGeneral')
+  );
+
+  assert.match(
+    toolbarSource,
+    /aria-label=\{chipSelected \? 'Formato del campo seleccionado' : 'Formato del documento'\}/
+  );
+  assert.match(toolbarSource, /chipSelected \? 'field-formatting-mode' : ''/);
+  assert.match(toolbarSource, /onClick=\{onToggleRulers\}[\s\S]*?disabled=\{chipSelected\}/);
+  assert.match(toolbarSource, /value=\{currentParaStyle\}[\s\S]*?disabled=\{chipSelected\}/);
+  assert.match(toolbarSource, /\.field-formatting-mode > :global\(button:disabled\)/);
+  assert.match(toolbarSource, /\.field-formatting-mode > :global\(select:disabled\)/);
+  assert.match(toolbarSource, /\.field-formatting-mode > :global\(\.w-px\)/);
+  assert.match(toolbarSource, /\.field-formatting-mode > :global\(\.field-divider-visible\)/);
+  assert.match(toolbarSource, /showFindReplace && !chipSelected/);
+  assert.match(toolbarSource, /title="Fuente"/);
+  assert.match(toolbarSource, /title="Tamaño de fuente"/);
+  assert.match(toolbarSource, /execCmd\('foreColor', e\.target\.value\)/);
+  assert.match(toolbarSource, /execCmd\('hiliteColor', e\.target\.value\)/);
+});

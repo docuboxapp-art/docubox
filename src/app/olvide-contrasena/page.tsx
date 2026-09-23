@@ -250,7 +250,7 @@ function OlvideContrasenaContent() {
         <div className="absolute inset-x-0 bottom-0 h-px bg-blue-800" />
 
         <div className="relative mx-auto w-full max-w-[590px]">
-          <h1 className="mb-5 max-w-[560px] text-[23px] font-700 leading-tight text-white xl:text-[33px]">
+          <h1 className="mb-5 max-w-[560px] text-[23px] font-600 leading-tight text-white xl:text-[33px]">
             Recupera el acceso a tu cuenta
           </h1>
           <p className="mb-11 max-w-[570px] text-base leading-7 text-blue-100">
@@ -329,7 +329,7 @@ function OlvideContrasenaContent() {
             {step === 'email' && (
               <div>
                 <div className="mb-6">
-                  <h2 className="text-2xl font-700 text-foreground">¿Olvidaste tu contraseña?</h2>
+                  <h2 className="text-2xl font-600 text-foreground">¿Olvidaste tu contraseña?</h2>
                   <p className="text-sm text-muted-foreground mt-1">
                     Ingresa tu correo electrónico y te enviaremos un código de verificación.
                   </p>
@@ -369,7 +369,7 @@ function OlvideContrasenaContent() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {loading ? (
                       <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -385,7 +385,7 @@ function OlvideContrasenaContent() {
             {step === 'otp' && (
               <div>
                 <div className="mb-6">
-                  <h2 className="text-2xl font-700 text-foreground">Verifica tu identidad</h2>
+                  <h2 className="text-2xl font-600 text-foreground">Verifica tu identidad</h2>
                   <p className="text-sm text-muted-foreground mt-1">
                     Ingresa el código de 6 dígitos enviado a{' '}
                     <span className="font-600 text-foreground">{email}</span>
@@ -412,7 +412,7 @@ function OlvideContrasenaContent() {
                           onKeyDown={(e) => handleOtpKeyDown(index, e)}
                           onPaste={handleOtpPaste}
                           onFocus={(e) => e.target.select()}
-                          className={`w-10 h-11 text-center text-lg font-700 font-mono border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
+                          className={`w-10 h-11 text-center text-lg font-600 font-mono border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
                             digit
                               ? 'border-primary bg-primary/5 text-primary'
                               : 'border-border bg-white text-foreground'
@@ -424,7 +424,7 @@ function OlvideContrasenaContent() {
                   <button
                     type="submit"
                     disabled={loading || getOtpValue().length < 6}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {loading ? (
                       <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -461,7 +461,7 @@ function OlvideContrasenaContent() {
             {step === 'new-password' && (
               <div>
                 <div className="mb-6">
-                  <h2 className="text-2xl font-700 text-foreground">Crea nueva contraseña</h2>
+                  <h2 className="text-2xl font-600 text-foreground">Crea nueva contraseña</h2>
                   <p className="text-sm text-muted-foreground mt-1">
                     Elige una contraseña segura para proteger tu cuenta.
                   </p>
@@ -539,7 +539,7 @@ function OlvideContrasenaContent() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {loading ? (
                       <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -557,14 +557,14 @@ function OlvideContrasenaContent() {
                 <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
                   <CheckCircle2 size={32} className="text-green-600" />
                 </div>
-                <h2 className="text-2xl font-700 text-foreground mb-2">¡Contraseña actualizada!</h2>
+                <h2 className="text-2xl font-600 text-foreground mb-2">¡Contraseña actualizada!</h2>
                 <p className="text-sm text-muted-foreground mb-8">
                   Tu contraseña ha sido restablecida exitosamente. Ya puedes iniciar sesión con tu
                   nueva contraseña.
                 </p>
                 <Link
                   href={loginHref}
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-primary py-3 text-sm font-700 text-white transition-colors hover:bg-primary/90"
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-primary py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90"
                 >
                   Ir al inicio de sesión
                 </Link>

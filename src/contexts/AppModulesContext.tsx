@@ -3,6 +3,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { FREE_PLAN_MODULE_LIMIT, toggleFreePlanModule } from '@/lib/app-market/module-selection';
+
+export { FREE_PLAN_MODULE_LIMIT } from '@/lib/app-market/module-selection';
 
 export type ModuleId =
   | 'formularios'
@@ -100,20 +103,22 @@ export const ALL_MODULES: AppModule[] = [
 
 interface AppModulesContextValue {
   activeModuleId: ModuleId | null;
-  setActiveModule: (id: ModuleId | null) => void;
+  activeModuleIds: ModuleId[];
+  setActiveModule: (id: ModuleId | null) => Promise<boolean>;
   isModuleActive: (id: ModuleId) => boolean;
   loading: boolean;
 }
 
 const AppModulesContext = createContext<AppModulesContextValue>({
   activeModuleId: null,
-  setActiveModule: () => {},
+  activeModuleIds: [],
+  setActiveModule: async () => false,
   isModuleActive: () => false,
   loading: false,
 });
 
 export function AppModulesProvider({ children }: { children: React.ReactNode }) {
-  const [activeModuleId, setActiveModuleId] = useState<ModuleId | null>(null);
+  const [activeModuleIds, setActiveModuleIds] = useState<ModuleId[]>([]);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const userId = user?.id ?? '';
@@ -126,16 +131,28 @@ export function AppModulesProvider({ children }: { children: React.ReactNode }) 
       try {
         const { data, error } = await supabase
           .from('user_module_preferences')
-          .select('active_module_id')
+          .select('active_module_id,active_module_ids')
           .eq('user_id', userId)
           .maybeSingle();
 
         if (error) {
-          console.log('Error loading module preference:', error.message);
-        } else if (data?.active_module_id) {
-          setActiveModuleId(data.active_module_id as ModuleId);
+          console.warn('Error loading module preference:', error.message);
         } else {
-          setActiveModuleId(null);
+          const storedIds = Array.isArray(data?.active_module_ids)
+            ? data.active_module_ids.filter((id): id is ModuleId =>
+                ALL_MODULES.some((module) => module.id === id)
+              )
+            : [];
+          const legacyId = ALL_MODULES.some((module) => module.id === data?.active_module_id)
+            ? (data?.active_module_id as ModuleId)
+            : null;
+          setActiveModuleIds(
+            storedIds.length > 0
+              ? storedIds.slice(0, FREE_PLAN_MODULE_LIMIT)
+              : legacyId
+                ? [legacyId]
+                : []
+          );
         }
       } catch {
         // silent
@@ -146,7 +163,7 @@ export function AppModulesProvider({ children }: { children: React.ReactNode }) 
 
     const timer = window.setTimeout(() => {
       if (!userId) {
-        setActiveModuleId(null);
+        setActiveModuleIds([]);
         setLoading(false);
         return;
       }
@@ -157,34 +174,49 @@ export function AppModulesProvider({ children }: { children: React.ReactNode }) 
 
   const setActiveModule = useCallback(
     async (id: ModuleId | null) => {
-      // Optimistic update
-      setActiveModuleId(id);
+      const previousIds = activeModuleIds;
+      const selection = toggleFreePlanModule(previousIds, id);
+      if (!selection.accepted) return false;
+      const nextIds = selection.nextIds;
 
-      if (!userId) return;
+      setActiveModuleIds(nextIds);
+
+      if (!userId) return true;
 
       try {
-        const { error } = await supabase
-          .from('user_module_preferences')
-          .upsert(
-            { user_id: userId, active_module_id: id, updated_at: new Date().toISOString() },
-            { onConflict: 'user_id' }
-          );
+        const { error } = await supabase.from('user_module_preferences').upsert(
+          {
+            user_id: userId,
+            active_module_id: nextIds[0] || null,
+            active_module_ids: nextIds,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        );
 
         if (error) {
-          console.log('Error saving module preference:', error.message);
+          console.warn('Error saving module preference:', error.message);
+          setActiveModuleIds(previousIds);
+          return false;
         }
       } catch {
-        // silent
+        setActiveModuleIds(previousIds);
+        return false;
       }
+      return true;
     },
-    [supabase, userId]
+    [activeModuleIds, supabase, userId]
   );
 
-  const isModuleActive = useCallback((id: ModuleId) => activeModuleId === id, [activeModuleId]);
+  const activeModuleId = activeModuleIds[0] || null;
+  const isModuleActive = useCallback(
+    (id: ModuleId) => activeModuleIds.includes(id),
+    [activeModuleIds]
+  );
 
   return (
     <AppModulesContext.Provider
-      value={{ activeModuleId, setActiveModule, isModuleActive, loading }}
+      value={{ activeModuleId, activeModuleIds, setActiveModule, isModuleActive, loading }}
     >
       {children}
     </AppModulesContext.Provider>

@@ -94,6 +94,61 @@ function sanitizeFileName(name: string): string {
     .replace(/[^a-zA-Z0-9.\-_]/g, '_'); // replace unsafe chars
 }
 
+function normalizeRequestedFieldToken(value: unknown) {
+  return String(value || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function resolveSerializedFieldType(type: unknown, label: string) {
+  const aliases: Record<string, string> = {
+    signature: 'firma',
+    firma: 'firma',
+    text: 'texto',
+    texto: 'texto',
+    number: 'numero',
+    numero: 'numero',
+    date: 'fecha',
+    fecha: 'fecha',
+    checkbox: 'checkbox',
+    casilla: 'checkbox',
+    dropdown: 'dropdown',
+    desplegable: 'dropdown',
+    radio: 'radio',
+    'botones de opcion': 'radio',
+    email: 'correo',
+    correo: 'correo',
+    'correo electronico': 'correo',
+    rfc: 'rfc',
+    curp: 'curp',
+    phone: 'telefono',
+    telefono: 'telefono',
+    'numero telefonico': 'telefono',
+    address: 'direccion',
+    direccion: 'direccion',
+    time: 'hora',
+    hora: 'hora',
+    image: 'imagen',
+    imagen: 'imagen',
+    currency: 'moneda',
+    moneda: 'moneda',
+    'nombre completo': 'nombre_completo',
+    'cadena original': 'document_chain',
+    'sello digital': 'document_seal',
+    'estampa de tiempo': 'timestamp',
+    'cadena de evidencia': 'evidence_chain',
+  };
+  const explicitType = aliases[normalizeRequestedFieldToken(type)];
+  const labelType = aliases[normalizeRequestedFieldToken(label)];
+  return explicitType && explicitType !== 'texto'
+    ? explicitType
+    : labelType || explicitType || 'texto';
+}
+
 function getNotifLabel(id: string): string {
   const map: Record<string, string> = {
     docubox: 'Docubox',
@@ -615,32 +670,10 @@ export const StepEnviar = forwardRef<
 
       const camposSolicitados = placedFields
         ? placedFields.map((f) => {
-            const tipoMap: Record<string, string> = {
-              Firma: 'firma',
-              'Nombre Completo': 'nombre_completo',
-              RFC: 'rfc',
-              CURP: 'curp',
-              'Correo Electrónico': 'correo',
-              'Número Telefónico': 'telefono',
-              Dirección: 'direccion',
-              Texto: 'texto',
-              Fecha: 'fecha',
-              Hora: 'hora',
-              Número: 'numero',
-              Moneda: 'moneda',
-              Casilla: 'checkbox',
-              Imagen: 'imagen',
-              'Botones de opción': 'radio',
-              Desplegable: 'dropdown',
-              'Cadena original': 'document_chain',
-              'Sello digital': 'document_seal',
-              'Estampa de tiempo': 'timestamp',
-              'Cadena de evidencia': 'evidence_chain',
-            };
             return {
               id: f.id,
               valueKey: f.valueKey || f.id,
-              tipo: (f as any).tipo || tipoMap[f.label] || 'texto',
+              tipo: resolveSerializedFieldType((f as any).tipo, f.label),
               label: f.label,
               participantId: f.participantId || null,
               participantName: f.participantName || null,
@@ -870,7 +903,7 @@ export const StepEnviar = forwardRef<
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
-          <h1 className="text-2xl font-700 text-slate-950">
+          <h1 className="text-2xl font-600 text-slate-950">
             {scheduledResult ? 'Envío programado' : 'Documento enviado'}
           </h1>
           <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
@@ -884,7 +917,7 @@ export const StepEnviar = forwardRef<
             <div className="mt-5 flex w-full items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-left">
               <AlertTriangle size={17} className="mt-0.5 shrink-0 text-amber-600" />
               <div>
-                <p className="text-sm font-700 text-amber-900">
+                <p className="text-sm font-600 text-amber-900">
                   {invitationResult.failed} de {invitationResult.attempted} invitación
                   {invitationResult.attempted !== 1 ? 'es' : ''} no se enviaron
                 </p>
@@ -902,14 +935,14 @@ export const StepEnviar = forwardRef<
               ) : (
                 <>
                   Redirección automática en{' '}
-                  <span className="font-700 text-emerald-600">{countdown}</span> segundo
+                  <span className="font-600 text-emerald-600">{countdown}</span> segundo
                   {countdown !== 1 ? 's' : ''}
                 </>
               )}
             </p>
             <button
               onClick={() => window.location.replace('/mis-documentos')}
-              className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-700 text-white transition-colors hover:bg-emerald-700"
+              className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-600 text-white transition-colors hover:bg-emerald-700"
             >
               Cerrar
             </button>
@@ -1009,7 +1042,7 @@ export const StepEnviar = forwardRef<
             <CheckCircle2 size={20} className="text-emerald-600" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-lg font-700 text-slate-950">Documento listo para enviar</h1>
+            <h1 className="text-lg font-600 text-slate-950">Documento listo para enviar</h1>
             <p className="mt-0.5 text-sm text-slate-600">
               Comprueba la información antes de iniciar el proceso.
             </p>
@@ -1017,13 +1050,13 @@ export const StepEnviar = forwardRef<
         </div>
         <div className="flex items-center divide-x divide-emerald-200 text-center">
           <div className="px-4 first:pl-0">
-            <p className="text-base font-700 tabular-nums text-slate-950">{participants.length}</p>
+            <p className="text-base font-600 tabular-nums text-slate-950">{participants.length}</p>
             <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">
               Participantes
             </p>
           </div>
           <div className="px-4">
-            <p className="text-base font-700 tabular-nums text-slate-950">
+            <p className="text-base font-600 tabular-nums text-slate-950">
               {placedFields?.length ?? 0}
             </p>
             <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">
@@ -1031,7 +1064,7 @@ export const StepEnviar = forwardRef<
             </p>
           </div>
           <div className="px-4 pr-0">
-            <p className="text-base font-700 tabular-nums text-slate-950">
+            <p className="text-base font-600 tabular-nums text-slate-950">
               {pdfMetadata?.pageCount ?? '—'}
             </p>
             <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-500">
@@ -1043,7 +1076,7 @@ export const StepEnviar = forwardRef<
 
       <section className="mb-4 overflow-hidden rounded-lg border border-slate-200/90 bg-white">
         <div className="border-b border-slate-200 px-5 py-4">
-          <h2 className="text-base font-700 text-slate-950">Momento del envío</h2>
+          <h2 className="text-base font-600 text-slate-950">Momento del envío</h2>
           <p className="mt-0.5 text-xs text-slate-500">
             Elige si deseas iniciar el proceso ahora o en una fecha posterior.
           </p>
@@ -1187,7 +1220,7 @@ export const StepEnviar = forwardRef<
       <section className="mb-4 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
-            <h2 className="text-base font-700 text-slate-950">Documento</h2>
+            <h2 className="text-base font-600 text-slate-950">Documento</h2>
             <p className="mt-0.5 text-xs text-slate-500">Archivo y configuración general</p>
           </div>
           <button
@@ -1208,7 +1241,7 @@ export const StepEnviar = forwardRef<
               {templateSource ? <LayoutTemplate size={20} /> : <FileText size={20} />}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-700 text-slate-950">
+              <p className="truncate text-sm font-600 text-slate-950">
                 {docConfig.nombre || sourceDisplayName.replace(/\.[^/.]+$/, '')}
               </p>
               <p className="mt-1 truncate text-xs text-slate-500">{sourceDisplayDetail}</p>
@@ -1339,7 +1372,7 @@ export const StepEnviar = forwardRef<
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-700 text-slate-950">Participantes</h2>
+              <h2 className="text-base font-600 text-slate-950">Participantes</h2>
               <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 tabular-nums text-slate-500">
                 {participants.length}
               </span>
@@ -1389,13 +1422,13 @@ export const StepEnviar = forwardRef<
                   className="flex items-start gap-4 px-5 py-4 transition-colors hover:bg-slate-50/60"
                 >
                   <div
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-700 ${colorClass}`}
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-600 ${colorClass}`}
                   >
                     {initials}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-700 text-slate-950">{p.name}</p>
+                      <p className="text-sm font-600 text-slate-950">{p.name}</p>
                       <span
                         className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-600 ${p.isNewUser ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}
                       >
@@ -1404,14 +1437,14 @@ export const StepEnviar = forwardRef<
                     </div>
                     <p className="mt-0.5 text-xs text-slate-500">{p.email}</p>
                     <p className="mt-1 text-xs font-600 text-primary">
-                      {p.rolDocumento || 'Participante'}
+                      Rol: {p.rolDocumento || 'Participante'}
                     </p>
                   </div>
                   <div className="hidden shrink-0 space-y-2 text-right sm:block">
                     {p.acto && (
                       <div>
                         <p className="text-[10px] font-600 uppercase tracking-[0.08em] text-slate-400">
-                          Acto / rol
+                          Acto
                         </p>
                         <p className="mt-0.5 text-sm font-600 text-slate-800">{p.acto}</p>
                       </div>
@@ -1468,7 +1501,7 @@ export const StepEnviar = forwardRef<
         <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div>
-              <h2 className="text-base font-700 text-slate-950">Información solicitada</h2>
+              <h2 className="text-base font-600 text-slate-950">Información solicitada</h2>
               <p className="mt-0.5 text-xs text-slate-500">
                 Campos y reglas que se aplicarán durante el proceso
               </p>
@@ -1502,7 +1535,7 @@ export const StepEnviar = forwardRef<
                         className="rounded-lg border border-slate-200 bg-slate-50/50 p-3.5"
                       >
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">
+                          <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center shrink-0">
                             {idx + 1}
                           </span>
                           <p className="text-sm font-semibold text-gray-900">{grupo.nombre}</p>
@@ -1559,7 +1592,7 @@ export const StepEnviar = forwardRef<
                   <ul className="space-y-1.5">
                     {participants.map((p, idx) => (
                       <li key={p.id} className="flex items-center gap-2 text-xs text-gray-700">
-                        <span className="w-4 h-4 rounded-full bg-blue-200 text-blue-800 text-xs font-bold flex items-center justify-center shrink-0">
+                        <span className="w-4 h-4 rounded-full bg-blue-200 text-blue-800 text-xs font-semibold flex items-center justify-center shrink-0">
                           {idx + 1}
                         </span>
                         <span className="font-medium">{p.name}</span>
@@ -1598,11 +1631,11 @@ export const StepEnviar = forwardRef<
                     <div key={pid} className="py-4 first:pt-0 last:pb-0">
                       <div className="flex items-center gap-2 mb-3">
                         <div
-                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-700 ${colorClass}`}
+                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-600 ${colorClass}`}
                         >
                           {initials}
                         </div>
-                        <p className="text-sm font-700 text-slate-900">{participantName}</p>
+                        <p className="text-sm font-600 text-slate-900">{participantName}</p>
                         <span className="ml-auto text-xs tabular-nums text-slate-400">
                           {participantFields.length} campo
                           {participantFields.length === 1 ? '' : 's'}
@@ -1672,7 +1705,7 @@ export const StepEnviar = forwardRef<
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-700 text-slate-950">
+                <h2 className="text-base font-600 text-slate-950">
                   Metadatos incluidos en el documento
                 </h2>
                 <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-600 tabular-nums text-slate-500">

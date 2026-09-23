@@ -31,11 +31,11 @@ export default function MetricsBentoGrid() {
         >
           <div className="flex gap-2 mt-1">
             <div className="flex-1 bg-amber-100 rounded-lg px-3 py-2 text-center">
-              <p className="text-lg font-700 text-amber-700 tabular-nums">14</p>
+              <p className="text-lg font-600 text-amber-700 tabular-nums">14</p>
               <p className="text-[10px] text-amber-600 font-500">Secuencial</p>
             </div>
             <div className="flex-1 bg-blue-50 rounded-lg px-3 py-2 text-center">
-              <p className="text-lg font-700 text-blue-700 tabular-nums">9</p>
+              <p className="text-lg font-600 text-blue-700 tabular-nums">9</p>
               <p className="text-[10px] text-blue-600 font-500">Paralelo</p>
             </div>
           </div>

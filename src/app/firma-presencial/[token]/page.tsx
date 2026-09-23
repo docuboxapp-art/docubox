@@ -76,7 +76,7 @@ export default function InPersonSigningPage({ params }: { params: Promise<{ toke
           ) : error && !info ? (
             <div className="min-h-48 py-8 text-center">
               <Clock3 className="mx-auto mb-3 text-slate-300" size={36} />
-              <h1 className="text-lg font-700 text-slate-950">Sesión no disponible</h1>
+              <h1 className="text-lg font-600 text-slate-950">Sesión no disponible</h1>
               <p className="mt-2 text-sm text-slate-500">{error}</p>
             </div>
           ) : info ? (
@@ -84,7 +84,7 @@ export default function InPersonSigningPage({ params }: { params: Promise<{ toke
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
                 <CheckCircle2 size={22} />
               </div>
-              <h1 className="mt-4 text-xl font-700 text-slate-950">
+              <h1 className="mt-4 text-xl font-600 text-slate-950">
                 Entrega el dispositivo al participante
               </h1>
               <p className="mt-2 text-sm leading-6 text-slate-600">

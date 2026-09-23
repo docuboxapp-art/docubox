@@ -207,7 +207,7 @@ function SmartAlertsWidget({ contact, userProfile }: { contact: Contact; userPro
           <AlertTriangle size={13} className="text-amber-500" />
           <span className="text-xs font-semibold text-slate-700">Alertas inteligentes</span>
         </div>
-        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{alerts.length}</span>
+        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{alerts.length}</span>
       </div>
       <div className="space-y-2 p-3">
         {alerts.map((alert) => {
@@ -757,12 +757,12 @@ function ContactDetailView({
       <div className="border-b border-slate-200/90 bg-white">
         <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-2 sm:px-5 lg:px-6">
           <div className="flex min-w-0 items-center gap-3">
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm ${avatarColors[idx % avatarColors.length]}`}>
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-white shadow-sm ${avatarColors[idx % avatarColors.length]}`}>
                 {getInitials(contact)}
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="truncate text-lg font-700 leading-tight text-slate-950">{getFullName(contact)}</h1>
+                  <h1 className="truncate text-lg font-600 leading-tight text-slate-950">{getFullName(contact)}</h1>
                   <span className={`inline-flex h-6 items-center gap-1 rounded-md px-2 text-[10px] font-semibold ${hasVerifiedIdentity ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                     {hasVerifiedIdentity ? <Shield size={11} /> : <ShieldOff size={11} />}
                     {hasVerifiedIdentity ? 'Identidad verificada' : 'Sin verificar'}
@@ -1102,7 +1102,7 @@ function ContactDetailView({
                         { label: 'Notas', value: notes.length, color: 'text-amber-600' },
                       ].map((item) => (
                         <div key={item.label} className="rounded-md bg-slate-50 px-3 py-3">
-                          <p className={`text-xl font-700 leading-none ${item.color}`}>{item.value}</p>
+                          <p className={`text-xl font-600 leading-none ${item.color}`}>{item.value}</p>
                           <p className="mt-1 text-[11px] font-medium text-slate-500">{item.label}</p>
                         </div>
                       ))}
@@ -1374,7 +1374,7 @@ function SearchUserModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl" style={{ maxHeight: '90vh' }}>
         <div className="px-6 py-5 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900">Nuevo Contacto</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Nuevo Contacto</h2>
           <p className="text-sm text-gray-400 mt-1">Busca un usuario registrado en la plataforma para agregarlo a tus contactos.</p>
         </div>
         <div className="px-6 pt-4 shrink-0">
@@ -1427,7 +1427,7 @@ function SearchUserModal({
                 const isSaving = saving === u.id;
                 return (
                   <div key={u.id} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 transition-colors hover:bg-slate-50">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${userAvatarColors[idx % userAvatarColors.length]}`}>
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0 ${userAvatarColors[idx % userAvatarColors.length]}`}>
                       {getInitialsFromUser(u.full_name || u.email)}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1469,7 +1469,7 @@ function ContactCard({ contact, idx, onView, onDelete, deleting }: {
   return (
     <div className="group relative rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300">
       <div className="mb-3 flex items-start justify-between">
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${avatarColors[idx % avatarColors.length]}`}>
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-semibold text-white ${avatarColors[idx % avatarColors.length]}`}>
           {getInitials(contact)}
         </div>
         <div className="relative">
@@ -1592,7 +1592,7 @@ export default function ContactosPage() {
         <div className="mx-auto w-full max-w-[1600px]">
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-700 leading-tight text-slate-950">Contactos</h1>
+            <h1 className="text-2xl font-600 leading-tight text-slate-950">Contactos</h1>
             <p className="mt-1 text-sm text-slate-500">Gestiona tu agenda y consulta el historial compartido.</p>
           </div>
           <span className="inline-flex h-7 w-fit items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-500">
@@ -1678,7 +1678,7 @@ export default function ContactosPage() {
                   <tr key={c.id} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/60">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white ${avatarColors[idx % avatarColors.length]}`}>
+                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-white ${avatarColors[idx % avatarColors.length]}`}>
                           {getInitials(c)}
                         </div>
                         <p className="font-semibold text-foreground">{getFullName(c)}</p>

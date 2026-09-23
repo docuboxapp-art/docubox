@@ -51,7 +51,7 @@ type WorkspaceInvitation = {
 function SectionHeader() {
   return (
     <header className="border-b border-slate-200/80 pb-4 dark:border-slate-700">
-      <h1 className="text-2xl font-700 text-slate-950 dark:text-white">Espacios de trabajo</h1>
+      <h1 className="text-2xl font-600 text-slate-950 dark:text-white">Espacios de trabajo</h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
         Gestiona tus espacios personales y de empresa.
       </p>
@@ -328,7 +328,7 @@ export function WorkspaceManagementSection() {
           <UserPlus size={15} />
           Unirse a un espacio
           {invitations.length > 0 && (
-            <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-700 text-white">
+            <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-600 text-white">
               {invitations.length}
             </span>
           )}
@@ -338,7 +338,7 @@ export function WorkspaceManagementSection() {
       {activeTab === 'spaces' ? (
         <>
           <section className="flex flex-col gap-4 rounded-xl border border-border bg-white p-5">
-            <h2 className="flex items-center gap-2 text-sm font-700 text-primary">
+            <h2 className="flex items-center gap-2 text-sm font-600 text-primary">
               <Building2 size={15} />
               Mis espacios de trabajo
             </h2>
@@ -387,7 +387,7 @@ export function WorkspaceManagementSection() {
                   <Activity size={15} className="text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-sm font-700 text-primary">
+                  <h2 className="text-sm font-600 text-primary">
                     Estadísticas del espacio{currentWorkspace ? `: ${currentWorkspace.name}` : ''}
                   </h2>
                   <p className="text-xs text-muted-foreground">Documentos por estado en este espacio</p>
@@ -405,7 +405,7 @@ export function WorkspaceManagementSection() {
                       <Icon size={16} />
                       <span className="text-xs font-600 uppercase tracking-wide">{label}</span>
                     </div>
-                    <span className="text-2xl font-700">{value}</span>
+                    <span className="text-2xl font-600">{value}</span>
                   </div>
                 ))}
               </div>
@@ -422,7 +422,7 @@ export function WorkspaceManagementSection() {
                       <Icon size={16} />
                       <span className="text-xs font-600 uppercase tracking-wide">{label}</span>
                     </div>
-                    <span className="text-2xl font-700">{value}</span>
+                    <span className="text-2xl font-600">{value}</span>
                   </div>
                 ))}
               </div>
@@ -431,7 +431,7 @@ export function WorkspaceManagementSection() {
 
           {currentWorkspaceId && (
             <section className="flex flex-col gap-3 rounded-xl border border-border bg-white p-5">
-              <h2 className="flex items-center gap-2 text-sm font-700 text-primary">
+              <h2 className="flex items-center gap-2 text-sm font-600 text-primary">
                 <UserPlus size={15} />
                 Compartido con
                 {membersLoading && <Loader2 size={12} className="animate-spin text-primary" />}
@@ -451,7 +451,7 @@ export function WorkspaceManagementSection() {
                         {member.avatarUrl ? (
                           <img src={member.avatarUrl} alt={member.nombre || member.email || ''} className="h-full w-full object-cover" />
                         ) : (
-                          <span className="text-xs font-700 text-primary">{(member.nombre || member.email || '?').charAt(0).toUpperCase()}</span>
+                          <span className="text-xs font-600 text-primary">{(member.nombre || member.email || '?').charAt(0).toUpperCase()}</span>
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -472,7 +472,7 @@ export function WorkspaceManagementSection() {
         <>
           <section className="flex flex-col gap-4 rounded-xl border border-border bg-white p-5">
             <div>
-              <h2 className="flex items-center gap-2 text-sm font-700 text-primary"><UserPlus size={15} /> Unirse a un espacio de trabajo</h2>
+              <h2 className="flex items-center gap-2 text-sm font-600 text-primary"><UserPlus size={15} /> Unirse a un espacio de trabajo</h2>
               <p className="mt-1 text-xs text-muted-foreground">Ingresa el código de invitación o el nombre del espacio al que deseas unirte.</p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -495,7 +495,7 @@ export function WorkspaceManagementSection() {
           <section className="flex flex-col gap-4 rounded-xl border border-border bg-white p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="flex items-center gap-2 text-sm font-700 text-primary"><Mail size={15} /> Invitaciones recibidas</h2>
+                <h2 className="flex items-center gap-2 text-sm font-600 text-primary"><Mail size={15} /> Invitaciones recibidas</h2>
                 <p className="mt-1 text-xs text-muted-foreground">Invitaciones de propietarios de otros espacios de trabajo.</p>
               </div>
               <button type="button" onClick={() => void loadInvitations()} disabled={invitationsLoading} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-500 text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-50">

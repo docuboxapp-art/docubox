@@ -71,6 +71,10 @@ function waitForDocumentLoadRetry(delayMs: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
 }
 
+function yieldToDocumentListPaint() {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+}
+
 async function isRetryableDocumentLoadResponse(response: Response) {
   if (response.ok) return false;
 
@@ -1019,7 +1023,7 @@ function DateRangePicker({
                   ${!cell.current ? 'opacity-30' : ''}
                   ${inRange ? 'bg-primary/10' : ''}
                   ${start || end ? 'bg-primary rounded-full text-white font-semibold' : ''}
-                  ${!start && !end && isToday ? 'font-bold text-primary' : ''}
+                  ${!start && !end && isToday ? 'font-600 text-primary' : ''}
                   ${!start && !end && !inRange ? 'hover:bg-muted rounded-full' : ''}
                   ${isHovered && !start && !end ? 'bg-primary/20 rounded-full' : ''}
                 `}
@@ -1394,7 +1398,7 @@ function EstadoDocumentosSection({
   return (
     <div className="mb-6 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-        <h2 className="text-sm font-700 text-slate-950">Estado de los documentos</h2>
+        <h2 className="text-sm font-600 text-slate-950">Estado de los documentos</h2>
         <PeriodFilter value={period} onChange={setPeriod} />
       </div>
       <div className="m-4 grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid-cols-4 lg:grid-cols-7">
@@ -1681,7 +1685,7 @@ function ParticipacionEstadosSection({
       {/* Header with tabs */}
       <div className="border-b border-slate-100 px-5 pt-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-700 text-slate-950">Estado de participaciones</h2>
+          <h2 className="text-sm font-600 text-slate-950">Estado de participaciones</h2>
           <PeriodFilter value={period} onChange={setPeriod} />
         </div>
         {/* Tabs */}
@@ -1720,7 +1724,7 @@ function ParticipacionEstadosSection({
                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${s.dot}`} />
                 <span className={`text-xs font-semibold ${s.color}`}>{s.label}</span>
               </div>
-              <span className={`text-2xl font-bold ${s.color}`}>{s.count}</span>
+              <span className={`text-2xl font-600 ${s.color}`}>{s.count}</span>
               <span className="text-[10px] text-muted-foreground leading-tight">{s.desc}</span>
             </div>
           ))}
@@ -3195,15 +3199,22 @@ function MisDocumentosContent() {
         return;
       }
 
-      // These lists are independent and can share the same validated session.
-      const [res, partRes] = await Promise.all([
-        fetchDocumentData('/api/documentos/listar?tipo=todos', {
+      // Start both requests together, but do not make the primary list wait for
+      // the more expensive participant lookup.
+      const ownerDocumentsRequest = fetchDocumentData('/api/documentos/listar?tipo=todos', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const participantDocumentsRequest = fetchDocumentData(
+        '/api/documentos/mis-participaciones?exclude_owned=true&view=list',
+        {
           headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetchDocumentData('/api/documentos/mis-participaciones?exclude_owned=true', {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
+        }
+      ).catch((error) => {
+        console.error('[mis-documentos] Error al cargar participaciones:', error);
+        return null;
+      });
+
+      const res = await ownerDocumentsRequest;
       const json = await res.json();
       if (!res.ok) {
         console.error('[mis-documentos] Error al cargar documentos:', json.error);
@@ -3213,10 +3224,32 @@ function MisDocumentosContent() {
 
       const data = json.data || [];
 
+      const mappedOwn = data.map((d: any) => {
+        const mapped = mapDocRow(d);
+        const parts: any[] = d.participantes || [];
+        const userPart = parts.find((p: any) => {
+          const pId = p.id || p.user_id || p.userId;
+          const pEmail = p.email || '';
+          return pId === user?.id || pEmail === user?.email;
+        });
+        mapped.miSubEstado = userPart ? userPart.sub_estado || 'en_revision' : null;
+        return mapped;
+      });
+
+      // Show owned documents immediately. Participant documents are merged as
+      // soon as their independent request finishes.
+      setRawDocumentsData(data);
+      setParticipantDocuments([]);
+      setRealDocuments(mappedOwn);
+      setLoadingDocs(false);
+      await yieldToDocumentListPaint();
+
+      const partRes = await participantDocumentsRequest;
+
       // Fetch participant documents (documents where user is a participant but not owner)
       let participacionesData: any[] = [];
       try {
-        if (partRes.ok) {
+        if (partRes?.ok) {
           const partJson = await partRes.json();
           // Map participaciones to raw document format for merging
           participacionesData = (partJson.participaciones || [])
@@ -3282,19 +3315,6 @@ function MisDocumentosContent() {
 
       const allData = [...data, ...uniqueParticipantDocs];
       setRawDocumentsData(allData);
-
-      // Map own documents
-      const mappedOwn = data.map((d: any) => {
-        const mapped = mapDocRow(d);
-        const parts: any[] = d.participantes || [];
-        const userPart = parts.find((p: any) => {
-          const pId = p.id || p.user_id || p.userId;
-          const pEmail = p.email || '';
-          return pId === user?.id || pEmail === user?.email;
-        });
-        mapped.miSubEstado = userPart ? userPart.sub_estado || 'en_revision' : null;
-        return mapped;
-      });
 
       // Map participant documents
       const mappedParticipant = uniqueParticipantDocs.map((d: any) => {
@@ -6316,7 +6336,7 @@ function MisDocumentosContent() {
       <>
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-700 text-slate-950">Mi Espacio</h1>
+            <h1 className="flex items-center gap-2 text-2xl font-600 text-slate-950">Mi Espacio</h1>
             <p className="mt-1 text-sm text-slate-500">
               Espacio de trabajo de{' '}
               <span className="font-600 text-slate-700">
@@ -6334,7 +6354,7 @@ function MisDocumentosContent() {
             </button>
             <button
               onClick={() => router.push('/crear-documento')}
-              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90"
             >
               <FilePlus size={16} />
               Crear Documento
@@ -7119,7 +7139,7 @@ function MisDocumentosContent() {
             <>
               <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h1 className="text-2xl font-700 text-slate-950">Favoritos</h1>
+                  <h1 className="text-2xl font-600 text-slate-950">Favoritos</h1>
                   <p className="mt-1 text-sm text-slate-500">Documentos marcados como favoritos</p>
                 </div>
               </div>
@@ -7740,7 +7760,7 @@ function MisDocumentosContent() {
             <>
               <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h1 className="text-2xl font-700 text-slate-950">Por vencer</h1>
+                  <h1 className="text-2xl font-600 text-slate-950">Por vencer</h1>
                   <p className="mt-1 text-sm text-slate-500">
                     Documentos que vencen en las próximas 72 horas
                   </p>
@@ -8350,13 +8370,13 @@ function MisDocumentosContent() {
             <>
               <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h1 className="text-2xl font-700 text-slate-950">Papelera</h1>
+                  <h1 className="text-2xl font-600 text-slate-950">Papelera</h1>
                   <p className="mt-1 text-sm text-slate-500">Documentos eliminados recientemente</p>
                 </div>
               </div>
               {trashedFolders.length > 0 && (
                 <section className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-700 text-slate-800">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-600 text-slate-800">
                     <Folder size={16} className="text-amber-600" />
                     Carpetas en Papelera
                   </div>
@@ -8391,7 +8411,7 @@ function MisDocumentosContent() {
                 onToggle={(event) => setIsDeletionHistoryOpen(event.currentTarget.open)}
                 className="mb-3 rounded-lg border border-slate-200/90 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
               >
-                <summary className="cursor-pointer text-sm font-700 text-slate-900">
+                <summary className="cursor-pointer text-sm font-600 text-slate-900">
                   Historial de eliminaciones
                   <span className="ml-2 text-xs font-400 text-slate-500">Últimos 30 días</span>
                 </summary>
@@ -8411,7 +8431,7 @@ function MisDocumentosContent() {
                 {deletionHistory.length > 0 ? (
                   <>
                     <div className="mt-3 divide-y divide-slate-100 rounded-md border border-slate-100 bg-slate-50/40">
-                      <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(125px,.7fr)_minmax(125px,.7fr)_minmax(145px,.8fr)_minmax(145px,.8fr)_minmax(160px,.9fr)] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-700 uppercase tracking-wide text-slate-500 xl:grid">
+                      <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(125px,.7fr)_minmax(125px,.7fr)_minmax(145px,.8fr)_minmax(145px,.8fr)_minmax(160px,.9fr)] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-slate-500 xl:grid">
                         <span>Elemento</span>
                         <span className="text-right">Creación</span>
                         <span className="text-right">Ingreso a Papelera</span>
@@ -8475,10 +8495,10 @@ function MisDocumentosContent() {
                             <span
                               className={
                                 entry.status === 'COMPLETED'
-                                  ? 'font-700 text-emerald-600'
+                                  ? 'font-600 text-emerald-600'
                                   : entry.status === 'FAILED'
-                                    ? 'font-700 text-red-600'
-                                    : 'font-700 text-amber-600'
+                                    ? 'font-600 text-red-600'
+                                    : 'font-600 text-amber-600'
                               }
                             >
                               {entry.status === 'COMPLETED'
@@ -8561,7 +8581,7 @@ function MisDocumentosContent() {
                 <summary
                   className={
                     isDeletionHistoryOpen
-                      ? 'cursor-pointer text-sm font-700 text-slate-900'
+                      ? 'cursor-pointer text-sm font-600 text-slate-900'
                       : 'hidden'
                   }
                 >
@@ -8662,7 +8682,7 @@ function MisDocumentosContent() {
                   {selectedTrashDocuments.length > 0 && (
                     <section className="mb-3 flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/[0.04] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
-                        <p className="text-sm font-700 text-slate-900">
+                        <p className="text-sm font-600 text-slate-900">
                           {selectedTrashDocuments.length} documento(s) seleccionado(s)
                         </p>
                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
@@ -8705,7 +8725,7 @@ function MisDocumentosContent() {
                             )
                           }
                           disabled={selectedTrashEligible.length === 0}
-                          className="flex h-8 items-center gap-1.5 rounded-md bg-red-600 px-2.5 text-xs font-700 text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          className="flex h-8 items-center gap-1.5 rounded-md bg-red-600 px-2.5 text-xs font-600 text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                         >
                           <Trash2 size={14} />
                           Eliminar {selectedTrashEligible.length || ''} seleccionados
@@ -9074,7 +9094,7 @@ function MisDocumentosContent() {
                     <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mb-4">
                       <AlertCircle size={24} className="text-red-600" />
                     </div>
-                    <h2 className="text-lg font-bold text-foreground mb-2">
+                    <h2 className="text-lg font-semibold text-foreground mb-2">
                       {confirmDelete.isEmptyAll
                         ? 'Vaciar eliminables'
                         : confirmDelete.documentIds?.length
@@ -9143,7 +9163,7 @@ function MisDocumentosContent() {
                 <React.Fragment key={cf.id}>
                   <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <h1 className="text-2xl font-700 text-slate-950">{cf.nombre}</h1>
+                      <h1 className="text-2xl font-600 text-slate-950">{cf.nombre}</h1>
                       <p className="mt-1 text-sm text-slate-500">
                         {cf.descripcion || 'Filtro personalizado'}
                       </p>
@@ -9862,7 +9882,7 @@ function MisDocumentosContent() {
                 <Trash2 size={19} />
               </span>
               <div className="min-w-0">
-                <h2 className="text-base font-700 text-slate-900">Mover carpeta a Papelera</h2>
+                <h2 className="text-base font-600 text-slate-900">Mover carpeta a Papelera</h2>
                 <p className="mt-1 truncate text-sm text-slate-600">
                   {folderTrashModal.folderName}
                 </p>
@@ -9923,7 +9943,7 @@ function MisDocumentosContent() {
                   folderTrashModal.summary.eligible === 0
                 }
                 onClick={executeFolderTrash}
-                className="rounded-md bg-red-600 px-4 py-2 text-sm font-700 text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-600 text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {folderTrashModal.executing
                   ? 'Moviendo...'
@@ -9951,7 +9971,7 @@ function MisDocumentosContent() {
             <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mb-4">
               <Trash2 size={24} className="text-red-600" />
             </div>
-            <h2 className="text-lg font-bold text-foreground mb-2">
+            <h2 className="text-lg font-semibold text-foreground mb-2">
               {confirmPapelera.type === 'cancel'
                 ? 'Cancelar documento'
                 : confirmPapelera.type === 'folder' || confirmPapelera.type === 'folders'
@@ -10024,7 +10044,7 @@ function MisDocumentosContent() {
                 <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
                   <Filter size={16} />
                 </div>
-                <h2 className="text-base font-700 text-slate-950">Crear filtro personalizado</h2>
+                <h2 className="text-base font-600 text-slate-950">Crear filtro personalizado</h2>
               </div>
               <button
                 type="button"
@@ -10609,7 +10629,7 @@ function MisDocumentosContent() {
                   setIconPickerOpen(true);
                   showToast(`Filtro "${nombre}" creado`);
                 }}
-                className="flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-700 text-white transition-colors hover:bg-primary/90"
+                className="flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-600 text-white transition-colors hover:bg-primary/90"
               >
                 Crear filtro
               </button>

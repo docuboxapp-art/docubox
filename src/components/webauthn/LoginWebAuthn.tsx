@@ -119,7 +119,7 @@ export default function LoginWebAuthn({ email, onSuccess }: Props) {
           <button
             onClick={handleBiometric}
             disabled={loading || success}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all duration-150 active:scale-95 disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all duration-150 active:scale-95 disabled:opacity-60"
             style={{
               minHeight: '48px',
               background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',

@@ -590,7 +590,7 @@ function FileUploadField({
           {preview.startsWith('data:image') ? (
             <img src={preview} alt="Preview" className="w-12 h-12 object-cover rounded-lg" />
           ) : (
-            <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center text-red-600 text-xs font-bold">PDF</div>
+            <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center text-red-600 text-xs font-semibold">PDF</div>
           )}
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground truncate">{fileName}</p>

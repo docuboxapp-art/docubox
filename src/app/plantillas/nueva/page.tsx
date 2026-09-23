@@ -472,8 +472,12 @@ function ImageSizeModal({
   );
 }
 
-function ToolbarDivider() {
-  return <div className="w-px h-5 bg-gray-200 mx-0.5 flex-shrink-0" />;
+function ToolbarDivider({ fieldVisible = false }: { fieldVisible?: boolean }) {
+  return (
+    <div
+      className={`w-px h-5 bg-gray-200 mx-0.5 flex-shrink-0 ${fieldVisible ? 'field-divider-visible' : ''}`}
+    />
+  );
 }
 
 function TBtn({
@@ -860,6 +864,12 @@ function SimpleEditorToolbar({
   }, [selectedChipId]);
 
   useEffect(() => {
+    if (!selectedChipId) return;
+
+    onSetOpenDropdown?.(null);
+  }, [selectedChipId, onSetOpenDropdown]);
+
+  useEffect(() => {
     const updateState = () => {
       if (selectedChipId) return;
       setIsBold(document.queryCommandState('bold'));
@@ -1225,11 +1235,15 @@ function SimpleEditorToolbar({
   return (
     <>
       <div className="bg-white border-b border-gray-200 relative z-10">
-        <div className="flex items-center gap-0.5 px-2 py-1.5 flex-wrap">
+        <div
+          className={`flex items-center gap-0.5 px-2 py-1.5 flex-wrap ${chipSelected ? 'field-formatting-mode' : ''}`}
+          aria-label={chipSelected ? 'Formato del campo seleccionado' : 'Formato del documento'}
+        >
           {/* Regla toggle */}
           <button
             type="button"
             onClick={onToggleRulers}
+            disabled={chipSelected}
             className={`p-1.5 rounded transition-colors flex-shrink-0 ${showRulers ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-700'}`}
             title={showRulers ? 'Ocultar regla' : 'Mostrar regla'}
           >
@@ -1257,6 +1271,7 @@ function SimpleEditorToolbar({
           <button
             type="button"
             onClick={(e) => openMenu('margenes', e)}
+            disabled={chipSelected}
             className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-700 flex-shrink-0"
             title="Márgenes"
           >
@@ -1290,6 +1305,7 @@ function SimpleEditorToolbar({
                 onInfoChange({ hojaOrientacion: next });
               }
             }}
+            disabled={chipSelected}
             className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-700 flex-shrink-0"
             title={`Orientación: ${infoData?.hojaOrientacion === 'horizontal' ? 'Horizontal' : 'Vertical'} — clic para cambiar`}
           >
@@ -1330,6 +1346,7 @@ function SimpleEditorToolbar({
           <button
             type="button"
             onClick={(e) => openMenu('tamano', e)}
+            disabled={chipSelected}
             className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-700 flex-shrink-0"
             title="Tamaño de página"
           >
@@ -1356,6 +1373,7 @@ function SimpleEditorToolbar({
           <button
             type="button"
             onClick={(e) => openMenu('columnas', e)}
+            disabled={chipSelected}
             className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-700 flex-shrink-0"
             title="Columnas"
           >
@@ -1457,7 +1475,6 @@ function SimpleEditorToolbar({
           </button>
 
           <div className="w-px h-5 bg-gray-200 mx-0.5 flex-shrink-0" />
-
           {selectedChipId && (
             <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 font-medium mr-1 flex-shrink-0">
               <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
@@ -1520,7 +1537,7 @@ function SimpleEditorToolbar({
             </option>
           </select>
 
-          <ToolbarDivider />
+          <ToolbarDivider fieldVisible />
 
           {/* Font family */}
           <select
@@ -1562,7 +1579,7 @@ function SimpleEditorToolbar({
             ))}
           </select>
 
-          <ToolbarDivider />
+          <ToolbarDivider fieldVisible />
 
           {/* Font size */}
           <div className="flex items-center gap-0.5 flex-shrink-0">
@@ -1604,7 +1621,7 @@ function SimpleEditorToolbar({
             </button>
           </div>
 
-          <ToolbarDivider />
+          <ToolbarDivider fieldVisible />
 
           {/* Bold, Italic, Underline, Strike */}
           <TBtn
@@ -1648,7 +1665,7 @@ function SimpleEditorToolbar({
             <Strikethrough size={14} />
           </TBtn>
 
-          <ToolbarDivider />
+          <ToolbarDivider fieldVisible />
 
           {/* Text color */}
           <label
@@ -1908,10 +1925,21 @@ function SimpleEditorToolbar({
             <Minus size={14} />
           </TBtn>
         </div>
+        <style jsx>{`
+          .field-formatting-mode > :global(button:disabled),
+          .field-formatting-mode > :global(select:disabled),
+          .field-formatting-mode > :global(.w-px) {
+            display: none;
+          }
+
+          .field-formatting-mode > :global(.field-divider-visible) {
+            display: block;
+          }
+        `}</style>
       </div>
 
       {/* ─── Find & Replace Bar ─────────────────────────────────────────────── */}
-      {showFindReplace && (
+      {showFindReplace && !chipSelected && (
         <div className="bg-gray-50 border-b border-gray-200 px-3 py-2 flex items-center gap-2 flex-wrap z-10">
           <span className="text-xs font-medium text-gray-600 shrink-0">Buscar:</span>
           <input
@@ -2762,7 +2790,7 @@ function TipoDocumentoModal({
           >
             Por tipo
             <span
-              className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tab === 'tipo' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}
+            className={`px-1.5 py-0.5 rounded-full text-xs font-semibold ${tab === 'tipo' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}
             >
               {tiposDocumento.length}
             </span>
@@ -2775,7 +2803,7 @@ function TipoDocumentoModal({
             <Star size={11} className={tab === 'favoritos' ? 'fill-white' : ''} />
             Favoritos
             <span
-              className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tab === 'favoritos' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}
+            className={`px-1.5 py-0.5 rounded-full text-xs font-semibold ${tab === 'favoritos' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}
             >
               {favCount}
             </span>
@@ -3144,7 +3172,7 @@ function StepInfoGeneral({
         {showOriginChoice && !templateOrigin && (
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] xl:col-span-2">
             <div>
-              <h2 className="text-base font-700 leading-5 text-slate-950">
+              <h2 className="text-base font-600 leading-5 text-slate-950">
                 ¿Cómo quieres comenzar?
               </h2>
               <p className="mt-1 text-sm text-slate-500">
@@ -3163,7 +3191,7 @@ function StepInfoGeneral({
                   <FileUp size={22} />
                 </span>
                 <span className="min-w-0 text-center">
-                  <span className="block text-sm font-700 text-slate-900">Importar Word</span>
+                  <span className="block text-sm font-600 text-slate-900">Importar Word</span>
                   <span className="mt-1 block text-xs leading-5 text-slate-500">
                     Usa un documento .docx existente como contenido inicial.
                   </span>
@@ -3180,7 +3208,7 @@ function StepInfoGeneral({
                   <FilePlus2 size={22} />
                 </span>
                 <span className="min-w-0 text-center">
-                  <span className="block text-sm font-700 text-slate-900">Crear desde cero</span>
+                  <span className="block text-sm font-600 text-slate-900">Crear desde cero</span>
                   <span className="mt-1 block text-xs leading-5 text-slate-500">
                     Comienza con una hoja en blanco y construye el contenido en el editor.
                   </span>
@@ -3199,7 +3227,7 @@ function StepInfoGeneral({
                 </span>
                 <div className="min-w-0">
                   <p className="text-xs text-slate-400">Origen seleccionado</p>
-                  <p className="text-sm font-700 text-slate-900">
+                  <p className="text-sm font-600 text-slate-900">
                     {templateOrigin === 'word' ? 'Importar Word' : 'Crear desde cero'}
                   </p>
                 </div>
@@ -3309,7 +3337,7 @@ function StepInfoGeneral({
           <>
             <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
               <div className="mb-5">
-                <h2 className="text-base font-700 leading-5 text-slate-950">
+                <h2 className="text-base font-600 leading-5 text-slate-950">
                   Propiedades de la plantilla
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
@@ -3636,7 +3664,7 @@ function StepPublicacion({
                       )}
                     </div>
                     <span
-                      className={`!text-xs !font-normal ${data.publicacionOpcion === opt.id ? 'text-blue-700' : 'text-gray-700'}`}
+                      className={`!text-xs !font-medium ${data.publicacionOpcion === opt.id ? 'text-blue-700' : 'text-gray-700'}`}
                     >
                       {opt.title}
                     </span>
@@ -4494,10 +4522,10 @@ function NuevaPlantillaPage() {
       const isRequired = !isSignatureField && options?.required === true;
       const requiredAttribute = isRequired ? ' data-field-required="true"' : '';
       const fieldStyle = isSignatureField
-        ? 'display:inline-flex;align-items:center;justify-content:center;width:180px;height:72px;min-width:120px;min-height:48px;max-width:100%;resize:both;overflow:hidden;vertical-align:middle;box-sizing:border-box;background:#EFF6FF;color:#1D4ED8;border:1px dashed #60A5FA;border-radius:4px;margin:0 2px;padding:8px;font-size:12px;font-family:inherit;line-height:1.25;user-select:none;cursor:pointer;white-space:nowrap;'
+        ? 'display:inline-flex;align-items:center;justify-content:center;width:180px;height:72px;min-width:48px;min-height:24px;max-width:100%;resize:both;overflow:hidden;vertical-align:middle;box-sizing:border-box;background:#EFF6FF;color:#1D4ED8;border:1px dashed #60A5FA;border-radius:4px;margin:0 2px;padding:8px;font-size:12px;font-family:inherit;line-height:1.25;user-select:none;cursor:pointer;white-space:nowrap;'
         : 'display:inline;background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;border-radius:4px;margin:0 2px;padding:1px 7px;font-size:inherit;font-family:inherit;line-height:inherit;user-select:none;cursor:pointer;white-space:nowrap;';
       const fieldTitle = isSignatureField
-        ? 'Clic para editar. Arrastra la esquina inferior derecha para cambiar el tamaño.'
+        ? 'Clic para editar. Tamaños sugeridos: corta 180 × 72 px, mediana 260 × 96 px y larga 340 × 120 px. Puedes ajustarlo libremente.'
         : 'Clic para editar propiedades';
       const fieldContent = isSignatureField
         ? `<span data-field-label-text="true">{{${label}}}</span><span data-signature-resize-handle="true" aria-hidden="true"></span>`
@@ -5121,7 +5149,7 @@ function NuevaPlantillaPage() {
           <AppLogo size={34} />
           <div className="hidden h-8 w-px bg-slate-200 lg:block" />
           <div className="hidden min-w-0 lg:block">
-            <p className="truncate text-sm font-700 text-slate-950">Nueva plantilla</p>
+            <p className="truncate text-sm font-600 text-slate-950">Nueva plantilla</p>
             <p className="truncate text-xs text-slate-500">
               {activeWorkspace?.name || 'Espacio personal'}
             </p>
@@ -5232,7 +5260,7 @@ function NuevaPlantillaPage() {
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-xl font-700 text-slate-950">{activeWizardStep.label}</h1>
+                  <h1 className="text-xl font-600 text-slate-950">{activeWizardStep.label}</h1>
                   <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">
                     Paso {wizardStep} de {WIZARD_STEPS.length}
                   </span>

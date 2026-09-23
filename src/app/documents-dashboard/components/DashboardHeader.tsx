@@ -8,7 +8,7 @@ export default function DashboardHeader() {
   return (
     <div className="flex items-center justify-between mb-6">
       <div>
-        <h1 className="text-2xl font-700 text-foreground tracking-tight">Dashboard de Documentos</h1>
+        <h1 className="text-2xl font-600 text-foreground tracking-tight">Dashboard de Documentos</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           Actualizado el 21 de marzo de 2026 · 18:27 CST
         </p>

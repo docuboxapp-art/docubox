@@ -830,7 +830,7 @@ export default function PlantillasGalleryPage() {
         <div className="mx-auto w-full max-w-[1600px]">
           <header className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="text-2xl font-700 text-slate-950">Plantillas</h1>
+              <h1 className="text-2xl font-600 text-slate-950">Plantillas</h1>
               <p className="mt-1 text-sm text-slate-500">
                 Crea y administra formatos reutilizables para tus documentos.
               </p>
@@ -838,7 +838,7 @@ export default function PlantillasGalleryPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Link
                 href="/plantillas/nueva"
-                className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30,107,255,0.85)] transition-colors hover:bg-primary/90"
+                className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30,107,255,0.85)] transition-colors hover:bg-primary/90"
               >
                 <Plus size={16} />
                 Nueva plantilla

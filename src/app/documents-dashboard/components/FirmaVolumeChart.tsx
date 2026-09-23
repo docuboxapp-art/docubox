@@ -67,7 +67,7 @@ export default function FirmaVolumeChart() {
     <div className="bg-white rounded-xl border border-border shadow-card p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-[13px] font-700 text-slate-900">Volumen de firmas</h2>
+          <h2 className="text-[13px] font-600 text-slate-900">Volumen de firmas</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Últimos 30 días — e.firma vs Autógrafa
           </p>

@@ -186,7 +186,7 @@ export function DocumentPackagePanel({
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-xs font-700 uppercase text-slate-500">Documentos complementarios</h3>
+          <h3 className="text-xs font-600 uppercase text-slate-500">Documentos complementarios</h3>
           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
             {resources.length}
           </span>
@@ -271,7 +271,7 @@ export function DocumentPackagePanel({
       {requirements.length > 0 && (
         <section className="mt-5 border-t border-slate-100 pt-4">
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-xs font-700 uppercase text-slate-500">Requisitos documentales</h3>
+            <h3 className="text-xs font-600 uppercase text-slate-500">Requisitos documentales</h3>
             <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
               {requirements.length}
             </span>

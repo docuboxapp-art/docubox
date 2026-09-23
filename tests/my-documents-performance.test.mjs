@@ -23,3 +23,9 @@ test('advanced filter catalogs load only when the relevant control is opened', (
     /useEffect\(\(\) => \{\s*loadTiposDocumento\(\);\s*loadGruposDocumento\(\);\s*\}, \[loadTiposDocumento, loadGruposDocumento\]\)/
   );
 });
+
+test('primary documents render before participant enrichment completes', () => {
+  assert.match(source, /setRealDocuments\(mappedOwn\);\s*setLoadingDocs\(false\);/);
+  assert.match(source, /await yieldToDocumentListPaint\(\);/);
+  assert.match(source, /const partRes = await participantDocumentsRequest;/);
+});

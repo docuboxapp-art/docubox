@@ -52,7 +52,7 @@ export default function RecoverInPersonOwnerPage({
         {error ? (
           <>
             <ShieldAlert size={38} className="mx-auto mt-7 text-amber-500" aria-hidden="true" />
-            <h1 className="mt-4 text-lg font-700 text-slate-950">
+            <h1 className="mt-4 text-lg font-600 text-slate-950">
               No fue posible recuperar la sesión
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600">{error}</p>

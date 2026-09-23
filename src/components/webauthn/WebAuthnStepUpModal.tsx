@@ -81,7 +81,7 @@ export default function WebAuthnStepUpModal({ documentId, documentName, onSucces
       >
         {/* Header */}
         <div className="flex items-start justify-between">
-          <h2 className="text-base font-bold text-white leading-tight">
+          <h2 className="text-base font-semibold text-white leading-tight">
             Confirma tu identidad para firmar
           </h2>
           <button onClick={onCancel} className="text-slate-400 hover:text-white transition-colors ml-2 flex-shrink-0">
@@ -152,7 +152,7 @@ export default function WebAuthnStepUpModal({ documentId, documentName, onSucces
             <button
               onClick={handleConfirm}
               disabled={loading || checking}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold text-white transition-all active:scale-95 disabled:opacity-60"
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-all active:scale-95 disabled:opacity-60"
               style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)', minHeight: '48px' }}
             >
               {loading ? (

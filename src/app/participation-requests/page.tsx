@@ -347,7 +347,7 @@ function ReminderModal({ participantName, participantEmail, documentName, onClos
           <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
             <CheckCircle2 size={24} className="text-emerald-600" />
           </div>
-          <h2 className="text-base font-700 text-foreground mb-1">Recordatorio enviado</h2>
+          <h2 className="text-base font-600 text-foreground mb-1">Recordatorio enviado</h2>
           <p className="text-sm text-muted-foreground mb-4">
             Se ha enviado un recordatorio a <span className="font-600 text-foreground">{participantName}</span> ({participantEmail}).
           </p>
@@ -367,7 +367,7 @@ function ReminderModal({ participantName, participantEmail, documentName, onClos
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
         <div className="flex items-center gap-2 mb-3">
           <Send size={18} className="text-primary flex-shrink-0" />
-          <h2 className="text-base font-700 text-foreground">Enviar recordatorio</h2>
+          <h2 className="text-base font-600 text-foreground">Enviar recordatorio</h2>
         </div>
         <p className="text-sm text-muted-foreground mb-5">
           ¿Deseas enviar un recordatorio a <span className="font-600 text-foreground">{participantName}</span> para que participe en el documento <span className="font-600 text-foreground">{documentName}</span>?
@@ -468,7 +468,7 @@ function UninviteParticipantButton({
               <span className="flex h-9 w-9 items-center justify-center rounded-md bg-red-50 text-red-600">
                 <UserMinus size={18} />
               </span>
-              <h2 id="uninvite-participant-title" className="text-lg font-700 text-foreground">
+              <h2 id="uninvite-participant-title" className="text-lg font-600 text-foreground">
                 Desinvitar participante
               </h2>
             </div>
@@ -533,7 +533,7 @@ function CancelModal({ req, onClose, onConfirm }: CancelModalProps) {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative">
         <div className="flex items-center gap-2 mb-2">
           <AlertTriangle size={20} className="text-red-500 flex-shrink-0" />
-          <h2 className="text-lg font-700 text-red-600">Cancelar Documento</h2>
+          <h2 className="text-lg font-600 text-red-600">Cancelar Documento</h2>
         </div>
         <p className="text-sm text-muted-foreground mb-5">
           Esta acción detendrá el flujo de firma de <span className="font-600 text-foreground">{req.documentName}</span>. Todos los participantes serán notificados.
@@ -634,7 +634,7 @@ function ParticipationProgressBar({ req, size = 'normal' }: { req: Participation
           <div className="flex flex-wrap gap-1 mt-1">
             {chips.map((chip, i) => (
               <span key={i} className={`inline-flex items-center gap-0.5 text-[9px] font-600 px-1.5 py-0.5 rounded-full ${chip.cls}`}>
-                <span className="font-700">{chip.count}</span> {chip.label}
+                <span className="font-600">{chip.count}</span> {chip.label}
               </span>
             ))}
           </div>
@@ -656,7 +656,7 @@ function ParticipationProgressBar({ req, size = 'normal' }: { req: Participation
         <div className="flex flex-wrap gap-1 mt-1.5">
           {chips.map((chip, i) => (
             <span key={i} className={`inline-flex items-center gap-1 text-xs font-600 px-2 py-0.5 rounded-full ${chip.cls}`}>
-              <span className="font-700">{chip.count}</span> {chip.label}
+              <span className="font-600">{chip.count}</span> {chip.label}
             </span>
           ))}
         </div>
@@ -774,7 +774,7 @@ function RequestCard({ req, onCancelled, onParticipantRevoked }: RequestCardProp
             </div>
 
             {/* Document name */}
-            <h3 className="text-base font-700 text-foreground leading-tight mb-1">{req.documentName}</h3>
+            <h3 className="text-base font-600 text-foreground leading-tight mb-1">{req.documentName}</h3>
             {req.description && (
               <p className="text-xs text-muted-foreground mb-2 leading-relaxed">{req.description}</p>
             )}
@@ -921,7 +921,7 @@ function RequestCard({ req, onCancelled, onParticipantRevoked }: RequestCardProp
               )}
               <button
                 onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-                className={`${isCancellable ? 'flex-1' : 'w-full'} flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-700 text-white transition-colors hover:bg-primary/90`}
+                className={`${isCancellable ? 'flex-1' : 'w-full'} flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-600 text-white transition-colors hover:bg-primary/90`}
               >
                 <Eye size={12} />
                 Ver Documento
@@ -1119,7 +1119,7 @@ function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCard
         </div>
 
         {/* Document name */}
-        <h3 className="text-base font-700 text-foreground leading-tight -mt-1">{req.documentName}</h3>
+        <h3 className="text-base font-600 text-foreground leading-tight -mt-1">{req.documentName}</h3>
         {req.description && (
           <p className="text-xs text-muted-foreground leading-relaxed -mt-1">{req.description}</p>
         )}
@@ -1370,7 +1370,7 @@ function MonthCalendar({ year, month, today, requests, calFilter }: { year: numb
                 <div key={ci} className={`border-r border-gray-200 last:border-r-0 p-1.5 relative ${isToday ? 'bg-primary/5' : ''} ${!cell.isCurrentMonth ? 'bg-gray-50/50' : ''}`}>
                   <div className="flex items-start justify-start mb-1">
                     {isToday ? (
-                      <span className="w-6 h-6 rounded-full bg-primary text-white text-xs font-700 flex items-center justify-center">{cell.date.getDate()}</span>
+                      <span className="w-6 h-6 rounded-full bg-primary text-white text-xs font-600 flex items-center justify-center">{cell.date.getDate()}</span>
                     ) : (
                       <span className={`text-xs font-500 ${cell.isCurrentMonth ? 'text-gray-800' : 'text-gray-400'}`}>{cell.date.getDate()}</span>
                     )}
@@ -1467,7 +1467,7 @@ function WeekCalendar({ weekStart, today, requests, calFilter }: { weekStart: Da
                 <div className={`text-xs font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>{DAYS_SHORT[i]}</div>
                 <div className="flex items-center justify-center mt-0.5">
                   {isToday ? (
-                    <span className="w-7 h-7 rounded-full bg-primary text-white text-sm font-700 flex items-center justify-center">{day.getDate()}</span>
+                    <span className="w-7 h-7 rounded-full bg-primary text-white text-sm font-600 flex items-center justify-center">{day.getDate()}</span>
                   ) : (
                     <span className="text-sm font-500 text-gray-700">{day.getDate()}</span>
                   )}
@@ -1521,7 +1521,7 @@ function WeekCalendar({ weekStart, today, requests, calFilter }: { weekStart: Da
               <div className={`text-xs font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>{DAYS_SHORT[i]}</div>
               <div className="flex items-center justify-center mt-0.5">
                 {isToday ? (
-                  <span className="w-7 h-7 rounded-full bg-primary text-white text-sm font-700 flex items-center justify-center">{day.getDate()}</span>
+                  <span className="w-7 h-7 rounded-full bg-primary text-white text-sm font-600 flex items-center justify-center">{day.getDate()}</span>
                 ) : (
                   <span className="text-sm font-500 text-gray-700">{day.getDate()}</span>
                 )}
@@ -1622,7 +1622,7 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200/60">
           <div className={`text-sm font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>{dayName}</div>
           {isToday ? (
-            <span className="w-9 h-9 rounded-full bg-primary text-white text-lg font-700 flex items-center justify-center">{date.getDate()}</span>
+            <span className="w-9 h-9 rounded-full bg-primary text-white text-lg font-600 flex items-center justify-center">{date.getDate()}</span>
           ) : (
             <span className="text-2xl font-600 text-gray-700">{date.getDate()}</span>
           )}
@@ -1646,7 +1646,7 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDotColor(req.status)}`} />
                     <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full ${getStatusBadgeClass(req.status)}`}>{getStatusLabel(req.status)}</span>
                   </div>
-                  <p className="text-xs font-700 text-foreground leading-tight mb-1 line-clamp-2">{req.documentName}</p>
+                  <p className="text-xs font-600 text-foreground leading-tight mb-1 line-clamp-2">{req.documentName}</p>
                   <p className="text-[10px] text-muted-foreground">{req.documentType}</p>
                   <div className="mt-2">
                     <ParticipationProgressBar req={req} size="small" />
@@ -1665,7 +1665,7 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200/60">
         <div className={`text-sm font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>{dayName}</div>
         {isToday ? (
-          <span className="w-9 h-9 rounded-full bg-primary text-white text-lg font-700 flex items-center justify-center">{date.getDate()}</span>
+          <span className="w-9 h-9 rounded-full bg-primary text-white text-lg font-600 flex items-center justify-center">{date.getDate()}</span>
         ) : (
           <span className="text-2xl font-600 text-gray-700">{date.getDate()}</span>
         )}
@@ -1793,7 +1793,7 @@ function KanbanCard({ req, onCancelled, onParticipantRevoked }: RequestCardProps
           )}
         </div>
         {/* Document name */}
-        <p className="text-xs font-700 text-foreground leading-tight mb-1 line-clamp-2">{req.documentName}</p>
+        <p className="text-xs font-600 text-foreground leading-tight mb-1 line-clamp-2">{req.documentName}</p>
         {req.description && (
           <p className="text-[10px] text-muted-foreground leading-relaxed mb-2 line-clamp-2">{req.description}</p>
         )}
@@ -2144,7 +2144,7 @@ export default function ParticipationRequestsPage() {
         {/* Header */}
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-700 leading-tight text-slate-950">Solicitudes enviadas</h1>
+            <h1 className="text-2xl font-600 leading-tight text-slate-950">Solicitudes enviadas</h1>
             <p className="mt-1 text-sm text-slate-500">
               Monitorea el avance de tus documentos y participantes.
             </p>
@@ -2347,7 +2347,7 @@ export default function ParticipationRequestsPage() {
                 <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
                   <Send size={19} />
                 </span>
-                <p className="text-sm font-700 text-slate-800">Sin resultados</p>
+                <p className="text-sm font-600 text-slate-800">Sin resultados</p>
                 <p className="mt-1 text-xs text-slate-500">No se encontraron solicitudes con los filtros aplicados.</p>
               </div>
             ) : listLayout === 'grid' ? (
@@ -2391,7 +2391,7 @@ export default function ParticipationRequestsPage() {
                   style={{ minHeight: '480px' }}
                 >
                   <div className="flex items-center justify-between border-b border-slate-200/70 bg-white/70 px-3 py-2.5">
-                    <span className="text-xs font-700 text-slate-700">{col.label}</span>
+                    <span className="text-xs font-600 text-slate-700">{col.label}</span>
                     <span className="flex h-5 min-w-5 items-center justify-center rounded bg-white px-1.5 text-xs font-600 text-slate-500">{colItems.length}</span>
                   </div>
                   <div className="flex-1 flex flex-col items-center justify-center p-3 gap-2">
@@ -2448,7 +2448,7 @@ export default function ParticipationRequestsPage() {
 
             <div className="flex flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]" style={{ minHeight: '600px' }}>
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                <h2 className="text-sm font-700 text-slate-800">{getCalTitle()}</h2>
+                <h2 className="text-sm font-600 text-slate-800">{getCalTitle()}</h2>
                 <div className="flex items-center gap-1">
                   <button onClick={calPrev} className="p-1 rounded hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-800" aria-label="Período anterior">
                     <ChevronLeft size={16} />

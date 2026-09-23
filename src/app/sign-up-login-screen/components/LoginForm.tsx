@@ -89,7 +89,7 @@ function OtpInput({ value, onChange }: { value: string; onChange: (v: string) =>
           value={digits[i]?.trim() || ''}
           onChange={(e) => handleChange(i, e.target.value)}
           onKeyDown={(e) => handleKey(i, e)}
-          className="h-12 w-11 rounded-md border border-border bg-white text-center text-lg font-700 transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="h-12 w-11 rounded-md border border-border bg-white text-center text-lg font-600 transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
       ))}
     </div>
@@ -140,7 +140,7 @@ function CountdownTimer({ seconds, onExpire }: { seconds: number; onExpire: () =
             className="transition-all duration-1000"
           />
         </svg>
-        <span className="absolute inset-0 flex items-center justify-center text-xs font-700 text-foreground">
+        <span className="absolute inset-0 flex items-center justify-center text-xs font-600 text-foreground">
           {mins}:{secs.toString().padStart(2, '0')}
         </span>
       </div>
@@ -186,7 +186,7 @@ function AccordionItem({
           </div>
           <div>
             <p
-              className={`text-sm font-700 leading-tight transition-colors ${isOpen ? 'text-primary' : 'text-foreground'}`}
+              className={`text-sm font-600 leading-tight transition-colors ${isOpen ? 'text-primary' : 'text-foreground'}`}
             >
               {label}
             </p>
@@ -744,7 +744,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         <div className="mb-7">
           {userName ? (
             <h2 className="text-2xl font-400 text-muted-foreground">
-              Hola, <span className="font-700 text-foreground">{formatDisplayName(userName)}</span>
+              Hola, <span className="font-600 text-foreground">{formatDisplayName(userName)}</span>
             </h2>
           ) : (
             <h2 className="text-2xl font-600 text-foreground">Bienvenido de vuelta</h2>
@@ -848,7 +848,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                   <button
                     onClick={handlePasswordLogin}
                     disabled={passwordLoading || !passwordEnabled}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
                     style={{ minHeight: '44px' }}
                   >
                     {passwordLoading ? (
@@ -881,7 +881,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                 <div className="space-y-3">
                   {!isOtpMode && (
                     <div>
-                      <p className="text-sm font-700 text-foreground">Opciones adicionales</p>
+                      <p className="text-sm font-600 text-foreground">Opciones adicionales</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         También puedes iniciar sesión con otro método disponible.
                       </p>
@@ -953,7 +953,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                                   <button
                                     onClick={handleOtpVerify}
                                     disabled={otpLoading || otpCode.length < 6}
-                                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
                                     style={{ minHeight: '44px' }}
                                   >
                                     {otpLoading ? (
@@ -1015,7 +1015,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                                 <Fingerprint size={16} />
                               </div>
                               <div>
-                                <p className="text-sm font-700 text-foreground">
+                                <p className="text-sm font-600 text-foreground">
                                   Tu biométrico está registrado en el móvil
                                 </p>
                                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -1154,7 +1154,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                         <button
                           onClick={handleBiometricLogin}
                           disabled={biometricLoading}
-                          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
                           style={{ minHeight: '44px' }}
                         >
                           {biometricLoading ? (

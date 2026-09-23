@@ -195,7 +195,7 @@ function Avatar({ initials, size = 'sm' }: { initials: string; size?: 'xs' | 'sm
   const colors = ['bg-blue-500','bg-purple-500','bg-green-500','bg-amber-500','bg-cyan-500','bg-pink-500','bg-indigo-500','bg-teal-500'];
   const idx = (initials?.charCodeAt(0) || 0) % colors.length;
   const sz = size === 'xs' ? 'w-5 h-5 text-[9px]' : size === 'sm' ? 'w-7 h-7 text-[11px]' : 'w-9 h-9 text-sm';
-  return <div className={`${sz} ${colors[idx]} flex flex-shrink-0 items-center justify-center rounded-lg font-bold text-white`}>{initials || '?'}</div>;
+  return <div className={`${sz} ${colors[idx]} flex flex-shrink-0 items-center justify-center rounded-lg font-semibold text-white`}>{initials || '?'}</div>;
 }
 
 // ─── Metrics Dashboard ────────────────────────────────────────────────────────
@@ -228,7 +228,7 @@ function TaskMetrics({ tasks }: { tasks: Task[] }) {
               <span className={`flex h-8 w-8 items-center justify-center rounded-md ${m.bg}`}>
                 <MIcon size={15} className={m.color} />
               </span>
-              <span className={`text-2xl font-700 ${m.color} tabular-nums leading-none`}>{m.value}</span>
+              <span className={`text-2xl font-600 ${m.color} tabular-nums leading-none`}>{m.value}</span>
             </div>
             <p className="text-[11px] font-600 leading-tight text-slate-500">{m.label}</p>
           </div>
@@ -370,7 +370,7 @@ function NewTaskDrawer({ onClose, onCreated, workspaceId, userId, userName }: Ne
               <Plus size={16} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-foreground">Nueva tarea</h2>
+              <h2 className="text-base font-semibold text-foreground">Nueva tarea</h2>
               <p className="text-xs text-muted-foreground">Completa los campos para crear la tarea</p>
             </div>
           </div>
@@ -568,7 +568,7 @@ function NewTaskDrawer({ onClose, onCreated, workspaceId, userId, userName }: Ne
           <button
             onClick={handleSubmit as any}
             disabled={saving}
-            className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
           >
             {saving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save size={14} />}
             {saving ? 'Guardando...' : 'Crear tarea'}
@@ -669,7 +669,7 @@ function AutomationModal({ rule, onClose, onSaved, workspaceId, userId }: Automa
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-base font-bold text-foreground">{rule ? 'Editar automatización' : 'Nueva automatización'}</h2>
+          <h2 className="text-base font-semibold text-foreground">{rule ? 'Editar automatización' : 'Nueva automatización'}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"><X size={16} /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -705,7 +705,7 @@ function AutomationModal({ rule, onClose, onSaved, workspaceId, userId }: Automa
           </div>
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-border text-foreground hover:bg-muted transition-colors">Cancelar</button>
-            <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+            <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
               {saving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save size={14} />}
               {saving ? 'Guardando...' : 'Guardar'}
             </button>
@@ -725,14 +725,14 @@ function DeleteConfirmModal({ title, onConfirm, onCancel, loading }: { title: st
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center"><Trash2 size={18} className="text-red-500" /></div>
           <div>
-            <h3 className="text-sm font-bold text-foreground">Eliminar automatización</h3>
+            <h3 className="text-sm font-semibold text-foreground">Eliminar automatización</h3>
             <p className="text-xs text-muted-foreground mt-0.5">Esta acción no se puede deshacer</p>
           </div>
         </div>
         <p className="text-sm text-foreground mb-5">¿Eliminar <span className="font-semibold">"{title}"</span>?</p>
         <div className="flex gap-2">
           <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-border text-foreground hover:bg-muted transition-colors">Cancelar</button>
-          <button onClick={onConfirm} disabled={loading} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+          <button onClick={onConfirm} disabled={loading} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
             {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Trash2 size={14} />}
             Eliminar
           </button>
@@ -791,7 +791,7 @@ function AutomationRulesPanel({ workspaceId, userId }: { workspaceId: string | n
     <div className="bg-white border border-border rounded-xl p-4 mb-5">
       <div className="flex items-center gap-2 mb-4">
         <Cpu size={15} className="text-primary" />
-        <span className="text-sm font-bold text-foreground">Automatizaciones</span>
+        <span className="text-sm font-semibold text-foreground">Automatizaciones</span>
         <span className="ml-1 text-[10px] font-semibold text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">{rules.filter(r => r.activa).length} activas</span>
         <button onClick={() => { setEditRule(null); setShowModal(true); }} className="ml-auto flex items-center gap-1.5 text-xs font-semibold bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors">
           <Plus size={12} />Nueva
@@ -815,7 +815,7 @@ function AutomationRulesPanel({ workspaceId, userId }: { workspaceId: string | n
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${triggerInfo.bg}`}><TIcon size={14} className={triggerInfo.color} /></div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-xs font-bold text-foreground truncate">{rule.nombre}</p>
+                    <p className="text-xs font-semibold text-foreground truncate">{rule.nombre}</p>
                     {rule.activa ? <span className="text-[9px] font-semibold text-green-600 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">Activa</span> : <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded-full">Inactiva</span>}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -874,10 +874,10 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <span className="text-[10px] font-mono text-muted-foreground/60">{task.id.slice(0,8).toUpperCase()}</span>
-                  {task.isCritical && <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">CRÍTICA</span>}
-                  {task.isBlocked && <span className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><Lock size={8}/>BLOQUEADA</span>}
+                  {task.isCritical && <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">CRÍTICA</span>}
+                  {task.isBlocked && <span className="text-[9px] font-semibold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><Lock size={8}/>BLOQUEADA</span>}
                 </div>
-                <h3 className="line-clamp-2 text-sm font-700 leading-tight text-slate-900 transition-colors group-hover:text-primary">{task.title}</h3>
+                <h3 className="line-clamp-2 text-sm font-600 leading-tight text-slate-900 transition-colors group-hover:text-primary">{task.title}</h3>
               </div>
               <button onClick={e => e.stopPropagation()} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" title="Mas opciones">
                 <MoreHorizontal size={14} />
@@ -950,7 +950,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
           </div>
           <button
             onClick={e => e.stopPropagation()}
-            className="flex h-8 items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2.5 text-[11px] font-700 text-primary transition-colors hover:border-primary hover:bg-primary hover:text-white"
+            className="flex h-8 items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2.5 text-[11px] font-600 text-primary transition-colors hover:border-primary hover:bg-primary hover:text-white"
           >
             {task.mainAction}<ArrowRight size={10} />
           </button>
@@ -1279,7 +1279,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusInfo.className}`}>{statusInfo.label}</span>
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${priorityInfo.className}`}>{priorityInfo.label}</span>
             </div>
-            <h2 className="text-sm font-bold text-foreground leading-snug">{task.title}</h2>
+            <h2 className="text-sm font-semibold text-foreground leading-snug">{task.title}</h2>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
@@ -1374,7 +1374,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                   </div>
                   <div className="flex gap-2 pt-2">
                     <button onClick={() => setEditMode(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-border text-foreground hover:bg-muted transition-colors">Cancelar</button>
-                    <button onClick={handleSaveEdit} disabled={savingEdit} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+                    <button onClick={handleSaveEdit} disabled={savingEdit} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
                       {savingEdit ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save size={14} />}
                       Guardar cambios
                     </button>
@@ -1383,7 +1383,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
               ) : (
                 <>
                   <div>
-                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">Descripción</p>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Descripción</p>
                     <p className="text-sm text-foreground leading-relaxed">{task.description || 'Sin descripción.'}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -1407,7 +1407,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                   </div>
                   {task.tags.length > 0 && (
                     <div>
-                      <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">Etiquetas</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Etiquetas</p>
                       <div className="flex flex-wrap gap-1.5">
                         {task.tags.map(tag => (
                           <span key={tag} className="text-[11px] font-semibold text-primary bg-primary/5 border border-primary/15 px-2.5 py-1 rounded-full">{tag}</span>
@@ -1416,7 +1416,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                     </div>
                   )}
                   <div>
-                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">Acciones</p>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Acciones</p>
                     <div className="flex flex-wrap gap-2">
                       <button className="flex items-center gap-1.5 text-xs font-semibold bg-primary text-white px-3 py-2 rounded-lg hover:bg-primary/90 transition-colors">
                         <Play size={12} />{task.mainAction}
@@ -1441,8 +1441,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
           {tab === 'checklist' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Progreso</p>
-                <span className="text-xs font-bold text-primary">{doneCount}/{checklist.length} completados</span>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Progreso</p>
+                <span className="text-xs font-semibold text-primary">{doneCount}/{checklist.length} completados</span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden mb-4">
                 <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${checklist.length > 0 ? (doneCount/checklist.length)*100 : 0}%` }} />
@@ -1512,7 +1512,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                   <Avatar initials={c.avatar} size="sm" />
                   <div className="flex-1 bg-muted/30 rounded-xl p-3">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold text-foreground">{c.author}</span>
+                      <span className="text-xs font-semibold text-foreground">{c.author}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-muted-foreground">{formatDate(c.date)} {formatTime(c.date)}</span>
                         <button onClick={() => handleDeleteComment(c.id)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
@@ -1691,7 +1691,7 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
         return (
           <div key={col.id} className={`flex w-72 flex-shrink-0 flex-col rounded-lg border border-slate-200/90 border-t-4 bg-white ${col.color} shadow-[0_1px_2px_rgba(15,23,42,0.03)]`} style={{ minHeight: 480 }}>
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm font-700 text-slate-900">{col.label}</span>
+              <span className="text-sm font-600 text-slate-900">{col.label}</span>
               <span className="flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-xs font-600 text-slate-500">{colTasks.length}</span>
             </div>
             <div className="mx-3 mb-2 border-t border-dashed border-slate-200" />
@@ -1757,14 +1757,14 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-        <h3 className="text-sm font-700 text-slate-900">{MONTHS_ES[month]} {year}</h3>
+        <h3 className="text-sm font-600 text-slate-900">{MONTHS_ES[month]} {year}</h3>
         <div className="flex items-center gap-1">
           <button onClick={prev} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronLeft size={15} /></button>
           <button onClick={next} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronRight size={15} /></button>
         </div>
       </div>
       <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/70">
-        {DAYS_SHORT.map(d => <div key={d} className="py-2 text-center text-[11px] font-700 text-slate-500">{d}</div>)}
+        {DAYS_SHORT.map(d => <div key={d} className="py-2 text-center text-[11px] font-600 text-slate-500">{d}</div>)}
       </div>
       {rows.map((row, ri) => (
         <div key={ri} className="grid grid-cols-7 border-b border-slate-100 last:border-b-0">
@@ -1775,7 +1775,7 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
               <div key={ci} className={`min-h-[80px] border-r border-slate-100 p-1.5 last:border-r-0 ${!cell.current ? 'bg-slate-50/70' : ''} ${isToday ? 'bg-primary/5' : ''}`}>
                 <div className="flex justify-start mb-1">
                   {isToday
-                    ? <span className="w-6 h-6 rounded-full bg-primary text-white text-[11px] font-bold flex items-center justify-center">{cell.date.getDate()}</span>
+                    ? <span className="w-6 h-6 rounded-full bg-primary text-white text-[11px] font-semibold flex items-center justify-center">{cell.date.getDate()}</span>
                     : <span className={`text-[11px] font-medium ${cell.current ? 'text-foreground' : 'text-muted-foreground/50'}`}>{cell.date.getDate()}</span>
                   }
                 </div>
@@ -1813,7 +1813,7 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
             <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3">
               <FileText size={15} className="text-primary flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="truncate text-sm font-700 text-slate-900">{name}</p>
+                <p className="truncate text-sm font-600 text-slate-900">{name}</p>
                 <p className="text-[11px] text-slate-500">{docTasks.length} tarea{docTasks.length !== 1 ? 's' : ''}</p>
               </div>
             </div>
@@ -1973,7 +1973,7 @@ export default function PendingTasksPage() {
         {/* Page Header */}
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-700 leading-tight text-slate-950">
+            <h1 className="text-2xl font-600 leading-tight text-slate-950">
               Tareas pendientes
             </h1>
             <p className="mt-1 text-sm text-slate-500">

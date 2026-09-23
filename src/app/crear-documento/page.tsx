@@ -789,7 +789,7 @@ function CrearDocumentoPageInner() {
               />
             </svg>
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-3">Verifica tu correo electrónico</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-3">Verifica tu correo electrónico</h2>
           <p className="text-gray-500 text-sm leading-relaxed mb-6">
             Para crear documentos necesitas verificar tu correo electrónico. Revisa tu bandeja de
             entrada y haz clic en el enlace de verificación que te enviamos al registrarte.
@@ -823,7 +823,7 @@ function CrearDocumentoPageInner() {
           <AppLogo size={34} />
           <div className="hidden h-8 w-px bg-slate-200 lg:block" />
           <div className="hidden min-w-0 lg:block">
-            <p className="truncate text-sm font-700 text-slate-950">Nuevo documento</p>
+            <p className="truncate text-sm font-600 text-slate-950">Nuevo documento</p>
             <p className="truncate text-xs text-slate-500">
               {activeWorkspace?.name || 'Espacio personal'}
             </p>
@@ -903,7 +903,7 @@ function CrearDocumentoPageInner() {
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-700 text-slate-950">{currentStepLabel}</h1>
+                <h1 className="text-xl font-600 text-slate-950">{currentStepLabel}</h1>
                 <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">
                   Paso {currentStep} de {STEPS.length}
                 </span>
@@ -1123,7 +1123,7 @@ function CrearDocumentoPageInner() {
               <button
                 onClick={handleEnviarDocumento}
                 disabled={enviarSending}
-                className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(5,150,105,0.85)] transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(5,150,105,0.85)] transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {enviarSending ? (
                   <>
@@ -1160,7 +1160,7 @@ function CrearDocumentoPageInner() {
               <button
                 onClick={handleNext}
                 disabled={!canGoNext}
-                className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {nextButtonLabel}
                 <ArrowRight size={16} />

@@ -73,7 +73,7 @@ export default function InPersonCompletedPage({
               <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
                 <CheckCircle2 size={26} aria-hidden="true" />
               </span>
-              <h1 className="mt-4 text-xl font-700 text-slate-950">Proceso completado</h1>
+              <h1 className="mt-4 text-xl font-600 text-slate-950">Proceso completado</h1>
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Devuelve el dispositivo a la persona que inició la sesión.
               </p>
@@ -97,7 +97,7 @@ export default function InPersonCompletedPage({
           ) : (
             <div className="min-h-52 py-8">
               <ShieldCheck className="mx-auto text-slate-300" size={38} aria-hidden="true" />
-              <h1 className="mt-4 text-lg font-700 text-slate-950">Sesión cerrada</h1>
+              <h1 className="mt-4 text-lg font-600 text-slate-950">Sesión cerrada</h1>
               <p className="mt-2 text-sm text-slate-500">{error}</p>
             </div>
           )}

@@ -65,6 +65,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { useLuciaAssistant } from '@/contexts/LuciaAssistantContext';
+import UserAvatar from '@/components/ui/UserAvatar';
 
 const BASE_NAV_TABS = [
   { href: '/inicio', label: 'Inicio', icon: Home },
@@ -267,15 +268,28 @@ export default function TopNav() {
     setActiveWorkspace,
     refreshWorkspaces,
   } = useWorkspace();
-  const { user, signOut } = useAuth();
+  const { user, userProfile, signOut } = useAuth();
   const userId = user?.id ?? '';
   const { isDark, toggleTheme } = useTheme();
   const { isModuleActive, loading: modulesLoading } = useAppModules();
   const router = useRouter();
 
   // Derive display name and initials from real user
-  const userFullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Usuario';
+  const profileFullName = [
+    userProfile?.nombre,
+    userProfile?.apellido_paterno,
+    userProfile?.apellido_materno,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const userFullName =
+    userProfile?.full_name ||
+    profileFullName ||
+    user?.user_metadata?.full_name ||
+    user?.email?.split('@')[0] ||
+    'Usuario';
   const userEmail = user?.email || '';
+  const userAvatarUrl = userProfile?.avatar_url || user?.user_metadata?.avatar_url || null;
   const userInitials = userFullName
     .split(' ')
     .filter(Boolean)
@@ -899,13 +913,18 @@ export default function TopNav() {
                     : 'w-[30rem] max-w-[42vw] border-border'
                 } ${workspaceOpen ? 'border-primary/50 bg-white ring-2 ring-primary/10' : ''}`}
               >
-                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
-                  {isPersonal ? (
-                    <User size={15} className="text-primary" />
-                  ) : (
+                {isPersonal ? (
+                  <UserAvatar
+                    src={userAvatarUrl}
+                    alt={`Foto de ${userFullName}`}
+                    className="flex h-7 w-7 flex-shrink-0 items-center justify-center bg-primary/10"
+                    fallback={<User size={15} className="text-primary" />}
+                  />
+                ) : (
+                  <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
                     <Building2 size={15} className="text-primary" />
-                  )}
-                </div>
+                  </div>
+                )}
                 <div className="text-left flex-1 min-w-0">
                   <p className="workspace-selector-caption text-[10px] font-500 uppercase leading-none tracking-[0.1em] text-slate-500">
                     {isPersonal ? 'Espacio de Trabajo Personal' : 'Espacio de Trabajo'}
@@ -946,17 +965,24 @@ export default function TopNav() {
                             isActive ? 'bg-primary/10 hover:bg-primary/15' : 'hover:bg-primary/5'
                           }`}
                         >
-                          <div
-                            className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                              isActive ? 'bg-primary/20' : 'bg-primary/10'
-                            }`}
-                          >
-                            {isWsPersonal ? (
-                              <User size={14} className="text-primary" />
-                            ) : (
-                              <Building2 size={14} className="text-primary" />
-                            )}
-                          </div>
+                           {isWsPersonal ? (
+                             <UserAvatar
+                               src={userAvatarUrl}
+                               alt={`Foto de ${userFullName}`}
+                               className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${
+                                 isActive ? 'bg-primary/20' : 'bg-primary/10'
+                               }`}
+                               fallback={<User size={14} className="text-primary" />}
+                             />
+                           ) : (
+                             <div
+                               className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
+                                 isActive ? 'bg-primary/20' : 'bg-primary/10'
+                               }`}
+                             >
+                               <Building2 size={14} className="text-primary" />
+                             </div>
+                           )}
                           <div className="flex-1 text-left min-w-0">
                             <p
                               className={`text-sm truncate ${isActive ? 'font-600 text-primary' : 'font-500 text-foreground'}`}
@@ -1138,7 +1164,7 @@ export default function TopNav() {
                     {searchQuery.trim().length < 2 ? (
                       <section className="px-4 py-3.5">
                         <div className="mb-2.5 flex items-center justify-between">
-                          <p className="text-xs font-700 uppercase text-slate-500">
+                          <p className="text-xs font-600 uppercase text-slate-500">
                             Búsquedas recientes
                           </p>
                           {recentSearches.length > 0 && (
@@ -1178,7 +1204,7 @@ export default function TopNav() {
                     ) : searchResults.length > 0 ? (
                       <section className="py-2">
                         <div className="flex items-center justify-between px-4 py-2">
-                          <p className="text-xs font-700 uppercase text-slate-500">Resultados</p>
+                          <p className="text-xs font-600 uppercase text-slate-500">Resultados</p>
                           <span className="text-xs text-slate-400">
                             {searchResults.length} encontrados
                           </span>
@@ -1212,7 +1238,7 @@ export default function TopNav() {
                                 <ResultIcon size={17} />
                               </span>
                               <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-700 text-slate-900">
+                                <span className="block truncate text-sm font-600 text-slate-900">
                                   {result.title}
                                 </span>
                                 <span className="mt-0.5 block truncate text-xs capitalize text-slate-500">
@@ -1230,7 +1256,7 @@ export default function TopNav() {
                     ) : (
                       <div className="px-6 py-10 text-center">
                         <Search size={26} className="mx-auto mb-3 text-slate-300" />
-                        <p className="text-sm font-700 text-slate-800">
+                        <p className="text-sm font-600 text-slate-800">
                           No encontramos coincidencias
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
@@ -1266,7 +1292,7 @@ export default function TopNav() {
               {quickActionsOpen && (
                 <div className="absolute right-0 top-12 z-50 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.14)]">
                   <div className="border-b border-slate-200 px-4 py-3">
-                    <p className="text-sm font-700 text-slate-950">Acciones rápidas</p>
+                    <p className="text-sm font-600 text-slate-950">Acciones rápidas</p>
                     <p className="mt-0.5 text-xs text-slate-500">Inicia una tarea frecuente.</p>
                   </div>
                   <div className="p-1.5">
@@ -1367,7 +1393,7 @@ export default function TopNav() {
                 <Bell className="h-5 w-5" />
                 {unreadCount > 0 && (
                   <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-0.5">
-                    <span className="topnav-notification-count text-white text-[9px] font-700 leading-none">
+                    <span className="topnav-notification-count text-white text-[9px] font-600 leading-none">
                       {unreadCount}
                     </span>
                   </span>
@@ -1379,7 +1405,7 @@ export default function TopNav() {
                   {/* REMOVED: inline detail overlay — now handled by standalone modal below */}
 
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                    <span className="text-base font-700 text-foreground">Notificaciones</span>
+                    <span className="text-base font-600 text-foreground">Notificaciones</span>
                     {selectedNotifIds.size > 0 ? (
                       <button
                         onClick={markSelectedRead}
@@ -1510,7 +1536,7 @@ export default function TopNav() {
               )}
             </div>
 
-            {/* 6. Gravatar — solo iniciales, sin nombre */}
+            {/* 6. Cuenta del usuario */}
             <div ref={avatarRef} className="relative flex-shrink-0">
               <button
                 onClick={() => {
@@ -1521,11 +1547,16 @@ export default function TopNav() {
                 title="Mi cuenta"
                 aria-label="Mi cuenta"
               >
-                <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary">
-                  <span className="text-[9px] font-700 leading-none text-white">
-                    {userInitials || 'U'}
-                  </span>
-                </div>
+                <UserAvatar
+                  src={userAvatarUrl}
+                  alt={`Foto de ${userFullName}`}
+                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center bg-primary"
+                  fallback={
+                    <span className="text-[9px] font-600 leading-none text-white">
+                      {userInitials || 'U'}
+                    </span>
+                  }
+                />
               </button>
 
               {avatarOpen && (
@@ -1594,7 +1625,7 @@ export default function TopNav() {
                   href={tab.href}
                   className={`relative flex h-10 items-center gap-2 whitespace-nowrap px-4 py-2 text-sm font-500 transition-all duration-150 ${
                     isActive
-                      ? 'font-700 text-primary after:absolute after:inset-x-4 after:bottom-0 after:h-0.5 after:bg-primary'
+                      ? 'font-600 text-primary after:absolute after:inset-x-4 after:bottom-0 after:h-0.5 after:bg-primary'
                       : 'text-slate-500 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                   }`}
                 >
@@ -1752,7 +1783,7 @@ export default function TopNav() {
                     {typeIcons[nType] ?? typeIcons.info}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-700 text-foreground leading-snug">{n.title}</p>
+                    <p className="text-sm font-600 text-foreground leading-snug">{n.title}</p>
                     {!n.read && (
                       <span className="inline-flex items-center gap-1 text-xs text-primary font-500 mt-0.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
@@ -1873,7 +1904,7 @@ export default function TopNav() {
                   <Building2 size={20} className="text-primary" />
                 </div>
                 <div>
-                  <h2 className="text-base font-700 text-foreground">
+                  <h2 className="text-base font-600 text-foreground">
                     Unirse a espacio de trabajo
                   </h2>
                   <p className="text-xs text-muted-foreground mt-0.5">

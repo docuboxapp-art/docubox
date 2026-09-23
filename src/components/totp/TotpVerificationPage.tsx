@@ -123,7 +123,7 @@ export default function TotpVerificationPage({
 
           {/* Title */}
           <div className="text-center mb-6">
-            <h1 className="text-xl font-700 text-foreground mb-2">Verificación en dos pasos</h1>
+            <h1 className="text-xl font-600 text-foreground mb-2">Verificación en dos pasos</h1>
             <p className="text-sm text-muted-foreground">
               Ingresa el código de 6 dígitos generado por tu app autenticadora.
             </p>
@@ -161,7 +161,7 @@ export default function TotpVerificationPage({
           <button
             onClick={handleVerify}
             disabled={loading || code.length !== 6}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-xl text-sm font-700 hover:bg-primary/90 disabled:opacity-60 transition-all mb-4"
+            className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-xl text-sm font-600 hover:bg-primary/90 disabled:opacity-60 transition-all mb-4"
           >
             {loading ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
             {loading ? 'Verificando...' : 'Verificar'}

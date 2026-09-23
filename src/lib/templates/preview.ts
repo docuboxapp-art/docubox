@@ -1,3 +1,12 @@
+import {
+  popGraphicsState,
+  pushGraphicsState,
+  setCharacterSqueeze,
+  type PDFFont,
+  type PDFPage,
+  type RGB,
+} from 'pdf-lib';
+
 export type PublishedTemplateDocument = {
   id: string;
   nombre: string;
@@ -217,6 +226,209 @@ async function waitForFrame(frame: HTMLIFrameElement, srcDoc: string) {
     })
   );
   return frameDocument;
+}
+
+type TemplatePdfFontFamily = {
+  regular: PDFFont;
+  bold: PDFFont;
+  italic: PDFFont;
+  boldItalic: PDFFont;
+};
+
+type TemplatePdfFonts = {
+  serif: TemplatePdfFontFamily;
+  sans: TemplatePdfFontFamily;
+  mono: TemplatePdfFontFamily;
+};
+
+function parseCssColor(value: string, makeRgb: (red: number, green: number, blue: number) => RGB) {
+  const match = value.match(
+    /rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/i
+  );
+  if (!match) return makeRgb(0.07, 0.09, 0.13);
+  return makeRgb(
+    Math.min(255, Number(match[1])) / 255,
+    Math.min(255, Number(match[2])) / 255,
+    Math.min(255, Number(match[3])) / 255
+  );
+}
+
+function selectTemplatePdfFont(style: CSSStyleDeclaration, fonts: TemplatePdfFonts) {
+  const family = style.fontFamily.toLowerCase();
+  const group = /courier|mono|consolas/.test(family)
+    ? fonts.mono
+    : /times|serif|georgia|merriweather|baskerville|garamond|lora|bitter|slab/.test(family)
+      ? fonts.serif
+      : fonts.sans;
+  const numericWeight = Number.parseInt(style.fontWeight, 10);
+  const bold = Number.isFinite(numericWeight)
+    ? numericWeight >= 600
+    : /bold|bolder/.test(style.fontWeight);
+  const italic = /italic|oblique/.test(style.fontStyle);
+  if (bold && italic) return group.boldItalic;
+  if (bold) return group.bold;
+  if (italic) return group.italic;
+  return group.regular;
+}
+
+function makePdfSafeText(value: string, font: PDFFont) {
+  const replacements: Record<string, string> = {
+    '\u00a0': ' ',
+    '\u2010': '-',
+    '\u2011': '-',
+    '\u2012': '-',
+    '\u2013': '-',
+    '\u2014': '-',
+    '\u2022': '*',
+    '\u2026': '...',
+  };
+  let result = '';
+  for (const character of value.normalize('NFC')) {
+    const candidate = replacements[character] ?? character;
+    try {
+      font.encodeText(candidate);
+      result += candidate;
+    } catch {
+      result += '?';
+    }
+  }
+  return result;
+}
+
+function transformPdfText(value: string, style: CSSStyleDeclaration) {
+  if (style.textTransform === 'uppercase') return value.toLocaleUpperCase('es-MX');
+  if (style.textTransform === 'lowercase') return value.toLocaleLowerCase('es-MX');
+  if (style.textTransform === 'capitalize') {
+    return value.replace(
+      /(^|\s)(\S)/g,
+      (_match, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase('es-MX')}`
+    );
+  }
+  return value;
+}
+
+function drawTemplateVectorText({
+  page,
+  pageElement,
+  fonts,
+  makeRgb,
+}: {
+  page: PDFPage;
+  pageElement: HTMLElement;
+  fonts: TemplatePdfFonts;
+  makeRgb: (red: number, green: number, blue: number) => RGB;
+}) {
+  const frameDocument = pageElement.ownerDocument;
+  const frameWindow = frameDocument.defaultView;
+  if (!frameWindow) return;
+  const pageRect = pageElement.getBoundingClientRect();
+  const { height: pdfHeight } = page.getSize();
+  const pointScale = 0.75;
+  const walker = frameDocument.createTreeWalker(pageElement, frameWindow.NodeFilter.SHOW_TEXT);
+  let current = walker.nextNode();
+
+  while (current) {
+    const textNode = current as Text;
+    const parent = textNode.parentElement;
+    const text = textNode.data;
+    if (!parent || !text.trim()) {
+      current = walker.nextNode();
+      continue;
+    }
+    const style = frameWindow.getComputedStyle(parent);
+    const opacity = Number.parseFloat(style.opacity || '1');
+    if (
+      style.display === 'none' ||
+      style.visibility === 'hidden' ||
+      opacity <= 0 ||
+      Number.parseFloat(style.fontSize || '0') <= 0
+    ) {
+      current = walker.nextNode();
+      continue;
+    }
+
+    const font = selectTemplatePdfFont(style, fonts);
+    const fontSize = Math.max(1, Number.parseFloat(style.fontSize) * pointScale);
+    const color = parseCssColor(style.color, makeRgb);
+    const tokenPattern = /[^\S\r\n]*\S+[^\S\r\n]*/g;
+    let match: RegExpExecArray | null;
+    while ((match = tokenPattern.exec(text))) {
+      const range = frameDocument.createRange();
+      range.setStart(textNode, match.index);
+      range.setEnd(textNode, match.index + match[0].length);
+      const rects = Array.from(range.getClientRects()).filter(
+        (rect) => rect.width > 0 && rect.height > 0
+      );
+      if (rects.length === 0) continue;
+
+      const drawRun = (run: string, rect: DOMRect) => {
+        const transformed = transformPdfText(run, style);
+        const safeText = makePdfSafeText(transformed, font);
+        if (!safeText) return;
+        const x = (rect.left - pageRect.left) * pointScale;
+        const y =
+          pdfHeight - (rect.bottom - pageRect.top) * pointScale + Math.max(0.7, fontSize * 0.18);
+        const browserWidth = rect.width * pointScale;
+        const pdfWidth = font.widthOfTextAtSize(safeText, fontSize);
+        const horizontalScale =
+          pdfWidth > browserWidth && browserWidth > 0
+            ? Math.max(1, Math.min(100, ((browserWidth - 0.2) / pdfWidth) * 100))
+            : 100;
+        page.pushOperators(pushGraphicsState(), setCharacterSqueeze(horizontalScale));
+        page.drawText(safeText, {
+          x,
+          y,
+          size: fontSize,
+          font,
+          color,
+          opacity: Math.min(1, opacity),
+        });
+        page.pushOperators(popGraphicsState());
+        if (style.textDecorationLine.includes('underline')) {
+          page.drawLine({
+            start: { x, y: y - Math.max(0.6, fontSize * 0.08) },
+            end: { x: x + rect.width * pointScale, y: y - Math.max(0.6, fontSize * 0.08) },
+            thickness: Math.max(0.35, fontSize * 0.045),
+            color,
+            opacity: Math.min(1, opacity),
+          });
+        }
+      };
+
+      if (rects.length === 1) {
+        drawRun(match[0], rects[0]);
+        continue;
+      }
+
+      let runStart = match.index;
+      let runTop: number | null = null;
+      for (let offset = 0; offset < match[0].length; offset += 1) {
+        const characterIndex = match.index + offset;
+        const characterRange = frameDocument.createRange();
+        characterRange.setStart(textNode, characterIndex);
+        characterRange.setEnd(textNode, characterIndex + 1);
+        const characterRect = characterRange.getBoundingClientRect();
+        if (runTop !== null && Math.abs(characterRect.top - runTop) >= 1) {
+          const runRange = frameDocument.createRange();
+          runRange.setStart(textNode, runStart);
+          runRange.setEnd(textNode, characterIndex);
+          drawRun(text.slice(runStart, characterIndex), runRange.getBoundingClientRect());
+          runStart = characterIndex;
+        }
+        runTop = characterRect.top;
+      }
+      if (runStart < match.index + match[0].length) {
+        const runRange = frameDocument.createRange();
+        runRange.setStart(textNode, runStart);
+        runRange.setEnd(textNode, match.index + match[0].length);
+        drawRun(
+          text.slice(runStart, match.index + match[0].length),
+          runRange.getBoundingClientRect()
+        );
+      }
+    }
+    current = walker.nextNode();
+  }
 }
 
 type PreviewTextBoundary = { node: Text; offset: number };
@@ -465,11 +677,31 @@ export async function createPdfFromPublishedTemplate(
       });
       options.onFieldsMeasured(measurements);
     }
-    const [{ default: html2canvas }, { PDFDocument }] = await Promise.all([
+    const [{ default: html2canvas }, { PDFDocument, StandardFonts, rgb }] = await Promise.all([
       import('html2canvas'),
       import('pdf-lib'),
     ]);
     const pdf = await PDFDocument.create();
+    const fonts: TemplatePdfFonts = {
+      serif: {
+        regular: await pdf.embedFont(StandardFonts.TimesRoman),
+        bold: await pdf.embedFont(StandardFonts.TimesRomanBold),
+        italic: await pdf.embedFont(StandardFonts.TimesRomanItalic),
+        boldItalic: await pdf.embedFont(StandardFonts.TimesRomanBoldItalic),
+      },
+      sans: {
+        regular: await pdf.embedFont(StandardFonts.Helvetica),
+        bold: await pdf.embedFont(StandardFonts.HelveticaBold),
+        italic: await pdf.embedFont(StandardFonts.HelveticaOblique),
+        boldItalic: await pdf.embedFont(StandardFonts.HelveticaBoldOblique),
+      },
+      mono: {
+        regular: await pdf.embedFont(StandardFonts.Courier),
+        bold: await pdf.embedFont(StandardFonts.CourierBold),
+        italic: await pdf.embedFont(StandardFonts.CourierOblique),
+        boldItalic: await pdf.embedFont(StandardFonts.CourierBoldOblique),
+      },
+    };
     const pdfWidth = width * 0.75;
     const pdfHeight = height * 0.75;
     for (const pageElement of pageElements) {
@@ -480,6 +712,18 @@ export async function createPdfFromPublishedTemplate(
         useCORS: false,
         windowWidth: width,
         windowHeight: height,
+        onclone: (_clonedDocument, clonedPage) => {
+          clonedPage.querySelectorAll<HTMLElement>('*').forEach((element) => {
+            const hasDirectText = Array.from(element.childNodes).some(
+              (node) => node.nodeType === 3 && Boolean(node.textContent?.trim())
+            );
+            if (!hasDirectText) return;
+            element.style.setProperty('color', 'transparent', 'important');
+            element.style.setProperty('-webkit-text-fill-color', 'transparent', 'important');
+            element.style.setProperty('text-shadow', 'none', 'important');
+            element.style.setProperty('text-decoration-color', 'transparent', 'important');
+          });
+        },
       });
       const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob(
@@ -491,6 +735,7 @@ export async function createPdfFromPublishedTemplate(
       const image = await pdf.embedPng(await blob.arrayBuffer());
       const page = pdf.addPage([pdfWidth, pdfHeight]);
       page.drawImage(image, { x: 0, y: 0, width: pdfWidth, height: pdfHeight });
+      drawTemplateVectorText({ page, pageElement, fonts, makeRgb: rgb });
     }
     const bytes = await pdf.save();
     const fileBuffer = new Uint8Array(bytes.byteLength);

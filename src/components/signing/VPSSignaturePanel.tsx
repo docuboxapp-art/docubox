@@ -662,7 +662,7 @@ export default function VPSSignaturePanel({
           style={{ backgroundColor: "#0A1628" }}
         >
           <span
-            className="text-xs font-bold tracking-wide"
+            className="text-xs font-semibold tracking-wide"
             style={{ color: "#F1F5F9", fontFamily: "monospace" }}
           >
             DOCUBOX
@@ -685,7 +685,7 @@ export default function VPSSignaturePanel({
           ].map(({ label, value, highlight }) => (
             <div key={label} className="flex items-baseline gap-1">
               <span
-                className="text-xs font-bold flex-shrink-0"
+                className="text-xs font-semibold flex-shrink-0"
                 style={{ color: "#374151", fontSize: "7px" }}
               >
                 {label}
@@ -703,7 +703,7 @@ export default function VPSSignaturePanel({
           ))}
           <div className="flex items-baseline gap-1">
             <span
-              className="text-xs font-bold flex-shrink-0"
+              className="text-xs font-semibold flex-shrink-0"
               style={{ color: "#374151", fontSize: "7px" }}
             >
               Sello de tiempo:

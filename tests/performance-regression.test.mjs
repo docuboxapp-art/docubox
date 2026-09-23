@@ -83,11 +83,21 @@ test('owner listing uses the authenticated RLS client instead of service role', 
   assert.doesNotMatch(ownerRoute, /user=\$\{user\.id\}/);
 });
 
-test('independent owner and participant document requests start in parallel', () => {
-  assert.match(
-    documentsPage,
-    /const \[res, partRes\] = await Promise\.all\(\[[\s\S]*\/api\/documentos\/listar[\s\S]*\/api\/documentos\/mis-participaciones/
+test('owner documents paint without waiting for participant document enrichment', () => {
+  assert.match(documentsPage, /const ownerDocumentsRequest = fetchDocumentData/);
+  assert.match(documentsPage, /const participantDocumentsRequest = fetchDocumentData/);
+  assert.ok(
+    documentsPage.indexOf('const participantDocumentsRequest') <
+      documentsPage.indexOf('const res = await ownerDocumentsRequest'),
+    'both requests should start before awaiting the owner list'
   );
+  assert.ok(
+    documentsPage.indexOf('setLoadingDocs(false);') <
+      documentsPage.indexOf('const partRes = await participantDocumentsRequest'),
+    'the primary list should stop loading before participant enrichment finishes'
+  );
+  assert.match(documentsPage, /mis-participaciones\?exclude_owned=true&view=list/);
+  assert.match(participationsRoute, /LIST_PARTICIPATION_SELECT/);
 });
 
 test('view customization code loads only when its modal opens', () => {

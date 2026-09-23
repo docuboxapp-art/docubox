@@ -60,6 +60,7 @@ export interface PublicVerificationParticipant {
   status: string;
   signatureMethod?: string | null;
   signedAt?: string | null;
+  signatureHash?: string | null;
 }
 
 export interface PublicCertificationDetails {

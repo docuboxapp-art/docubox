@@ -115,7 +115,7 @@ export default function SignupForm({ onSwitchToLogin }: Props) {
     <div>
       <Toaster position="bottom-right" richColors />
       <div className="mb-5">
-        <h2 className="text-2xl font-700 text-foreground">Crea tu cuenta</h2>
+        <h2 className="text-2xl font-600 text-foreground">Crea tu cuenta</h2>
         <p className="text-sm text-muted-foreground mt-1">
           Empieza a firmar documentos con validez legal en México. Gratis los primeros 30 días.
         </p>
@@ -306,7 +306,7 @@ export default function SignupForm({ onSwitchToLogin }: Props) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-xl text-sm font-700 hover:bg-primary-700 disabled:opacity-60 transition-all duration-150 active:scale-95"
+          className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-xl text-sm font-600 hover:bg-primary-700 disabled:opacity-60 transition-all duration-150 active:scale-95"
           style={{ minHeight: '44px' }}
         >
           {loading ? (

@@ -144,7 +144,7 @@ export default function AyudaFirmadoPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-4">
             <HelpCircle size={28} className="text-primary" />
           </div>
-          <h1 className="text-3xl font-700 text-foreground mb-3">
+          <h1 className="text-3xl font-600 text-foreground mb-3">
             Centro de ayuda para participantes
           </h1>
           <p className="text-base text-muted-foreground max-w-xl mx-auto">
@@ -155,7 +155,7 @@ export default function AyudaFirmadoPage() {
 
         {/* Step-by-step guide */}
         <section className="mb-14">
-          <h2 className="text-xl font-700 text-foreground mb-6 flex items-center gap-2">
+          <h2 className="text-xl font-600 text-foreground mb-6 flex items-center gap-2">
             <Shield size={20} className="text-primary" />
             Guía paso a paso para participar
           </h2>
@@ -167,7 +167,7 @@ export default function AyudaFirmadoPage() {
                 className="relative flex flex-col items-start p-5 rounded-2xl border border-border bg-white hover:border-primary/30 hover:shadow-sm transition-all"
               >
                 {/* Step number badge */}
-                <div className="absolute -top-3 -left-2 w-6 h-6 rounded-full bg-foreground text-white text-xs font-700 flex items-center justify-center">
+                <div className="absolute -top-3 -left-2 w-6 h-6 rounded-full bg-foreground text-white text-xs font-600 flex items-center justify-center">
                   {index + 1}
                 </div>
                 <div
@@ -175,7 +175,7 @@ export default function AyudaFirmadoPage() {
                 >
                   {step.icon}
                 </div>
-                <h3 className="text-sm font-700 text-foreground mb-1">{step.title}</h3>
+                <h3 className="text-sm font-600 text-foreground mb-1">{step.title}</h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">{step.description}</p>
               </div>
             ))}
@@ -184,7 +184,7 @@ export default function AyudaFirmadoPage() {
 
         {/* Quick access cards */}
         <section className="mb-14">
-          <h2 className="text-xl font-700 text-foreground mb-6">Accesos rápidos</h2>
+          <h2 className="text-xl font-600 text-foreground mb-6">Accesos rápidos</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Link
               href="/login"
@@ -227,7 +227,7 @@ export default function AyudaFirmadoPage() {
 
         {/* FAQ */}
         <section>
-          <h2 className="text-xl font-700 text-foreground mb-6 flex items-center gap-2">
+          <h2 className="text-xl font-600 text-foreground mb-6 flex items-center gap-2">
             <HelpCircle size={20} className="text-primary" />
             Preguntas frecuentes
           </h2>

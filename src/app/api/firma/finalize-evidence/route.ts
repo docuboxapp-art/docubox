@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
     const consent = signatureConsentSnapshot(signedAt);
     const requestedAttemptId = String(body.attemptId || '');
     const signatureId = UUID_PATTERN.test(requestedAttemptId) ? requestedAttemptId : randomUUID();
+    let finalizedSignatureId = signatureId;
     let evidenceId = String(body.evidenceId || '');
 
     if (method === 'clicksign') {
@@ -148,6 +149,73 @@ export async function POST(request: NextRequest) {
           { status: 409 }
         );
       }
+      const expectedEvidenceType = method === 'autografa' ? 'autograph_signature' : 'efirma_sat';
+      const candidate = await service
+        .from('signature_evidence')
+        .select('id,evidence_type,evidence_role,document_version_id,signature_id,is_voided')
+        .eq('id', evidenceId)
+        .eq('document_id', documentId)
+        .eq('captured_by', user.id)
+        .maybeSingle();
+      if (candidate.error) throw candidate.error;
+      if (
+        !candidate.data ||
+        candidate.data.is_voided ||
+        candidate.data.evidence_type !== expectedEvidenceType
+      ) {
+        return NextResponse.json(
+          {
+            error: 'La evidencia técnica no corresponde al método de firma.',
+            code: 'SIGNATURE_EVIDENCE_METHOD_MISMATCH',
+          },
+          { status: 409 }
+        );
+      }
+
+      let previousFinalsQuery = service
+        .from('signature_evidence')
+        .select('id,signature_id')
+        .eq('document_id', documentId)
+        .eq('captured_by', user.id)
+        .eq('evidence_type', expectedEvidenceType)
+        .eq('evidence_role', 'FINAL_SIGNATURE')
+        .eq('is_voided', false)
+        .neq('id', evidenceId);
+      previousFinalsQuery = versionResult.data?.id
+        ? previousFinalsQuery.eq('document_version_id', versionResult.data.id)
+        : previousFinalsQuery.is('document_version_id', null);
+      const previousFinals = await previousFinalsQuery;
+      if (previousFinals.error) throw previousFinals.error;
+
+      const supersededEvidenceIds = (previousFinals.data || []).map((item) => item.id);
+      let effectiveSignatureId = candidate.data.signature_id || signatureId;
+      if (
+        method === 'autografa' &&
+        !candidate.data.signature_id &&
+        (previousFinals.data || []).some((item) => item.signature_id === signatureId)
+      ) {
+        effectiveSignatureId = randomUUID();
+      }
+      finalizedSignatureId = effectiveSignatureId;
+
+      if (supersededEvidenceIds.length > 0) {
+        const linkedResponses = await service
+          .from('participation_responses')
+          .select('id,signature_evidence_id')
+          .in('signature_evidence_id', supersededEvidenceIds)
+          .limit(1);
+        if (linkedResponses.error) throw linkedResponses.error;
+        if ((linkedResponses.data || []).length > 0) {
+          return NextResponse.json(
+            {
+              error: 'La evidencia previa ya forma parte de una participación confirmada.',
+              code: 'SIGNATURE_EVIDENCE_ALREADY_COMMITTED',
+            },
+            { status: 409 }
+          );
+        }
+      }
+
       const updateValues: Record<string, unknown> = {
         participant_record_id: participantRecordId,
         document_version_id: versionResult.data?.id || null,
@@ -159,7 +227,7 @@ export async function POST(request: NextRequest) {
         consent_accepted: true,
         consent_accepted_at: consent.acceptedAt,
       };
-      if (method === 'autografa') updateValues.signature_id = signatureId;
+      if (method === 'autografa') updateValues.signature_id = effectiveSignatureId;
       const updated = await service
         .from('signature_evidence')
         .update(updateValues)
@@ -182,9 +250,23 @@ export async function POST(request: NextRequest) {
           { status: 409 }
         );
       }
+
+      if (supersededEvidenceIds.length > 0) {
+        const voided = await service
+          .from('signature_evidence')
+          .update({
+            is_voided: true,
+            voided_at: signedAt,
+            voided_by: user.id,
+            void_reason: 'SUPERSEDED_BY_SIGNATURE_RETRY',
+          })
+          .in('id', supersededEvidenceIds)
+          .eq('is_voided', false);
+        if (voided.error) throw voided.error;
+      }
     }
 
-    return NextResponse.json({ ok: true, evidenceId, signatureId, consent });
+    return NextResponse.json({ ok: true, evidenceId, signatureId: finalizedSignatureId, consent });
   } catch (error) {
     const access = documentAccessResponse(error);
     if (access.status !== 500) return NextResponse.json(access.body, { status: access.status });

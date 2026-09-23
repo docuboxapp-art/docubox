@@ -417,7 +417,7 @@ export default function TotpSetupModal({
                 </div>
                 <ol className="divide-y divide-border">
                   <li className="flex gap-3 px-4 py-3">
-                    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-700 text-primary">
+                    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-600 text-primary">
                       1
                     </span>
                     <div className="min-w-0 flex-1">
@@ -479,7 +479,7 @@ export default function TotpSetupModal({
                     </div>
                   </li>
                   <li className="flex gap-3 px-4 py-3">
-                    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-700 text-primary">
+                    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-600 text-primary">
                       2
                     </span>
                     <div>
@@ -494,7 +494,7 @@ export default function TotpSetupModal({
                     />
                   </li>
                   <li className="flex gap-3 px-4 py-3">
-                    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-700 text-primary">
+                    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-600 text-primary">
                       3
                     </span>
                     <div>
@@ -658,7 +658,7 @@ export default function TotpSetupModal({
                 <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10">
                   <Lock size={28} className="text-primary" />
                 </div>
-                <h3 className="text-base font-700 text-foreground mb-1">Confirma tu contraseña</h3>
+                <h3 className="text-base font-600 text-foreground mb-1">Confirma tu contraseña</h3>
                 <p className="text-sm text-muted-foreground">
                   Ingresa la contraseña de tu cuenta Docubox para continuar con la verificación.
                 </p>
@@ -724,7 +724,7 @@ export default function TotpSetupModal({
           {step === 'verify' && (
             <div className="flex flex-col gap-5">
               <div className="text-center">
-                <h3 className="text-base font-700 text-foreground mb-1">Verificar configuración</h3>
+                <h3 className="text-base font-600 text-foreground mb-1">Verificar configuración</h3>
                 <p className="text-sm text-muted-foreground">
                   Ingresa el código de 6 dígitos generado por tu app autenticadora para confirmar la
                   configuración.
@@ -748,7 +748,7 @@ export default function TotpSetupModal({
                     onPaste={i === 0 ? handleDigitPaste : undefined}
                     disabled={loading}
                     className={[
-                      'w-11 h-14 rounded-lg border bg-white text-center text-xl font-700',
+                      'w-11 h-14 rounded-lg border bg-white text-center text-xl font-600',
                       'focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all',
                       'disabled:opacity-50 disabled:cursor-not-allowed',
                       error
@@ -826,7 +826,7 @@ export default function TotpSetupModal({
                 <CheckCircle size={32} className="text-green-600" />
               </div>
               <div>
-                <h3 className="text-base font-700 text-foreground mb-1">
+                <h3 className="text-base font-600 text-foreground mb-1">
                   ¡App autenticadora activada!
                 </h3>
                 <p className="text-sm text-muted-foreground">

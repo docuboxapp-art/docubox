@@ -104,7 +104,7 @@ export default function ActivityFeed() {
   return (
     <div className="bg-white rounded-xl border border-border shadow-card">
       <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-        <h2 className="text-[13px] font-700 text-slate-900">Actividad reciente</h2>
+        <h2 className="text-[13px] font-600 text-slate-900">Actividad reciente</h2>
         <span className="text-xs text-muted-foreground bg-gray-100 px-2 py-0.5 rounded-full">
           {items.length} eventos
         </span>

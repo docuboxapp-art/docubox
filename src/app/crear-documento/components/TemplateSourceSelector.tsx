@@ -74,7 +74,7 @@ export function TemplateSourceSelector({
       <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
         <header className="min-h-16 border-b border-slate-200 px-5 py-3 sm:px-6">
           <div className="min-w-0">
-            <h2 className="truncate text-base font-700 text-slate-950">Seleccionar plantilla</h2>
+            <h2 className="truncate text-base font-600 text-slate-950">Seleccionar plantilla</h2>
             <p className="truncate text-xs text-slate-500">
               Elige una plantilla publicada para iniciar tu documento.
             </p>
@@ -131,7 +131,7 @@ export function TemplateSourceSelector({
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-700 text-slate-950">
+                        <p className="truncate text-sm font-600 text-slate-950">
                           {template.nombre}
                         </p>
                         <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-600 text-emerald-700">

@@ -219,15 +219,17 @@ interface SessionEvidence {
 
 type BrowserGeolocation = NonNullable<SessionEvidence['geo']>;
 
-function validBrowserGeolocation(geo: SessionEvidence['geo'] | undefined): geo is BrowserGeolocation {
+function validBrowserGeolocation(
+  geo: SessionEvidence['geo'] | undefined
+): geo is BrowserGeolocation {
   return Boolean(
     geo &&
-      Number.isFinite(geo.latitude) &&
-      Number.isFinite(geo.longitude) &&
-      geo.latitude >= -90 &&
-      geo.latitude <= 90 &&
-      geo.longitude >= -180 &&
-      geo.longitude <= 180
+    Number.isFinite(geo.latitude) &&
+    Number.isFinite(geo.longitude) &&
+    geo.latitude >= -90 &&
+    geo.latitude <= 90 &&
+    geo.longitude >= -180 &&
+    geo.longitude <= 180
   );
 }
 
@@ -242,9 +244,7 @@ function requestBrowserGeolocation(): Promise<BrowserGeolocation | null> {
         const geo: BrowserGeolocation = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          accuracy_meters: Number.isFinite(position.coords.accuracy)
-            ? position.coords.accuracy
-            : 0,
+          accuracy_meters: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : 0,
           source: 'browser_api',
         };
         resolve(validBrowserGeolocation(geo) ? geo : null);
@@ -377,7 +377,7 @@ function SignatureOtpInput({
           onKeyDown={(event) => handleKeyDown(index, event)}
           disabled={disabled}
           aria-label={`Dígito ${index + 1} del código de confirmación`}
-          className={`h-12 w-11 rounded-md border text-center text-lg font-700 tabular-nums transition-all focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${inputClass}`}
+          className={`h-12 w-11 rounded-md border text-center text-lg font-600 tabular-nums transition-all focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${inputClass}`}
         />
       ))}
     </div>
@@ -441,7 +441,11 @@ interface Props {
   documentName?: string;
   isDark: boolean;
   initialGeolocation: BrowserGeolocation | null;
-  onComplete: (firmaDataUrl: string, evidenceId: string) => void;
+  onComplete: (
+    firmaDataUrl: string,
+    evidenceId: string,
+    stampContext?: { otpVerified: boolean }
+  ) => void;
   onNoticeAccepted?: () => void;
 }
 
@@ -1196,14 +1200,14 @@ function ConstanciaParticipacion({
       <div className={`px-5 py-4 ${isDark ? 'bg-gray-950' : 'bg-slate-900'}`}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-bold text-white tracking-wide">
+            <h2 className="text-base font-semibold text-white tracking-wide">
               CONSTANCIA INDIVIDUAL DE PARTICIPACIÓN
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
               Documento confidencial — uso exclusivo del firmante
             </p>
           </div>
-          <span className="text-xs font-bold text-blue-400 flex-shrink-0">DOCUBOX</span>
+          <span className="text-xs font-semibold text-blue-400 flex-shrink-0">DOCUBOX</span>
         </div>
         <div
           className={`mt-3 flex items-center justify-between px-3 py-1.5 rounded text-xs font-semibold ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-800 text-slate-200'}`}
@@ -1227,7 +1231,7 @@ function ConstanciaParticipacion({
             className={`px-3 py-2 border-r last:border-r-0 ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
           >
             <p
-              className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-slate-400'}`}
+              className={`text-[10px] font-semibold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-slate-400'}`}
             >
               {label}
             </p>
@@ -1317,7 +1321,7 @@ function ConstanciaParticipacion({
             className={`rounded border overflow-hidden text-[10px] ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
           >
             <div
-              className={`grid grid-cols-4 px-2 py-1.5 font-bold uppercase tracking-wide ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-slate-700 text-white'}`}
+              className={`grid grid-cols-4 px-2 py-1.5 font-semibold uppercase tracking-wide ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-slate-700 text-white'}`}
             >
               <span>#</span>
               <span>MOMENTO</span>
@@ -1351,7 +1355,7 @@ function ConstanciaParticipacion({
               className={`mt-2 flex items-start gap-2 px-2 py-1.5 rounded text-[10px] ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-slate-50 border border-slate-200'}`}
             >
               <span
-                className={`font-bold flex-shrink-0 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+                className={`font-semibold flex-shrink-0 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
               >
                 CHAIN HASH
               </span>
@@ -1455,7 +1459,7 @@ function ConstanciaParticipacion({
           ].map(([label, text]) => (
             <div key={label} className="mb-2">
               <span
-                className={`text-[10px] font-bold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}
+                className={`text-[10px] font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}
               >
                 {label}{' '}
               </span>
@@ -1528,7 +1532,7 @@ function CertSection({
   return (
     <div className={`${isDark ? 'bg-gray-900' : 'bg-white'}`}>
       <div
-        className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-800 text-white'}`}
+        className={`px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-800 text-white'}`}
       >
         {title}
       </div>
@@ -1556,7 +1560,7 @@ function CertKVTable({
           className={`flex border-b last:border-b-0 ${isDark ? 'border-gray-700 odd:bg-gray-800 even:bg-gray-900' : 'border-slate-100 odd:bg-white even:bg-slate-50'}`}
         >
           <div
-            className={`w-36 flex-shrink-0 px-2 py-1.5 font-bold ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
+            className={`w-36 flex-shrink-0 px-2 py-1.5 font-semibold ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
           >
             {label}
           </div>
@@ -3512,7 +3516,8 @@ export default function AutographSignatureFlow({
           el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'password',
       });
       const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-      const hashVal = await sha256(dataUrl);
+      const frameBytes = await fetch(dataUrl).then((response) => response.arrayBuffer());
+      const hashVal = await sha256Bytes(frameBytes);
       return {
         frame_id: crypto.randomUUID(),
         event,
@@ -3956,7 +3961,8 @@ export default function AutographSignatureFlow({
       const capturedAtVal = sigData.captured_at || new Date().toISOString();
       const evidenceIdVal = sigData.evidence_id || '';
 
-      const otpEvidenceVerified = autographSignatureCapabilities.identityVerification && otpVerified;
+      const otpEvidenceVerified =
+        autographSignatureCapabilities.identityVerification && otpVerified;
 
       // 4. Persist complete evidence to document via our API
       const persistRes = await fetch('/api/firma/persist-evidence', {
@@ -3999,8 +4005,7 @@ export default function AutographSignatureFlow({
       if (!persistRes?.ok) {
         const persistData = await persistRes?.json().catch(() => ({}));
         throw new Error(
-          persistData?.error ||
-            'No fue posible registrar la evidencia obligatoria de la firma.'
+          persistData?.error || 'No fue posible registrar la evidencia obligatoria de la firma.'
         );
       }
       const persistData = await persistRes.json().catch(() => ({}));
@@ -4040,7 +4045,9 @@ export default function AutographSignatureFlow({
       });
 
       setFlowStep('constancia');
-      onComplete(presentationImageDataUrl, finalEvidenceId);
+      onComplete(presentationImageDataUrl, finalEvidenceId, {
+        otpVerified: otpEvidenceVerified,
+      });
     } catch (err: any) {
       setSendError(err.message || 'Error al enviar la firma');
       setFlowStep(autographSignatureCapabilities.identityVerification ? 'otp' : 'pad');
@@ -4102,9 +4109,7 @@ export default function AutographSignatureFlow({
                 <line x1="12" y1="17" x2="12.01" y2="17" />
               </svg>
               <div>
-                <p
-                  className={`text-xs font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}
-                >
+                <p className={`text-xs font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}>
                   Ubicación requerida para firmar
                 </p>
                 <p

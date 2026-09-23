@@ -511,7 +511,7 @@ function EfirmaValidationCard({
           )}
         </div>
         <div>
-          <h3 className={`text-lg font-bold ${isExpired ? 'text-red-600' : 'text-foreground'}`}>
+          <h3 className={`text-lg font-semibold ${isExpired ? 'text-red-600' : 'text-foreground'}`}>
             {isExpired ? 'e.Firma Vencida' : 'Validación Exitosa'}
           </h3>
           <p className="text-xs text-muted-foreground">
@@ -527,7 +527,7 @@ function EfirmaValidationCard({
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
           <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-700">e.Firma vencida</p>
+            <p className="text-sm font-semibold text-red-700">e.Firma vencida</p>
             <p className="text-xs text-red-600 mt-0.5">
               La vigencia de tu e.Firma expiró el{' '}
               {serialResult?.fecha_fin || result.vigenciaFin || '—'}. Para renovarla, visita el SAT
@@ -542,7 +542,7 @@ function EfirmaValidationCard({
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
           <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-700">
+            <p className="text-sm font-semibold text-red-700">
               Firma electrónica de persona moral no permitida
             </p>
             <p className="text-xs text-red-600 mt-0.5">
@@ -558,7 +558,7 @@ function EfirmaValidationCard({
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
           <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-700">Tipo de certificado no válido</p>
+            <p className="text-sm font-semibold text-red-700">Tipo de certificado no válido</p>
             <p className="text-xs text-red-600 mt-0.5">
               El certificado detectado es de tipo{' '}
               <span className="font-semibold">{serialResult?.tipo}</span>. Solo se acepta e.Firma
@@ -573,7 +573,7 @@ function EfirmaValidationCard({
       {curpResult && (
         <div className="border border-border rounded-xl overflow-hidden">
           <div className="bg-muted/40 px-4 py-3 border-b border-border">
-            <p className="text-sm font-bold text-foreground">Información Personal</p>
+            <p className="text-sm font-semibold text-foreground">Información Personal</p>
           </div>
           <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
             <div>
@@ -613,7 +613,7 @@ function EfirmaValidationCard({
       {/* Certificate Info Card */}
       <div className="border border-border rounded-xl overflow-hidden">
         <div className="bg-muted/40 px-4 py-3 border-b border-border">
-          <p className="text-sm font-bold text-foreground">Información del Certificado</p>
+          <p className="text-sm font-semibold text-foreground">Información del Certificado</p>
         </div>
         <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
           {/* RFC */}
@@ -629,7 +629,7 @@ function EfirmaValidationCard({
               ESTADO
             </p>
             <p
-              className={`text-sm font-bold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}
+              className={`text-sm font-semibold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}
             >
               {isExpired ? 'Vencido' : serialResult?.estado || '—'}
             </p>
@@ -665,11 +665,11 @@ function EfirmaValidationCard({
               FIN VIGENCIA
             </p>
             <p
-              className={`text-sm font-semibold ${isExpired ? 'text-red-500 font-bold' : 'text-foreground'}`}
+              className={`text-sm font-semibold ${isExpired ? 'text-red-500 font-semibold' : 'text-foreground'}`}
             >
               {serialResult?.fecha_fin || result.vigenciaFin || '—'}
               {isExpired && (
-                <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">
+                <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">
                   VENCIDO
                 </span>
               )}
@@ -690,7 +690,7 @@ function EfirmaValidationCard({
       <button
         onClick={onConfirm}
         disabled={isExpired || hasBlockingError || isLoading}
-        className={`w-full py-2.5 rounded-lg text-white text-sm font-bold transition-colors flex items-center justify-center gap-2 ${
+        className={`w-full py-2.5 rounded-lg text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
           isExpired || hasBlockingError || isLoading
             ? 'bg-muted-foreground/40 cursor-not-allowed opacity-50'
             : 'bg-emerald-500 hover:bg-emerald-600'
@@ -784,7 +784,7 @@ function EfirmaMoralValidationCard({
         </div>
         <div>
           <h3
-            className={`text-lg font-bold ${hasBlockingError ? 'text-red-600' : 'text-foreground'}`}
+            className={`text-lg font-semibold ${hasBlockingError ? 'text-red-600' : 'text-foreground'}`}
           >
             {isExpired
               ? 'e.Firma Vencida'
@@ -811,7 +811,7 @@ function EfirmaMoralValidationCard({
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
           <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-700">e.Firma empresarial vencida</p>
+            <p className="text-sm font-semibold text-red-700">e.Firma empresarial vencida</p>
             <p className="text-xs text-red-600 mt-0.5">
               La vigencia expiró el {serialResult?.fecha_fin || result.vigenciaFin || '—'}. Para
               renovarla, visita el SAT o una oficina de atención al contribuyente.
@@ -825,7 +825,7 @@ function EfirmaMoralValidationCard({
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
           <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-700">Tipo de certificado no permitido</p>
+            <p className="text-sm font-semibold text-red-700">Tipo de certificado no permitido</p>
             <p className="text-xs text-red-600 mt-0.5">
               El certificado detectado es de tipo{' '}
               <span className="font-semibold">{serialResult?.tipo}</span>. Solo se acepta e.Firma
@@ -841,7 +841,7 @@ function EfirmaMoralValidationCard({
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
           <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-700">Certificado no activo</p>
+            <p className="text-sm font-semibold text-red-700">Certificado no activo</p>
             <p className="text-xs text-red-600 mt-0.5">
               El estado del certificado es{' '}
               <span className="font-semibold">{serialResult?.estado}</span>. Solo se aceptan
@@ -855,7 +855,7 @@ function EfirmaMoralValidationCard({
       {/* Información General — mirrors "Información Personal" card */}
       <div className="border border-border rounded-xl overflow-hidden">
         <div className="bg-muted/40 px-4 py-3 border-b border-border">
-          <p className="text-sm font-bold text-foreground">Información General</p>
+          <p className="text-sm font-semibold text-foreground">Información General</p>
         </div>
         <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
           <div className="col-span-2">
@@ -885,7 +885,7 @@ function EfirmaMoralValidationCard({
       {curpResult && (
         <div className="border border-border rounded-xl overflow-hidden">
           <div className="bg-muted/40 px-4 py-3 border-b border-border">
-            <p className="text-sm font-bold text-foreground">
+            <p className="text-sm font-semibold text-foreground">
               Representante Legal vinculado a la e.Firma
             </p>
           </div>
@@ -930,7 +930,7 @@ function EfirmaMoralValidationCard({
           <AlertCircle size={16} className="text-blue-600" />
         </div>
         <div className="space-y-1">
-          <p className="text-sm font-bold text-blue-800">Acreditación de identidad requerida</p>
+          <p className="text-sm font-semibold text-blue-800">Acreditación de identidad requerida</p>
           <p className="text-xs text-blue-700 leading-relaxed">
             Para validar correctamente la empresa, el representante legal vinculado debe{' '}
             <span className="font-semibold">acreditar su identidad</span>. Una vez acreditado, podrá{' '}
@@ -943,7 +943,7 @@ function EfirmaMoralValidationCard({
       {/* Certificate Info Card */}
       <div className="border border-border rounded-xl overflow-hidden">
         <div className="bg-muted/40 px-4 py-3 border-b border-border">
-          <p className="text-sm font-bold text-foreground">
+          <p className="text-sm font-semibold text-foreground">
             Información del Certificado Empresarial
           </p>
         </div>
@@ -953,7 +953,7 @@ function EfirmaMoralValidationCard({
               ESTADO
             </p>
             <p
-              className={`text-sm font-bold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}
+              className={`text-sm font-semibold ${isExpired ? 'text-red-500' : isActive ? 'text-emerald-600' : 'text-red-500'}`}
             >
               {isExpired ? 'Vencido' : serialResult?.estado || '—'}
             </p>
@@ -985,11 +985,11 @@ function EfirmaMoralValidationCard({
               FIN VIGENCIA
             </p>
             <p
-              className={`text-sm font-semibold ${isExpired ? 'text-red-500 font-bold' : 'text-foreground'}`}
+              className={`text-sm font-semibold ${isExpired ? 'text-red-500 font-semibold' : 'text-foreground'}`}
             >
               {serialResult?.fecha_fin || result.vigenciaFin || '—'}
               {isExpired && (
-                <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">
+                <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">
                   VENCIDO
                 </span>
               )}
@@ -1011,7 +1011,7 @@ function EfirmaMoralValidationCard({
       <button
         onClick={onConfirm}
         disabled={isExpired || hasBlockingError || isLoading}
-        className={`w-full py-2.5 rounded-lg text-white text-sm font-bold transition-colors flex items-center justify-center gap-2 ${
+        className={`w-full py-2.5 rounded-lg text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
           isExpired || hasBlockingError || isLoading
             ? 'bg-muted-foreground/40 cursor-not-allowed opacity-50'
             : 'bg-emerald-500 hover:bg-emerald-600'
@@ -2479,7 +2479,7 @@ export default function RegistroPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <p
-                      className={`font-bold text-base ${opt.disabled ? 'text-muted-foreground' : 'text-foreground'}`}
+                      className={`font-semibold text-base ${opt.disabled ? 'text-muted-foreground' : 'text-foreground'}`}
                     >
                       {opt.title}
                     </p>
@@ -2669,7 +2669,7 @@ export default function RegistroPage() {
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="font-bold text-base text-foreground">{opt.title}</p>
+                    <p className="font-semibold text-base text-foreground">{opt.title}</p>
                     <span
                       className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
                         data.personalidadJuridica === opt.value
@@ -2755,7 +2755,7 @@ export default function RegistroPage() {
               >
                 <div className="flex items-center gap-2 w-full justify-center">
                   <FileKey size={16} className="text-primary" />
-                  <h3 className="text-sm font-bold text-foreground">
+                  <h3 className="text-sm font-semibold text-foreground">
                     Archivos e.Firma Empresarial
                   </h3>
                 </div>
@@ -2805,7 +2805,7 @@ export default function RegistroPage() {
                   disabled={
                     !moralCerFile || !moralKeyFile || !moralEfirmaPassword || isValidatingMoral
                   }
-                  className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                  className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
                 >
                   {isValidatingMoral ? (
                     <>
@@ -2872,7 +2872,7 @@ export default function RegistroPage() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <p className="font-bold text-base text-foreground">{opt.title}</p>
+                        <p className="font-semibold text-base text-foreground">{opt.title}</p>
                         <span
                           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${opt.badgeColor}`}
                         >
@@ -2930,7 +2930,7 @@ export default function RegistroPage() {
                 >
                   <div className="flex items-center gap-2 w-full justify-center">
                     <FileKey size={16} className="text-primary" />
-                    <h3 className="text-sm font-bold text-foreground">Archivos e.Firma</h3>
+                    <h3 className="text-sm font-semibold text-foreground">Archivos e.Firma</h3>
                   </div>
                   <FileUploadZone
                     label="Certificado (.cer)"
@@ -2977,7 +2977,7 @@ export default function RegistroPage() {
                     disabled={
                       !data.cerFile || !data.keyFile || !data.efirmaPassword || isValidating
                     }
-                    className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                    className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
                   >
                     {isValidating ? (
                       <>
@@ -3036,7 +3036,7 @@ export default function RegistroPage() {
                     <CheckCircle2 size={22} className="text-emerald-600" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-foreground">Validación Exitosa</h3>
+                    <h3 className="text-lg font-semibold text-foreground">Validación Exitosa</h3>
                     <p className="text-xs text-muted-foreground">
                       Tu identidad ha sido verificada correctamente mediante enrolamiento
                       biométrico.
@@ -3047,7 +3047,7 @@ export default function RegistroPage() {
                 {/* Personal info card */}
                 <div className="border border-border rounded-xl overflow-hidden">
                   <div className="bg-muted/40 px-4 py-3 border-b border-border">
-                    <p className="text-sm font-bold text-foreground">Información Personal</p>
+                    <p className="text-sm font-semibold text-foreground">Información Personal</p>
                   </div>
                   <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
                     <div>
@@ -3126,7 +3126,7 @@ export default function RegistroPage() {
                 <button
                   onClick={handleConfirmAndRegister}
                   disabled={isRegistering}
-                  className="w-full py-3 rounded-xl bg-emerald-500 text-white text-sm font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full py-3 rounded-xl bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isRegistering ? (
                     <>
@@ -3179,7 +3179,7 @@ export default function RegistroPage() {
               <div className="flex flex-col items-center gap-4">
                 <div className="flex items-center gap-2 w-full justify-center">
                   <QrCode size={16} className="text-primary" />
-                  <h3 className="text-sm font-bold text-foreground">Código QR de enrolamiento</h3>
+                  <h3 className="text-sm font-semibold text-foreground">Código QR de enrolamiento</h3>
                 </div>
 
                 <div className="bg-white border-2 border-border rounded-xl p-5 flex flex-col items-center gap-4 w-full max-w-[500px]">
@@ -3265,7 +3265,7 @@ export default function RegistroPage() {
               )}
 
               <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-1.5 w-full max-w-[500px]">
-                <p className="text-xs font-bold text-blue-700">¿Cómo funciona?</p>
+                <p className="text-xs font-semibold text-blue-700">¿Cómo funciona?</p>
                 {[
                   '1. Haz clic en "Generar código QR"',
                   '2. Escanea el QR con la cámara de tu teléfono',
@@ -3392,7 +3392,7 @@ export default function RegistroPage() {
             <button
               onClick={handleNext}
               disabled={isCurrentStepNextDisabled}
-              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Siguiente
               <ArrowRight size={16} />
@@ -3412,7 +3412,7 @@ export default function RegistroPage() {
                 setErrors((prev) => ({ ...prev, identityMethod: '' }));
                 update({ identityMethod: selectedIdentityMethod });
               }}
-              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-700 text-white transition-colors hover:bg-primary/90"
+              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-600 text-white transition-colors hover:bg-primary/90"
             >
               Continuar
               <ArrowRight size={16} />

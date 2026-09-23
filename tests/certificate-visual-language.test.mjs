@@ -10,6 +10,8 @@ const files = {
   nom151: await readFile('src/lib/documents/nom151-certificate.ts', 'utf8'),
   individualRoute: await readFile('src/app/api/documentos/[documentId]/mi-constancia/route.ts', 'utf8'),
   nom151Route: await readFile('src/app/api/nom151/pdf/route.ts', 'utf8'),
+  efirmaGateway: await readFile('supabase/functions/efirma-gateway/index.ts', 'utf8'),
+  signEfirma: await readFile('supabase/functions/sign-efirma/index.ts', 'utf8'),
 };
 
 test('all customer-facing certificates use the 2026 Docubox brand asset', () => {
@@ -27,4 +29,18 @@ test('certificate generators share the current visual hierarchy', () => {
     assert.match(source, /softBlue|paleBlue|accentSoft/);
     assert.match(source, /drawFooter|footerLogo/);
   }
+});
+
+test('individual e.firma certificate distinguishes Nubarium, OCSP, PAdES and TSA evidence', () => {
+  assert.match(files.individualRoute, /validation_provider/);
+  assert.match(files.individualRoute, /nubarium_estado/);
+  assert.match(files.individualRoute, /timestamp_records/);
+  assert.match(files.individualRoute, /pades_profile/);
+  assert.match(files.individual, /Proveedor de validación SAT/);
+  assert.match(files.individual, /Estado de revocación \(OCSP\)/);
+  assert.match(files.individual, /wrapCompleteLines/);
+  assert.doesNotMatch(files.individual, /return parsed\.toISOString\(\)/);
+  assert.match(files.efirmaGateway, /nubarium_validation/);
+  assert.match(files.signEfirma, /nubarium_codigo_validacion/);
+  assert.match(files.signEfirma, /efirma_nubarium_resp/);
 });

@@ -801,7 +801,7 @@ function WorkflowEditorModal({
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Editor de Flujo de Trabajo Avanzado</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Editor de Flujo de Trabajo Avanzado</h2>
             <p className="text-sm text-gray-500 mt-0.5">
               Configura condiciones complejas y acciones automatizadas. Arrastra los elementos para
               reordenar.
@@ -816,7 +816,7 @@ function WorkflowEditorModal({
         >
           {/* INICIO node */}
           <div className="mb-2">
-            <div className="flex items-center gap-2 px-5 py-2 bg-green-100 border border-green-300 rounded-full text-green-700 font-bold text-sm shadow-sm">
+            <div className="flex items-center gap-2 px-5 py-2 bg-green-100 border border-green-300 rounded-full text-green-700 font-semibold text-sm shadow-sm">
               <Flag size={14} />
               INICIO
             </div>
@@ -869,7 +869,7 @@ function WorkflowEditorModal({
           {/* FIN node */}
           {steps.length > 0 && (
             <div className="mt-0">
-              <div className="flex items-center gap-2 px-5 py-2 bg-gray-900 rounded-full text-white font-bold text-sm shadow-sm">
+              <div className="flex items-center gap-2 px-5 py-2 bg-gray-900 rounded-full text-white font-semibold text-sm shadow-sm">
                 <Target size={14} />
                 FIN
               </div>
@@ -935,7 +935,7 @@ export function StepFlujoTrabajo({
     <div className="max-w-3xl mx-auto">
       <div className="bg-white border border-gray-200 rounded-xl p-8">
         <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-900">Flujo de Trabajo Condicional</h2>
+          <h2 className="text-xl font-semibold text-gray-900">Flujo de Trabajo Condicional</h2>
           <p className="text-sm text-gray-500 mt-1">
             Define la secuencia de pasos, condiciones lógicas y acciones automatizadas para el
             proceso de firma.

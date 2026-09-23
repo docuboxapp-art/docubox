@@ -143,6 +143,17 @@ async function finalizeAfterVerifiedPadesBt(
       });
     }
   });
+  if (process.env.NODE_ENV === 'development') {
+    const timer = setTimeout(() => {
+      void processEvidenceFinalization(service, { documentId: input.documentId }).catch((error) => {
+        console.error('[evidence-finalization] Local worker failed', {
+          documentId: input.documentId,
+          code: error instanceof Error ? error.name : 'EVIDENCE_FINALIZATION_FAILED',
+        });
+      });
+    }, 0);
+    timer.unref?.();
+  }
   await recordCertificationStage(service, {
     documentId: input.documentId,
     actorId: input.actorId,

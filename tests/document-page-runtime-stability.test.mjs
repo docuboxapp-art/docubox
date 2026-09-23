@@ -36,8 +36,14 @@ test('autograph evidence capture is declared before signature pad listeners use 
 
 test('standard autograph signing skips proof-of-life frame rendering', () => {
   const source = read('src/app/firmar-documento/[id]/AutographSignatureFlow.tsx');
-  assert.match(source, /autographSignatureCapabilities\.identityVerification &&\s*!framesRef\.current\.strokeStartCaptured/);
-  assert.match(source, /if \(autographSignatureCapabilities\.identityVerification\) \{\s*framesRef\.current\.frame2/);
+  assert.match(
+    source,
+    /autographSignatureCapabilities\.identityVerification &&\s*!framesRef\.current\.strokeStartCaptured/
+  );
+  assert.match(
+    source,
+    /if \(autographSignatureCapabilities\.identityVerification\) \{\s*framesRef\.current\.frame2/
+  );
   assert.match(source, /if \(!autographSignatureCapabilities\.identityVerification\) return;/);
 });
 
@@ -73,15 +79,17 @@ test('required browser location evidence blocks signing when unavailable', () =>
   assert.match(efirmaFunction, /geo_latitude: geoLatitude/);
 });
 
-test('a profile e.firma check cannot falsely enable cryptographic signing', () => {
+test('only an encrypted private-key vault can enable reusable e.firma signing', () => {
   const source = read('src/app/firmar-documento/[id]/page.tsx');
-  assert.match(source, /setProfileValidationNotice\(/);
+  assert.doesNotMatch(source, /setProfileValidationNotice\(/);
+  assert.match(source, /loadStoredEfirmaKey/);
+  assert.match(source, /Utilizar mi e\.firma guardada/);
   assert.doesNotMatch(source, /onValidated\(undefined, undefined, undefined, undefined,/);
   assert.match(
     source,
-    /isEfirmaSAT[\s\S]{0,180}if \(!efirmaValidated \|\| !efirmaCerB64 \|\| !efirmaKeyB64 \|\| !efirmaPassword\)/
+    /!efirmaValidated \|\| !efirmaCerB64 \|\| !efirmaKeyMaterial \|\| !efirmaPassword/
   );
-  assert.match(source, /Para firmar con e\.firma, carga y valida los archivos \.cer y \.key/);
+  assert.match(source, /signEfirmaPayloadLocally/);
 });
 
 test('capturing an autograph never finalizes participation before explicit submission', () => {
@@ -98,7 +106,10 @@ test('every signing method can restart before the final submission', () => {
   const source = read('src/app/firmar-documento/[id]/page.tsx');
   assert.match(source, /const handleRegenerateSignature = \(\) =>/);
   assert.match(source, /setFirmaData\(null\);[\s\S]*setEfirmaPassword\(null\);/);
-  assert.match(source, /writePersistedFlow\(\{ firmaData: null \}\);/);
+  assert.match(
+    source,
+    /writePersistedFlow\(\{[\s\S]*firmaData: null,[\s\S]*completionEvidenceId: null,[\s\S]*\}\);/
+  );
   assert.match(source, /key=\{signatureAttemptKey\}/);
   assert.equal((source.match(/Volver a generar firma/g) || []).length, 3);
 });
@@ -112,7 +123,10 @@ test('regenerating clears only the signature image and preserves its document fi
   assert.match(source, /signatureDataUrl=\{field\.tipo === 'firma' \? firmaData : null\}/);
   assert.match(source, /signatureDataUrl \? \(/);
   assert.match(source, /alt="Firma capturada"/);
-  assert.match(source, /<span className="text-\[9px\] font-medium" style=\{\{ color: colorHex \}\}>\s*Firma/);
+  assert.match(
+    source,
+    /<span className="text-\[9px\] font-medium" style=\{\{ color: colorHex \}\}>\s*Firma/
+  );
   assert.doesNotMatch(handler, /setPlacedFields/);
   assert.doesNotMatch(handler, /handleRemovePlacedField/);
 });
@@ -120,7 +134,10 @@ test('regenerating clears only the signature image and preserves its document fi
 test('autograph canvas resizing preserves the stroke aspect ratio', () => {
   const source = read('src/app/firmar-documento/[id]/AutographSignatureFlow.tsx');
   assert.match(source, /function fitSignatureStrokes/);
-  assert.match(source, /const scale = Math\.min\(availableWidth \/ inkWidth, availableHeight \/ inkHeight\);/);
+  assert.match(
+    source,
+    /const scale = Math\.min\(availableWidth \/ inkWidth, availableHeight \/ inkHeight\);/
+  );
   assert.match(source, /x: point\.x \* scale \+ offsetX/);
   assert.match(source, /y: point\.y \* scale \+ offsetY/);
   assert.doesNotMatch(source, /x: \(point\.x \* rect\.width\) \/ priorWidth/);

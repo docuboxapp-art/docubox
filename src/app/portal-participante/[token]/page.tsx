@@ -149,7 +149,7 @@ export default function PortalParticipantePage() {
 
             <div className="flex flex-1 items-center justify-center py-10">
               <div className="w-full max-w-sm">
-                <h1 className="text-3xl font-700 leading-tight">Tu participación te espera</h1>
+                <h1 className="text-3xl font-600 leading-tight">Tu participación te espera</h1>
 
                 <div className="mt-7 border border-white/20 bg-white/10 p-5">
                   <div className="flex items-start gap-3">
@@ -161,7 +161,7 @@ export default function PortalParticipantePage() {
                       {loading ? (
                         <div className="mt-2 h-5 w-48 animate-pulse rounded bg-white/20" />
                       ) : (
-                        <p className="mt-1 break-words text-sm font-700 leading-5 text-white">
+                        <p className="mt-1 break-words text-sm font-600 leading-5 text-white">
                           {info?.documentName}
                         </p>
                     )}
@@ -185,7 +185,7 @@ export default function PortalParticipantePage() {
                   </div>
                   <div className="mt-5 flex items-center justify-between border-t border-white/15 pt-4 text-sm">
                     <span className="text-white/70">Acción requerida</span>
-                    <span className="font-700 capitalize">{actionLabel}</span>
+                    <span className="font-600 capitalize">{actionLabel}</span>
                   </div>
                 </div>
 
@@ -212,7 +212,7 @@ export default function PortalParticipantePage() {
                     </div>
                   ) : (
                     <>
-                      <h2 className="text-2xl font-700 leading-tight text-slate-950 sm:text-3xl">
+                      <h2 className="text-2xl font-600 leading-tight text-slate-950 sm:text-3xl">
                         ¡Hola{greetingName ? `, ${greetingName}` : ''}!
                       </h2>
                       <div className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
@@ -230,7 +230,7 @@ export default function PortalParticipantePage() {
                     </span>
                     <div className="min-w-0">
                       <p className="text-xs font-600 text-slate-500">Documento asignado</p>
-                      <p className="mt-1 break-words text-sm font-700 text-slate-900">
+                      <p className="mt-1 break-words text-sm font-600 text-slate-900">
                         {info?.documentName || 'Documento sin nombre'}
                       </p>
                       {(info?.inviterName || expirationLabel) && (
@@ -259,7 +259,7 @@ export default function PortalParticipantePage() {
                           </span>
                           <span className="mt-4 flex w-full items-start gap-3">
                             <span className="min-w-0 flex-1">
-                              <span className="block text-sm font-700 text-slate-900">
+                              <span className="block text-sm font-600 text-slate-900">
                                 {option.title}
                               </span>
                               <span className="mt-1.5 block text-xs leading-5 text-slate-500 sm:text-sm">

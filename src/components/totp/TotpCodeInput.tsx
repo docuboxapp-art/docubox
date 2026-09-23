@@ -87,7 +87,7 @@ export default function TotpCodeInput({
   };
 
   const baseClass = `
-    w-10 h-12 text-center text-lg font-700 rounded-xl border-2 transition-all duration-150
+    w-10 h-12 text-center text-lg font-600 rounded-xl border-2 transition-all duration-150
     focus:outline-none focus:ring-2 focus:ring-primary/30
     disabled:opacity-50 disabled:cursor-not-allowed
   `;

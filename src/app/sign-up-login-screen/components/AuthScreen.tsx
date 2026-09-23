@@ -159,7 +159,7 @@ export default function AuthScreen() {
         <div className="absolute inset-x-0 bottom-0 h-px bg-blue-800" />
 
         <div className="relative mx-auto w-full max-w-[590px]">
-          <h1 className="mb-5 max-w-[560px] text-[23px] font-700 leading-tight text-white xl:text-[33px]">
+          <h1 className="mb-5 max-w-[560px] text-[23px] font-600 leading-tight text-white xl:text-[33px]">
             {heroContent.title}
           </h1>
           <p className="mb-11 max-w-[570px] text-base leading-7 text-blue-100">

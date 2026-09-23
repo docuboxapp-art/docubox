@@ -46,7 +46,7 @@ export function NumberedWizardNav({
               }`}
             >
               <span
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-[11px] font-700 ${
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-[11px] font-600 ${
                   isActive
                     ? 'bg-primary text-white'
                     : isCompleted

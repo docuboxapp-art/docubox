@@ -435,7 +435,7 @@ export default function ActivityAuditLog() {
       {/* Header */}
       <div className="border-b border-slate-100 px-5 py-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h2 className="text-sm font-700 text-slate-950">Bitácora de actividad y auditoría</h2>
+          <h2 className="text-sm font-600 text-slate-950">Bitácora de actividad y auditoría</h2>
           <button
             onClick={loadData}
             disabled={loading}
@@ -778,7 +778,7 @@ export default function ActivityAuditLog() {
                                   {alert.nombre}
                                 </p>
                                 {isUrgent72h && (
-                                  <span className="text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                                  <span className="text-[10px] font-semibold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded-full flex-shrink-0">
                                     ⚡ Urgente
                                   </span>
                                 )}

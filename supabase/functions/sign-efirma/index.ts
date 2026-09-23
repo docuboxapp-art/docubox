@@ -38,6 +38,17 @@ function resolveParticipantRecordId(value: unknown, authenticatedUserId: string)
   return uuidPattern.test(candidate) ? candidate : authenticatedUserId;
 }
 
+function nullableInteger(value: unknown) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? Math.round(numericValue) : null;
+}
+
+function inferDeviceType(userAgent: string) {
+  if (/iPhone|Android.+Mobile|Mobile/i.test(userAgent)) return 'mobile';
+  if (/iPad|Android/i.test(userAgent)) return 'tablet';
+  return 'desktop';
+}
+
 async function sha256Hex(value: string | Uint8Array) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
   const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer);
@@ -84,17 +95,22 @@ serve(async (request) => {
     if (authError || !user?.email) return json({ error: 'No autorizado' }, 401);
 
     const body = await request.json();
+    const operation = String(body.operation || '').toUpperCase();
     const documentId = String(body.document_id || '');
     const cerBase64 = cleanBase64(body.cer_b64);
-    const keyBase64 = cleanBase64(body.key_b64);
-    const password = String(body.password || '');
-    if (!documentId || !cerBase64 || !keyBase64 || !password) {
-      return json(
-        {
-          error: 'Se requieren document_id, cer_b64, key_b64 y password',
-        },
-        400
-      );
+    const challengeId = String(body.challenge_id || '');
+    const clientSignatureBase64 = cleanBase64(body.signature_base64);
+    if (!['PREPARE_CLIENT_SIGNATURE', 'COMPLETE_CLIENT_SIGNATURE'].includes(operation)) {
+      return json({ error: 'Operación de firma no permitida' }, 400);
+    }
+    if (!documentId) {
+      return json({ error: 'Se requiere document_id' }, 400);
+    }
+    if (
+      operation === 'COMPLETE_CLIENT_SIGNATURE' &&
+      (!challengeId || !cerBase64 || !clientSignatureBase64)
+    ) {
+      return json({ error: 'Se requieren challenge_id, cer_b64 y signature_base64' }, 400);
     }
     if (!validBrowserGeolocation(body.session_evidence?.geo)) {
       return json(
@@ -105,7 +121,7 @@ serve(async (request) => {
         422
       );
     }
-    if (cerBase64.length > 400_000 || keyBase64.length > 400_000) {
+    if (cerBase64.length > 400_000 || clientSignatureBase64.length > 100_000) {
       return json(
         {
           error: 'Los archivos de e.firma exceden el limite permitido',
@@ -116,7 +132,9 @@ serve(async (request) => {
 
     const { data: document, error: documentError } = await supabase
       .from('documentos')
-      .select('id,documento_id,nombre,owner_id,workspace_id,file_hash_sha256,participantes')
+      .select(
+        'id,documento_id,nombre,owner_id,workspace_id,file_hash_sha256,file_size,created_at,participantes'
+      )
       .eq('id', documentId)
       .maybeSingle();
     if (documentError || !document) {
@@ -138,6 +156,32 @@ serve(async (request) => {
       return json({ error: 'No tienes acceso a este documento' }, 403);
     }
 
+    const normalizedEmail = user.email.trim().toLowerCase();
+    const participant = Array.isArray(document.participantes)
+      ? document.participantes.find(
+          (candidate: Record<string, unknown>) =>
+            candidate.id === user.id ||
+            candidate.user_id === user.id ||
+            String(candidate.email || '')
+              .trim()
+              .toLowerCase() === normalizedEmail
+        )
+      : null;
+    let workspaceName: string | null = null;
+    if (document.workspace_id) {
+      const { data: workspace } = await supabase
+        .from('workspaces')
+        .select('name')
+        .eq('id', document.workspace_id)
+        .maybeSingle();
+      workspaceName = workspace?.name || null;
+    }
+    const { data: documentMetadata } = await supabase
+      .from('document_metadata')
+      .select('pdf_page_count')
+      .eq('document_id', documentId)
+      .maybeSingle();
+
     const documentSha256 = String(document.file_hash_sha256 || '').toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(documentSha256)) {
       return json(
@@ -146,6 +190,53 @@ serve(async (request) => {
         },
         422
       );
+    }
+
+    if (operation === 'PREPARE_CLIENT_SIGNATURE') {
+      const evidenceId = crypto.randomUUID();
+      const signedAt = new Date().toISOString();
+      const geoLatitude = Number(body.session_evidence.geo.latitude);
+      const geoLongitude = Number(body.session_evidence.geo.longitude);
+      const signedPayload = JSON.stringify({
+        schema: 'DOCUBOX_EFIRMA_ACT',
+        version: '2.0',
+        evidence_id: evidenceId,
+        document_id: documentId,
+        document_folio: document.documento_id,
+        document_sha256: documentSha256,
+        signer_id: user.id,
+        signer_email_sha256: await sha256Hex(user.email.trim().toLowerCase()),
+        signed_at: signedAt,
+        geo_latitude: geoLatitude,
+        geo_longitude: geoLongitude,
+      });
+      const signedPayloadSha256 = await sha256Hex(signedPayload);
+      const { data: challenge, error: challengeError } = await supabase
+        .from('efirma_signing_challenges')
+        .insert({
+          evidence_id: evidenceId,
+          user_id: user.id,
+          document_id: documentId,
+          signed_payload: signedPayload,
+          signed_payload_sha256: signedPayloadSha256,
+          session_evidence: body.session_evidence || {},
+          device_fingerprint: body.device_fingerprint || {},
+          participant_context: body.participant_context || {},
+          client_timestamp: body.client_timestamp || null,
+        })
+        .select('id,evidence_id,expires_at')
+        .single();
+      if (challengeError || !challenge) {
+        return json({ error: 'No fue posible preparar la firma local.' }, 500);
+      }
+
+      return json({
+        challenge_id: challenge.id,
+        evidence_id: challenge.evidence_id,
+        payload_utf8_base64: btoa(signedPayload),
+        payload_sha256: signedPayloadSha256,
+        expires_at: challenge.expires_at,
+      });
     }
 
     const gatewayUrl = Deno.env.get('DOCUBOX_EFIRMA_GATEWAY_URL');
@@ -160,25 +251,77 @@ serve(async (request) => {
       );
     }
 
-    const evidenceId = crypto.randomUUID();
-    const signedAt = new Date().toISOString();
-    const geoLatitude = Number(body.session_evidence.geo.latitude);
-    const geoLongitude = Number(body.session_evidence.geo.longitude);
-    const geoAccuracyMeters = Number(body.session_evidence.geo.accuracy_meters || 0);
-    const signedPayload = JSON.stringify({
-      schema: 'DOCUBOX_EFIRMA_ACT',
-      version: '1.0',
-      evidence_id: evidenceId,
-      document_id: documentId,
-      document_folio: document.documento_id,
-      document_sha256: documentSha256,
-      signer_id: user.id,
-      signer_email_sha256: await sha256Hex(user.email.trim().toLowerCase()),
-      signed_at: signedAt,
-      geo_latitude: geoLatitude,
-      geo_longitude: geoLongitude,
-    });
-    const signedPayloadSha256 = await sha256Hex(signedPayload);
+    let evidenceId = crypto.randomUUID();
+    let signedAt = new Date().toISOString();
+    let persistedSessionEvidence = (body.session_evidence || {}) as Record<string, any>;
+    let persistedDeviceFingerprint = (body.device_fingerprint || {}) as Record<string, any>;
+    let persistedParticipantContext = (body.participant_context || {}) as Record<string, any>;
+    let persistedClientTimestamp = String(body.client_timestamp || '') || null;
+    let signedPayload = '';
+    let signedPayloadSha256 = '';
+
+    if (operation === 'COMPLETE_CLIENT_SIGNATURE') {
+      const consumedAt = new Date().toISOString();
+      const { data: challenge, error: challengeError } = await supabase
+        .from('efirma_signing_challenges')
+        .update({ used_at: consumedAt })
+        .eq('id', challengeId)
+        .eq('user_id', user.id)
+        .eq('document_id', documentId)
+        .is('used_at', null)
+        .gt('expires_at', consumedAt)
+        .select(
+          'evidence_id,signed_payload,signed_payload_sha256,session_evidence,device_fingerprint,participant_context,client_timestamp'
+        )
+        .maybeSingle();
+      if (challengeError || !challenge) {
+        return json(
+          {
+            error: 'El desafío de firma venció o ya fue utilizado. Intenta firmar nuevamente.',
+            code: 'EFIRMA_CHALLENGE_INVALID',
+          },
+          409
+        );
+      }
+      evidenceId = challenge.evidence_id;
+      signedPayload = challenge.signed_payload;
+      signedPayloadSha256 = challenge.signed_payload_sha256;
+      persistedSessionEvidence = challenge.session_evidence || {};
+      persistedDeviceFingerprint = challenge.device_fingerprint || {};
+      persistedParticipantContext = challenge.participant_context || {};
+      persistedClientTimestamp = challenge.client_timestamp || null;
+      const parsedPayload = JSON.parse(signedPayload) as Record<string, unknown>;
+      signedAt = String(parsedPayload.signed_at || consumedAt);
+      if (
+        parsedPayload.document_id !== documentId ||
+        parsedPayload.signer_id !== user.id ||
+        parsedPayload.document_sha256 !== documentSha256 ||
+        (await sha256Hex(signedPayload)) !== signedPayloadSha256
+      ) {
+        return json({ error: 'El desafío de firma no es íntegro.' }, 422);
+      }
+    } else {
+      const geoLatitude = Number(persistedSessionEvidence.geo.latitude);
+      const geoLongitude = Number(persistedSessionEvidence.geo.longitude);
+      signedPayload = JSON.stringify({
+        schema: 'DOCUBOX_EFIRMA_ACT',
+        version: '1.0',
+        evidence_id: evidenceId,
+        document_id: documentId,
+        document_folio: document.documento_id,
+        document_sha256: documentSha256,
+        signer_id: user.id,
+        signer_email_sha256: await sha256Hex(user.email.trim().toLowerCase()),
+        signed_at: signedAt,
+        geo_latitude: geoLatitude,
+        geo_longitude: geoLongitude,
+      });
+      signedPayloadSha256 = await sha256Hex(signedPayload);
+    }
+
+    const geoLatitude = Number(persistedSessionEvidence.geo.latitude);
+    const geoLongitude = Number(persistedSessionEvidence.geo.longitude);
+    const geoAccuracyMeters = Number(persistedSessionEvidence.geo.accuracy_meters || 0);
 
     const providerResponse = await fetch(gatewayUrl, {
       method: 'POST',
@@ -187,10 +330,10 @@ serve(async (request) => {
         Authorization: `Bearer ${gatewayToken}`,
       },
       body: JSON.stringify({
-        operation: 'SIGN_EFIRMA',
+        operation: 'VERIFY_EFIRMA',
         certificate_der_base64: cerBase64,
-        encrypted_private_key_base64: keyBase64,
-        private_key_password: password,
+        signature_base64: clientSignatureBase64,
+        signature_algorithm: 'RSA-SHA256',
         payload_utf8_base64: btoa(signedPayload),
         payload_sha256: signedPayloadSha256,
         correlation_id: evidenceId,
@@ -199,7 +342,8 @@ serve(async (request) => {
     });
     const provider = (await providerResponse.json().catch(() => ({}))) as Record<string, unknown>;
     const certificate = (provider.certificate || {}) as Record<string, unknown>;
-    const signatureBase64 = String(provider.signature_base64 || '');
+    const nubariumValidation = (provider.nubarium_validation || {}) as Record<string, unknown>;
+    const signatureBase64 = clientSignatureBase64;
     const revocationStatus = String(
       provider.revocation_status || certificate.revocation_status || ''
     ).toUpperCase();
@@ -207,7 +351,6 @@ serve(async (request) => {
       !providerResponse.ok ||
       provider.status !== 'VALID' ||
       provider.signature_verified !== true ||
-      provider.key_pair_valid !== true ||
       provider.certificate_chain_valid !== true ||
       revocationStatus !== 'GOOD' ||
       provider.payload_sha256 !== signedPayloadSha256 ||
@@ -250,6 +393,7 @@ serve(async (request) => {
       revocation_status: revocationStatus,
       validation_provider: String(provider.provider || 'CONFIGURED_GATEWAY'),
       validated_at: String(provider.revocation_checked_at || signedAt),
+      nubarium_validation: nubariumValidation,
     });
     const bundleBytes = new TextEncoder().encode(evidenceBundle);
     const bundleSha256 = await sha256Hex(bundleBytes);
@@ -274,6 +418,10 @@ serve(async (request) => {
       request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
       request.headers.get('x-real-ip') ||
       'unknown';
+    const sessionEvidence = persistedSessionEvidence;
+    const deviceFingerprint = persistedDeviceFingerprint;
+    const participantContext = persistedParticipantContext;
+    const userAgent = String(sessionEvidence.user_agent || request.headers.get('user-agent') || '');
     const { error: evidenceError } = await supabase.from('signature_evidence').insert({
       id: evidenceId,
       capture_id: evidenceId,
@@ -303,21 +451,55 @@ serve(async (request) => {
       sign_algorithm: String(provider.signature_algorithm || 'RSA-SHA256'),
       signed_at: signedAt,
       ip_address: ip,
-      user_agent: String(
-        body.session_evidence?.user_agent || request.headers.get('user-agent') || ''
-      ),
-      timezone: String(body.session_evidence?.timezone || ''),
+      user_agent: userAgent,
+      timezone: String(sessionEvidence.timezone || ''),
       geo_latitude: geoLatitude,
       geo_longitude: geoLongitude,
       geo_accuracy_m: Number.isFinite(geoAccuracyMeters) ? geoAccuracyMeters : null,
-      fingerprint_id: String(body.device_fingerprint?.fingerprint_id || '') || null,
+      fingerprint_id: String(deviceFingerprint.fingerprint_id || '') || null,
+      language: String(sessionEvidence.language || deviceFingerprint.language || '') || null,
+      screen_resolution:
+        String(sessionEvidence.screen || deviceFingerprint.screen_resolution || '') || null,
+      device_type: inferDeviceType(userAgent),
+      cpu_cores: nullableInteger(deviceFingerprint.cpu_cores),
+      device_memory_gb: Number.isFinite(Number(deviceFingerprint.device_memory_gb))
+        ? Number(deviceFingerprint.device_memory_gb)
+        : null,
+      canvas_hash: String(deviceFingerprint.canvas_hash || '') || null,
+      webgl_renderer: String(deviceFingerprint.webgl_renderer || '') || null,
+      audio_hash: String(deviceFingerprint.audio_hash || '') || null,
+      geo_source: String(sessionEvidence.geo?.source || '') || null,
+      country: String(sessionEvidence.geo?.country || '') || null,
+      country_code: String(sessionEvidence.geo?.country_code || '') || null,
+      region: String(sessionEvidence.geo?.region || '') || null,
+      city: String(sessionEvidence.geo?.city || '') || null,
+      client_timestamp: persistedClientTimestamp,
+      workspace_id: document.workspace_id || null,
+      workspace_name: workspaceName,
+      document_pages: nullableInteger(documentMetadata?.pdf_page_count),
+      document_size_kb: Number.isFinite(Number(document.file_size))
+        ? Math.round((Number(document.file_size) / 1024) * 100) / 100
+        : null,
+      document_created_at: document.created_at || null,
+      participant_name:
+        String(participantContext.name || participant?.nombre || participant?.name || '') || null,
+      participant_email: String(participantContext.email || user.email || '') || null,
+      participant_role:
+        String(participantContext.role || participant?.role || participant?.rol || '') || null,
       validation_provider: String(provider.provider || 'CONFIGURED_GATEWAY'),
       provider_reference: String(provider.signature_id || ''),
+      nubarium_estado: String(nubariumValidation.estado || '') || null,
+      nubarium_fecha_consulta:
+        String(nubariumValidation.fecha_consulta || provider.revocation_checked_at || signedAt),
+      nubarium_codigo_validacion:
+        String(nubariumValidation.codigo_validacion || '') || null,
+      efirma_nubarium_resp: Object.keys(nubariumValidation).length ? nubariumValidation : null,
       captured_by: user.id,
       captured_at: signedAt,
       context_ip_status: ip === 'unknown' ? 'unavailable' : 'available',
-      context_geo_status: geoLatitude === null || geoLongitude === null ? 'unavailable' : 'available',
-      context_user_agent_status: body.session_evidence?.user_agent || request.headers.get('user-agent') ? 'available' : 'unavailable',
+      context_geo_status:
+        geoLatitude === null || geoLongitude === null ? 'unavailable' : 'available',
+      context_user_agent_status: userAgent ? 'available' : 'unavailable',
     });
     if (evidenceError) {
       await supabase.storage.from('evidence').remove([sealPath, bundlePath]);
@@ -337,6 +519,9 @@ serve(async (request) => {
         signed_payload_sha256: signedPayloadSha256,
         certificate_fingerprint_sha256: String(certificate.fingerprint_sha256 || '').toLowerCase(),
         revocation_status: revocationStatus,
+        validation_provider: String(provider.provider || 'CONFIGURED_GATEWAY'),
+        nubarium_estado: String(nubariumValidation.estado || '') || null,
+        nubarium_codigo_validacion: String(nubariumValidation.codigo_validacion || '') || null,
         provider_reference: String(provider.signature_id || ''),
       },
       p_document_sha256: documentSha256,

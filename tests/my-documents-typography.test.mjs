@@ -13,9 +13,10 @@ test('document tables use medium-weight supporting headers', () => {
 });
 
 test('document hierarchy keeps emphasis only on primary information', () => {
-  assert.match(source, /text-2xl font-700 text-slate-950">Mi Espacio/);
+  assert.match(source, /text-2xl font-600 text-slate-950">Mi Espacio/);
   assert.match(source, /text-2xl font-800 tabular-nums/);
   assert.match(source, /bg-primary\/10 font-600 text-primary/);
   assert.match(source, /truncate text-sm font-600 text-slate-900/);
+  assert.doesNotMatch(source, /font-(?:700|bold)/);
   assert.doesNotMatch(source, /bg-primary\/10 font-700 text-primary/);
 });

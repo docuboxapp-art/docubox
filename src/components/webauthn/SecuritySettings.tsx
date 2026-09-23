@@ -109,7 +109,7 @@ function QRModal({ onClose, onRegistered }: QRModalProps) {
       <div className="w-full max-w-sm rounded-2xl p-6 flex flex-col items-center gap-4"
         style={{ background: '#080d17', border: '1px solid #1e293b' }}>
         <div className="flex items-center justify-between w-full">
-          <h3 className="text-base font-bold text-white">Agregar dispositivo móvil</h3>
+          <h3 className="text-base font-semibold text-white">Agregar dispositivo móvil</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors text-lg">✕</button>
         </div>
 
@@ -126,7 +126,7 @@ function QRModal({ onClose, onRegistered }: QRModalProps) {
               <QRCodeSVG value={qrData.qrUrl} size={200} level="M" />
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold tabular-nums" style={{ color: borderColor }}>{secondsLeft}s</p>
+              <p className="text-2xl font-semibold tabular-nums" style={{ color: borderColor }}>{secondsLeft}s</p>
               <p className="text-xs text-slate-400 mt-1">restantes</p>
             </div>
             <p className="text-xs text-slate-400 text-center leading-relaxed">
@@ -246,7 +246,7 @@ export default function SecuritySettings() {
       {/* ── Esta computadora ── */}
       {support?.deviceCategory === 'desktop' && (
         <div className="rounded-2xl p-5" style={{ background: '#080d17', border: '1px solid #1e293b' }}>
-          <h3 className="text-sm font-bold mb-3" style={{ color: '#c7d2fe' }}>Esta computadora</h3>
+          <h3 className="text-sm font-semibold mb-3" style={{ color: '#c7d2fe' }}>Esta computadora</h3>
 
           {!isDesktopRegistered && (
             <div className="mb-4 px-3 py-2 rounded-xl flex items-start gap-2"
@@ -313,7 +313,7 @@ export default function SecuritySettings() {
 
       {/* ── Agregar dispositivo móvil ── */}
       <div className="rounded-2xl p-5" style={{ background: '#080d17', border: '1px solid #1e293b' }}>
-        <h3 className="text-sm font-bold mb-3" style={{ color: '#c7d2fe' }}>Agregar dispositivo móvil</h3>
+        <h3 className="text-sm font-semibold mb-3" style={{ color: '#c7d2fe' }}>Agregar dispositivo móvil</h3>
         <p className="text-xs mb-3" style={{ color: '#64748b' }}>
           Registra tu teléfono para iniciar sesión con Face ID o huella dactilar.
         </p>
@@ -335,7 +335,7 @@ export default function SecuritySettings() {
       {/* ── Dispositivos registrados ── */}
       <div className="rounded-2xl p-5" style={{ background: '#080d17', border: '1px solid #1e293b' }}>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold" style={{ color: '#c7d2fe' }}>Dispositivos registrados</h3>
+          <h3 className="text-sm font-semibold" style={{ color: '#c7d2fe' }}>Dispositivos registrados</h3>
           <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>
             {credentials.length} de {planLimit === Infinity ? '∞' : planLimit}
           </span>
@@ -363,7 +363,7 @@ export default function SecuritySettings() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-sm font-bold text-white truncate">{cred.device_name}</span>
+                      <span className="text-sm font-semibold text-white truncate">{cred.device_name}</span>
                       {isCurrent && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
                           style={{ background: 'rgba(16,185,129,0.15)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>
@@ -432,7 +432,7 @@ export default function SecuritySettings() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(2,6,23,0.85)' }}>
           <div className="w-full max-w-xs rounded-2xl p-6 space-y-4"
             style={{ background: '#080d17', border: '1px solid #1e293b' }}>
-            <h3 className="text-sm font-bold text-white">¿Revocar acceso?</h3>
+            <h3 className="text-sm font-semibold text-white">¿Revocar acceso?</h3>
             <p className="text-xs text-slate-400">
               ¿Revocar acceso de <strong className="text-white">{revokeTarget.device_name}</strong>? Esta acción no se puede deshacer.
             </p>

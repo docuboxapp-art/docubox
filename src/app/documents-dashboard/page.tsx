@@ -496,12 +496,12 @@ export default function DocumentsDashboardPage() {
             <CustomizeOverlay />
             <section className="flex flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
               <div className="border-b border-slate-100 px-5 py-4">
-                <h3 className="text-sm font-700 text-slate-950">Documentos disponibles</h3>
+                <h3 className="text-sm font-600 text-slate-950">Documentos disponibles</h3>
               </div>
               <div className="flex-1 flex flex-col items-center justify-center">
                 <DonutChart used={metrics.docsUsed} total={metrics.docsTotal} />
               </div>
-              <button className="mx-5 mb-5 mt-4 h-9 rounded-md bg-slate-950 px-4 text-sm font-700 text-white transition-colors hover:bg-primary">
+              <button className="mx-5 mb-5 mt-4 h-9 rounded-md bg-slate-950 px-4 text-sm font-600 text-white transition-colors hover:bg-primary">
                 Comprar más
               </button>
             </section>
@@ -523,8 +523,8 @@ export default function DocumentsDashboardPage() {
               </div>
               <div className="text-center">
                 <div className="flex items-center justify-center gap-1.5 mb-0.5">
-                  <span className="text-sm font-700 text-green-800">{metrics.planName}</span>
-                  <span className="text-[10px] font-700 bg-green-200 text-green-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                  <span className="text-sm font-600 text-green-800">{metrics.planName}</span>
+                  <span className="text-[10px] font-600 bg-green-200 text-green-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">
                     FREE
                   </span>
                 </div>
@@ -532,7 +532,7 @@ export default function DocumentsDashboardPage() {
                   <strong>{metrics.docsTotal}</strong> docs disponibles
                 </p>
               </div>
-              <button className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 text-xs font-700 text-white transition-colors hover:bg-emerald-700 active:bg-emerald-800">
+              <button className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 text-xs font-600 text-white transition-colors hover:bg-emerald-700 active:bg-emerald-800">
                 <Zap size={12} />
                 Mejorar Plan
               </button>
@@ -551,7 +551,7 @@ export default function DocumentsDashboardPage() {
             <CustomizeOverlay />
             <section className="flex flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
               <div className="border-b border-slate-100 px-4 py-4">
-                <h3 className="text-sm font-700 text-slate-950">Acciones rápidas</h3>
+                <h3 className="text-sm font-600 text-slate-950">Acciones rápidas</h3>
               </div>
               <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
                 {quickActions.map((action) => (
@@ -564,7 +564,7 @@ export default function DocumentsDashboardPage() {
                       {action.icon}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-xs font-800 text-slate-900 leading-tight">
+                      <p className="text-xs font-600 text-slate-900 leading-tight">
                         {action.label}
                       </p>
                       <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
@@ -691,7 +691,7 @@ export default function DocumentsDashboardPage() {
               <div>
                 <h1
                   suppressHydrationWarning
-                  className="flex items-center gap-2 text-2xl font-700 leading-tight tracking-normal text-slate-950"
+                  className="flex items-center gap-2 text-2xl font-600 leading-tight tracking-normal text-slate-950"
                 >
                   {greeting}
                 </h1>
@@ -702,7 +702,7 @@ export default function DocumentsDashboardPage() {
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 <Link
                   href="/crear-documento"
-                  className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-all duration-150 hover:bg-primary-700 active:bg-primary-800"
+                  className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-all duration-150 hover:bg-primary-700 active:bg-primary-800"
                 >
                   <Plus size={15} />
                   Crear Documento
@@ -731,7 +731,7 @@ export default function DocumentsDashboardPage() {
                 {customizing && (
                   <button
                     onClick={() => setShowAddPanel((v) => !v)}
-                    className="flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-700 text-emerald-700 transition-all duration-150 hover:bg-emerald-100"
+                    className="flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-600 text-emerald-700 transition-all duration-150 hover:bg-emerald-100"
                   >
                     <PlusSquare size={14} />
                     Añadir widget
@@ -743,7 +743,7 @@ export default function DocumentsDashboardPage() {
             {/* Add widget panel */}
             {customizing && showAddPanel && (
               <div className="bg-white border border-border rounded-xl p-4 shadow-card">
-                <h3 className="text-[13px] font-700 text-slate-900 mb-3">Widgets eliminados</h3>
+                <h3 className="text-[13px] font-600 text-slate-900 mb-3">Widgets eliminados</h3>
                 {removedWidgets.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No hay widgets eliminados.</p>
                 ) : (

@@ -486,11 +486,11 @@ export default function ReportsWorkspace({
               <ArrowLeft size={16} />
             </button>
             <div className="min-w-0">
-              <p className="mb-1 text-xs font-700 uppercase text-slate-400">Constructor de informes</p>
+              <p className="mb-1 text-xs font-600 uppercase text-slate-400">Constructor de informes</p>
               <input
                 value={activeReport.name}
                 onChange={(event) => updateReport({ name: event.target.value })}
-                className="w-full max-w-2xl border-0 bg-transparent p-0 text-2xl font-700 text-slate-950 outline-none"
+                className="w-full max-w-2xl border-0 bg-transparent p-0 text-2xl font-600 text-slate-950 outline-none"
                 aria-label="Nombre del informe"
               />
               <p className="mt-1 text-sm text-slate-500">Configura los datos y la visualización; la vista previa se actualiza automáticamente.</p>
@@ -505,7 +505,7 @@ export default function ReportsWorkspace({
               <Download size={15} />
               CSV
             </button>
-            <button onClick={saveReport} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90">
+            <button onClick={saveReport} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90">
               <Save size={15} />
               Guardar informe
             </button>
@@ -515,12 +515,12 @@ export default function ReportsWorkspace({
         <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
           <aside className="h-fit rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-4 py-3">
-              <h2 className="text-sm font-700 text-slate-900">Configuración</h2>
+              <h2 className="text-sm font-600 text-slate-900">Configuración</h2>
               <p className="mt-0.5 text-xs text-slate-500">Define el contenido del informe.</p>
             </div>
             <div className="space-y-5 p-4">
               <div>
-                <label className="mb-1.5 block text-xs font-700 text-slate-600">Fuente de datos</label>
+                <label className="mb-1.5 block text-xs font-600 text-slate-600">Fuente de datos</label>
                 <select
                   value={activeReport.dataset}
                   onChange={(event) => changeDataset(event.target.value as DatasetId)}
@@ -532,7 +532,7 @@ export default function ReportsWorkspace({
               </div>
 
               <div>
-                <p className="mb-2 text-xs font-700 text-slate-600">Visualización</p>
+                <p className="mb-2 text-xs font-600 text-slate-600">Visualización</p>
                 <div className="grid grid-cols-3 gap-1.5">
                   {VISUALIZATIONS.map((view) => {
                     const ViewIcon = view.icon;
@@ -554,13 +554,13 @@ export default function ReportsWorkspace({
               {activeReport.visualization !== 'table' && (
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="mb-1.5 block text-xs font-700 text-slate-600">Agrupar por</label>
+                    <label className="mb-1.5 block text-xs font-600 text-slate-600">Agrupar por</label>
                     <select value={activeReport.groupBy} onChange={(event) => updateReport({ groupBy: event.target.value })} className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-400" aria-label="Agrupar por">
                       {groupFields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1.5 block text-xs font-700 text-slate-600">Métrica</label>
+                    <label className="mb-1.5 block text-xs font-600 text-slate-600">Métrica</label>
                     <select value={activeReport.metric} onChange={(event) => updateReport({ metric: event.target.value })} className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-400" aria-label="Métrica">
                       <option value="__count">Cantidad</option>
                       {metricFields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
@@ -571,7 +571,7 @@ export default function ReportsWorkspace({
 
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-700 text-slate-600">Campos incluidos</p>
+                  <p className="text-xs font-600 text-slate-600">Campos incluidos</p>
                   <span className="text-[11px] text-slate-400">{activeReport.fields.length} seleccionados</span>
                 </div>
                 <div className="space-y-1">
@@ -598,7 +598,7 @@ export default function ReportsWorkspace({
           <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
               <div>
-                <h2 className="text-sm font-700 text-slate-900">Vista previa</h2>
+                <h2 className="text-sm font-600 text-slate-900">Vista previa</h2>
                 <p className="mt-0.5 text-xs text-slate-500">{rows.length} registros · {PERIOD_LABELS[period]}</p>
               </div>
               <span className="inline-flex h-7 items-center rounded-md bg-slate-100 px-2.5 text-xs font-600 text-slate-600">{DATASET_LABELS[activeReport.dataset]}</span>
@@ -627,10 +627,10 @@ export default function ReportsWorkspace({
           <div className="mb-1 flex items-center gap-2">
             {isLive && <span className="inline-flex items-center gap-1 text-[11px] font-600 text-emerald-600"><Wifi size={11} /> En vivo</span>}
           </div>
-          <h1 className="text-2xl font-700 text-slate-950">Informes y análisis</h1>
+          <h1 className="text-2xl font-600 text-slate-950">Informes y análisis</h1>
           <p className="mt-1 text-sm text-slate-500">Consulta información, crea visualizaciones y exporta los datos de tu espacio.</p>
         </div>
-        <button onClick={() => setActiveReport(createBlankReport())} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-700 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90">
+        <button onClick={() => setActiveReport(createBlankReport())} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90">
           <Plus size={16} />
           Crear informe
         </button>
@@ -650,7 +650,7 @@ export default function ReportsWorkspace({
           {periodOpen && (
             <div className="absolute right-0 top-11 z-30 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
               {(Object.keys(PERIOD_LABELS) as Period[]).map((option) => (
-                <button key={option} onClick={() => { onPeriodChange(option); setPeriodOpen(false); }} className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs transition-colors ${period === option ? 'bg-blue-50 font-700 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
+                <button key={option} onClick={() => { onPeriodChange(option); setPeriodOpen(false); }} className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs transition-colors ${period === option ? 'bg-blue-50 font-600 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
                   {PERIOD_LABELS[option]}
                   {period === option && <Check size={13} />}
                 </button>
@@ -679,7 +679,7 @@ export default function ReportsWorkspace({
       ) : filteredReports.length === 0 ? (
         <div className="flex min-h-[320px] flex-col items-center justify-center rounded-lg border border-slate-200 bg-white px-6 text-center shadow-sm">
           <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50"><FileText size={20} className="text-blue-600" /></div>
-          <h2 className="text-sm font-700 text-slate-900">No encontramos informes</h2>
+          <h2 className="text-sm font-600 text-slate-900">No encontramos informes</h2>
           <p className="mt-1 text-sm text-slate-500">Cambia los filtros o crea un informe personalizado.</p>
         </div>
       ) : (
@@ -715,8 +715,8 @@ function ReportRow({ report, favorite, onFavorite, onOpen }: { report: ReportCon
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><VisualizationIcon size={19} /></div>
       <button onClick={onOpen} className="min-w-0 flex-1 text-left">
         <div className="flex items-center gap-2">
-          <h2 className="truncate text-sm font-700 text-slate-900 group-hover:text-blue-700">{report.name}</h2>
-          {report.custom && <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-700 text-violet-600">Personalizado</span>}
+          <h2 className="truncate text-sm font-600 text-slate-900 group-hover:text-blue-700">{report.name}</h2>
+          {report.custom && <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-600 text-violet-600">Personalizado</span>}
         </div>
         <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{report.description}</p>
         <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-400"><span>{report.category}</span><span>·</span><span>{DATASET_LABELS[report.dataset]}</span><span>·</span><span>{visualization.label}</span></div>
@@ -732,14 +732,14 @@ function SummaryMetric({ icon: MetricIcon, label, value }: { icon: React.Element
   return (
     <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
       <div className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-500"><MetricIcon size={15} /></div>
-      <div><p className="text-lg font-700 tabular-nums text-slate-900">{value}</p><p className="text-xs text-slate-500">{label}</p></div>
+      <div><p className="text-lg font-600 tabular-nums text-slate-900">{value}</p><p className="text-xs text-slate-500">{label}</p></div>
     </div>
   );
 }
 
 function ReportPreview({ config, rows, fields, chartData, stats }: { config: ReportConfig; rows: Array<Record<string, string | number | boolean>>; fields: FieldDefinition[]; chartData: Array<{ name: string; value: number }>; stats: ReportStats }) {
   if (rows.length === 0) {
-    return <div className="flex min-h-[440px] flex-col items-center justify-center px-6 text-center"><div className="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-slate-100"><ListFilter size={19} className="text-slate-400" /></div><p className="text-sm font-700 text-slate-800">No hay datos para esta configuración</p><p className="mt-1 text-xs text-slate-500">Prueba otro periodo o fuente de datos.</p></div>;
+    return <div className="flex min-h-[440px] flex-col items-center justify-center px-6 text-center"><div className="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-slate-100"><ListFilter size={19} className="text-slate-400" /></div><p className="text-sm font-600 text-slate-800">No hay datos para esta configuración</p><p className="mt-1 text-xs text-slate-500">Prueba otro periodo o fuente de datos.</p></div>;
   }
 
   if (config.visualization === 'table') {
@@ -747,7 +747,7 @@ function ReportPreview({ config, rows, fields, chartData, stats }: { config: Rep
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
           <thead className="border-b border-slate-200 bg-slate-50/80">
-            <tr>{fields.map((field) => <th key={field.id} className="px-4 py-3 text-left text-xs font-700 text-slate-500">{field.label}</th>)}</tr>
+            <tr>{fields.map((field) => <th key={field.id} className="px-4 py-3 text-left text-xs font-600 text-slate-500">{field.label}</th>)}</tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.slice(0, 50).map((row, index) => (
@@ -818,7 +818,7 @@ function ReportPreview({ config, rows, fields, chartData, stats }: { config: Rep
 
 function KpiTile({ label, value, detail, accent }: { label: string; value: string | number; detail?: string; accent: 'blue' | 'slate' | 'emerald' | 'amber' }) {
   const styles = { blue: 'bg-blue-50 text-blue-700', slate: 'bg-slate-100 text-slate-700', emerald: 'bg-emerald-50 text-emerald-700', amber: 'bg-amber-50 text-amber-700' }[accent];
-  return <div className="rounded-lg border border-slate-200 bg-white p-4"><div className={`mb-4 h-1.5 w-8 rounded ${styles}`} /><p className="text-xs font-600 text-slate-500">{label}</p><p className="mt-1 text-3xl font-700 tabular-nums text-slate-950">{value}</p>{detail && <p className="mt-2 truncate text-xs text-slate-500">{detail}</p>}</div>;
+  return <div className="rounded-lg border border-slate-200 bg-white p-4"><div className={`mb-4 h-1.5 w-8 rounded ${styles}`} /><p className="text-xs font-600 text-slate-500">{label}</p><p className="mt-1 text-3xl font-600 tabular-nums text-slate-950">{value}</p>{detail && <p className="mt-2 truncate text-xs text-slate-500">{detail}</p>}</div>;
 }
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {

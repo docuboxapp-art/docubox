@@ -272,10 +272,10 @@ export function StepAgrupamiento({
         {/* Right panel: groups */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-700 text-slate-950">Grupos de firma</h2>
+            <h2 className="text-base font-600 text-slate-950">Grupos de firma</h2>
             <button
               onClick={handleAddGrupo}
-              className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-700 text-white transition-colors hover:bg-primary/90"
+              className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-600 text-white transition-colors hover:bg-primary/90"
             >
               <Plus size={15} />
               Nuevo Grupo
@@ -312,7 +312,7 @@ export function StepAgrupamiento({
                           onChange={(e) => setEditingNombreValue(e.target.value)}
                           onKeyDown={(e) => handleNombreKeyDown(e, grupo.id)}
                           onBlur={() => handleConfirmNombre(grupo.id)}
-                          className="flex-1 min-w-0 text-sm font-bold text-gray-900 border border-primary/50 rounded-md px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="flex-1 min-w-0 text-sm font-semibold text-gray-900 border border-primary/50 rounded-md px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-primary/30"
                         />
                         <button
                           onClick={() => handleConfirmNombre(grupo.id)}
@@ -323,7 +323,7 @@ export function StepAgrupamiento({
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 flex-1 min-w-0 group/name">
-                        <span className="text-sm font-bold text-gray-900 truncate">
+                        <span className="text-sm font-semibold text-gray-900 truncate">
                           {grupo.nombre}
                         </span>
                         <button

@@ -171,7 +171,7 @@ export function PackageConfiguration({
           >
             <div className="border-b border-slate-100 px-5 py-4">
               <div>
-                <h2 id="package-title" className="text-lg font-700 text-slate-950">
+                <h2 id="package-title" className="text-lg font-600 text-slate-950">
                   Documentos complementarios
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
@@ -274,7 +274,7 @@ export function PackageConfiguration({
 
               <div className="border-t border-slate-100 pt-4">
                 <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-xs font-700 uppercase text-slate-500">Recursos agregados</h3>
+                  <h3 className="text-xs font-600 uppercase text-slate-500">Recursos agregados</h3>
                   <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
                     {resources.length}
                   </span>

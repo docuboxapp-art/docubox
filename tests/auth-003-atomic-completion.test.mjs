@@ -10,6 +10,12 @@ const migration = await read(
 const historicalReferenceBackfill = await read(
   '../supabase/migrations/20260920210443_backfill_historical_participant_reference_ids.sql'
 );
+const committedMetadataFix = await read(
+  '../supabase/migrations/20260920223942_fix_atomic_participant_completion_metadata.sql'
+);
+const completionRetryFix = await read(
+  '../supabase/migrations/20260920225409_repair_completion_retry_signature_binding.sql'
+);
 const completionRoute = await read('../src/app/api/firma/completion/route.ts');
 const finalizeEvidence = await read('../src/app/api/firma/finalize-evidence/route.ts');
 const signingPage = await read('../src/app/firmar-documento/[id]/page.tsx');
@@ -68,6 +74,29 @@ test('commit is idempotent and rejects terminal or mismatched completion', () =>
   assert.match(migration, /PARTICIPATION_COMPLETION_SERVER_ONLY/);
 });
 
+test('phase D can append only server-owned actor metadata after atomic commit', () => {
+  assert.match(committedMetadataFix, /current_user = 'service_role'/);
+  assert.match(committedMetadataFix, /effective_actor_user_id/);
+  assert.match(committedMetadataFix, /delegation_id/);
+  assert.match(committedMetadataFix, /witness_completed/);
+  assert.match(
+    committedMetadataFix,
+    /to_jsonb\(NEW\) - v_server_metadata_columns[\s\S]*to_jsonb\(OLD\) - v_server_metadata_columns/
+  );
+  assert.match(committedMetadataFix, /COMMITTED_PARTICIPATION_RESPONSE_IMMUTABLE/);
+});
+
+test('an active uncommitted retry can reconcile its signature method', () => {
+  assert.match(completionRetryFix, /v_attempt\.status = 'claimed'/);
+  assert.match(
+    completionRetryFix,
+    /v_attempt\.signature_method IS DISTINCT FROM NULLIF\(v_method, ''\)/
+  );
+  assert.match(completionRetryFix, /v_attempt\.signature_evidence_id IS NULL/);
+  assert.match(completionRetryFix, /v_attempt\.participation_response_id IS NULL/);
+  assert.match(completionRetryFix, /SET signature_method = NULLIF\(v_method, ''\)/);
+});
+
 test('completion API authenticates, authorizes and rate limits before service-role RPCs', () => {
   const authentication = completionRoute.indexOf('await requireCompletionAuthentication(request)');
   const payloadParsing = completionRoute.indexOf('await request.json()');
@@ -98,6 +127,16 @@ test('Click & Sign evidence reuses the operational attempt identity', () => {
   assert.match(finalizeEvidence, /SIGNATURE_ATTEMPT_CONFLICT/);
   assert.match(finalizeEvidence, /capture_id: signatureId/);
   assert.match(finalizeEvidence, /signature_id: signatureId/);
+});
+
+test('autograph retry preserves its capture and supersedes an uncommitted binding', () => {
+  assert.match(signingPage, /persisted\.autographEvidenceId/);
+  assert.match(signingPage, /activeAutographEvidenceId/);
+  assert.match(signingPage, /autographEvidenceId: evidenceId/);
+  assert.match(signingPage, /completionSignedAt: null/);
+  assert.match(finalizeEvidence, /candidate\.data\.signature_id \|\| signatureId/);
+  assert.match(finalizeEvidence, /effectiveSignatureId = randomUUID\(\)/);
+  assert.match(finalizeEvidence, /SUPERSEDED_BY_SIGNATURE_RETRY/);
 });
 
 test('signing flow orders claim, evidence, commit, routing and final certification', () => {

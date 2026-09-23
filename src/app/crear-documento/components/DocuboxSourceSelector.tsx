@@ -255,7 +255,7 @@ export function DocuboxSourceSelector({ open, onClose, onSelect }: Props) {
               </button>
             ) : null}
             <div className="min-w-0">
-              <h2 className="truncate text-base font-700 text-slate-950">
+              <h2 className="truncate text-base font-600 text-slate-950">
                 {versionDocument ? 'Versiones e historial' : 'Seleccionar desde Docubox'}
               </h2>
               <p className="truncate text-xs text-slate-500">
@@ -321,7 +321,7 @@ export function DocuboxSourceSelector({ open, onClose, onSelect }: Props) {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="truncate text-sm font-700 text-slate-950">
+                            <p className="truncate text-sm font-600 text-slate-950">
                               {document.name}
                             </p>
                             <span
@@ -398,7 +398,7 @@ export function DocuboxSourceSelector({ open, onClose, onSelect }: Props) {
             )}
             <section>
               <div className="mb-2 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-700 text-slate-950">Versiones del documento</h3>
+                <h3 className="text-sm font-600 text-slate-950">Versiones del documento</h3>
                 <span className="text-xs text-slate-500">Solo consulta</span>
               </div>
               <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
@@ -419,7 +419,7 @@ export function DocuboxSourceSelector({ open, onClose, onSelect }: Props) {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="mb-1 truncate text-sm font-700 text-slate-950">
+                      <p className="mb-1 truncate text-sm font-600 text-slate-950">
                         {versionDocument.name}
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
@@ -467,7 +467,7 @@ export function DocuboxSourceSelector({ open, onClose, onSelect }: Props) {
 
             <section className="mt-6">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <h3 className="flex items-center gap-2 text-sm font-700 text-slate-950">
+                <h3 className="flex items-center gap-2 text-sm font-600 text-slate-950">
                   <History size={16} className="text-slate-500" />
                   Historial de reutilizacion
                 </h3>

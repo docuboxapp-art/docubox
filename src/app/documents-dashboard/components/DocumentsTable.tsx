@@ -344,7 +344,7 @@ export default function DocumentsTable() {
       {/* Table header */}
       <div className="px-5 py-4 border-b border-border">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-[13px] font-700 text-slate-900 whitespace-nowrap">
+          <h2 className="text-[13px] font-600 text-slate-900 whitespace-nowrap">
             Documentos recientes
           </h2>
           <div className="flex items-center gap-2 flex-1 justify-end">

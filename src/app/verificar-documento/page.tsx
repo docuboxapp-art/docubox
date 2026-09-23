@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useRef, useState } from 'react';
+import { FormEvent, useRef, useState, type ElementType, type ReactNode } from 'react';
 import {
   ArrowRight,
   Clock3,
@@ -22,7 +22,7 @@ const methods: Array<{
   id: Method;
   label: string;
   description: string;
-  icon: React.ElementType;
+  icon: ElementType;
   group: 'quick' | 'technical';
 }> = [
   {
@@ -162,18 +162,18 @@ export default function PublicDocumentVerificationPage() {
   return (
     <PublicVerificationShell>
       <main className="mx-auto w-full max-w-[1180px] px-4 py-9 sm:px-6 sm:py-12">
-        <section className="border-b border-[#ebebf0] pb-8">
-          <p className="text-xs font-700 uppercase text-[#4f46e5]">Docubox</p>
-          <h1 className="mt-2 text-3xl font-650 text-[#18181b] sm:text-4xl">
+        <section className="border-b border-slate-200 pb-8">
+          <p className="text-xs font-600 uppercase text-primary">Docubox</p>
+          <h1 className="mt-2 text-3xl font-650 text-slate-950 sm:text-4xl">
             Centro de Verificación
           </h1>
-          <p className="mt-3 max-w-2xl text-base leading-7 text-[#52525b]">
+          <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
             Comprueba la integridad y las evidencias criptográficas asociadas a un documento.
           </p>
         </section>
 
         <div className="mt-8 grid items-start gap-7 lg:grid-cols-[330px_minmax(0,1fr)]">
-          <aside className="overflow-hidden rounded-lg border border-[#ebebf0] bg-white">
+          <aside className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <MethodGroup
               title="Verificación rápida"
               methods={methods.filter((item) => item.group === 'quick')}
@@ -189,7 +189,7 @@ export default function PublicDocumentVerificationPage() {
             />
           </aside>
 
-          <section className="rounded-lg border border-[#ebebf0] bg-white p-5 shadow-[0_8px_28px_rgba(24,24,27,0.04)] sm:p-7">
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:p-7">
             <MethodForm
               method={method}
               identifier={identifier}
@@ -225,22 +225,22 @@ function MethodGroup({
   bordered?: boolean;
 }) {
   return (
-    <div className={bordered ? 'border-t border-[#ebebf0]' : ''}>
-      <h2 className="px-4 pb-2 pt-4 text-[10px] font-700 uppercase text-[#a1a1aa]">{title}</h2>
+    <div className={bordered ? 'border-t border-slate-200' : ''}>
+      <h2 className="px-4 pb-2 pt-4 text-[10px] font-600 uppercase text-slate-400">{title}</h2>
       <div className="p-2 pt-0">
         {items.map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => onSelect(item.id)}
-            className={`flex w-full items-start gap-3 rounded-md px-3 py-3 text-left transition-colors ${selected === item.id ? 'bg-indigo-50 text-[#4f46e5]' : 'text-[#52525b] hover:bg-[#f8f8fb]'}`}
+            className={`flex w-full items-start gap-3 rounded-md px-3 py-3 text-left transition-colors ${selected === item.id ? 'bg-primary/10 text-primary' : 'text-slate-600 hover:bg-slate-50'}`}
           >
             <item.icon size={18} className="mt-0.5 shrink-0" />
             <span>
               <span className={`block text-sm ${selected === item.id ? 'font-650' : 'font-600'}`}>
                 {item.label}
               </span>
-              <span className="mt-0.5 block text-xs leading-5 text-[#71717a]">
+              <span className="mt-0.5 block text-xs leading-5 text-slate-500">
                 {item.description}
               </span>
             </span>
@@ -267,12 +267,12 @@ function MethodForm(props: {
   return (
     <form onSubmit={props.onSubmit}>
       <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-[#4f46e5]">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
           <selected.icon size={20} />
         </span>
         <div>
-          <h2 className="text-xl font-650 text-[#18181b]">{selected.label}</h2>
-          <p className="mt-1 text-sm leading-6 text-[#52525b]">{selected.description}</p>
+          <h2 className="text-xl font-650 text-slate-950">{selected.label}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{selected.description}</p>
         </div>
       </div>
       <div className="mt-7">
@@ -281,14 +281,14 @@ function MethodForm(props: {
             <div className="relative">
               <QrCode
                 size={18}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#a1a1aa]"
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
               />
               <input
                 value={props.identifier}
                 onChange={(event) => props.onIdentifier(event.target.value)}
                 autoComplete="off"
                 placeholder="DBX-2026-00003482 o 7KMQ-29PD-X81F"
-                className="h-11 w-full rounded-md border border-[#d4d4d8] bg-white pl-11 pr-4 text-sm outline-none focus:border-[#4f46e5] focus:ring-2 focus:ring-indigo-100"
+                className="h-11 w-full rounded-md border border-slate-300 bg-white pl-11 pr-4 text-sm text-slate-950 outline-none transition-shadow placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/10"
               />
             </div>
           </Field>
@@ -296,13 +296,13 @@ function MethodForm(props: {
         {props.method === 'hash' && (
           <Field label="Huella SHA-256">
             <div className="relative">
-              <Fingerprint size={18} className="absolute left-3.5 top-4 text-[#a1a1aa]" />
+              <Fingerprint size={18} className="absolute left-3.5 top-4 text-slate-400" />
               <textarea
                 value={props.hash}
                 onChange={(event) => props.onHash(event.target.value)}
                 rows={3}
                 placeholder="64 caracteres hexadecimales"
-                className="w-full resize-none rounded-md border border-[#d4d4d8] bg-white py-3 pl-11 pr-4 font-mono text-xs outline-none focus:border-[#4f46e5] focus:ring-2 focus:ring-indigo-100"
+                className="w-full resize-none rounded-md border border-slate-300 bg-white py-3 pl-11 pr-4 font-mono text-xs text-slate-950 outline-none transition-shadow placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/10"
               />
             </div>
           </Field>
@@ -329,15 +329,15 @@ function MethodForm(props: {
           {props.error}
         </p>
       )}
-      <div className="mt-6 flex items-center justify-between border-t border-[#ebebf0] pt-5">
-        <p className="max-w-md text-xs leading-5 text-[#71717a]">
+      <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-5">
+        <p className="max-w-md text-xs leading-5 text-slate-500">
           Los PDF se comparan por huella local. Los validadores técnicos solo confirman resultados
           emitidos por motores criptográficos configurados.
         </p>
         <button
           type="submit"
           disabled={props.loading}
-          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md bg-[#4f46e5] px-4 text-sm font-650 text-white hover:bg-[#4338ca] disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-650 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {props.loading ? (
             <Loader2 size={16} className="animate-spin" />
@@ -361,12 +361,12 @@ function FileDrop({
   onFile: (file: File | null) => void;
 }) {
   return (
-    <label className="flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-[#c7c7d1] bg-[#fafafa] px-5 text-center hover:border-[#4f46e5] hover:bg-indigo-50/30">
-      <UploadCloud size={28} className="text-[#4f46e5]" />
-      <span className="mt-3 text-sm font-650 text-[#18181b]">
+    <label className="flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-5 text-center transition-colors hover:border-primary hover:bg-primary/5">
+      <UploadCloud size={28} className="text-primary" />
+      <span className="mt-3 text-sm font-650 text-slate-950">
         {file ? file.name : 'Selecciona o arrastra un archivo'}
       </span>
-      <span className="mt-1 text-xs text-[#71717a]">
+      <span className="mt-1 text-xs text-slate-500">
         {file
           ? formatBytes(file.size)
           : 'El archivo se procesa de forma temporal para la comprobación.'}
@@ -381,10 +381,10 @@ function FileDrop({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-650 text-[#18181b]">{label}</span>
+      <span className="mb-2 block text-sm font-650 text-slate-950">{label}</span>
       {children}
     </label>
   );

@@ -151,7 +151,7 @@ function InvitarParticipanteForm({
             </svg>
           </button>
           <div>
-            <h2 className="text-base font-bold text-gray-900">Invitar a Participante</h2>
+            <h2 className="text-base font-semibold text-gray-900">Invitar a Participante</h2>
             <p className="text-xs text-gray-400 mt-0.5">
               Completa la información para invitar a un nuevo participante al documento.
             </p>
@@ -667,7 +667,7 @@ function ConfigurarParticipacionModal({
       <div className="flex h-[min(760px,calc(100vh-2rem))] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="shrink-0 border-b border-gray-100 px-6 py-5">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">
+            <h2 className="text-xl font-semibold text-gray-900">
               {isCurrentUser ? 'Configurar mi participación' : 'Configurar Participante'}
             </h2>
           </div>
@@ -687,7 +687,7 @@ function ConfigurarParticipacionModal({
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-gray-900 truncate">
+                <p className="text-sm font-semibold text-gray-900 truncate">
                   {participant.tipoPersona === 'moral' && participant.denominacion
                     ? participant.denominacion
                     : participant.name || '—'}
@@ -1221,10 +1221,20 @@ function AñadirParticipantesModal({
       const data = await res.json();
       if (data.users) {
         const mapped: Participant[] = data.users.map(
-          (u: { id: string; full_name: string; email: string }) => ({
+          (u: {
+            id: string;
+            full_name: string;
+            email: string;
+            phone?: string | null;
+            rfc?: string | null;
+            curp?: string | null;
+          }) => ({
             id: u.id,
             name: u.full_name || u.email,
             email: u.email,
+            phone: u.phone || undefined,
+            rfc: u.rfc || undefined,
+            curp: u.curp || undefined,
             role: 'firmante' as const,
           })
         );
@@ -1349,7 +1359,7 @@ function AñadirParticipantesModal({
           <>
             <div className="p-6 pb-4 shrink-0">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">Añadir Participantes</h2>
+                <h2 className="text-xl font-semibold text-gray-900">Añadir Participantes</h2>
                 <p className="text-sm text-gray-400 mt-0.5">
                   Selecciona un contacto o busca un usuario para configurar su participación.
                 </p>
@@ -2023,7 +2033,7 @@ export function StepParticipantes({
                 className="flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/[0.02]"
               >
                 <span className="text-gray-700">{option.icon}</span>
-                <span className="text-sm font-bold text-gray-900">{option.title}</span>
+                <span className="text-sm font-semibold text-gray-900">{option.title}</span>
                 <span className="text-xs text-gray-500">{option.description}</span>
               </button>
             ))}
@@ -2033,7 +2043,7 @@ export function StepParticipantes({
       {mode && (
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(260px,30%)_minmax(0,1fr)]">
           <div className="h-fit rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <h2 className="mb-5 text-base font-700 text-slate-950">Configuracion</h2>
+            <h2 className="mb-5 text-base font-600 text-slate-950">Configuracion</h2>
             <div className="border border-gray-200 rounded-lg px-4 py-3 flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <User size={20} className="text-primary" />
@@ -2101,7 +2111,7 @@ export function StepParticipantes({
             </div>
           </div>
           <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <h2 className="mb-4 text-base font-700 text-slate-950">Lista de participantes</h2>
+            <h2 className="mb-4 text-base font-600 text-slate-950">Lista de participantes</h2>
 
             {/* Sequential drag hint banner */}
             {isSecuencial && (
@@ -2123,7 +2133,7 @@ export function StepParticipantes({
                       Nombre
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">
-                      Acto/Rol
+                      Acto
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Rol</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">

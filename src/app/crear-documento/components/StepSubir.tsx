@@ -3300,7 +3300,7 @@ function FileUploadedLayout({
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <div className="flex flex-col gap-5">
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <h2 className="mb-4 text-base font-700 text-slate-950">Archivo cargado</h2>
+            <h2 className="mb-4 text-base font-600 text-slate-950">Archivo cargado</h2>
             <div className="border border-gray-200 rounded-lg p-4 flex gap-4 items-start mb-4">
               <div className="w-20 h-28 bg-gray-100 rounded border border-gray-200 flex items-center justify-center shrink-0 overflow-hidden">
                 {templateSource ? (
@@ -3322,7 +3322,7 @@ function FileUploadedLayout({
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-blue-50">
                     <FileText size={24} className="text-primary" />
-                    <span className="text-[9px] font-bold text-primary uppercase">
+                    <span className="text-[9px] font-semibold text-primary uppercase">
                       {file?.name.split('.').pop()}
                     </span>
                   </div>
@@ -3364,7 +3364,7 @@ function FileUploadedLayout({
           </div>
 
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <h2 className="text-base font-700 text-slate-950">Configuración del documento</h2>
+            <h2 className="text-base font-600 text-slate-950">Configuración del documento</h2>
             {/* Tabs - Configuración general FIRST (default), Seguridad y protección SECOND */}
             <div className="mt-4 flex gap-2 rounded-xl bg-gray-100 p-1">
               <button
@@ -3918,7 +3918,7 @@ function FileUploadedLayout({
                       <div className="space-y-2">
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                           <p className="text-xs text-amber-700">
-                            <span className="font-bold">¡Atención!</span> Esta acción es
+                            <span className="font-semibold">¡Atención!</span> Esta acción es
                             irreversible una vez que se envíe el documento.
                           </p>
                         </div>
@@ -4114,7 +4114,7 @@ function FileUploadedLayout({
         </div>
 
         <div className="h-fit rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <h2 className="mb-5 text-base font-700 leading-5 text-slate-950">
+          <h2 className="mb-5 text-base font-600 leading-5 text-slate-950">
             Propiedades del documento
           </h2>
           <div className="space-y-4 [&_button]:text-[13px] [&_input]:text-[13px]">
@@ -4648,8 +4648,8 @@ export function StepSubir({
               <Layers size={18} />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-700 uppercase text-primary">Origen Docubox</p>
-              <p className="truncate text-sm font-700 text-slate-900">
+              <p className="text-xs font-600 uppercase text-primary">Origen Docubox</p>
+              <p className="truncate text-sm font-600 text-slate-900">
                 {sourceSelection.sourceDocumentName}
               </p>
               <p className="mt-0.5 text-xs text-slate-500">
@@ -4729,7 +4729,7 @@ export function StepSubir({
       <div className={`grid grid-cols-1 ${plantillasEnabled ? 'xl:grid-cols-2' : ''} gap-5`}>
         <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
           <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="mb-0.5 text-base font-700 text-slate-950">Subir documento</h2>
+            <h2 className="mb-0.5 text-base font-600 text-slate-950">Subir documento</h2>
             <p className="text-sm text-gray-500">Selecciona el origen de tu archivo.</p>
           </div>
           <div className="flex min-h-[320px]">
@@ -4749,7 +4749,7 @@ export function StepSubir({
                     className={`group relative flex w-full items-center gap-2.5 px-3 py-3 text-left transition-colors ${isDisabled ? 'cursor-not-allowed opacity-40' : isActive ? 'border-r-2 border-primary bg-white text-primary' : 'text-slate-600 hover:bg-white/70 hover:text-slate-950'}`}
                   >
                     <span
-                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${isActive ? 'bg-primary text-white' : isDisabled ? 'bg-gray-200 text-gray-500' : 'bg-gray-200 text-gray-600'}`}
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isActive ? 'bg-primary text-white' : isDisabled ? 'bg-gray-200 text-gray-500' : 'bg-gray-200 text-gray-600'}`}
                     >
                       {tabs.indexOf(tab) + 1}
                     </span>
@@ -4857,7 +4857,7 @@ export function StepSubir({
         {plantillasEnabled && (
           <section className="flex min-h-[392px] flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div className="border-b border-slate-100 px-5 py-4">
-              <h2 className="text-base font-700 text-slate-950">Añade una plantilla</h2>
+              <h2 className="text-base font-600 text-slate-950">Añade una plantilla</h2>
               <p className="mt-0.5 text-sm text-slate-500">
                 Inicia tu documento con una plantilla publicada de este espacio.
               </p>

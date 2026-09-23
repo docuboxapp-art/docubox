@@ -602,7 +602,7 @@ export async function generateEvidenceV2ForDocument(
     service
       .from('participation_responses')
       .select(
-        'id,participante_id,participant_record_id,participante_email,firma_completada_at,respondido_at,signature_evidence_id,consent_text_version,consent_text_sha256,consent_accepted,consent_accepted_at'
+        'id,participante_id,participant_record_id,participante_email,firma_completada_at,aprobacion_completada_at,witness_completed_at,operational_committed_at,signature_evidence_id,consent_text_version,consent_text_sha256,consent_accepted,consent_accepted_at'
       )
       .eq('documento_id', input.documentId),
     service
@@ -928,11 +928,15 @@ export async function generateEvidenceV2ForDocument(
           : null,
         signedAt: response?.firma_completada_at
           ? String(response.firma_completada_at)
-          : response?.respondido_at
-            ? String(response.respondido_at)
-            : participant.fecha_firma || participant.fecha_participacion
-              ? String(participant.fecha_firma || participant.fecha_participacion)
-              : null,
+          : response?.aprobacion_completada_at
+            ? String(response.aprobacion_completada_at)
+            : response?.witness_completed_at
+              ? String(response.witness_completed_at)
+              : response?.operational_committed_at
+                ? String(response.operational_committed_at)
+                : participant.fecha_firma || participant.fecha_participacion
+                  ? String(participant.fecha_firma || participant.fecha_participacion)
+                  : null,
       };
     }),
     signatures: signatures.map((row: Record<string, unknown>) => {
@@ -1141,6 +1145,7 @@ export async function generateEvidenceV2ForDocument(
     );
   }
   await input.onStage?.('STORING_EVIDENCE');
+  const xmlArtifactSha256 = sha256Hex(Buffer.from(built.xml, 'utf8'));
   const storagePath = `${document.workspace_id || document.owner_id}/${input.documentId}/${packageInput.document.versionId || 'legacy'}/evidence-v2/${built.package.packageId}/evidence.xml`;
   const upload = await service.storage
     .from(XML_BUCKET)
@@ -1155,7 +1160,7 @@ export async function generateEvidenceV2ForDocument(
     throw readBack.error;
   }
   const persistedXmlHash = sha256Hex(new Uint8Array(await readBack.data.arrayBuffer()));
-  if (persistedXmlHash !== built.xmlSha256) {
+  if (persistedXmlHash !== xmlArtifactSha256) {
     await service.storage.from(XML_BUCKET).remove([storagePath]);
     throw new EvidenceV2ServiceError(
       'EVIDENCE_XML_READBACK_HASH_MISMATCH',
@@ -1180,7 +1185,7 @@ export async function generateEvidenceV2ForDocument(
       document_final_sha256: finalHash,
       evidence_root_sha256: built.package.evidenceRoot!.value,
       package_digest_sha256: built.package.packageDigest,
-      xml_sha256: built.xmlSha256,
+      xml_sha256: xmlArtifactSha256,
       xml_storage_bucket: XML_BUCKET,
       xml_storage_path: storagePath,
       docubox_signature: built.package.docuboxSignature,
@@ -1227,7 +1232,7 @@ export async function generateEvidenceV2ForDocument(
     finalHash,
     rootHash: built.package.evidenceRoot!.value,
     packageDigest: built.package.packageDigest,
-    xmlHash: built.xmlSha256,
+    xmlHash: xmlArtifactSha256,
   });
   return { ...closeResult.data, alreadyGenerated: false, readiness };
 }

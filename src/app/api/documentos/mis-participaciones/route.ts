@@ -31,6 +31,28 @@ const DASHBOARD_PARTICIPATION_SELECT = `
   participantes
 `;
 
+const LIST_PARTICIPATION_SELECT = `
+  id,
+  documento_id,
+  owner_id,
+  nombre,
+  descripcion,
+  estado,
+  priority,
+  es_urgente,
+  fecha_vencimiento,
+  tiene_vencimiento,
+  created_at,
+  updated_at,
+  fecha_completado,
+  participantes,
+  source_template_id,
+  legal_hold,
+  legal_hold_status,
+  tipo_documento_id,
+  tipo_documento:tipo_documento_id ( nombre )
+`;
+
 const FULL_PARTICIPATION_SELECT = `
   id,
   documento_id,
@@ -60,6 +82,10 @@ const FULL_PARTICIPATION_SELECT = `
 `;
 
 const LEGACY_FULL_PARTICIPATION_SELECT = FULL_PARTICIPATION_SELECT.replace(
+  '  source_template_id,\n',
+  ''
+);
+const LEGACY_LIST_PARTICIPATION_SELECT = LIST_PARTICIPATION_SELECT.replace(
   '  source_template_id,\n',
   ''
 );
@@ -168,6 +194,7 @@ export async function GET(request: NextRequest) {
     const userId = user.id;
     const { searchParams } = new URL(request.url);
     const dashboardSummary = searchParams.get('view') === 'dashboard';
+    const listSummary = searchParams.get('view') === 'list';
     const excludeOwned = searchParams.get('exclude_owned') === 'true';
 
     // RLS admits only owner, authorized workspace administrator or participant rows.
@@ -182,11 +209,16 @@ export async function GET(request: NextRequest) {
       return query;
     };
 
-    let result = await buildQuery(
-      dashboardSummary ? DASHBOARD_PARTICIPATION_SELECT : FULL_PARTICIPATION_SELECT
-    );
+    const participationSelect = dashboardSummary
+      ? DASHBOARD_PARTICIPATION_SELECT
+      : listSummary
+        ? LIST_PARTICIPATION_SELECT
+        : FULL_PARTICIPATION_SELECT;
+    let result = await buildQuery(participationSelect);
     if (!dashboardSummary && isTemplateOriginColumnMissing(result.error)) {
-      result = await buildQuery(LEGACY_FULL_PARTICIPATION_SELECT);
+      result = await buildQuery(
+        listSummary ? LEGACY_LIST_PARTICIPATION_SELECT : LEGACY_FULL_PARTICIPATION_SELECT
+      );
     }
     const { data: docs, error } = result;
 

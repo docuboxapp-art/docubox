@@ -123,7 +123,7 @@ export async function GET(
     const [evidenceResult, profileResult, certificationResult] = await Promise.all([
       service
         .from('signature_evidence')
-        .select('evidence_type,captured_at,ip_address,signature_hash,participant_name,participant_email,participant_role,timezone,geo_latitude,geo_longitude,device_type,user_agent,workspace_name,document_pages,document_size_kb,cert_rfc,cert_curp,cert_serial_number,cert_not_before,cert_not_after,sign_algorithm,cert_issuer,ocsp_status')
+        .select('evidence_type,captured_at,ip_address,signature_hash,participant_name,participant_email,participant_role,timezone,geo_latitude,geo_longitude,device_type,user_agent,workspace_name,document_pages,document_size_kb,cert_rfc,cert_curp,cert_serial_number,cert_not_before,cert_not_after,sign_algorithm,cert_issuer,ocsp_status,ocsp_checked_at,validation_provider,provider_reference,nubarium_estado,nubarium_fecha_consulta,nubarium_codigo_validacion')
         .eq('document_id', documentId)
         .eq('captured_by', user.id)
         .order('captured_at', { ascending: false })
@@ -135,7 +135,7 @@ export async function GET(
         .maybeSingle(),
       service
         .from('document_certifications')
-        .select('certified_pdf_sha256,completed_at')
+        .select('id,certified_pdf_sha256,completed_at,pades_profile,timestamp_status,verification_status')
         .eq('document_id', documentId)
         .eq('status', 'COMPLETED')
         .order('completed_at', { ascending: false })
@@ -157,6 +157,18 @@ export async function GET(
       || null;
     const profile = profileResult.data;
     const certification = certificationResult.data;
+    let timestamp: { tsa_name: string | null; status: string | null; gen_time: string | null } | null = null;
+    if (certification?.id) {
+      const timestampResult = await service
+        .from('timestamp_records')
+        .select('tsa_name,status,gen_time')
+        .eq('document_certification_id', certification.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (timestampResult.error) throw timestampResult.error;
+      timestamp = timestampResult.data;
+    }
     const metadata = (response.signature_metadata || {}) as Record<string, unknown>;
     const participantName = safeText(
       response.participante_nombre
@@ -224,9 +236,20 @@ export async function GET(
           : metadataValue(metadata, 'certificate_valid_until'),
       ),
       certificateAlgorithm: safeText(evidence?.sign_algorithm || metadataValue(metadata, 'certificate_algorithm') || (signatureHash ? 'SHA-256' : '')),
-      timestampAuthority: safeText(metadataValue(metadata, 'timestamp_authority')),
+      validationProvider: safeText(evidence?.validation_provider || metadataValue(metadata, 'validation_provider')),
+      validationStatus: safeText(
+        evidence?.nubarium_estado
+        || (String(evidence?.validation_provider || '').toUpperCase().includes('NUBARIUM') && evidence?.ocsp_status === 'GOOD'
+          ? 'Vigente'
+          : metadataValue(metadata, 'validation_status')),
+      ),
+      validationCode: safeText(evidence?.nubarium_codigo_validacion || evidence?.provider_reference),
+      validationCheckedAt: safeText(evidence?.nubarium_fecha_consulta || evidence?.ocsp_checked_at || signedAt),
+      timestampAuthority: safeText(timestamp?.tsa_name || metadataValue(metadata, 'timestamp_authority')),
+      timestampStatus: safeText(timestamp?.status || certification?.timestamp_status),
       timestampUrl: safeText(metadataValue(metadata, 'timestamp_url', 'tsa_url')),
-      signatureLevel: safeText(metadataValue(metadata, 'pades_profile')),
+      signatureLevel: safeText(certification?.pades_profile || metadataValue(metadata, 'pades_profile')),
+      padesVerificationStatus: safeText(certification?.verification_status),
       legalStandard: safeText(metadataValue(metadata, 'legal_standard') || 'Código de Comercio, artículos 89 a 97'),
       consentAccepted: Boolean(response.terminos_aceptados),
       consentAcceptedAt: safeText(response.terminos_aceptados_at || signedAt),

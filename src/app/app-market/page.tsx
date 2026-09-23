@@ -23,13 +23,15 @@ import {
   Workflow,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
-import { ALL_MODULES, type ModuleId, useAppModules } from '@/contexts/AppModulesContext';
+import {
+  ALL_MODULES,
+  FREE_PLAN_MODULE_LIMIT,
+  type ModuleId,
+  useAppModules,
+} from '@/contexts/AppModulesContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useCollaborationApi } from '@/lib/collaboration/client';
-import {
-  hasCollaborationEntitlement,
-  type CollaborationAccess,
-} from '@/lib/collaboration/domain';
+import { hasCollaborationEntitlement, type CollaborationAccess } from '@/lib/collaboration/domain';
 
 type FilterId = 'todos' | 'productividad' | 'seguridad' | 'ia';
 
@@ -116,7 +118,7 @@ const modulePresentation: Record<
 };
 
 export default function AppMarketPage() {
-  const { activeModuleId, setActiveModule, isModuleActive, loading } = useAppModules();
+  const { activeModuleIds, setActiveModule, isModuleActive, loading } = useAppModules();
   const { activeWorkspace, refreshWorkspaces } = useWorkspace();
   const collaborationApi = useCollaborationApi();
   const [collaborationAccess, setCollaborationAccess] = useState<CollaborationAccess | null>(null);
@@ -124,9 +126,9 @@ export default function AppMarketPage() {
   const [collaborationError, setCollaborationError] = useState('');
   const [filter, setFilter] = useState<FilterId>('todos');
   const [updatingModule, setUpdatingModule] = useState<ModuleId | null>(null);
+  const [moduleNotice, setModuleNotice] = useState('');
 
-  const activeModule = ALL_MODULES.find((module) => module.id === activeModuleId) ?? null;
-  const ActiveModuleIcon = activeModule ? modulePresentation[activeModule.id].icon : null;
+  const activeModules = ALL_MODULES.filter((module) => activeModuleIds.includes(module.id));
 
   const visibleModules = useMemo(() => {
     return ALL_MODULES.filter((module) => {
@@ -138,14 +140,21 @@ export default function AppMarketPage() {
   }, [filter, isModuleActive]);
 
   const handleToggle = async (id: ModuleId) => {
+    if (!isModuleActive(id) && activeModuleIds.length >= FREE_PLAN_MODULE_LIMIT) {
+      setModuleNotice(
+        'Tu plan gratuito incluye dos aplicaciones. Desinstala una para activar otra.'
+      );
+      return;
+    }
     setUpdatingModule(id);
-    await Promise.resolve(setActiveModule(isModuleActive(id) ? null : id));
+    setModuleNotice('');
+    const saved = await setActiveModule(id);
+    if (!saved) setModuleNotice('No fue posible actualizar tus aplicaciones. Intenta nuevamente.');
     window.setTimeout(() => setUpdatingModule(null), 250);
   };
 
   useEffect(() => {
     if (!activeWorkspace?.id || activeWorkspace.workspaceType !== 'business') {
-      setCollaborationAccess(null);
       return;
     }
     collaborationApi<{ access: CollaborationAccess }>(
@@ -183,9 +192,10 @@ export default function AppMarketPage() {
       setCollaborationUpdating(false);
     }
   };
-  const canManageCollaborationPlan = collaborationAccess?.canManageSubscription
-    || collaborationAccess?.membershipRole === 'owner'
-    || collaborationAccess?.permissions.includes('subscription.manage_addons');
+  const canManageCollaborationPlan =
+    collaborationAccess?.canManageSubscription ||
+    collaborationAccess?.membershipRole === 'owner' ||
+    collaborationAccess?.permissions.includes('subscription.manage_addons');
   const collaborationProActive = collaborationAccess
     ? hasCollaborationEntitlement(collaborationAccess, 'collaboration_external_rooms', {
         proFeature: true,
@@ -217,12 +227,12 @@ export default function AppMarketPage() {
                       Plan gratuito
                     </h2>
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-600 text-slate-600 dark:bg-muted dark:text-muted-foreground">
-                      1 módulo incluido
+                      2 aplicaciones incluidas
                     </span>
                   </div>
                   <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500 dark:text-muted-foreground">
-                    Puedes mantener un módulo activo a la vez. Al activar uno nuevo, reemplazará al
-                    módulo actual en tu navegación.
+                    Puedes instalar y mantener activas hasta dos aplicaciones en tu espacio de
+                    trabajo.
                   </p>
                 </div>
               </div>
@@ -320,7 +330,7 @@ export default function AppMarketPage() {
                   </h2>
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-600 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
                     <PackageCheck size={12} />
-                    {activeModule ? 1 : 0} de 1 módulo activo
+                    {activeModules.length} de {FREE_PLAN_MODULE_LIMIT} aplicaciones activas
                   </span>
                 </div>
                 <p className="mt-0.5 text-sm text-slate-500 dark:text-muted-foreground">
@@ -328,53 +338,66 @@ export default function AppMarketPage() {
                 </p>
               </div>
 
-              {activeModule && ActiveModuleIcon ? (
-                <div className="mt-4 flex flex-col gap-4 border-t border-slate-200 pt-4 dark:border-border">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div
-                      className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md border ${modulePresentation[activeModule.id].surfaceClass}`}
-                    >
-                      <ActiveModuleIcon
-                        size={22}
-                        className={modulePresentation[activeModule.id].iconClass}
-                      />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-sm font-600 text-slate-950 dark:text-foreground">
-                          {activeModule.name}
-                        </h3>
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-600 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-                          Instalado
-                        </span>
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-500 dark:text-muted-foreground">
-                        {activeModule.description}
-                      </p>
-                    </div>
-                  </div>
+              {moduleNotice && (
+                <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                  {moduleNotice}
+                </p>
+              )}
 
-                  <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3 dark:border-border">
-                    <span className="inline-flex items-center gap-2 text-sm font-500 text-emerald-700 dark:text-emerald-300">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                      Activo
-                    </span>
-                    <Link
-                      href={activeModule.href}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-500 text-slate-600 transition-colors hover:bg-white hover:text-slate-950 dark:text-muted-foreground dark:hover:bg-muted"
-                    >
-                      Abrir
-                      <ExternalLink size={13} />
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => handleToggle(activeModule.id)}
-                      disabled={updatingModule === activeModule.id}
-                      className="h-8 rounded-md px-2 text-sm font-500 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-wait disabled:opacity-60 dark:hover:bg-red-950/30"
-                    >
-                      {updatingModule === activeModule.id ? 'Guardando...' : 'Deshabilitar'}
-                    </button>
-                  </div>
+              {activeModules.length > 0 ? (
+                <div className="mt-4 divide-y divide-slate-200 border-t border-slate-200 dark:divide-border dark:border-border">
+                  {activeModules.map((module) => {
+                    const InstalledModuleIcon = modulePresentation[module.id].icon;
+                    return (
+                      <div key={module.id} className="py-4 first:pt-4 last:pb-0">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div
+                            className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md border ${modulePresentation[module.id].surfaceClass}`}
+                          >
+                            <InstalledModuleIcon
+                              size={22}
+                              className={modulePresentation[module.id].iconClass}
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-sm font-600 text-slate-950 dark:text-foreground">
+                                {module.name}
+                              </h3>
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-600 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                Instalado
+                              </span>
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-500 dark:text-muted-foreground">
+                              {module.description}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-border">
+                          <span className="inline-flex items-center gap-2 text-sm font-500 text-emerald-700 dark:text-emerald-300">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                            Activo
+                          </span>
+                          <Link
+                            href={module.href}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-500 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950 dark:text-muted-foreground dark:hover:bg-muted"
+                          >
+                            Abrir
+                            <ExternalLink size={13} />
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleToggle(module.id)}
+                            disabled={updatingModule === module.id}
+                            className="h-8 rounded-md px-2 text-sm font-500 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-wait disabled:opacity-60 dark:hover:bg-red-950/30"
+                          >
+                            {updatingModule === module.id ? 'Guardando...' : 'Desinstalar'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="mt-4 flex min-h-28 items-start border-t border-slate-200 pt-5 text-sm leading-6 text-slate-500 dark:border-border dark:text-muted-foreground">
@@ -428,6 +451,8 @@ export default function AppMarketPage() {
                     const ModuleIcon = presentation.icon;
                     const active = isModuleActive(module.id);
                     const updating = updatingModule === module.id;
+                    const limitReached =
+                      !active && activeModuleIds.length >= FREE_PLAN_MODULE_LIMIT;
 
                     return (
                       <article
@@ -486,10 +511,18 @@ export default function AppMarketPage() {
                               className={`inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-600 transition-colors disabled:cursor-wait disabled:opacity-60 ${
                                 active
                                   ? 'border border-slate-200 bg-white text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-border dark:bg-card dark:text-muted-foreground'
-                                  : 'bg-primary text-white hover:bg-primary/90'
+                                  : limitReached
+                                    ? 'border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 dark:border-border dark:bg-muted dark:text-muted-foreground'
+                                    : 'bg-primary text-white hover:bg-primary/90'
                               }`}
                             >
-                              {updating ? 'Guardando...' : active ? 'Desactivar' : 'Activar'}
+                              {updating
+                                ? 'Guardando...'
+                                : active
+                                  ? 'Desactivar'
+                                  : limitReached
+                                    ? 'Límite alcanzado'
+                                    : 'Activar'}
                             </button>
                           </div>
                         </div>

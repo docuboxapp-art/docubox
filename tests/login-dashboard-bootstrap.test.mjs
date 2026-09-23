@@ -109,7 +109,8 @@ test('dashboard loads shared document data once and widgets only render that sha
     /if \(pendingParticipations\.get\(userId\) === request\) pendingParticipations\.delete\(userId\);/
   );
   assert.match(participationsSource, /if \(pendingOwnedDocuments\.get\(userId\) === request\)/);
-  assert.match(participationsSource, /view=dashboard&exclude_owned=true/);
+  assert.match(participationsSource, /mis-participaciones\?view=dashboard/);
+  assert.doesNotMatch(participationsSource, /view=dashboard&exclude_owned=true/);
   assert.match(dashboardSource, /const \[ownedDocuments, participations\] = await Promise\.all\(/);
   assert.match(
     dashboardSource,

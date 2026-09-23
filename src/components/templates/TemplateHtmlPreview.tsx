@@ -88,11 +88,23 @@ export function TemplateHtmlPreview({
         referrerPolicy="no-referrer"
         tabIndex={-1}
         title={title || `Vista previa de ${template.nombre}`}
-        onLoad={(event) => {
+        onLoad={async (event) => {
           if (!onFieldsMeasured) return;
-          const frameDocument = event.currentTarget.contentDocument;
+          const frame = event.currentTarget;
+          const frameDocument = frame.contentDocument;
           const page = frameDocument?.querySelector('.template-preview-page');
-          if (!page) return;
+          if (!frameDocument || !page) return;
+          await frameDocument.fonts?.ready;
+          await Promise.all(
+            Array.from(frameDocument.images).map(async (image) => {
+              if (image.complete) return;
+              await new Promise<void>((resolve) => {
+                image.addEventListener('load', () => resolve(), { once: true });
+                image.addEventListener('error', () => resolve(), { once: true });
+              });
+            })
+          );
+          if (!frame.isConnected || frame.contentDocument !== frameDocument) return;
           const pageRect = page.getBoundingClientRect();
           if (pageRect.width <= 0 || pageRect.height <= 0) return;
           const fields = Array.from(page.querySelectorAll<HTMLElement>('[data-field-id]')).map(
