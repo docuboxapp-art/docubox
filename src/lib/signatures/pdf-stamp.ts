@@ -514,8 +514,6 @@ async function drawAutografaStamp(params: {
     width,
     height,
     color: rgb(1, 1, 1),
-    borderColor: style === 'AC0' || style === 'AC1' ? lightBorder : blue,
-    borderWidth: style === 'AC3' ? 1 : 0.75,
   });
   if (stripeWidth) page.drawRectangle({ x, y, width: stripeWidth, height, color: blue });
   if (style === 'AC3') drawCornerMarks(page, x + 3, y + 3, width - 6, height - 6, blue);
@@ -679,16 +677,12 @@ async function drawAutografaMediumStamp(params: {
   );
   const stripeWidth = style === 'AM3' ? Math.max(3, Math.min(6, width * 0.02)) : 0;
   const inset = Math.max(4, Math.min(8, width * 0.03));
-  const frameColor = blue;
-
   page.drawRectangle({
     x,
     y,
     width,
     height,
     color: rgb(1, 1, 1),
-    borderColor: frameColor,
-    borderWidth: style === 'AM2' ? 1 : 0.75,
     opacity: 0.99,
   });
   if (stripeWidth) page.drawRectangle({ x, y, width: stripeWidth, height, color: blue });
@@ -939,16 +933,12 @@ async function drawAutografaLongStamp(params: {
   );
   const stripeWidth = style === 'AL3' ? Math.max(4, Math.min(7, width * 0.018)) : 0;
   const inset = Math.max(5, Math.min(9, width * 0.025));
-  const borderColor = blue;
-
   page.drawRectangle({
     x,
     y,
     width,
     height,
     color: rgb(1, 1, 1),
-    borderColor,
-    borderWidth: style === 'AL2' ? 1 : 0.75,
     opacity: 0.99,
   });
   if (stripeWidth) page.drawRectangle({ x, y, width: stripeWidth, height, color: blue });
@@ -1240,8 +1230,6 @@ function drawCompactLateralEfirmaStamp(params: {
     width,
     height,
     color: rgb(1, 1, 1),
-    borderColor: lightBorder,
-    borderWidth: 0.75,
     opacity: 0.99,
   });
   page.drawRectangle({ x, y, width: stripeWidth, height, color: blue });
@@ -1396,8 +1384,6 @@ async function drawEfirmaStamp(params: {
     width,
     height,
     color: rgb(1, 1, 1),
-    borderColor: lightBorder,
-    borderWidth: 0.75,
     opacity: 0.99,
   });
   if (lateral) page.drawRectangle({ x, y, width: stripeWidth, height, color: blue });
@@ -1622,8 +1608,6 @@ async function drawClickSignShortStamp(params: {
     width,
     height,
     color: rgb(1, 1, 1),
-    borderColor: lightBorder,
-    borderWidth: 0.75,
   });
 
   let frameX = x;
@@ -1809,8 +1793,6 @@ async function drawClickSignMediumStamp(params: {
     width,
     height,
     color: rgb(1, 1, 1),
-    borderColor: lightBorder,
-    borderWidth: 0.75,
   });
 
   let frameX = x;
@@ -2058,8 +2040,6 @@ async function drawClickSignLongStamp(params: {
     width,
     height,
     color: rgb(1, 1, 1),
-    borderColor: lightBorder,
-    borderWidth: 0.75,
   });
   if (lateral) page.drawRectangle({ x, y, width: stripeWidth, height, color: blue });
   if (framed) drawCornerMarks(page, x + 4, y + 4, width - 8, height - 8);
@@ -2529,8 +2509,6 @@ async function drawStamp(
     width: stampWidth,
     height: stampHeight,
     color: rgb(1, 1, 1),
-    borderColor: accent,
-    borderWidth: 0.9,
     opacity: 0.98,
   });
   page.drawRectangle({

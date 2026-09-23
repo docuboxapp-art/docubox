@@ -3353,7 +3353,7 @@ function FittedSignatureStamp(props: StampDisplayProps) {
     <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-white">
       <div
         ref={contentRef}
-        className="absolute"
+        className="absolute [&>div]:border-0"
         style={{
           width: layout.width,
           left: layout.left,
@@ -8430,7 +8430,7 @@ export default function FirmarDocumentoPage() {
                             : clickSignStampStyle;
                       return (
                         <div
-                          className={`rounded-lg border p-3 ${isDark ? 'bg-gray-900 border-gray-600' : 'bg-white border-gray-200'}`}
+                          className={`rounded-lg border p-3 [&>div]:border-0 ${isDark ? 'bg-gray-900 border-gray-600' : 'bg-white border-gray-200'}`}
                         >
                           <SignatureStampDisplay
                             stampStyle={stampStyle}

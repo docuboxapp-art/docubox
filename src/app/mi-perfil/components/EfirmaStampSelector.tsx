@@ -759,7 +759,7 @@ function StampDetailModal({
             <section>
               <p className="text-xs font-600 text-foreground mb-3">Vista ampliada</p>
               <div className="min-h-[320px] rounded-lg border border-border bg-gray-50 p-5 flex items-center">
-                <div className="w-full">
+                <div className="w-full [&>div]:border-0">
                   <StampPreview variant={variant} efirmaData={efirmaData} />
                 </div>
               </div>
@@ -1016,7 +1016,7 @@ export default function EfirmaStampSelector({
                                     pointerEvents: 'none',
                                   }}
                                 >
-                                  <div className="p-1.5">
+                                  <div className="p-1.5 [&>div]:border-0">
                                     <StampPreview variant={variant} efirmaData={efirmaData} />
                                   </div>
                                 </div>
