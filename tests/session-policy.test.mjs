@@ -13,6 +13,9 @@ const twentyMinuteTimeoutMigration = await read(
 const thirtyMinuteTimeoutMigration = await read(
   '../supabase/migrations/20260924001759_session_inactivity_thirty_minutes.sql'
 );
+const superAdminTimeoutMigration = await read(
+  '../supabase/migrations/20260924002434_super_admin_fifteen_minute_inactivity.sql'
+);
 const timeoutHook = await read('../src/hooks/useSessionTimeout.ts');
 const middleware = await read('../src/middleware.ts');
 const loginForm = await read('../src/app/sign-up-login-screen/components/LoginForm.tsx');
@@ -32,12 +35,23 @@ test('the preceding session policy used a twenty-minute standard timeout', () =>
   assert.match(twentyMinuteTimeoutMigration, /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/);
 });
 
-test('the active session policy allows thirty minutes of inactivity for every user', () => {
+test('the preceding session policy allowed thirty minutes for every user', () => {
   assert.match(thirtyMinuteTimeoutMigration, /v_inactivity_timeout_seconds := 1800;/);
   assert.match(thirtyMinuteTimeoutMigration, /inactividad \(30 minutos\)/);
   assert.match(thirtyMinuteTimeoutMigration, /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/);
   assert.match(thirtyMinuteTimeoutMigration, /IF p_record_user_activity THEN/);
   assert.match(thirtyMinuteTimeoutMigration, /GRANT EXECUTE ON FUNCTION public\.enforce_docubox_session_policy\(BOOLEAN\)/);
+});
+
+test('super administrators expire after fifteen minutes while other users retain thirty', () => {
+  assert.match(superAdminTimeoutMigration, /COALESCE\(users\.is_super_admin, FALSE\)/);
+  assert.match(superAdminTimeoutMigration, /roles\.role_key = 'DOCUBOX_SUPER_ADMIN'/);
+  assert.match(superAdminTimeoutMigration, /staff\.status = 'active'/);
+  assert.match(superAdminTimeoutMigration, /v_inactivity_timeout_seconds := CASE WHEN v_is_super_admin THEN 900 ELSE 1800 END/);
+  assert.match(superAdminTimeoutMigration, /inactividad \(15 minutos\)/);
+  assert.match(superAdminTimeoutMigration, /inactividad \(30 minutos\)/);
+  assert.match(superAdminTimeoutMigration, /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/);
+  assert.match(superAdminTimeoutMigration, /IF p_record_user_activity THEN/);
 });
 
 test('only explicit human interactions can extend the inactivity window', () => {
