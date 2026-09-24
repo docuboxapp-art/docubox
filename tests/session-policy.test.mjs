@@ -10,6 +10,9 @@ const migration = await read(
 const twentyMinuteTimeoutMigration = await read(
   '../supabase/migrations/20260909075009_session_inactivity_timeout_twenty_minutes.sql'
 );
+const thirtyMinuteTimeoutMigration = await read(
+  '../supabase/migrations/20260924001759_session_inactivity_thirty_minutes.sql'
+);
 const timeoutHook = await read('../src/hooks/useSessionTimeout.ts');
 const middleware = await read('../src/middleware.ts');
 const loginForm = await read('../src/app/sign-up-login-screen/components/LoginForm.tsx');
@@ -23,10 +26,18 @@ test('server session policy distinguishes ordinary and privileged limits', () =>
   assert.match(migration, /platform_staff staff/);
 });
 
-test('standard session inactivity timeout is twenty minutes', () => {
+test('the preceding session policy used a twenty-minute standard timeout', () => {
   assert.match(twentyMinuteTimeoutMigration, /CASE WHEN v_is_privileged THEN 600 ELSE 1200 END/);
   assert.match(twentyMinuteTimeoutMigration, /inactividad \(20 minutos\)/);
   assert.match(twentyMinuteTimeoutMigration, /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/);
+});
+
+test('the active session policy allows thirty minutes of inactivity for every user', () => {
+  assert.match(thirtyMinuteTimeoutMigration, /v_inactivity_timeout_seconds := 1800;/);
+  assert.match(thirtyMinuteTimeoutMigration, /inactividad \(30 minutos\)/);
+  assert.match(thirtyMinuteTimeoutMigration, /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/);
+  assert.match(thirtyMinuteTimeoutMigration, /IF p_record_user_activity THEN/);
+  assert.match(thirtyMinuteTimeoutMigration, /GRANT EXECUTE ON FUNCTION public\.enforce_docubox_session_policy\(BOOLEAN\)/);
 });
 
 test('only explicit human interactions can extend the inactivity window', () => {
