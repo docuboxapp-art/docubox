@@ -30,18 +30,23 @@ const autographMigrationPath = new URL(
   '../supabase/migrations/20260922213514_default_autograph_ac0.sql',
   import.meta.url
 );
+const currentAutographMigrationPath = new URL(
+  '../supabase/migrations/20260924073852_default_autograph_ac1_after_layout_shift.sql',
+  import.meta.url
+);
 
 test('all signature methods share the requested default stamp styles', async () => {
-  const [sizing, stamp, profile, signing, migration, autographMigration] = await Promise.all([
+  const [sizing, stamp, profile, signing, migration, autographMigration, currentAutographMigration] = await Promise.all([
     readFile(sizingPath, 'utf8'),
     readFile(stampPath, 'utf8'),
     readFile(profilePath, 'utf8'),
     readFile(signingPath, 'utf8'),
     readFile(migrationPath, 'utf8'),
     readFile(autographMigrationPath, 'utf8'),
+    readFile(currentAutographMigrationPath, 'utf8'),
   ]);
 
-  assert.match(sizing, /autografa: 'AC0'/);
+  assert.match(sizing, /autografa: 'AC1'/);
   assert.match(sizing, /efirma: 'EC2'/);
   assert.match(sizing, /clicksign: 'CC2'/);
   assert.match(stamp, /getDefaultSignatureStampStyle\(method\)/);
@@ -62,6 +67,9 @@ test('all signature methods share the requested default stamp styles', async () 
   }
   assert.match(autographMigration, /ALTER COLUMN autografa_stamp_style SET DEFAULT 'AC0'/);
   assert.match(autographMigration, /SET autografa_stamp_style = 'AC0'/);
+  assert.match(currentAutographMigration, /ALTER COLUMN autografa_stamp_style SET DEFAULT 'AC1'/);
+  assert.match(currentAutographMigration, /WHEN autografa_stamp_style = 'AC1' THEN 'AC2'/);
+  assert.match(currentAutographMigration, /autografa_stamp_style IN \('AC0', 'AC1'\)/);
 });
 
 test('stamp QR opens the direct public validator and exposes only essential signature data', async () => {

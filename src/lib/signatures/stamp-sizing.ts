@@ -3,7 +3,7 @@ export type StampSizePresetId = 'short' | 'medium' | 'large';
 export type SignatureMethod = 'autografa' | 'efirma' | 'clicksign';
 
 export const DEFAULT_SIGNATURE_STAMP_STYLES: Readonly<Record<SignatureMethod, string>> = {
-  autografa: 'AC0',
+  autografa: 'AC1',
   efirma: 'EC2',
   clicksign: 'CC2',
 };
