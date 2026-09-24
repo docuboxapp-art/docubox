@@ -22,6 +22,7 @@ const publicFile = await readFile(
   'src/app/api/verificacion/documentos/[identifier]/archivo/route.ts',
   'utf8',
 );
+const signingPage = await readFile('src/app/firmar-documento/[id]/page.tsx', 'utf8');
 
 test('database stores only a password hash and revocable opaque unlock grants', () => {
   assert.match(migration, /extensions\.crypt\(p_code, v_hash\)/);
@@ -59,4 +60,18 @@ test('public file delivery cannot bypass an enabled view code', () => {
   assert.match(publicFile, /codigo_acceso_enabled/);
   assert.match(publicFile, /ACCESS_CODE_REQUIRED/);
   assert.match(publicFile, /status: 423/);
+});
+
+test('signing preview authenticates PDF delivery and can recover from a view-access challenge', () => {
+  const pdfCanvas = signingPage.split('function PdfCanvas(')[1]?.split('// ─── Signature Pad')[0];
+  assert.ok(pdfCanvas);
+  assert.match(pdfCanvas, /Authorization: `Bearer \$\{session\.access_token\}`/);
+  assert.match(pdfCanvas, /getDocument\(\{\s*data: bytes/);
+  assert.doesNotMatch(pdfCanvas, /getDocument\(\{\s*url: fileUrl/);
+  assert.match(pdfCanvas, /view-access\/unlock/);
+  assert.match(pdfCanvas, /minWidth: 612 \* zoom \/ 100/);
+  assert.match(
+    pdfCanvas,
+    /<canvas ref=\{canvasRef\} style=\{\{ display: error \? 'none' : 'block' \}\} \/>/,
+  );
 });

@@ -1296,6 +1296,11 @@ function PdfCanvas({
   const pdfDocRef = useRef<any>(null);
   const [rendering, setRendering] = useState(true);
   const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [requiresAccessCode, setRequiresAccessCode] = useState(false);
+  const [accessCode, setAccessCode] = useState('');
+  const [accessCodeError, setAccessCodeError] = useState('');
+  const [verifyingAccessCode, setVerifyingAccessCode] = useState(false);
 
   useEffect(() => {
     if (window.pdfjsLib) return;
@@ -1315,16 +1320,47 @@ function PdfCanvas({
     if (!canvasRef.current) return;
     setRendering(true);
     setError(false);
+    setErrorMessage('');
+    setRequiresAccessCode(false);
     try {
       let attempts = 0;
       while (!window.pdfjsLib && attempts < 50) {
         await new Promise((r) => setTimeout(r, 100));
         attempts++;
       }
-      if (!window.pdfjsLib) throw new Error('PDF.js not loaded');
+      if (!window.pdfjsLib) throw new Error('No se pudo iniciar el visor de PDF.');
       if (!pdfDocRef.current || pdfDocRef.current._url !== fileUrl) {
+        const {
+          data: { session },
+        } = await createClient().auth.getSession();
+        if (!session?.access_token) {
+          throw new Error('Tu sesión no está disponible. Vuelve a iniciar sesión.');
+        }
+        const response = await fetch(fileUrl, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          credentials: 'same-origin',
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          const loadError = new Error(
+            payload?.error || `No se pudo abrir el documento (${response.status}).`
+          ) as Error & { status?: number; code?: string };
+          loadError.status = response.status;
+          loadError.code = payload?.code;
+          throw loadError;
+        }
+        if (
+          !(response.headers.get('content-type') || '')
+            .toLowerCase()
+            .includes('application/pdf')
+        ) {
+          throw new Error('El archivo entregado no es un PDF válido.');
+        }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (!bytes.byteLength) throw new Error('El archivo PDF está vacío.');
         const loadingTask = window.pdfjsLib.getDocument({
-          url: fileUrl,
+          data: bytes,
           cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
           cMapPacked: true,
         });
@@ -1357,7 +1393,12 @@ function PdfCanvas({
       await renderTask.promise;
       renderTaskRef.current = null;
     } catch (err: any) {
-      if (err?.name !== 'RenderingCancelledException') setError(true);
+      if (err?.name !== 'RenderingCancelledException') {
+        console.error('[Signing PdfCanvas] render error:', err);
+        setRequiresAccessCode(err?.status === 423 || err?.code === 'ACCESS_CODE_REQUIRED');
+        setErrorMessage(err instanceof Error ? err.message : 'No se pudo cargar el archivo PDF.');
+        setError(true);
+      }
     } finally {
       setRendering(false);
     }
@@ -1379,20 +1420,112 @@ function PdfCanvas({
     };
   }, [renderPage]);
 
+  const verifyAccessCode = async () => {
+    const match = /\/api\/documentos\/([^/]+)\/viewer-file/.exec(fileUrl);
+    if (!match || !accessCode.trim()) return;
+    setVerifyingAccessCode(true);
+    setAccessCodeError('');
+    try {
+      const {
+        data: { session },
+      } = await createClient().auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Tu sesión no está disponible. Vuelve a iniciar sesión.');
+      }
+      const response = await fetch(`/api/documentos/${match[1]}/view-access/unlock`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ code: accessCode }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'No se pudo validar el código de acceso.');
+      }
+      setAccessCode('');
+      await renderPage();
+    } catch (err) {
+      setAccessCodeError(err instanceof Error ? err.message : 'No se pudo validar el código.');
+    } finally {
+      setVerifyingAccessCode(false);
+    }
+  };
+
   return (
-    <div className="relative">
-      {rendering && (
+    <div
+      className="relative"
+      style={
+        rendering || error
+          ? { minWidth: 612 * zoom / 100, minHeight: 792 * zoom / 100 }
+          : undefined
+      }
+    >
+      {rendering && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
           <Loader2 className="animate-spin h-6 w-6 text-primary" />
         </div>
       )}
-      {error ? (
-        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 bg-gray-100">
-          <FileText size={48} className="text-slate-300" strokeWidth={1} />
-          <p className="text-sm text-slate-400">Vista previa no disponible</p>
+      <canvas ref={canvasRef} style={{ display: error ? 'none' : 'block' }} />
+      {error && (
+        <div
+          className="flex flex-col items-center justify-center gap-4 bg-white px-6 text-center"
+          style={{ minHeight: 792 * zoom / 100 }}
+        >
+          {requiresAccessCode ? (
+            <>
+              <Shield size={40} className="text-primary" strokeWidth={1.5} />
+              <div>
+                <p className="text-base font-semibold text-slate-900">Documento protegido</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Introduce el código de acceso para visualizarlo.
+                </p>
+              </div>
+              <div className="w-full max-w-xs space-y-2">
+                <input
+                  type="password"
+                  value={accessCode}
+                  onChange={(event) => setAccessCode(event.target.value)}
+                  onKeyDown={(event) => event.key === 'Enter' && void verifyAccessCode()}
+                  placeholder="Código de acceso"
+                  aria-label="Código de acceso al documento"
+                  className="h-10 w-full rounded border border-slate-200 px-3 text-sm outline-none focus:border-primary"
+                />
+                {accessCodeError && (
+                  <p role="alert" className="text-xs text-red-600">
+                    {accessCodeError}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void verifyAccessCode()}
+                  disabled={verifyingAccessCode || !accessCode.trim()}
+                  className="h-10 w-full rounded bg-primary px-4 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {verifyingAccessCode ? 'Verificando...' : 'Ver documento'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <FileText size={48} className="text-slate-300" strokeWidth={1} />
+              <div>
+                <p className="text-sm font-medium text-slate-700">Vista previa no disponible</p>
+                <p className="mt-1 text-xs text-slate-500">{errorMessage}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void renderPage()}
+                className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <RotateCcw size={14} />
+                Reintentar
+              </button>
+            </>
+          )}
         </div>
-      ) : (
-        <canvas ref={canvasRef} style={{ display: 'block' }} />
       )}
     </div>
   );
