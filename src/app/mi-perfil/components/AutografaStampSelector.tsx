@@ -34,20 +34,20 @@ const STAMP_VARIANTS: StampVariant[] = [
   // Cortas
   {
     id: 'AC0',
-    label: 'AC0 · Firma mínima sin nombre',
-    description: 'Trazo, huella y participación sin nombre visible.',
+    label: 'AC0 · Solo firma',
+    description: 'Únicamente el trazo de tu firma.',
     category: 'corta',
   },
   {
     id: 'AC1',
-    label: 'AC1 · Firma mínima con nombre',
-    description: 'Diseño minimalista de una sola columna.',
+    label: 'AC1 · Firma mínima sin nombre',
+    description: 'Trazo, huella y participación sin nombre visible.',
     category: 'corta',
   },
   {
     id: 'AC2',
-    label: 'AC2 · Base compacta con QR',
-    description: 'Diseño compacto horizontal con QR lateral.',
+    label: 'AC2 · Firma mínima con nombre',
+    description: 'Trazo, huella e identidad en una sola columna.',
     category: 'corta',
   },
   {
@@ -180,19 +180,24 @@ function StampPreview({
     ? `${nameParts[0].charAt(0)}${nameParts[surnameIndex].charAt(0)}`.toUpperCase()
     : 'F';
 
-  const signatureImg = signatureUrl ? (
-    <img src={signatureUrl} alt="Firma autógrafa" className="max-h-10 max-w-full object-contain" />
-  ) : (
-    <svg viewBox="0 0 120 30" width="100%" height="30" className="opacity-60">
-      <path
-        d="M5,20 Q20,5 35,18 Q50,30 65,12 Q80,0 95,15 Q110,28 118,18"
-        stroke="#374151"
-        strokeWidth="1.5"
-        fill="none"
-        strokeLinecap="round"
+  const signatureImg = (large = false) =>
+    signatureUrl ? (
+      <img
+        src={signatureUrl}
+        alt="Firma autógrafa"
+        className={`${large ? 'max-h-24' : 'max-h-10'} max-w-full object-contain`}
       />
-    </svg>
-  );
+    ) : (
+      <svg viewBox="0 0 120 30" width="100%" height={large ? 72 : 30} className="opacity-60">
+        <path
+          d="M5,20 Q20,5 35,18 Q50,30 65,12 Q80,0 95,15 Q110,28 118,18"
+          stroke="#374151"
+          strokeWidth="1.5"
+          fill="none"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
 
   const qrBlock = <SignatureQrCode value={`${getPublicAppUrl()}/verificar-documento`} example />;
 
@@ -207,7 +212,7 @@ function StampPreview({
 
   const sigBox = () => (
     <div className="flex min-h-[32px] items-center justify-center rounded border-[1.5px] border-blue-400 bg-blue-50/40 p-1 ring-1 ring-blue-100">
-      {signatureImg}
+      {signatureImg()}
     </div>
   );
 
@@ -240,8 +245,16 @@ function StampPreview({
     </span>
   );
 
-  // ── AC0 Firma mínima sin nombre ──
+  // ── AC0 Solo firma ──
   if (variant.id === 'AC0')
+    return (
+      <div className="flex min-h-[190px] w-full items-center justify-center bg-white p-3">
+        <div className="flex w-full items-center justify-center">{signatureImg(true)}</div>
+      </div>
+    );
+
+  // ── AC1 Firma mínima sin nombre ──
+  if (variant.id === 'AC1')
     return (
       <div className="flex min-h-[190px] w-full flex-col items-center justify-center gap-3 rounded-lg border border-gray-200 bg-white p-3 text-left">
         <div className="w-full">{sigBox()}</div>
@@ -250,27 +263,13 @@ function StampPreview({
       </div>
     );
 
-  // ── AC1 Firma mínima con nombre ──
-  if (variant.id === 'AC1')
+  // ── AC2 Firma mínima con nombre ──
+  if (variant.id === 'AC2')
     return (
       <div className="flex min-h-[190px] w-full flex-col items-center justify-center gap-3 rounded-lg border border-gray-200 bg-white p-3 text-left">
         <div className="w-full">{sigBox()}</div>
         {shortHashBlock}
         {identityBlock}
-      </div>
-    );
-
-  // ── AC2 Base compacta con QR ──
-  if (variant.id === 'AC2')
-    return (
-      <div className="flex min-h-[190px] w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
-        {sigBox()}
-        {shortHashBlock}
-        {identityBlock}
-        <div className="flex items-end justify-between gap-2">
-          <p className="flex-1 text-[7px] leading-tight text-gray-600">Firmado: {fecha}</p>
-          {qrBlock}
-        </div>
       </div>
     );
 
@@ -508,30 +507,24 @@ function StampPreview({
 
 const STAMP_ELEMENTS: Record<string, { label: string; elements: string[] }> = {
   AC0: {
-    label: 'AC0 · Firma mínima sin nombre',
+    label: 'AC0 · Solo firma',
+    elements: ['Trazo de firma autógrafa digitalizada'],
+  },
+  AC1: {
+    label: 'AC1 · Firma mínima sin nombre',
     elements: [
       'Trazo de firma autógrafa digitalizada',
       'Huella SHA-256 completa del documento firmado',
       'Rol y acto de participación, sin nombre visible',
     ],
   },
-  AC1: {
-    label: 'AC1 · Firma mínima con nombre',
+  AC2: {
+    label: 'AC2 · Firma mínima con nombre',
     elements: [
       'Nombre del firmante',
       'Trazo de firma autógrafa',
       'Huella SHA-256 completa',
       'Rol y acto de participación',
-    ],
-  },
-  AC2: {
-    label: 'AC2 · Base compacta con QR',
-    elements: [
-      'Nombre del firmante',
-      'Trazo de firma autógrafa',
-      'Huella SHA-256 completa',
-      'Fecha, hora y zona horaria',
-      'Código QR de verificación',
     ],
   },
   AC3: {

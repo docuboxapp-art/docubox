@@ -6,6 +6,7 @@ import path from 'node:path';
 import test, { after } from 'node:test';
 import { build } from 'esbuild';
 import { PDFDocument } from 'pdf-lib';
+import sharp from 'sharp';
 
 const styles = [
   'AC0', 'AC1', 'AC2', 'AC3', 'AC4', 'AC5',
@@ -24,6 +25,9 @@ await build({
 const require = createRequire(import.meta.url);
 const { createSignedDocumentPdf } = require(path.join(buildDirectory, 'pdf-stamp.cjs'));
 after(async () => rm(buildDirectory, { recursive: true, force: true }));
+const signaturePng = await sharp(
+  Buffer.from('<svg width="240" height="80" xmlns="http://www.w3.org/2000/svg"><path d="M12 62 Q48 5 72 48 T138 36 Q178 4 190 40 T230 35" fill="none" stroke="#1e293b" stroke-width="3"/></svg>')
+).png().toBuffer();
 
 test('all autograph stamp styles render into the final PDF', async () => {
   const original = await PDFDocument.create();
@@ -35,6 +39,7 @@ test('all autograph stamp styles render into the final PDF', async () => {
   const responses = styles.map((style, index) => ({
     participante_id: `participant-${index}`,
     participante_nombre: 'LUIS ALBERTO HERNANDEZ BELTRAN',
+    firma_data: `data:image/png;base64,${signaturePng.toString('base64')}`,
     firma_completada_at: '2026-09-22T21:00:00.000Z',
     signature_method: 'autografa',
     signature_stamp_style: style,

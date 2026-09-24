@@ -208,26 +208,27 @@ test('short autograph stamps preserve the selected AC0-AC5 layout and complete h
   const renderer = stampSource.slice(rendererStart, rendererEnd);
   assert.match(renderer, /drawClickSignHashPanel/);
   assert.doesNotMatch(renderer, /shortHash\(/);
-  assert.match(renderer, /showName: style !== 'AC0'/);
+  assert.match(renderer, /showName: style !== 'AC1'/);
+  assert.match(renderer, /if \(style === 'AC0'\) \{[\s\S]*?background: false,[\s\S]*?return;/);
   assert.match(renderer, /style === 'AC3'/);
   assert.match(renderer, /style === 'AC4'/);
   assert.match(renderer, /style === 'AC5'/);
   assert.match(renderer, /Firmado:/);
   assert.match(renderer, /embedQrCode/);
-  assert.match(renderer, /const withQr = style !== 'AC0' && style !== 'AC1'/);
+  assert.match(renderer, /const withQr = style !== 'AC1' && style !== 'AC2'/);
   assert.match(renderer, /color: blue/);
 
   for (const label of [
-    'AC0 · Firma mínima sin nombre',
-    'AC1 · Firma mínima con nombre',
-    'AC2 · Base compacta con QR',
+    'AC0 · Solo firma',
+    'AC1 · Firma mínima sin nombre',
+    'AC2 · Firma mínima con nombre',
     'AC3 · Marco compacto',
     'AC4 · Franja lateral',
     'AC5 · Ticket vertical',
   ]) {
     assert.ok(selectorSource.includes(label), `Missing selector model: ${label}`);
   }
-  const shortPreviewStart = selectorSource.indexOf('// ── AC0 Firma mínima sin nombre');
+  const shortPreviewStart = selectorSource.indexOf('// ── AC0 Solo firma');
   const shortPreviewEnd = selectorSource.indexOf("variant.id === 'AM1'", shortPreviewStart);
   const shortPreviews = selectorSource.slice(shortPreviewStart, shortPreviewEnd);
   assert.doesNotMatch(shortPreviews, /hashShort/);
@@ -235,11 +236,12 @@ test('short autograph stamps preserve the selected AC0-AC5 layout and complete h
   assert.doesNotMatch(shortPreviews, /hashBlock\(true\)/);
   const ac2Start = shortPreviews.indexOf("variant.id === 'AC2'");
   const ac3Start = shortPreviews.indexOf("variant.id === 'AC3'", ac2Start);
-  assert.match(shortPreviews.slice(ac2Start, ac3Start), /qrBlock/);
+  assert.doesNotMatch(shortPreviews.slice(ac2Start, ac3Start), /qrBlock/);
   const ac0Start = shortPreviews.indexOf("variant.id === 'AC0'");
   const ac1Start = shortPreviews.indexOf("variant.id === 'AC1'", ac0Start);
-  assert.match(shortPreviews.slice(ac0Start, ac1Start), /roleActBlock/);
-  assert.doesNotMatch(shortPreviews.slice(ac0Start, ac1Start), /identityBlock/);
+  assert.match(shortPreviews.slice(ac0Start, ac1Start), /signatureImg/);
+  assert.doesNotMatch(shortPreviews.slice(ac0Start, ac1Start), /roleActBlock|identityBlock|shortHashBlock|qrBlock/);
+  assert.match(shortPreviews.slice(ac1Start, ac2Start), /roleActBlock/);
 });
 
 test('medium autograph stamps preserve AM1-AM5 fields, authentication and complete hash', async () => {

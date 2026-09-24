@@ -150,9 +150,9 @@ test('short autograph stamps use the standardized AC0-AC5 layouts', async () => 
   ]);
 
   for (const label of [
-    'AC0 · Firma mínima sin nombre',
-    'AC1 · Firma mínima con nombre',
-    'AC2 · Base compacta con QR',
+    'AC0 · Solo firma',
+    'AC1 · Firma mínima sin nombre',
+    'AC2 · Firma mínima con nombre',
     'AC3 · Marco compacto',
     'AC4 · Franja lateral',
     'AC5 · Ticket vertical',
@@ -164,15 +164,17 @@ test('short autograph stamps use the standardized AC0-AC5 layouts', async () => 
   assert.match(selector, /const shortHashBlock/);
   const ac2Start = selector.indexOf("variant.id === 'AC2'");
   const ac3Start = selector.indexOf("variant.id === 'AC3'", ac2Start);
-  assert.match(selector.slice(ac2Start, ac3Start), /qrBlock/);
+  assert.doesNotMatch(selector.slice(ac2Start, ac3Start), /qrBlock/);
   const ac0Start = selector.indexOf("variant.id === 'AC0'");
   const ac1Start = selector.indexOf("variant.id === 'AC1'", ac0Start);
-  assert.match(selector.slice(ac0Start, ac1Start), /roleActBlock/);
-  assert.doesNotMatch(selector.slice(ac0Start, ac1Start), /identityBlock/);
+  const ac0Preview = selector.slice(ac0Start, ac1Start);
+  assert.match(ac0Preview, /signatureImg/);
+  assert.doesNotMatch(ac0Preview, /roleActBlock|identityBlock|shortHashBlock|qrBlock/);
+  assert.match(selector.slice(ac1Start, ac2Start), /roleActBlock/);
   assert.match(selector, /if \(variant\.id === 'AC4'\)[\s\S]*?bg-blue-600/);
   assert.match(signingPage, /if \(stampStyle === 'AC5'\)[\s\S]*?evidenceHashBlock/);
   assert.match(pdfStamp, /async function drawAutografaStamp/);
-  assert.match(pdfStamp, /const withQr = style !== 'AC0' && style !== 'AC1'/);
+  assert.match(pdfStamp, /const withQr = style !== 'AC1' && style !== 'AC2'/);
 });
 
 test('medium autograph stamps use the standardized AM1-AM5 layouts', async () => {

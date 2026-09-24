@@ -437,18 +437,22 @@ async function drawAutographTrace(params: {
   width: number;
   height: number;
   regular: PdfFont;
+  background?: boolean;
 }) {
-  const { pdf, page, response, x, y, width, height, regular } = params;
+  const { pdf, page, response, x, y, width, height, regular, background = true } = params;
   if (width <= 2 || height <= 2) return;
-  page.drawRectangle({
-    x,
-    y,
-    width,
-    height,
-    color: rgb(0.985, 0.99, 1),
-  });
+  if (background) {
+    page.drawRectangle({
+      x,
+      y,
+      width,
+      height,
+      color: rgb(0.985, 0.99, 1),
+    });
+  }
   const source = response.firma_data ? dataUrlToBytes(response.firma_data) : null;
   if (!source) {
+    if (!background) return;
     const size = Math.max(2.8, Math.min(5, height * 0.32));
     const label = fitText('Firma autografa', width, regular, size);
     page.drawText(label, {
@@ -472,6 +476,7 @@ async function drawAutographTrace(params: {
       height: imageSize.height,
     });
   } catch {
+    if (!background) return;
     const size = Math.max(2.8, Math.min(5, height * 0.32));
     page.drawText('Trazo disponible', {
       x,
@@ -504,6 +509,20 @@ async function drawAutografaStamp(params: {
   const verificationUrl = String(
     metadata.verification_url || 'https://docubox.mx/verificar-documento'
   );
+  if (style === 'AC0') {
+    await drawAutographTrace({
+      pdf,
+      page,
+      response,
+      x,
+      y,
+      width,
+      height,
+      regular,
+      background: false,
+    });
+    return;
+  }
   const inset = Math.max(3, Math.min(7, width * 0.03));
   const stripeWidth = style === 'AC4' ? Math.max(3, Math.min(5, width * 0.02)) : 0;
   page.drawRectangle({
@@ -534,7 +553,7 @@ async function drawAutografaStamp(params: {
     });
   }
 
-  const withQr = style !== 'AC0' && style !== 'AC1';
+  const withQr = style !== 'AC1' && style !== 'AC2';
   const qrSize = withQr ? Math.max(15, Math.min(26, contentHeight * 0.44)) : 0;
   const textWidth = Math.max(20, contentWidth - (withQr ? qrSize + 3 : 0));
   const bodySize = Math.max(2.4, Math.min(4.6, contentHeight * 0.055));
@@ -570,7 +589,7 @@ async function drawAutografaStamp(params: {
     role,
     act,
     signedAt,
-    showName: style !== 'AC0',
+    showName: style !== 'AC1',
     x: contentX,
     y: contentY,
     width: textWidth,

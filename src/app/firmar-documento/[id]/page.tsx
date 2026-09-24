@@ -3607,8 +3607,8 @@ function SignatureStampDisplay({
     </div>
   );
 
-  const sigBox = () => (
-    <div className="flex h-10 w-full items-center justify-center overflow-hidden bg-slate-50 p-1">
+  const signatureTrace = (
+    <>
       {signatureUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -3627,6 +3627,12 @@ function SignatureStampDisplay({
           />
         </svg>
       )}
+    </>
+  );
+
+  const sigBox = () => (
+    <div className="flex h-10 w-full items-center justify-center overflow-hidden bg-slate-50 p-1">
+      {signatureTrace}
     </div>
   );
 
@@ -4044,12 +4050,8 @@ function SignatureStampDisplay({
   if (signatureType === 'autografa') {
     if (stampStyle === 'AC0')
       return (
-        <div className="flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white p-1.5 text-left">
-          <div className="w-full">
-            {sigBox()}
-          </div>
-          {evidenceHashBlock}
-          <p className="w-full text-left text-[7px] text-gray-600">Rol: {role} · Acto: {act}</p>
+        <div className="flex h-20 w-full items-center justify-center bg-white p-1.5">
+          {signatureTrace}
         </div>
       );
     if (stampStyle === 'AC1')
@@ -4057,19 +4059,15 @@ function SignatureStampDisplay({
         <div className="flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white p-1.5 text-left">
           <div className="w-full">{sigBox()}</div>
           {evidenceHashBlock}
-          {autographIdentityBlock}
+          <p className="w-full text-left text-[7px] text-gray-600">Rol: {role} · Acto: {act}</p>
         </div>
       );
     if (stampStyle === 'AC2')
       return (
-        <div className="flex w-full flex-col justify-between gap-2 rounded-lg border border-gray-200 bg-white p-2 text-left">
-          {sigBox()}
+        <div className="flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white p-1.5 text-left">
+          <div className="w-full">{sigBox()}</div>
           {evidenceHashBlock}
           {autographIdentityBlock}
-          <div className="flex items-end justify-between gap-2">
-            <p className="text-[7px] text-gray-500">Firmado: {fechaHora}</p>
-            {qrBlock}
-          </div>
         </div>
       );
     if (stampStyle === 'AC3')
