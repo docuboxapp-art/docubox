@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { documentEncryptionPolicy } from '@/lib/crypto/document-encryption';
 import { enforcePublicRateLimit } from '@/lib/public-verification/gateway';
+import { finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 
 type PublicDocumentRow = {
   id: string;
@@ -96,7 +97,7 @@ async function createTemporaryDocumentUrl(
   }
   const candidates: Array<{ bucket: string; path: string }> = [];
 
-  if (document.sealed_pdf_path) {
+  if (document.sealed_pdf_path && await finalDeliverableReady(supabase, document.id)) {
     candidates.push(
       { bucket: 'documents-signed', path: document.sealed_pdf_path },
       { bucket: 'documents', path: document.sealed_pdf_path }

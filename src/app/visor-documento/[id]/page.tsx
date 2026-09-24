@@ -1077,6 +1077,8 @@ export default function VisorDocumentoPage() {
       cryptographicCertification?.padesProfile === 'PAdES-B-T' &&
       cryptographicCertification.timestampStatus === 'valid');
   const integralEvidenceVerified = padesBtVerified && nom151EvidenceStatus === 'valid';
+  const finalDeliverableAvailable =
+    nom151LookupComplete && padesBtVerified && nom151Data?.verification_status === 'verified';
   const blockchainEvidenceReady = blockchainEvidence?.status === 'VERIFIED';
   const blockchainEvidenceFailed = Boolean(
     blockchainEvidenceError ||
@@ -1363,10 +1365,8 @@ export default function VisorDocumentoPage() {
     if (!document?.id) return;
 
     const requestedArchivo = new URLSearchParams(window.location.search).get('archivo');
-    const completedTemplate =
-      document.estado === 'completado' && isTemplateDocumentMimeType(document.file_type);
     const requestedVariant =
-      completedTemplate || (requestedArchivo !== 'original' && padesBtVerified)
+      requestedArchivo !== 'original' && finalDeliverableAvailable
         ? 'certified'
         : 'original';
     const nextFileUrl = `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=${requestedVariant}`;
@@ -1379,7 +1379,7 @@ export default function VisorDocumentoPage() {
       );
     });
     return () => window.cancelAnimationFrame(variantFrame);
-  }, [document?.estado, document?.file_type, document?.id, padesBtVerified]);
+  }, [document?.id, finalDeliverableAvailable]);
 
   // ── Signed PDF state ───────────────────────────────────────────────────────
   const [downloadingSignedPdf, setDownloadingSignedPdf] = useState(false);
@@ -1579,6 +1579,10 @@ export default function VisorDocumentoPage() {
         | 'evidence-manifest'
     ) => {
       if (!docId || !cryptographicCertification?.certificationUuid) return;
+      if ((kind === 'package' || kind === 'certified-pdf') && !finalDeliverableAvailable) {
+        setCertificationError('El entregable final está pendiente de la constancia NOM-151 emitida y verificada.');
+        return;
+      }
       setCertificationDownload(kind);
       setCertificationError('');
       try {
@@ -1632,7 +1636,7 @@ export default function VisorDocumentoPage() {
         setCertificationDownload(null);
       }
     },
-    [cryptographicCertification, docId, document, logActivity]
+    [cryptographicCertification, docId, document, finalDeliverableAvailable, logActivity]
   );
 
   // ── NOM-151 polling (only when completado) ─────────────────────────────────
@@ -1785,6 +1789,10 @@ export default function VisorDocumentoPage() {
       );
       return;
     }
+    if (!finalDeliverableAvailable) {
+      alert('El PDF final estará disponible cuando la constancia NOM-151 esté emitida y verificada. Puedes descargar el documento original mientras tanto.');
+      return;
+    }
     setDownloadingSignedPdf(true);
     try {
       const response = await fetch(
@@ -1824,7 +1832,7 @@ export default function VisorDocumentoPage() {
     } finally {
       setDownloadingSignedPdf(false);
     }
-  }, [apiAuthHeaders, docId, document?.nombre, document?.sealed_pdf_path, padesBtVerified]);
+  }, [apiAuthHeaders, docId, document?.nombre, document?.sealed_pdf_path, finalDeliverableAvailable, padesBtVerified]);
 
   // ── Generate NOM-151 constancia via Nubarium ───────────────────────────────
   const generateNom151 = useCallback(
@@ -2602,9 +2610,7 @@ export default function VisorDocumentoPage() {
 
         // A derived PDF can exist before its PAdES-B-T verification finishes.
         // Start with the original and let the verified certification state switch variants.
-        const completedPdfAvailable =
-          data.estado === 'completado' && Boolean(data.sealed_pdf_path);
-        const requestedFileVariant = completedPdfAvailable ? 'certified' : 'original';
+        const requestedFileVariant = 'original';
         const viewerFileUrl = `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=${requestedFileVariant}`;
 
         // Preserve the existing loading state and visible values while removing
@@ -2653,7 +2659,7 @@ export default function VisorDocumentoPage() {
           owner_nombre: ownerNombre,
           carpeta_nombre: carpetaNombre,
           organizacion,
-          formato: completedPdfAvailable ? 'application/pdf' : data.file_type || 'application/pdf',
+          formato: data.file_type || 'application/pdf',
           hash_sha256: data.file_hash_sha256 || '—',
           firma_completa: 'Pendiente',
           fecha_constancia: 'Pendiente',
@@ -4608,7 +4614,7 @@ export default function VisorDocumentoPage() {
           ? {
               ...current,
               sealed_pdf_path: payload.storage_path,
-              file_url: `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=certified`,
+              file_url: `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=original`,
               formato: 'application/pdf',
             }
           : current
@@ -5812,10 +5818,9 @@ export default function VisorDocumentoPage() {
                 </div>
               ) : isTemplateDocumentMimeType(document.file_type) &&
                 document.estado === 'completado' &&
-                !document.sealed_pdf_path ? (
+                !finalDeliverableAvailable ? (
                 <div className="flex h-full min-h-[360px] flex-col items-center justify-center gap-3 text-slate-500">
-                  <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
-                  <p className="text-sm">Preparando PDF final...</p>
+                  <p className="text-sm">PDF final pendiente de constancia NOM-151 emitida y verificada.</p>
                 </div>
               ) : document.file_url ? (
                 <div className="flex min-h-full min-w-full items-start justify-center p-4 md:p-6">
@@ -8125,7 +8130,7 @@ export default function VisorDocumentoPage() {
                                     <div className="grid grid-cols-2 gap-2">
                                       <button
                                         onClick={() => downloadCertificationArtifact('package')}
-                                        disabled={certificationDownload !== null}
+                                        disabled={certificationDownload !== null || !finalDeliverableAvailable}
                                         className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
                                       >
                                         {certificationDownload === 'package' ? (
@@ -8139,7 +8144,7 @@ export default function VisorDocumentoPage() {
                                         onClick={() =>
                                           downloadCertificationArtifact('certified-pdf')
                                         }
-                                        disabled={certificationDownload !== null}
+                                        disabled={certificationDownload !== null || !finalDeliverableAvailable}
                                         className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
                                       >
                                         {certificationDownload === 'certified-pdf' ? (
@@ -8534,13 +8539,15 @@ export default function VisorDocumentoPage() {
                                 disabled={
                                   downloadingSignedPdf ||
                                   !document?.sealed_pdf_path ||
-                                  !padesVerified
+                                  !finalDeliverableAvailable
                                 }
                                 title={
                                   !document?.sealed_pdf_path
                                     ? 'La descarga estará disponible al finalizar el sellado del documento.'
                                     : !padesVerified
                                       ? 'La descarga certificada requiere una firma PAdES verificada.'
+                                      : !finalDeliverableAvailable
+                                        ? 'Pendiente de constancia NOM-151 emitida y verificada.'
                                       : undefined
                                 }
                                 className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
@@ -8558,6 +8565,8 @@ export default function VisorDocumentoPage() {
                                       ? padesUiStatus === 'PAdES ERROR'
                                         ? 'Error de verificación PAdES'
                                         : 'Pendiente de verificación PAdES'
+                                      : !finalDeliverableAvailable
+                                        ? 'Pendiente de NOM-151'
                                       : 'Descargar PDF firmado'}
                               </button>
                             </div>
@@ -9251,7 +9260,7 @@ export default function VisorDocumentoPage() {
                             <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                               Paquete de Evidencia
                             </span>
-                            {evidenceV2?.packageAvailable ? (
+                            {evidenceV2?.packageAvailable && finalDeliverableAvailable ? (
                               <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
                                 Disponible
                               </span>
@@ -9266,7 +9275,7 @@ export default function VisorDocumentoPage() {
                             )}
                           </div>
                           <div className="p-4">
-                            {evidenceV2?.packageAvailable ? (
+                            {evidenceV2?.packageAvailable && finalDeliverableAvailable ? (
                               <div className="space-y-3">
                                 <div>
                                   <p className="text-sm font-semibold text-foreground">
@@ -9651,10 +9660,9 @@ export default function VisorDocumentoPage() {
                 />
               ) : isTemplateDocumentMimeType(document.file_type) &&
                 document.estado === 'completado' &&
-                !document.sealed_pdf_path ? (
+                !finalDeliverableAvailable ? (
                 <div className="flex h-full min-h-[360px] flex-col items-center justify-center gap-3 text-slate-500">
-                  <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
-                  <p className="text-sm">Preparando PDF final...</p>
+                  <p className="text-sm">PDF final pendiente de constancia NOM-151 emitida y verificada.</p>
                 </div>
               ) : (
                 <div className="relative flex-shrink-0 border border-slate-700 bg-white shadow-[0_18px_48px_rgba(0,0,0,0.35)]">

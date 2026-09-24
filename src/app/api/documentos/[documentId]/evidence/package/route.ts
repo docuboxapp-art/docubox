@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { documentAccessResponse } from '@/lib/security/document-access';
 import { requireDocumentContentAccess } from '@/lib/security/document-content-access';
 import { createEvidencePackageZipStream } from '@/lib/evidence-v2/evidence-package';
+import { finalDeliverablePendingResponse, finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,9 @@ export async function GET(
   try {
     const { documentId } = await context.params;
     const { document, service } = await requireDocumentContentAccess(request, documentId);
+    if (!(await finalDeliverableReady(service, documentId))) {
+      return finalDeliverablePendingResponse();
+    }
     const result = await createEvidencePackageZipStream(service, documentId);
     const folio = safeName(String(document.documento_id || result.package.package_id));
     return new NextResponse(result.stream, {

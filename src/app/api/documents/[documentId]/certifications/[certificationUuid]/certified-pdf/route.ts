@@ -4,6 +4,7 @@ import { getCertificationArtifact } from '@/lib/certification/engine';
 import { CertificationError } from '@/lib/certification/types';
 import { requireDocumentContentAccess } from '@/lib/security/document-content-access';
 import { DocumentAccessError } from '@/lib/security/document-access';
+import { finalDeliverablePendingResponse, finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { documentId, certificationUuid } = await params;
     const access = await requireDocumentContentAccess(request, documentId);
+    if (!(await finalDeliverableReady(access.service, documentId, certificationUuid))) {
+      return finalDeliverablePendingResponse();
+    }
     const { bytes, certification } = await getCertificationArtifact(createServiceClient(), documentId, certificationUuid, access.user.id, 'certified-pdf');
     return new NextResponse(bytes, {
       headers: {

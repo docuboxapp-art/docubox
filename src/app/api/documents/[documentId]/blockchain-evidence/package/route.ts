@@ -3,6 +3,7 @@ import { authorizedEvidence } from '@/lib/blockchain-evidence/access';
 import { readBlockchainArtifact } from '@/lib/blockchain-evidence/storage';
 import { readDocumentStorageObject } from '@/lib/crypto/document-encryption';
 import { createStoredZip } from '@/lib/certification/zip';
+import { finalDeliverablePendingResponse, finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,9 @@ export async function GET(
   if (!access.user) return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
   if (!access.authorized || !access.service || !access.evidence)
     return NextResponse.json({ error: 'Sin permiso o evidencia inexistente.' }, { status: 403 });
+  if (!(await finalDeliverableReady(access.service, documentId))) {
+    return finalDeliverablePendingResponse();
+  }
   const row = access.evidence as Record<string, any>;
   if (row.status !== 'VERIFIED' || !row.certificate_storage_path)
     return NextResponse.json(

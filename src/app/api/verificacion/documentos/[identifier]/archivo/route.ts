@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { readDocumentStorageObject } from '@/lib/crypto/document-encryption';
 import { enforcePublicRateLimit } from '@/lib/public-verification/gateway';
 import { findActivePublicLink } from '@/lib/public-verification/repository';
+import { finalDeliverablePendingResponse, finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 
 function safeFileName(value: unknown) {
   return String(value || 'documento.pdf').replace(/[\r\n"\\/:*?<>|]/g, '_');
@@ -75,6 +76,9 @@ export async function GET(
       { error: 'El PDF final firmado aun no esta disponible.' },
       { status: 409 }
     );
+  }
+  if (!(await finalDeliverableReady(service, document.id))) {
+    return finalDeliverablePendingResponse();
   }
   try {
     const file = await readDocumentStorageObject({

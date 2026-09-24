@@ -5,6 +5,7 @@ import { DocumentEncryptionError } from '@/lib/crypto/document-encryption/errors
 import { createCertificationProviderSet } from '@/lib/certification/providers';
 import { requireDocumentContentAccess } from '@/lib/security/document-content-access';
 import { DocumentAccessError } from '@/lib/security/document-access';
+import { finalDeliverablePendingResponse, finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -156,6 +157,9 @@ export async function GET(
           },
           { status: 409, headers: privateErrorHeaders }
         );
+      }
+      if (!(await finalDeliverableReady(service, document.id))) {
+        return finalDeliverablePendingResponse();
       }
     }
     const storagePath = requestsFinalPdf

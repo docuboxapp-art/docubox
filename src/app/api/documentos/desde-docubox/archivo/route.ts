@@ -11,6 +11,7 @@ import {
 } from '@/lib/crypto/document-encryption';
 import { requireDocumentContentAccess } from '@/lib/security/document-content-access';
 import { DocumentAccessError } from '@/lib/security/document-access';
+import { finalDeliverablePendingResponse, finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 
 function bearerToken(request: NextRequest) {
   const authorization = request.headers.get('authorization');
@@ -38,6 +39,9 @@ export async function GET(request: NextRequest) {
       rawVariant === 'certified' || rawVariant === 'version' ? rawVariant : 'original';
     const service = createServiceClient();
     await requireDocumentContentAccess(request, documentId);
+    if (variant === 'certified' && !(await finalDeliverableReady(service, documentId))) {
+      return finalDeliverablePendingResponse();
+    }
     const source = await resolveInternalDocumentSource(service, auth.data.user, {
       workspaceId,
       documentId,

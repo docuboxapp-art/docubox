@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
 import { createServiceClient } from '@/lib/supabase/server';
 import { hasCurrentCollaborationEntitlement } from '@/lib/collaboration/entitlements-server';
+import { finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -182,8 +183,11 @@ export async function GET(
       }
     }
 
+    const finalReady = source.sealed_pdf_path && protectedDocumentId
+      ? await finalDeliverableReady(service, protectedDocumentId)
+      : false;
     const candidates = [
-      storageReference(String(source.sealed_pdf_path || '')),
+      finalReady ? storageReference(String(source.sealed_pdf_path || '')) : null,
       storageReference(String(source.storage_path || '')),
       storageReference(String(source.file_url || '')),
     ].filter(Boolean) as Array<{ bucket: string; path: string }>;
