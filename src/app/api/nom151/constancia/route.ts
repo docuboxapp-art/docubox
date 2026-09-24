@@ -60,10 +60,13 @@ export async function GET(req: NextRequest) {
     const { service } = await requireDocumentAccess(req, documentId);
     const pades = await service
       .from('document_certifications')
-      .select('id,document_version_id,certified_pdf_sha256,pades_profile')
+      .select('id,document_version_id,certified_pdf_sha256,pades_pdf_hash_after_signature,pades_profile')
       .eq('document_id', documentId)
+      .eq('status', 'COMPLETED')
+      .eq('execution_status', 'completed')
       .eq('pades_profile', 'PAdES-B-T')
       .eq('pdf_signature_status', 'valid')
+      .eq('certificate_status', 'valid')
       .eq('timestamp_status', 'valid')
       .eq('verification_status', 'valid')
       .order('pades_verified_at', { ascending: false })
@@ -72,7 +75,13 @@ export async function GET(req: NextRequest) {
     if (pades.error) {
       return NextResponse.json({ error: pades.error.message }, { status: 500 });
     }
-    if (!pades.data) {
+    if (
+      !pades.data ||
+      !pades.data.document_version_id ||
+      !pades.data.certified_pdf_sha256 ||
+      String(pades.data.certified_pdf_sha256).toLowerCase() !==
+        String(pades.data.pades_pdf_hash_after_signature || '').toLowerCase()
+    ) {
       return NextResponse.json({
         data: null,
         processing: false,
@@ -100,6 +109,7 @@ export async function GET(req: NextRequest) {
       const issuedRecord = issued.data as unknown as PublicNom151Record;
       return NextResponse.json({
         data: issuedRecord,
+        pades_verified: true,
         processing: false,
         verified: issuedRecord.verification_status === 'verified',
         production_verified:
@@ -118,7 +128,7 @@ export async function GET(req: NextRequest) {
       .limit(1)
       .maybeSingle();
     if (processing.data) {
-      return NextResponse.json({ data: null, processing: true });
+      return NextResponse.json({ data: null, processing: true, pades_verified: true });
     }
 
     const failed = await service
@@ -133,6 +143,7 @@ export async function GET(req: NextRequest) {
     if (failed.data) {
       return NextResponse.json({
         data: null,
+        pades_verified: true,
         processing: false,
         failed: true,
         failure_code: failed.data.error_detail?.code || 'nom151_failed',
@@ -140,7 +151,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ data: null, processing: false, ready: true });
+    return NextResponse.json({ data: null, processing: false, ready: true, pades_verified: true });
   } catch (error) {
     const response = documentAccessResponse(error);
     return NextResponse.json(response.body, { status: response.status });

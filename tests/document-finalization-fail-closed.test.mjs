@@ -112,9 +112,9 @@ test('viewer file variants expose a structured pending PAdES state', () => {
 });
 
 test('viewer keeps the original PDF visible until PAdES-B-T is verified', () => {
-  assert.match(viewerPage, /const requestedFileVariant = 'original';/);
-  assert.match(viewerPage, /requestedArchivo === 'original' \|\| !padesBtVerified/);
-  assert.match(viewerPage, /file_url: `\/api\/documentos\/\$\{encodeURIComponent\(document\.id\)\}\/viewer-file\?variant=original`/);
+  assert.match(viewerPage, /requestedArchivo !== 'original' && padesBtVerified/);
+  assert.match(viewerPage, /: 'original';\s*const nextFileUrl = `\/api\/documentos\/\$\{encodeURIComponent\(document\.id\)\}\/viewer-file\?variant=\$\{requestedVariant\}`/);
+  assert.match(viewerPage, /nom151PadesVerified \|\|[\s\S]*?cryptographicCertification\?\.padesProfile === 'PAdES-B-T'/);
   assert.match(viewerPage, /if \(!padesBtVerified\)/);
 });
 

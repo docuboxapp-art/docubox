@@ -144,7 +144,7 @@ async function finalizeAfterVerifiedPadesBt(
     }
   });
   if (process.env.NODE_ENV === 'development') {
-    const timer = setTimeout(() => {
+    setTimeout(() => {
       void processEvidenceFinalization(service, { documentId: input.documentId }).catch((error) => {
         console.error('[evidence-finalization] Local worker failed', {
           documentId: input.documentId,
@@ -152,7 +152,6 @@ async function finalizeAfterVerifiedPadesBt(
         });
       });
     }, 0);
-    timer.unref?.();
   }
   await recordCertificationStage(service, {
     documentId: input.documentId,

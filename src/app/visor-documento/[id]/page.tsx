@@ -1017,13 +1017,15 @@ export default function VisorDocumentoPage() {
   const [nom151Error, setNom151Error] = useState('');
   const [nom151LookupComplete, setNom151LookupComplete] = useState(false);
   const [nom151Ready, setNom151Ready] = useState(false);
+  const [nom151Blocked, setNom151Blocked] = useState(false);
+  const [nom151PadesVerified, setNom151PadesVerified] = useState(false);
   const nom151Presentation = getNom151Presentation({
     verificationStatus: nom151Data?.verification_status,
     environment: nom151Data?.environment,
     productionTrusted: nom151Data?.production_trusted,
     processing: nom151Generating || nom151Polling,
     failed: Boolean(nom151Error),
-    requested: Boolean(nom151Data),
+    requested: Boolean(nom151Data) || document?.estado === 'completado',
   });
   const [downloadingAns, setDownloadingAns] = useState(false);
   const [downloadingNom151Pdf, setDownloadingNom151Pdf] = useState(false);
@@ -1070,9 +1072,10 @@ export default function VisorDocumentoPage() {
           ? 'pending'
           : cryptographicCertification?.nom151Status || 'not_configured';
   const padesBtVerified =
-    padesVerified &&
-    cryptographicCertification?.padesProfile === 'PAdES-B-T' &&
-    cryptographicCertification.timestampStatus === 'valid';
+    nom151PadesVerified ||
+    (padesVerified &&
+      cryptographicCertification?.padesProfile === 'PAdES-B-T' &&
+      cryptographicCertification.timestampStatus === 'valid');
   const integralEvidenceVerified = padesBtVerified && nom151EvidenceStatus === 'valid';
   const blockchainEvidenceReady = blockchainEvidence?.status === 'VERIFIED';
   const blockchainEvidenceFailed = Boolean(
@@ -1669,6 +1672,8 @@ export default function VisorDocumentoPage() {
               );
             }
             setNom151Ready(Boolean(json.ready));
+            setNom151Blocked(Boolean(json.blocked));
+            setNom151PadesVerified(Boolean(json.pades_verified));
             setNom151LookupComplete(true);
           }
           return Boolean((json.data && json.verified) || json.failed);
@@ -1828,14 +1833,12 @@ export default function VisorDocumentoPage() {
       setNom151Generating(true);
       setNom151Error('');
       try {
-        const res = await fetch('/api/nom151/generate', {
+        const res = await fetch(`/api/documentos/${docId}/evidence`, {
           method: 'POST',
-          headers: await apiAuthHeaders(true),
-          body: JSON.stringify({ documento_id: docId, requested_by: user?.id }),
+          headers: await apiAuthHeaders(),
         });
-        const json = await res.json();
-        if (res.ok && (json.status === 'issued' || json.already_issued)) {
-          // Refresh NOM-151 data
+        const json = await res.json().catch(() => ({}));
+        if (res.ok) {
           const constanciaRes = await fetch(`/api/nom151/constancia?documento_id=${docId}`, {
             headers: await apiAuthHeaders(),
             cache: 'no-store',
@@ -1844,14 +1847,13 @@ export default function VisorDocumentoPage() {
             const constanciaJson = await constanciaRes.json();
             setNom151Data(constanciaJson.verified ? (constanciaJson.data ?? null) : null);
             setNom151Ready(Boolean(constanciaJson.ready));
-            setNom151Polling(false);
+            setNom151Blocked(Boolean(constanciaJson.blocked));
+            setNom151PadesVerified(Boolean(constanciaJson.pades_verified));
+            setNom151Polling(Boolean(constanciaJson.processing));
           }
         } else {
-          const providerError = String(json.error || 'Error desconocido');
-          const errMsg = /autenticaci[oó]n|autenticacion/i.test(providerError)
-            ? 'El servicio PSC/NOM-151 no está habilitado para las credenciales configuradas o requiere credenciales específicas. Solicita su activación al proveedor.'
-            : providerError;
-          console.error('[nom151] Error generando:', providerError);
+          const errMsg = String(json.error || 'No fue posible finalizar la evidencia del documento.');
+          console.error('[nom151] Error generando:', errMsg);
           setNom151Error(errMsg);
           if (!options?.silent) alert(`Error generando NOM-151: ${errMsg}`);
         }
@@ -1864,7 +1866,7 @@ export default function VisorDocumentoPage() {
         setNom151Generating(false);
       }
     },
-    [docId, nom151Generating, user]
+    [apiAuthHeaders, docId, nom151Generating]
   );
 
   // ── Download NOM-151 info PDF (request/response data) ─────────────────────
@@ -4631,10 +4633,11 @@ export default function VisorDocumentoPage() {
   // automatica. No depende de abrir Descargas: al cargar el documento el
   // propietario solicita los artefactos pendientes una sola vez.
   useEffect(() => {
-    if (document?.estado !== 'completado' || !docId || !user?.id || user.id !== document.owner_id)
+    if (document?.estado !== 'completado' || !docId || !user?.id)
       return;
 
     if (
+      user.id === document.owner_id &&
       hasConfiguredSignatureFields &&
       !document.sealed_pdf_path &&
       !signatureStampGenerationRef.current.has(docId)
@@ -8748,13 +8751,13 @@ export default function VisorDocumentoPage() {
                                       ? 'Generando constancia NOM-151…'
                                       : nom151Error
                                         ? 'No fue posible emitir la constancia NOM-151.'
-                                        : !padesBtVerified
+                                      : nom151Blocked
                                           ? 'Pendiente del cierre criptográfico PAdES-B-T.'
                                           : 'Constancia NOM-151 pendiente de generación.'}
                                     <br />
                                     <span className="text-xs">
                                       {nom151Error ||
-                                        (!padesBtVerified
+                                        (nom151Blocked
                                           ? 'Docubox la solicitará automáticamente al PSC cuando el PDF final sea verificable.'
                                           : 'Docubox la generará con el proveedor de conservación.')}
                                     </span>

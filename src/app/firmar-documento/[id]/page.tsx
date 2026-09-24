@@ -5182,8 +5182,11 @@ export default function FirmarDocumentoPage() {
     nubarium_hash: string;
     constancia_sha256: string;
     created_at: string;
+    production_trusted: boolean;
+    psc_name: string | null;
   } | null>(null);
   const [nom151Polling, setNom151Polling] = useState(false);
+  const [nom151Failed, setNom151Failed] = useState(false);
 
   // ── XML Evidence state ─────────────────────────────────────────────────────
   const [xmlEvidenceData, setXmlEvidenceData] = useState<{
@@ -6201,21 +6204,25 @@ export default function FirmarDocumentoPage() {
   useEffect(() => {
     if (!document?.id || document?.estado !== 'completado') return;
     let cancelled = false;
+    let finished = false;
 
     const fetchNom151 = async () => {
       try {
         const supabase = createClient();
-        const { data } = await supabase
-          .from('nom151_constancias')
-          .select(
-            'id, status, nubarium_codigo_validacion, nubarium_hash, constancia_sha256, created_at'
-          )
-          .eq('document_id', document.id)
-          .eq('status', 'issued')
-          .maybeSingle();
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch(`/api/nom151/constancia?documento_id=${document.id}`, {
+          headers: session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {},
+          cache: 'no-store',
+        });
+        if (!response.ok) throw new Error('No fue posible consultar la constancia NOM-151.');
+        const result = await response.json();
         if (!cancelled) {
-          setNom151Data(data ?? null);
-          setNom151Polling(!data);
+          setNom151Data(result.verified ? result.data ?? null : null);
+          setNom151Polling(Boolean(result.processing));
+          setNom151Failed(Boolean(result.failed));
+          finished = Boolean(result.verified || result.failed);
         }
       } catch {
         if (!cancelled) setNom151Polling(false);
@@ -6224,15 +6231,14 @@ export default function FirmarDocumentoPage() {
 
     fetchNom151();
     const interval = setInterval(() => {
-      if (!nom151Data) fetchNom151();
-      else clearInterval(interval);
+      if (finished) clearInterval(interval);
+      else void fetchNom151();
     }, 5000);
 
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [document?.id, document?.estado]);
 
   // ── XML Evidence polling ───────────────────────────────────────────────────
@@ -7741,6 +7747,17 @@ export default function FirmarDocumentoPage() {
             const payload = await sealResponse.json().catch(() => ({}));
             throw new Error(payload?.error || `FINAL_CERTIFICATION_FAILED_${sealResponse.status}`);
           }
+          void fetch(`/api/documentos/${document.id}/evidence`, {
+            method: 'POST',
+            headers: authorizationHeaders,
+            keepalive: true,
+          }).then(async (response) => {
+            if (response.ok) return;
+            const payload = await response.json().catch(() => ({}));
+            console.warn('[evidence-finalization] La emisión automática quedó pendiente:', payload.code || response.status);
+          }).catch((error) => {
+            console.warn('[evidence-finalization] No se pudo iniciar la finalización automática:', error);
+          });
         } catch (artifactError) {
           console.error(
             '[firmar-documento] Error al generar los artefactos finales:',
@@ -9209,7 +9226,7 @@ export default function FirmarDocumentoPage() {
                         <span
                           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}
                         >
-                          {nom151Polling ? 'Generando…' : 'Pendiente'}
+                          {nom151Failed ? 'Error' : nom151Polling ? 'Generando…' : 'Pendiente'}
                         </span>
                       )}
                     </div>
@@ -9231,7 +9248,7 @@ export default function FirmarDocumentoPage() {
                               <p
                                 className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}
                               >
-                                PSC: Nubarium · Secretaría de Economía
+                                PSC: {nom151Data.psc_name || 'Proveedor de conservación'}
                               </p>
                             </div>
                           </div>
@@ -9286,9 +9303,9 @@ export default function FirmarDocumentoPage() {
                             <p
                               className={`text-[10px] leading-relaxed ${isDark ? 'text-purple-300' : 'text-purple-700'}`}
                             >
-                              Constancia emitida conforme a NOM-151-SCFI-2016. Válida ante cualquier
-                              autoridad o tribunal mexicano. Archivo .asn1 vinculado al PDF por hash
-                              criptográfico.
+                              {nom151Data.production_trusted
+                                ? 'Constancia verificada en producción y vinculada al PDF por su huella criptográfica.'
+                                : 'Constancia verificada en un entorno de prueba; no acredita emisión de producción.'}
                             </p>
                           </div>
                           <a
@@ -9326,8 +9343,9 @@ export default function FirmarDocumentoPage() {
                               <p
                                 className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
                               >
-                                La constancia NOM-151 se generará automáticamente cuando el
-                                documento esté completado.
+                                {nom151Failed
+                                  ? 'No se pudo emitir o verificar la constancia NOM-151. Consulta el estado del documento para conocer el error.'
+                                  : 'La constancia NOM-151 se generará automáticamente cuando el documento esté completado.'}
                               </p>
                             </>
                           )}
