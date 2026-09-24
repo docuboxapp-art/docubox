@@ -3155,7 +3155,6 @@ function CompletedFieldStamp({
               overflow: 'hidden',
               background: 'rgba(255,255,255,0.96)',
               borderRadius: '3px',
-              border: `1.5px solid ${colorHex}`,
               display: 'flex',
               alignItems: 'stretch',
             }}
@@ -3609,13 +3608,13 @@ function SignatureStampDisplay({
   );
 
   const sigBox = () => (
-    <div className="flex min-h-[32px] items-center justify-center rounded border-[1.5px] border-blue-400 bg-blue-50/40 p-1 ring-1 ring-blue-100">
+    <div className="flex h-10 w-full items-center justify-center overflow-hidden bg-slate-50 p-1">
       {signatureUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={signatureUrl}
           alt="Firma autógrafa"
-          className="max-h-10 max-w-full object-contain"
+          className="block h-full w-full object-contain"
         />
       ) : (
         <svg viewBox="0 0 120 30" width="100%" height="30" className="opacity-60">

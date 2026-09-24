@@ -446,8 +446,6 @@ async function drawAutographTrace(params: {
     width,
     height,
     color: rgb(0.985, 0.99, 1),
-    borderColor: blue,
-    borderWidth: 0.9,
   });
   const source = response.firma_data ? dataUrlToBytes(response.firma_data) : null;
   if (!source) {

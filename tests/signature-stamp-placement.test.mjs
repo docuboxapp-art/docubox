@@ -92,6 +92,27 @@ test('signature stamps require an explicit field type or an exact legacy signatu
   assert.doesNotMatch(viewerSource, /\/firma\/i\.test/);
 });
 
+test('viewer does not paint the raw autograph over a stamp already embedded in the sealed PDF', async () => {
+  const viewerSource = await readFile(viewerPath, 'utf8');
+  assert.match(
+    viewerSource,
+    /if \(isFirma && document\?\.estado === 'completado' && document\.sealed_pdf_path\) return null;/
+  );
+  assert.match(viewerSource, /if \(isFirma && firmaData\) \{/);
+  assert.match(viewerSource, /renderCampoOverlay\(campo, idx, 'main'\)/);
+  assert.match(viewerSource, /renderCampoOverlay\(campo, idx, 'modal'\)/);
+});
+
+test('the autograph trace is contained without an extra PDF border', async () => {
+  const stampSource = await readFile(stampPath, 'utf8');
+  const trace = stampSource.slice(
+    stampSource.indexOf('async function drawAutographTrace'),
+    stampSource.indexOf('async function drawAutografaStamp')
+  );
+  assert.match(trace, /image\.scaleToFit\(Math\.max\(1, width - 4\), Math\.max\(1, height - 4\)\)/);
+  assert.doesNotMatch(trace, /borderColor: blue/);
+});
+
 test('the final PDF renders the e.firma style saved with the participation', async () => {
   const [stampSource, signingSource] = await Promise.all([
     readFile(stampPath, 'utf8'),

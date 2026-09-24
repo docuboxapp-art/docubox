@@ -73,4 +73,7 @@ test('document previews render the selected stamp inside signature fields', asyn
   );
   assert.match(templateSource, /onFieldsMeasured=\{signatureStamp \? handleFieldsMeasured/);
   assert.match(templateSource, /signatureFieldIds\?\.includes\(field\.id\)/);
+  assert.match(signingSource, /flex h-10 w-full items-center justify-center overflow-hidden bg-slate-50 p-1/);
+  assert.match(signingSource, /className="block h-full w-full object-contain"/);
+  assert.doesNotMatch(templateSource, /border border-blue-500 bg-white/);
 });

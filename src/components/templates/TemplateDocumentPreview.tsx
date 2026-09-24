@@ -69,7 +69,7 @@ export function TemplateDocumentPreview({
           .map((field) => (
             <div
               key={field.id}
-              className="pointer-events-none absolute overflow-hidden border border-blue-500 bg-white"
+              className="pointer-events-none absolute overflow-hidden bg-white"
               style={{
                 left: `${field.x}%`,
                 top: `${field.y}%`,

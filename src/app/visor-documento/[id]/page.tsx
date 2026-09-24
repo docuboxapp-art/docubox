@@ -4797,6 +4797,8 @@ export default function VisorDocumentoPage() {
     const resolvedTipo = campo.tipo || (campo.label === 'Firma' ? 'firma' : 'texto');
     const isFirma =
       resolvedTipo === 'firma' || campo.label === 'Firma' || campo.label?.toLowerCase() === 'firma';
+    // The sealed PDF already contains the selected stamp; a raw-image overlay obscures it.
+    if (isFirma && document?.estado === 'completado' && document.sealed_pdf_path) return null;
     const filledValue = getFilledValueForCampo(campo);
     const firmaData = isFirma ? getFirmaDataForCampo(campo) : null;
 
