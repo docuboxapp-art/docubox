@@ -1294,6 +1294,7 @@ const disabledSystemPages = defineModule(
     assistantPlacement: 'none',
   },
   [
+    '/',
     '/login',
     '/login/totp-verification',
     '/auth',
