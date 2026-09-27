@@ -2,6 +2,7 @@ import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server
 import { createServerClient } from '@supabase/ssr';
 
 const PUBLIC_ROUTES = [
+  '/',
   '/login',
   '/registro',
   '/olvide-contrasena',

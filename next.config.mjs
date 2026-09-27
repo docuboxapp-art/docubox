@@ -32,15 +32,6 @@ const nextConfig = {
       bodySizeLimit: '25mb',
     },
   },
-  async redirects() {
-    return [
-      {
-        source: '/',
-        destination: '/sign-up-login-screen',
-        permanent: false,
-      },
-    ];
-  },
   async headers() {
     return [
       {
