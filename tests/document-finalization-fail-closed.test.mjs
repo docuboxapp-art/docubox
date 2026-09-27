@@ -12,6 +12,7 @@ const viewerRoute = await read('../src/app/api/documentos/[documentId]/viewer-fi
 const certificationsRoute = await read(
   '../src/app/api/documents/[documentId]/certifications/route.ts'
 );
+const certificationEngine = await read('../src/lib/certification/engine.ts');
 const storage = await read('../src/lib/crypto/document-encryption/storage.ts');
 const notificationService = await read('../src/lib/notifications/document-completion.ts');
 const emailService = await read('../src/lib/emailNotifications.ts');
@@ -111,11 +112,36 @@ test('viewer file variants expose a structured pending PAdES state', () => {
   assert.match(viewerRoute, /Estamos preparando la versión firmada y certificada/);
 });
 
-test('viewer keeps the original PDF visible until PAdES-B-T is verified', () => {
-  assert.match(viewerPage, /requestedArchivo !== 'original' && padesBtVerified/);
+test('viewer keeps the original PDF visible until final evidence is verified', () => {
+  assert.match(viewerPage, /requestedArchivo !== 'original' && finalDeliverableAvailable/);
   assert.match(viewerPage, /: 'original';\s*const nextFileUrl = `\/api\/documentos\/\$\{encodeURIComponent\(document\.id\)\}\/viewer-file\?variant=\$\{requestedVariant\}`/);
   assert.match(viewerPage, /nom151PadesVerified \|\|[\s\S]*?cryptographicCertification\?\.padesProfile === 'PAdES-B-T'/);
-  assert.match(viewerPage, /if \(!padesBtVerified\)/);
+  assert.match(viewerPage, /if \(!document\.additional_access_level && !padesBtVerified\)/);
+  assert.match(viewerPage, /if \(!document\.additional_access_level && !finalDeliverableAvailable\)/);
+  assert.match(viewerRoute, /if \(!\(await finalDeliverableReady\(service, document\.id\)\)\)/);
+});
+
+test('signed document card separates delivery status from technical audit details', () => {
+  assert.match(viewerPage, /const signedPdfReadyForDownload =\s*Boolean\(document\?\.sealed_pdf_path\) && finalDeliverableAvailable/);
+  assert.match(viewerPage, /signedPdfReadyForDownload\s*\? 'Listo para descarga'/);
+  assert.match(viewerPage, /<details className="group mb-4[^>]*>[\s\S]*?Ver detalles técnicos[\s\S]*?<PadesTechnicalDetails certification=\{cryptographicCertification\}/);
+  const auditStart = viewerPage.indexOf('/* ── Constancia de auditoría hasta el cierre ── */');
+  const downloadsStart = viewerPage.indexOf('/* ── Descargas del documento ── */', auditStart);
+  assert.ok(auditStart >= 0 && downloadsStart > auditStart);
+  const auditPanel = viewerPage.slice(auditStart, downloadsStart);
+  assert.match(auditPanel, /activeTab === 'auditoria'/);
+  assert.match(auditPanel, /padesVerified && cryptographicCertification && \([\s\S]*?Detalles técnicos del documento firmado[\s\S]*?<PadesTechnicalDetails certification=\{cryptographicCertification\}/);
+  assert.doesNotMatch(viewerPage, /PDF con firma PAdES respaldada por la verificación técnica registrada/);
+});
+
+test('audit downloads require every evidence check and the server gate', () => {
+  assert.match(viewerPage, /auditEvidenceStatuses\.every\(\(\[, status\]\) => status === 'valid'\)/);
+  assert.match(viewerPage, /if \(!auditArtifactsReady\)/);
+  assert.match(viewerPage, /disabled=\{certificationDownload !== null \|\| !auditArtifactsReady\}/);
+  assert.match(
+    certificationEngine,
+    /export async function getCertificationArtifact[\s\S]*?requireCertificationManagerAccess\(supabase, documentId, userId\);[\s\S]*?finalDeliverableReady\(supabase, documentId, certificationUuid\)/
+  );
 });
 
 test('viewer reports RFC 3161 only after the B-T record replaces the interim B-B state', () => {
@@ -123,7 +149,7 @@ test('viewer reports RFC 3161 only after the B-T record replaces the interim B-B
     viewerPage,
     /certification\.padesProfile === 'PAdES-B-T' &&\s*certification\.timestampStatus === 'valid'/
   );
-  assert.match(viewerPage, /const integralEvidenceVerified = padesBtVerified && nom151EvidenceStatus === 'valid'/);
+  assert.match(viewerPage, /auditEvidenceStatuses\.every\(\(\[, status\]\) => status === 'valid'\)/);
   assert.match(viewerPage, /await loadCryptographicCertification\(\);/);
   assert.match(viewerPage, /'Estampa pendiente'/);
   assert.match(certificationsRoute, /const hasVerifiedPadesBt = certification\?\.status === 'COMPLETED'/);

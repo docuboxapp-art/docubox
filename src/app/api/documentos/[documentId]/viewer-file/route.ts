@@ -62,9 +62,6 @@ export async function GET(
 ) {
   try {
     const { documentId } = await context.params;
-    const access = await requireDocumentContentAccess(request, documentId);
-    const { service, document, user } = access;
-
     const requestedVariant = request.nextUrl.searchParams.get('variant') || 'original';
     const supportedVariants = new Set(['original', 'visual', 'certified', 'pades-bt', 'final']);
     if (!supportedVariants.has(requestedVariant)) {
@@ -77,6 +74,20 @@ export async function GET(
       );
     }
     const requestsFinalPdf = ['certified', 'pades-bt', 'final'].includes(requestedVariant);
+    const isDownload = request.nextUrl.searchParams.get('download') === '1';
+    const access = await requireDocumentContentAccess(
+      request,
+      documentId,
+      isDownload ? 'download' : 'view'
+    );
+    const { service, document, user } = access;
+    if (access.additionalAccessLevel && !requestsFinalPdf) {
+      throw new DocumentAccessError(
+        'ADDITIONAL_ACCESS_FINAL_ONLY',
+        'Este acceso solo permite consultar el documento final.',
+        403
+      );
+    }
     let finalCertification: {
       certified_pdf_sha256: string | null;
       pades_certificate_fingerprint_sha256: string | null;

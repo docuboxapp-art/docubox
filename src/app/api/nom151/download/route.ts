@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { user, document, service } = await requireDocumentAccess(request, documentoId);
+    const { user, document, service } = await requireDocumentAccess(request, documentoId, { additionalAccess: 'evidence' });
     const { data: pades, error: padesError } = await service
       .from('document_certifications')
       .select('id,document_version_id,certified_pdf_sha256')

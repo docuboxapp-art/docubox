@@ -2,8 +2,12 @@ import type { NextRequest } from 'next/server';
 import { DocumentAccessError, requireDocumentAccess } from '@/lib/security/document-access';
 import { auditViewAccess, hasDocumentViewAccess } from '@/lib/security/document-view-access';
 
-export async function requireDocumentContentAccess(request: NextRequest, documentId: string) {
-  const access = await requireDocumentAccess(request, documentId);
+export async function requireDocumentContentAccess(
+  request: NextRequest,
+  documentId: string,
+  additionalAccess?: 'view' | 'download' | 'evidence'
+) {
+  const access = await requireDocumentAccess(request, documentId, { additionalAccess });
   const viewAccess = await hasDocumentViewAccess({
     request,
     service: access.service,

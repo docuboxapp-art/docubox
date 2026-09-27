@@ -61,6 +61,14 @@ test('moduleCapabilities covers every real page route with an explicit policy', 
   }
 });
 
+test('additional document readers do not inherit LucIA document access', () => {
+  const capability = capabilities.resolveLuciaCapability('/compartidos-conmigo');
+  assert.equal(capability.moduleKey, 'shared_documents');
+  assert.equal(capability.luciaMode, 'disabled');
+  assert.equal(capability.assistantPlacement, 'none');
+  assert.deepEqual(capability.allowedReadActions, []);
+});
+
 test('every capability contains the complete Phase 2 contract and read-only actions', () => {
   const required = [
     'routePattern',

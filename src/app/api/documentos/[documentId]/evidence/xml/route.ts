@@ -15,7 +15,7 @@ export async function GET(
 ) {
   try {
     const { documentId } = await context.params;
-    const { document, service } = await requireDocumentAccess(request, documentId);
+    const { document, service } = await requireDocumentAccess(request, documentId, { additionalAccess: 'evidence' });
     const packageResult = await service
       .from('evidence_packages')
       .select('package_id,xml_storage_bucket,xml_storage_path,xml_sha256')

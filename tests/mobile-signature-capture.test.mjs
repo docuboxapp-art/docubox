@@ -56,7 +56,7 @@ test('autograph identity verification is retained behind a disabled-by-default c
   assert.match(source, /const captureConfirmationFrame = useCallback/);
   assert.match(source, /if \(!autographSignatureCapabilities\.identityVerification\) return;/);
   assert.match(source, /setFlowStep\('sending'\);\s*await captureConfirmationFrame\(\);\s*await sendAll\(\);/);
-  assert.match(source, /otpEvidenceVerified = autographSignatureCapabilities\.identityVerification && otpVerified/);
+  assert.match(source, /otpEvidenceVerified =\s*autographSignatureCapabilities\.identityVerification && otpVerified/);
   assert.match(source, /sendOtp\(\);\s*setFlowStep\('otp'\);/);
   assert.match(source, /continueAfterSignature\(\);/);
 });

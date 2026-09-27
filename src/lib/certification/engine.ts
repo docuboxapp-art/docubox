@@ -39,6 +39,7 @@ import { createStoredZip } from './zip';
 import { CertificationError, CertificationStatus, CertificationSummary, EvidenceItem } from './types';
 import type { CertificationArtifactKind } from './types';
 import { requireCertificationManagerAccess } from './access';
+import { finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 import { assertProductionCertificationEnabled, getCryptoProviderMode } from './provider-mode';
 import {
   documentEncryptionPolicy,
@@ -1328,6 +1329,13 @@ export async function getCertificationArtifact(
   kind: CertificationArtifactKind,
 ) {
   await requireCertificationManagerAccess(supabase, documentId, userId);
+  if (!(await finalDeliverableReady(supabase, documentId, certificationUuid))) {
+    throw new CertificationError(
+      'NOM151_FINAL_DELIVERABLE_PENDING',
+      'Las descargas estarán disponibles cuando todas las verificaciones, incluida NOM-151, estén completas.',
+      409,
+    );
+  }
   const { data } = await supabase.from('document_certifications').select('*').eq('document_id', documentId).eq('certification_uuid', certificationUuid).maybeSingle();
   if (!data || data.status !== 'COMPLETED') throw new CertificationError('CERTIFICATION_NOT_READY', 'La certificacion aun no esta disponible.', 409);
   const artifactRoot = data.provider_metadata?.artifact_root

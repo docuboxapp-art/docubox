@@ -109,7 +109,7 @@ export async function GET(
 ) {
   try {
     const { documentId } = await context.params;
-    const { document, service } = await requireDocumentAccess(request, documentId);
+    const { document, service } = await requireDocumentAccess(request, documentId, { additionalAccess: 'evidence' });
     if (document.estado !== 'completado') {
       return NextResponse.json(
         { error: 'La constancia general estará disponible cuando el documento esté completado.' },

@@ -212,12 +212,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [fetchUserProfile, supabase]);
 
   // ── useSessionTimeout integration ─────────────────────────────────────────
+  const showSessionTimeoutWarning = useCallback(() => setShowTimeoutWarning(true), []);
+  const hideSessionTimeoutWarning = useCallback(() => setShowTimeoutWarning(false), []);
   const { continueSession, signOutNow } = useSessionTimeout(!!user, {
-    onShowWarning: () => setShowTimeoutWarning(true),
-    onHideWarning: () => setShowTimeoutWarning(false),
-    onBeforeSignOut: () => {
-      setShowTimeoutWarning(false);
-    },
+    onShowWarning: showSessionTimeoutWarning,
+    onHideWarning: hideSessionTimeoutWarning,
+    onBeforeSignOut: hideSessionTimeoutWarning,
   });
 
   // ── Auth methods ──────────────────────────────────────────────────────────

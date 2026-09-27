@@ -66,6 +66,32 @@ const PersonalizarVistaModal = dynamic(() => import('./components/PersonalizarVi
 });
 
 const DOCUMENT_LOAD_RETRY_DELAYS_MS = [1_000, 2_500];
+const pendingListMetadata = new Map<string, Promise<any>>();
+
+function fetchListMetadata(userId: string): Promise<any> {
+  const pending = pendingListMetadata.get(userId);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) return null;
+    const response = await fetchDocumentData('/api/documentos/list-metadata', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (!response.ok) throw new Error(`List metadata request failed: ${response.status}`);
+    return response.json();
+  })();
+
+  pendingListMetadata.set(userId, request);
+  void request.then(
+    () => pendingListMetadata.delete(userId),
+    () => pendingListMetadata.delete(userId)
+  );
+  return request;
+}
 
 function waitForDocumentLoadRetry(delayMs: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
@@ -112,6 +138,90 @@ async function fetchDocumentData(
   }
 
   return response;
+}
+
+function fetchInitialDocumentLists(token: string) {
+  let resolveOwned!: (response: Response) => void;
+  let resolveParticipations!: (response: Response | null) => void;
+  const owned = new Promise<Response>((resolve) => {
+    resolveOwned = resolve;
+  });
+  const participations = new Promise<Response | null>((resolve) => {
+    resolveParticipations = resolve;
+  });
+
+  void (async () => {
+    let ownedReceived = false;
+    let participationsReceived = false;
+    try {
+      const response = await fetchDocumentData('/api/documentos/read-bootstrap', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (!response.ok || !response.body) throw new Error(`Bootstrap failed: ${response.status}`);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const applyLine = (line: string) => {
+        if (!line.trim()) return;
+        const part = JSON.parse(line) as { part: string; status: number; body: unknown };
+        const partResponse = Response.json(part.body, { status: part.status });
+        if (part.part === 'owned' && !ownedReceived) {
+          ownedReceived = true;
+          resolveOwned(partResponse);
+        } else if (part.part === 'participations' && !participationsReceived) {
+          participationsReceived = true;
+          resolveParticipations(partResponse);
+        }
+      };
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        lines.forEach(applyLine);
+      }
+      buffer += decoder.decode();
+      applyLine(buffer);
+    } catch (error) {
+      console.error('[mis-documentos] Error al cargar lista inicial:', error);
+      const headers = { Authorization: `Bearer ${token}` };
+      const fallbackRequests: Promise<void>[] = [];
+      if (!ownedReceived) {
+        fallbackRequests.push(
+          fetchDocumentData('/api/documentos/listar?tipo=todos', { headers })
+            .then((response) => {
+              ownedReceived = true;
+              resolveOwned(response);
+            })
+            .catch(() => {})
+        );
+      }
+      if (!participationsReceived) {
+        fallbackRequests.push(
+          fetchDocumentData('/api/documentos/mis-participaciones?exclude_owned=true&view=list', {
+            headers,
+          })
+            .then((response) => {
+              participationsReceived = true;
+              resolveParticipations(response);
+            })
+            .catch(() => {})
+        );
+      }
+      await Promise.all(fallbackRequests);
+    } finally {
+      if (!ownedReceived)
+        resolveOwned(
+          Response.json({ error: 'No fue posible cargar los documentos.' }, { status: 503 })
+        );
+      if (!participationsReceived) resolveParticipations(null);
+    }
+  })();
+
+  return { owned, participations };
 }
 
 // ─── ResizableTh Component ├───────────────────────────────────────────────────
@@ -432,14 +542,6 @@ interface SubEstadoCounts {
   sin_revisar_participantes: number;
   // Legacy (kept for compatibility)
   no_inicializados: number;
-}
-
-interface ActivityItem {
-  id: string;
-  accion: string;
-  documento_nombre: string;
-  documento_id: string | null;
-  created_at: string;
 }
 
 interface ContextMenuState {
@@ -2084,9 +2186,6 @@ function MisDocumentosContent() {
   const [noInicializadosDocuments, setNoInicializadosDocuments] = useState<Document[]>([]);
   const [sinRevisarPropiosDocs, setSinRevisarPropiosDocs] = useState<Document[]>([]);
   const [sinRevisarParticipantesDocs, setSinRevisarParticipantesDocs] = useState<Document[]>([]);
-  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
-  const [loadingActivity, setLoadingActivity] = useState(true);
-
   const [carpetas, setCarpetas] = useState<Carpeta[]>([]);
   const [showCarpetaModal, setShowCarpetaModal] = useState(false);
   const [nuevaCarpetaNombre, setNuevaCarpetaNombre] = useState('');
@@ -3033,21 +3132,6 @@ function MisDocumentosContent() {
     }
   }, []);
 
-  const loadEtiquetas = useCallback(async () => {
-    setLoadingEtiquetas(true);
-    try {
-      const res = await fetchDocumentData('/api/documentos/etiquetas');
-      if (res.ok) {
-        const json = await res.json();
-        setEtiquetasList(json.data || []);
-      }
-    } catch (e) {
-      console.error('Error loading etiquetas:', e);
-    } finally {
-      setLoadingEtiquetas(false);
-    }
-  }, []);
-
   const loadWorkspaceUsers = useCallback(async () => {
     if (!user) return;
     setLoadingPropietarios(true);
@@ -3127,12 +3211,6 @@ function MisDocumentosContent() {
     }
   }, [user]);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- Tags are visible in the initial document list. */
-  useEffect(() => {
-    loadEtiquetas();
-  }, [loadEtiquetas]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
   /* eslint-disable react-hooks/set-state-in-effect -- Catalog loaders update state after their awaited requests. */
   useEffect(() => {
     if (openFilterDropdown === 'tipoDocumento') {
@@ -3199,20 +3277,8 @@ function MisDocumentosContent() {
         return;
       }
 
-      // Start both requests together, but do not make the primary list wait for
-      // the more expensive participant lookup.
-      const ownerDocumentsRequest = fetchDocumentData('/api/documentos/listar?tipo=todos', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const participantDocumentsRequest = fetchDocumentData(
-        '/api/documentos/mis-participaciones?exclude_owned=true&view=list',
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      ).catch((error) => {
-        console.error('[mis-documentos] Error al cargar participaciones:', error);
-        return null;
-      });
+      const { owned: ownerDocumentsRequest, participations: participantDocumentsRequest } =
+        fetchInitialDocumentLists(token);
 
       const res = await ownerDocumentsRequest;
       const json = await res.json();
@@ -3828,62 +3894,16 @@ function MisDocumentosContent() {
   // NOTE: saveActiveFilters removed — active filter values are not persisted (only filter visibility is)
 
   useEffect(() => {
-    if (!user) return;
-    const supabase = createClient();
-    const loadActivity = async () => {
-      setLoadingActivity(true);
+    if (!user?.id) return;
+    let active = true;
+    const loadListMetadata = async () => {
+      setLoadingEtiquetas(true);
       try {
-        const { data, error } = await supabase
-          .from('audit_trail')
-          .select('id, accion, documento_nombre, documento_id, created_at')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(5);
-        if (!error && data) setRecentActivity(data);
-      } catch (_) {
-        /* ignore */
-      } finally {
-        setLoadingActivity(false);
-      }
-    };
-    loadActivity();
-    const actChannel = supabase
-      .channel(`activity-${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'audit_trail',
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
-          setRecentActivity((prev) => [payload.new as ActivityItem, ...prev].slice(0, 5));
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(actChannel);
-    };
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    const supabase = createClient();
-    const loadCarpetas = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) return;
-      try {
-        const res = await fetchDocumentData('/api/documentos/carpetas', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const json = await res.json();
-        if (json.data)
+        const json = await fetchListMetadata(user.id);
+        if (!active || !json) return;
+        if (json.carpetas)
           setCarpetas(
-            json.data.map((c: any) => ({
+            json.carpetas.map((c: any) => ({
               id: c.id,
               name: c.nombre,
               creadoEn: c.created_at ? formatDate(c.created_at) : '',
@@ -3895,12 +3915,18 @@ function MisDocumentosContent() {
               grupoTipoDocumentoNombre: c.grupo_tipo_documento?.nombre || null,
             }))
           );
+        if (json.etiquetas) setEtiquetasList(json.etiquetas);
       } catch (err) {
-        console.error('Error loading carpetas:', err);
+        if (active) console.error('Error loading document list metadata:', err);
+      } finally {
+        if (active) setLoadingEtiquetas(false);
       }
     };
-    loadCarpetas();
-  }, [user]);
+    loadListMetadata();
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
 
   const workspaceDisplayName =
     activeWorkspace?.name ||

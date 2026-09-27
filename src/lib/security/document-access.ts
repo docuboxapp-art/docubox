@@ -21,7 +21,10 @@ export class DocumentAccessError extends Error {
 type DocumentAccessOptions = {
   ownerOrAdminOnly?: boolean;
   requireEdit?: boolean;
+  additionalAccess?: 'view' | 'download' | 'evidence';
 };
+
+const additionalAccessRank = { view: 1, download: 2, evidence: 3 } as const;
 
 export function bearerToken(request: NextRequest) {
   const authorization = request.headers.get('authorization');
@@ -127,7 +130,7 @@ export async function requireDocumentAccess(
     .maybeSingle();
   if (permissionResult.error) throw permissionResult.error;
   const explicitPermission = permissionResult.data;
-  const canEdit = explicitPermission?.access_level === 'edit';
+  const canEdit = false;
   const participantEntry = Array.isArray(document.participantes)
     ? (document.participantes.find(
         (participant: Record<string, unknown>) =>
@@ -186,6 +189,24 @@ export async function requireDocumentAccess(
     }
   }
 
+  const hasFlowAccess =
+    isOwner || isWorkspaceManager || listedParticipant ||
+    Boolean(delegatedParticipantReferenceId) || hasParticipation;
+  const additionalAccessLevel = !hasFlowAccess && explicitPermission?.access_level;
+  if (additionalAccessLevel) {
+    const grantedRank = additionalAccessRank[additionalAccessLevel as keyof typeof additionalAccessRank] || 0;
+    const requiredRank = options.additionalAccess
+      ? additionalAccessRank[options.additionalAccess]
+      : Number.POSITIVE_INFINITY;
+    if (document.estado !== 'completado' || grantedRank < requiredRank) {
+      throw new DocumentAccessError(
+        'DOCUMENT_ADDITIONAL_ACCESS_DENIED',
+        'Este acceso adicional no autoriza la operación solicitada.',
+        403
+      );
+    }
+  }
+
   if (options.requireEdit && !historicalOwnerStillCustodian && !isWorkspaceManager && !canEdit) {
     throw new DocumentAccessError(
       'DOCUMENT_EDIT_DENIED',
@@ -220,6 +241,7 @@ export async function requireDocumentAccess(
     role,
     explicitPermission,
     canEdit,
+    additionalAccessLevel: additionalAccessLevel || null,
     delegatedParticipantReferenceId,
     accessToken: token,
     authSessionId: authSessionId(token),

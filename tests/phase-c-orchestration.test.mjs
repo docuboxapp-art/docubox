@@ -128,7 +128,7 @@ test('notification delivery supports controlled fallback without parallel fallba
 test('one existing cron drives all Phase C processors', () => {
   assert.match(cronRoute, /processPhaseCOrchestration/);
   assert.equal((vercel.match(/\/api\/colabora\/automations\/process/g) || []).length, 1);
-  assert.match(vercel, /\*\/5 \* \* \* \*/);
+  assert.match(vercel, /"schedule": "0 3 \* \* \*"/);
 });
 
 test('terminal document transitions cancel pending schedules', () => {

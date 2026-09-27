@@ -30,6 +30,8 @@ const certification = {
   certification_uuid: 'uuid-1',
   document_id: 'doc-1',
   document_version_id: 'version-1',
+  source_document_hash: digest,
+  document_body_sha256: digest,
   certified_pdf_sha256: digest,
   pades_pdf_hash_after_signature: digest,
   status: 'COMPLETED',
@@ -48,10 +50,13 @@ function serviceFor({
   nomVerification = 'verified',
   nomDigest = digest,
   documentDigest = digest,
+  sourceHash = digest,
+  documentBodyHash = digest,
+  certificationOverrides = {},
 } = {}) {
   const rows = {
     documentos: [{ id: 'doc-1', sealed_pdf_path: 'final.pdf', sealed_pdf_hash: documentDigest }],
-    document_certifications: [certification],
+    document_certifications: [{ ...certification, source_document_hash: sourceHash, document_body_sha256: documentBodyHash, ...certificationOverrides }],
     nom151_constancias_doc: [
       {
         id: 'nom-1',
@@ -114,4 +119,19 @@ test('releases only the matching issued and verified NOM-151 final artifact', as
   );
   assert.equal(await finalDeliverableReady(serviceFor(), 'doc-1', 'wrong-certification'), false);
   assert.equal(await finalDeliverableReady(serviceFor(), 'doc-1', 'uuid-1'), true);
+  assert.equal(await finalDeliverableReady(serviceFor({ sourceHash: null }), 'doc-1'), true);
+  assert.equal(await finalDeliverableReady(serviceFor({ sourceHash: null, documentBodyHash: null }), 'doc-1'), false);
+  for (const field of [
+    'integrity_status',
+    'pdf_signature_status',
+    'certificate_status',
+    'timestamp_status',
+    'verification_status',
+  ]) {
+    assert.equal(
+      await finalDeliverableReady(serviceFor({ certificationOverrides: { [field]: 'pending' } }), 'doc-1'),
+      false,
+      `${field} must be valid before download`
+    );
+  }
 });

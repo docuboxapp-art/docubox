@@ -8,9 +8,9 @@ const middleware = await read('../src/middleware.ts');
 const participationsRoute = await read('../src/app/api/documentos/mis-participaciones/route.ts');
 const ownerRoute = await read('../src/app/api/documentos/listar/route.ts');
 const documentsPage = await read('../src/app/mis-documentos/page.tsx');
-const documentSettingsStep = await read(
-  '../src/app/crear-documento/components/StepAjustes.tsx'
-);
+const readBootstrapRoute = await read('../src/app/api/documentos/read-bootstrap/route.ts');
+const listMetadataRoute = await read('../src/app/api/documentos/list-metadata/route.ts');
+const documentSettingsStep = await read('../src/app/crear-documento/components/StepAjustes.tsx');
 const migration = await read(
   '../supabase/migrations/20260908181739_optimize_documentos_rls_and_plantillas_index.sql'
 );
@@ -48,7 +48,10 @@ test('invalid refresh material is cleared instead of retried', () => {
 });
 
 test('current session policy keeps role-specific limits without serializing normal navigation', () => {
-  assert.match(currentSessionPolicyMigration, /v_inactivity_timeout_seconds := CASE WHEN v_is_super_admin THEN 900 ELSE 1800 END/);
+  assert.match(
+    currentSessionPolicyMigration,
+    /v_inactivity_timeout_seconds := CASE WHEN v_is_super_admin THEN 900 ELSE 1800 END/
+  );
   assert.match(
     currentSessionPolicyMigration,
     /IF p_record_user_activity THEN[\s\S]*FOR UPDATE;[\s\S]*ELSE[\s\S]*last_user_activity_at[\s\S]*END IF;/
@@ -84,20 +87,41 @@ test('owner listing uses the authenticated RLS client instead of service role', 
 });
 
 test('owner documents paint without waiting for participant document enrichment', () => {
-  assert.match(documentsPage, /const ownerDocumentsRequest = fetchDocumentData/);
-  assert.match(documentsPage, /const participantDocumentsRequest = fetchDocumentData/);
+  assert.match(documentsPage, /fetchInitialDocumentLists\(token\)/);
+  assert.match(readBootstrapRoute, /run\('owned'/);
+  assert.match(readBootstrapRoute, /run\(\s*'participations'/);
   assert.ok(
-    documentsPage.indexOf('const participantDocumentsRequest') <
-      documentsPage.indexOf('const res = await ownerDocumentsRequest'),
-    'both requests should start before awaiting the owner list'
+    readBootstrapRoute.indexOf("run('owned'") <
+      readBootstrapRoute.indexOf("run(\n          'participations'"),
+    'both reads should start together in the progressive bootstrap'
   );
   assert.ok(
     documentsPage.indexOf('setLoadingDocs(false);') <
       documentsPage.indexOf('const partRes = await participantDocumentsRequest'),
     'the primary list should stop loading before participant enrichment finishes'
   );
-  assert.match(documentsPage, /mis-participaciones\?exclude_owned=true&view=list/);
+  assert.match(readBootstrapRoute, /mis-participaciones\?exclude_owned=true&view=list/);
   assert.match(participationsRoute, /LIST_PARTICIPATION_SELECT/);
+});
+
+test('document bootstrap retains independent authorization and private responses', () => {
+  assert.match(readBootstrapRoute, /authorization.*Bearer /);
+  assert.match(readBootstrapRoute, /GET as listOwnedDocuments/);
+  assert.match(readBootstrapRoute, /GET as listParticipations/);
+  assert.match(readBootstrapRoute, /private, no-store/);
+  assert.match(listMetadataRoute, /auth\.getUser\(token\)/);
+  assert.match(listMetadataRoute, /\.eq\('owner_id', user\.id\)/);
+  assert.match(listMetadataRoute, /private, no-store/);
+  assert.match(documentsPage, /\/api\/documentos\/listar\?tipo=todos/);
+});
+
+test('list metadata shares only an in-flight request for the same user', () => {
+  assert.match(documentsPage, /pendingListMetadata = new Map<string, Promise<any>>/);
+  assert.match(documentsPage, /pendingListMetadata\.get\(userId\)/);
+  assert.match(documentsPage, /pendingListMetadata\.set\(userId, request\)/);
+  assert.match(documentsPage, /pendingListMetadata\.delete\(userId\)/);
+  assert.match(documentsPage, /if \(!active \|\| !json\) return/);
+  assert.match(documentsPage, /\}, \[user\?\.id\]\);/);
 });
 
 test('view customization code loads only when its modal opens', () => {

@@ -6,6 +6,10 @@ const migration = readFileSync(
   new URL('../supabase/migrations/20260909073142_document_access_permissions.sql', import.meta.url),
   'utf8'
 );
+const completedAccessMigration = readFileSync(
+  new URL('../supabase/migrations/20260924100726_completed_document_additional_access.sql', import.meta.url),
+  'utf8'
+);
 const permissionsRoute = readFileSync(
   new URL('../src/app/api/documentos/[documentId]/permissions/route.ts', import.meta.url),
   'utf8'
@@ -35,21 +39,23 @@ test('document access permissions are private and grant only explicit capabiliti
   assert.match(migration, /OR public\.has_document_access_permission\(d\.id, 'view'\)/);
 });
 
-test('permission API prevents invited readers from escalating or managing another grant', () => {
-  assert.match(permissionsRoute, /!access\.canManage && \(accessLevel !== 'view' \|\| canInvite\)/);
-  assert.match(permissionsRoute, /existing\.created_by !== access\.user\.id/);
-  assert.match(permissionsRoute, /target\.created_by !== access\.user\.id \|\| target\.access_level !== 'view' \|\| target\.can_invite/);
+test('completed document access is owner-managed, read-only and non-transitive', () => {
+  assert.match(completedAccessMigration, /CHECK \(access_level IN \('view', 'download', 'evidence'\)\)/);
+  assert.match(completedAccessMigration, /CHECK \(can_invite = FALSE\)/);
+  assert.match(permissionsRoute, /document\.owner_id !== user\.id && !workspaceManager/);
+  assert.match(permissionsRoute, /body\.canInvite === true/);
+  assert.match(permissionsRoute, /access\.document\.estado !== 'completado'/);
   assert.match(permissionsRoute, /DOCUMENT_PERMISSION_GRANTED/);
   assert.match(permissionsRoute, /DOCUMENT_PERMISSION_REVOKED/);
 });
 
 test('viewer and editor routes enforce the corresponding capability server-side', () => {
-  assert.match(viewerRoute, /requireDocumentContentAccess\(request, documentId\)/);
-  assert.match(contentAccess, /requireDocumentAccess\(request, documentId\)/);
+  assert.match(viewerRoute, /requireDocumentContentAccess\(\s*request,\s*documentId,\s*isDownload \? 'download' : 'view'/);
+  assert.match(contentAccess, /requireDocumentAccess\(request, documentId, \{ additionalAccess \}\)/);
   assert.match(documentAccess, /document_access_permissions/);
   assert.match(
     documentAccess,
-    /!isOwner[\s\S]{0,180}!listedParticipant[\s\S]{0,180}!explicitPermission/
+    /!isOwner[\s\S]*?!listedParticipant[\s\S]*?!explicitPermission/
   );
   assert.match(editRoute, /requireEdit: true/);
   assert.match(editRoute, /ALLOWED_DOCUMENT_FIELDS/);

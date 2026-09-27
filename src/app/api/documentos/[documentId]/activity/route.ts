@@ -1,6 +1,10 @@
 import type { NextRequest } from 'next/server';
 import { requireDocumentContentAccess } from '@/lib/security/document-content-access';
 import { documentAccessResponse } from '@/lib/security/document-access';
+import {
+  orderDocumentActivity,
+  removeDuplicateSynthesizedActivity,
+} from '@/lib/documents/activity-timeline';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,7 +43,7 @@ export async function GET(
 ) {
   try {
     const { documentId } = await context.params;
-    const { document, service } = await requireDocumentContentAccess(request, documentId);
+    const { document, service, additionalAccessLevel } = await requireDocumentContentAccess(request, documentId, 'evidence');
 
     const [securityResult, auditResult, activityResult, ownerResult] = await Promise.all([
       service
@@ -49,11 +53,9 @@ export async function GET(
         .order('created_at', { ascending: true }),
       service
         .from('document_audit_trail')
-        .select(
-          'id,action_code,action_description_es,action_category,action_result,actor_name,actor_email,actor_role,document_status_at_action,ip_address,action_at'
-        )
+        .select('id,event_type,event_data,metadata,created_at')
         .eq('document_id', documentId)
-        .order('action_at', { ascending: true }),
+        .order('created_at', { ascending: true }),
       service
         .from('document_activity_log')
         .select('id,action,category,details,created_at,actor_id,actor_nombre,actor_email')
@@ -67,6 +69,10 @@ export async function GET(
             .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
     ]);
+
+    if (securityResult.error || auditResult.error || activityResult.error) {
+      throw securityResult.error || auditResult.error || activityResult.error;
+    }
 
     const events: ActivityEvent[] = [];
 
@@ -87,24 +93,24 @@ export async function GET(
     }
 
     for (const row of auditResult.data || []) {
-      const createdAt = validDate(row.action_at);
+      const createdAt = validDate(row.created_at);
       if (!createdAt) continue;
+      const data = record(row.event_data);
+      const metadata = record(row.metadata);
       events.push({
         id: `adt_${row.id}`,
-        action: text(row.action_code),
+        action: text(row.event_type),
         details: {
-          description: row.action_description_es,
-          result: row.action_result,
-          ip_address: row.ip_address,
-          actor_role: row.actor_role,
-          doc_status: row.document_status_at_action,
+          description: text(data.description || metadata.description) || undefined,
+          result: text(data.result || metadata.result) || undefined,
+          doc_status: text(data.document_status || metadata.document_status) || undefined,
         },
         created_at: createdAt,
-        actor_name: text(row.actor_name) || 'Sistema',
-        actor_email: text(row.actor_email),
-        category: text(row.action_category) || undefined,
+        actor_name: text(data.actor_name || metadata.actor_name) || 'Sistema',
+        actor_email: text(data.actor_email || metadata.actor_email),
+        category: text(data.category || metadata.category) || undefined,
         source: 'audit_trail',
-        doc_state_after: text(row.document_status_at_action) || undefined,
+        doc_state_after: text(data.document_status || metadata.document_status) || undefined,
       });
     }
 
@@ -144,16 +150,44 @@ export async function GET(
     }
 
     const completedAt = validDate(document.fecha_completado);
-    if (
-      completedAt &&
-      document.estado === 'completado' &&
-      !events.some((event) => event.action === 'documento_completado')
-    ) {
+    if (completedAt && !events.some((event) => event.action === 'documento_completado')) {
       events.push({
         id: `synth_completed_${documentId}`,
         action: 'documento_completado',
         details: { fecha: completedAt },
         created_at: completedAt,
+        actor_name: 'Sistema',
+        actor_email: '',
+        category: 'ciclo_de_vida',
+        source: 'synthesized',
+      });
+    }
+
+    const canceledAt = validDate(document.cancelado_at);
+    if (canceledAt && !events.some((event) => event.action === 'documento_cancelado')) {
+      events.push({
+        id: `synth_canceled_${documentId}`,
+        action: 'documento_cancelado',
+        details: { reason: document.cancelacion_motivo || undefined },
+        created_at: canceledAt,
+        actor_name: 'Sistema',
+        actor_email: '',
+        category: 'ciclo_de_vida',
+        source: 'synthesized',
+      });
+    }
+
+    const expiresAt = validDate(document.fecha_vencimiento);
+    if (
+      document.estado === 'vencido' &&
+      expiresAt &&
+      !events.some((event) => event.action === 'documento_vencido')
+    ) {
+      events.push({
+        id: `synth_expired_${documentId}`,
+        action: 'documento_vencido',
+        details: null,
+        created_at: expiresAt,
         actor_name: 'Sistema',
         actor_email: '',
         category: 'ciclo_de_vida',
@@ -185,7 +219,7 @@ export async function GET(
 
       const state = text(participant.sub_estado || participant.estado).toLowerCase();
       const participationDate = validDate(
-        participant.fecha_firma || participant.fecha_participacion || document.updated_at
+        participant.fecha_firma || participant.fecha_participacion
       );
       if (state === 'firmo' && participationDate) {
         events.push({
@@ -201,15 +235,31 @@ export async function GET(
           participant_email: email,
           participation_state: state,
         });
-      } else if (state === 'en_revision' && participationDate) {
+      } else if (state === 'rechazo') {
+        const rejectedAt = validDate(participant.fecha_rechazo);
+        if (!rejectedAt) return;
         events.push({
-          id: `synth_en_revision_${index}_${documentId}`,
-          action: 'cambio_estado_participacion',
-          details: { participant_email: email, estado_nuevo: 'En revisión' },
+          id: `synth_rejected_${index}_${documentId}`,
+          action: 'firma_rechazada',
+          details: { participant_email: email, reason: participant.motivo_rechazo },
+          created_at: rejectedAt,
+          actor_name: name,
+          actor_email: email,
+          category: 'firma',
+          source: 'synthesized',
+          participant_name: name,
+          participant_email: email,
+          participation_state: state,
+        });
+      } else if (state === 'aprobo' && participationDate) {
+        events.push({
+          id: `synth_approved_${index}_${documentId}`,
+          action: 'aprobacion_otorgada',
+          details: { participant_email: email },
           created_at: participationDate,
           actor_name: name,
           actor_email: email,
-          category: 'participantes',
+          category: 'aprobacion',
           source: 'synthesized',
           participant_name: name,
           participant_email: email,
@@ -218,17 +268,23 @@ export async function GET(
       }
     });
 
-    const seen = new Set<string>();
-    const unique = events.filter((event) => {
-      const key = `${event.action}_${event.actor_email}_${event.created_at.slice(0, 16)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    unique.sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
+    const unique = orderDocumentActivity(removeDuplicateSynthesizedActivity(events));
+    const visibleEvents = additionalAccessLevel
+      ? unique.map((event) => ({
+          ...event,
+          actor_email: '',
+          participant_email: undefined,
+          details: event.details ? {
+            description: event.details.description,
+            result: event.details.result,
+            doc_status: event.details.doc_status,
+            ip_address: event.details.ip_address ? 'Registrada' : undefined,
+          } : null,
+        }))
+      : unique;
 
     return Response.json(
-      { events: unique },
+      { events: visibleEvents },
       { headers: { 'Cache-Control': 'private, no-store, max-age=0' } }
     );
   } catch (error) {

@@ -46,7 +46,7 @@ export async function GET(
 ) {
   try {
     const { documentId } = await context.params;
-    const { document, service } = await requireDocumentAccess(request, documentId);
+    const { document, service } = await requireDocumentAccess(request, documentId, { additionalAccess: 'evidence' });
     const packageRow = await getEvidenceV2ForDocument(service, documentId);
     if (packageRow) {
       return NextResponse.json(

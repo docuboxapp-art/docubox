@@ -31,6 +31,12 @@ test('mis-documentos coalesces repeated primary loads while one is in flight', (
 });
 
 test('supporting labels and folders use the same transient-failure handling', () => {
-  assert.match(source, /fetchDocumentData\('\/api\/documentos\/etiquetas'\)/);
-  assert.match(source, /fetchDocumentData\('\/api\/documentos\/carpetas'/);
+  assert.match(source, /fetchDocumentData\('\/api\/documentos\/list-metadata'/);
+  assert.match(source, /setCarpetas\(/);
+  assert.match(source, /setEtiquetasList\(json\.etiquetas\)/);
+});
+
+test('mis-documentos does not query the nonexistent legacy audit_trail table', () => {
+  assert.doesNotMatch(source, /\.from\('audit_trail'\)/);
+  assert.doesNotMatch(source, /table: 'audit_trail'/);
 });

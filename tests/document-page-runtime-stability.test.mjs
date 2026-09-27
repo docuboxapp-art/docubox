@@ -19,7 +19,7 @@ test('document signing and viewing defer PDF rendering until after React commits
 
 test('viewer callbacks observe the current document and certification state', () => {
   const source = read('src/app/visor-documento/[id]/page.tsx');
-  assert.match(source, /\[cryptographicCertification, docId, document, logActivity\]/);
+  assert.match(source, /\[auditArtifactsReady, cryptographicCertification, docId, document, logActivity\]/);
   assert.match(source, /\[docId, evidenceV2\?\.technical\?\.packageId\]/);
   assert.match(source, /\/evidence\/\$\{kind\}/);
   assert.match(source, /const renderPaginationBar = \(modal = false\)/);

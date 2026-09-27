@@ -20,7 +20,7 @@ export async function finalDeliverableReady(
   let certificationQuery = service
     .from('document_certifications')
     .select(
-      'id,document_version_id,certified_pdf_sha256,pades_pdf_hash_after_signature,provider_metadata'
+      'id,document_version_id,source_document_hash,document_body_sha256,certified_pdf_sha256,pades_pdf_hash_after_signature,provider_metadata'
     )
     .eq('document_id', documentId)
     .eq('status', 'COMPLETED')
@@ -49,6 +49,7 @@ export async function finalDeliverableReady(
   );
   if (
     !certification?.document_version_id ||
+    !(certification.source_document_hash || certification.document_body_sha256) ||
     !digest ||
     digest !== String(document.sealed_pdf_hash).toLowerCase() ||
     digest !== String(certification.pades_pdf_hash_after_signature || '').toLowerCase() ||
@@ -75,7 +76,7 @@ export function finalDeliverablePendingResponse() {
   return NextResponse.json(
     {
       error:
-        'El entregable final estará disponible cuando la constancia NOM-151 esté emitida y verificada.',
+        'El entregable final estará disponible cuando todas las verificaciones, incluida NOM-151, estén completas.',
       code: 'NOM151_FINAL_DELIVERABLE_PENDING',
     },
     { status: 409, headers: { 'Cache-Control': 'private, no-store' } }

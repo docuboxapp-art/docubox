@@ -89,7 +89,7 @@ test('production crypto labels come only from persisted viewer evidence', async 
   assert.match(route, /timestampTrustBundleId/);
   assert.match(route, /certification\?\.status === 'COMPLETED'/);
   assert.match(viewer, /Google Cloud HSM/);
-  assert.match(viewer, /RSA \$\{cryptographicCertification\.kmsKeySizeBits\} \/ \$\{cryptographicCertification\.padesDigestAlgorithm\}/);
+  assert.match(viewer, /RSA \$\{certification\.kmsKeySizeBits\} \/ \$\{certification\.padesDigestAlgorithm\}/);
   assert.match(viewer, /Certificado X\.509/);
   assert.match(viewer, /Vínculo SPKI/);
   assert.match(viewer, /Sello RFC 3161/);

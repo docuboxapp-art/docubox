@@ -209,6 +209,26 @@ const documents = defineModule(
   ['/mis-documentos', '/documentos/[documentId]/revision', '/documentos/[documentId]/versiones']
 );
 
+const sharedDocuments = defineModule(
+  {
+    moduleKey: 'shared_documents',
+    moduleName: 'Documentos compartidos conmigo',
+    scope: 'documents',
+    purpose: 'Mantener el acceso adicional de consulta fuera del copiloto hasta contar con un contexto autorizado propio.',
+    entities: [],
+    dataSources: [],
+    requiredContext: [],
+    suggestedPrompts: [],
+    allowedReadActions: [],
+    disallowedActions: ['invocar LucIA'],
+    sensitiveFields: ['participant_email', 'storage_path'],
+    evidenceRequirements: [],
+    luciaMode: 'disabled',
+    assistantPlacement: 'none',
+  },
+  ['/compartidos-conmigo']
+);
+
 const viewer = defineModule(
   {
     moduleKey: 'document_viewer',
@@ -1317,6 +1337,7 @@ const fallback: LuciaModuleCapability = {
 export const MODULE_CAPABILITIES: LuciaModuleCapability[] = [
   ...home,
   ...documents,
+  ...sharedDocuments,
   ...viewer,
   ...createDocument,
   ...signing,

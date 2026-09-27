@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest, context: { params: Promise<{ documentId: string }> }) {
   try {
     const { documentId } = await context.params;
-    const access = await requireDocumentAccess(request, documentId);
+    const access = await requireDocumentAccess(request, documentId, { additionalAccess: 'view' });
     const body = await request.json().catch(() => null);
     const code = typeof body?.code === 'string' ? body.code : '';
     if (code.length < 8 || code.length > 128 || /[\u0000-\u001f\u007f]/.test(code)) {

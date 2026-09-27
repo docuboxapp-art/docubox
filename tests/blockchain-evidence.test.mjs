@@ -143,8 +143,8 @@ test('blockchain evidence uses the same authenticated participant access as the 
   assert.match(access, /\.select\('participantes'\)/);
   assert.match(access, /row\.id === user\.id/);
   assert.match(access, /normalizeEmail\(row\.email\) === email/);
-  assert.match(viewer, /requireDocumentContentAccess\(request, documentId\)/);
-  assert.match(contentAccess, /requireDocumentAccess\(request, documentId\)/);
+  assert.match(viewer, /requireDocumentContentAccess\(\s*request,\s*documentId,\s*isDownload \? 'download' : 'view'/);
+  assert.match(contentAccess, /requireDocumentAccess\(request, documentId, \{ additionalAccess \}\)/);
   assert.match(documentAccess, /document_access_permissions/);
   assert.match(documentAccess, /canAccessParticipantDocument\(participantEntry\)/);
   assert.match(documentAccess, /!listedParticipant[\s\S]*?!explicitPermission/);

@@ -4,11 +4,12 @@ import test from 'node:test';
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 
-const [myDocuments, dashboard, viewer, signer] = await Promise.all([
+const [myDocuments, dashboard, viewer, signer, viewerStyles] = await Promise.all([
   read('src/app/mis-documentos/page.tsx'),
   read('src/app/documents-dashboard/page.tsx'),
   read('src/app/visor-documento/[id]/page.tsx'),
   read('src/app/firmar-documento/[id]/page.tsx'),
+  read('src/styles/tailwind.css'),
 ]);
 
 test('primary application screens share the same maximum interface weight', () => {
@@ -32,6 +33,7 @@ test('signing interface uses semibold hierarchy without changing document format
 });
 
 test('viewer keeps participant data lighter than section headings', () => {
-  assert.match(viewer, /text-xs font-medium text-foreground truncate/);
-  assert.match(viewer, /text-base font-semibold text-foreground mb-1/);
+  assert.match(viewer, /text-xs font-medium text-foreground leading-tight/);
+  assert.match(viewer, /<span className="viewer-panel-title">Participantes<\/span>/);
+  assert.match(viewerStyles, /\.document-viewer-panel \.viewer-panel-title\s*\{[^}]*font-size:\s*0\.875rem;[^}]*font-weight:\s*600;/);
 });

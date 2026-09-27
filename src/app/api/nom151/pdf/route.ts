@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   if (!documentId) return NextResponse.json({ error: 'documento_id requerido' }, { status: 400 });
 
   try {
-    const { document, service } = await requireDocumentAccess(request, documentId);
+    const { document, service } = await requireDocumentAccess(request, documentId, { additionalAccess: 'evidence' });
     const { data: pades, error: padesError } = await service
       .from('document_certifications')
       .select('id,document_version_id,certified_pdf_sha256')

@@ -9,8 +9,11 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest, context: { params: Promise<{ documentId: string }> }) {
   try {
     const { documentId } = await context.params;
-    const { service } = await requireDocumentAccess(request, documentId);
+    const { service, additionalAccessLevel } = await requireDocumentAccess(request, documentId, { additionalAccess: 'evidence' });
     const mode = request.nextUrl.searchParams.get('download');
+    if (additionalAccessLevel && mode === 'management') {
+      return NextResponse.json({ error: 'Esta vista de gestión no está incluida en el acceso.' }, { status: 403 });
+    }
     if (mode === 'management') return NextResponse.json(await getManagementSnapshot(service, documentId));
     if (mode) {
       const destination = mode === 'package'

@@ -18,7 +18,7 @@ export async function GET(
 ) {
   try {
     const { documentId } = await context.params;
-    const { document, service } = await requireDocumentContentAccess(request, documentId);
+    const { document, service } = await requireDocumentContentAccess(request, documentId, 'evidence');
     if (!(await finalDeliverableReady(service, documentId))) {
       return finalDeliverablePendingResponse();
     }

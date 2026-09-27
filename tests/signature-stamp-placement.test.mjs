@@ -486,7 +486,7 @@ test('viewer separates audit evidence from ordinary downloads', async () => {
     auditGuardPosition
   );
   const auditCertificateHeading = viewerSource.indexOf(
-    'Constancia de auditoría hasta el cierre',
+    'Constancia de Auditoría',
     auditGuardPosition
   );
   assert.ok(integrityHeading > auditGuardPosition && integrityHeading < downloadsGuardPosition);

@@ -33,3 +33,18 @@ test('the document API only reports not found when no row exists', async () => {
 
   assert.match(route, /if \(docError\)[\s\S]*status: 500[\s\S]*if \(!doc\)[\s\S]*status: 404/);
 });
+
+test('viewer details use persisted document fields and resolve supplemental data after access checks', async () => {
+  const [helper, route] = await Promise.all([
+    readFile(helperPath, 'utf8'),
+    readFile(routePath, 'utf8'),
+  ]);
+
+  for (const field of ['descripcion', 'etiquetas_ids', 'participation_order', 'recordatorio_frecuencia']) {
+    assert.match(helper, new RegExp(`DOCUMENT_VIEWER_SELECT[\\s\\S]*${field}`));
+  }
+  assert.ok(route.indexOf('Sin acceso') < route.indexOf("includeDetails') === '1'"));
+  assert.match(route, /from\('document_versions'\)/);
+  assert.match(route, /from\('workspaces'\)/);
+  assert.match(route, /from\('etiquetas'\)/);
+});

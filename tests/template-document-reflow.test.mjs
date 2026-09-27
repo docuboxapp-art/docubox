@@ -138,9 +138,9 @@ test('completed template documents are materialized and viewed as certified PDFs
   assert.match(viewerSource, /applyTemplateFieldValues/);
   assert.match(viewerSource, /templateFieldMeasurements/);
   assert.match(viewerSource, /sealBody\.append\('templatePdf'/);
-  assert.match(viewerSource, /completedTemplate[\s\S]*?'certified'/);
-  assert.match(viewerSource, /formato: completedPdfAvailable \? 'application\/pdf'/);
-  assert.match(viewerSource, /Preparando PDF final/);
+  assert.match(viewerSource, /document\.additional_access_level \|\| \(requestedArchivo !== 'original' && finalDeliverableAvailable\)[\s\S]*?\? 'certified'/);
+  assert.match(viewerSource, /sealed_pdf_path: payload\.storage_path,[\s\S]*?formato: 'application\/pdf'/);
+  assert.match(viewerSource, /PDF final pendiente de constancia NOM-151 emitida y verificada/);
   assert.match(
     viewerSource,
     /showCampos &&\s*!isTemplateDocumentMimeType\(document\.file_type\) &&\s*camposEnPaginaActual\.length > 0/

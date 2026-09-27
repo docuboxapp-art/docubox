@@ -43,7 +43,7 @@ test('failed attempts escalate to 10, 30 and 60 minute lockouts', () => {
 });
 
 test('viewer and authenticated internal source require the shared content guard', () => {
-  assert.match(viewerFile, /requireDocumentContentAccess\(request, documentId\)/);
+  assert.match(viewerFile, /requireDocumentContentAccess\(\s*request,\s*documentId,\s*isDownload \? 'download' : 'view'/);
   assert.match(internalSource, /requireDocumentContentAccess\(request, documentId\)/);
   assert.doesNotMatch(viewerFile, /requiresAccessCode && !owner/);
 });

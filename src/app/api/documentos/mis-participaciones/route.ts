@@ -127,6 +127,7 @@ function mapSubEstadoToDisplay(sub: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  const startedAt = performance.now();
   try {
     // Step 1: Validate the user session — try Bearer token first, then cookies
     let user: any = null;
@@ -185,6 +186,7 @@ export async function GET(request: NextRequest) {
     if (!userClient) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
+    const authMs = performance.now() - startedAt;
 
     // Step 2: query through the authenticated client so RLS removes inaccessible
     // documents before any rows or participant JSON cross the network.
@@ -214,6 +216,7 @@ export async function GET(request: NextRequest) {
       : listSummary
         ? LIST_PARTICIPATION_SELECT
         : FULL_PARTICIPATION_SELECT;
+    const queryStartedAt = performance.now();
     let result = await buildQuery(participationSelect);
     if (!dashboardSummary && isTemplateOriginColumnMissing(result.error)) {
       result = await buildQuery(
@@ -221,6 +224,7 @@ export async function GET(request: NextRequest) {
       );
     }
     const { data: docs, error } = result;
+    const documentsDbMs = performance.now() - queryStartedAt;
 
     if (error) {
       console.error('[mis-participaciones] DB error:', error.message);
@@ -406,7 +410,17 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json({ participaciones });
+    const serializationStartedAt = performance.now();
+    const response = NextResponse.json({ participaciones });
+    const serializationMs = performance.now() - serializationStartedAt;
+    response.headers.append(
+      'Server-Timing',
+      `participations_auth;dur=${authMs.toFixed(1)}, ` +
+        `participations_db;dur=${documentsDbMs.toFixed(1)}, ` +
+        `participations_serialization;dur=${serializationMs.toFixed(1)}, ` +
+        `participations_total;dur=${(performance.now() - startedAt).toFixed(1)}`
+    );
+    return response;
   } catch (err: any) {
     console.error('[mis-participaciones] Unexpected error:', err?.message ?? err);
     return NextResponse.json({ error: err.message ?? 'Error interno' }, { status: 500 });

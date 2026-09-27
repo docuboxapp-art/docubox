@@ -17,6 +17,7 @@ const superAdminTimeoutMigration = await read(
   '../supabase/migrations/20260924002434_super_admin_fifteen_minute_inactivity.sql'
 );
 const timeoutHook = await read('../src/hooks/useSessionTimeout.ts');
+const authContext = await read('../src/contexts/AuthContext.tsx');
 const middleware = await read('../src/middleware.ts');
 const loginForm = await read('../src/app/sign-up-login-screen/components/LoginForm.tsx');
 const totpCheckRoute = await read('../src/app/api/auth/totp/check/route.ts');
@@ -63,6 +64,16 @@ test('only explicit human interactions can extend the inactivity window', () => 
   assert.doesNotMatch(timeoutHook, /'scroll'/);
   assert.match(timeoutHook, /p_record_user_activity: recordUserActivity/);
   assert.match(migration, /IF p_record_user_activity THEN/);
+});
+
+test('auth-context renders keep timeout callbacks stable without suppressing activity checks', () => {
+  assert.match(authContext, /const showSessionTimeoutWarning = useCallback\(/);
+  assert.match(authContext, /const hideSessionTimeoutWarning = useCallback\(/);
+  assert.match(authContext, /onShowWarning: showSessionTimeoutWarning/);
+  assert.match(authContext, /onHideWarning: hideSessionTimeoutWarning/);
+  assert.match(authContext, /onBeforeSignOut: hideSessionTimeoutWarning/);
+  assert.match(timeoutHook, /void synchronizePolicy\(false\)/);
+  assert.match(timeoutHook, /void synchronizePolicy\(true\)/);
 });
 
 test('authentication routes finish session bootstrap before timeout enforcement starts', () => {

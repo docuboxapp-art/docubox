@@ -67,8 +67,25 @@ test('viewer resolves secondary metadata concurrently without changing its loadi
   assert.match(bootstrap, /setDocument\(loadedDocument\)/);
   assert.match(bootstrap, /from\('user_profiles'\)/);
   assert.match(bootstrap, /from\('carpetas'\)/);
-  assert.match(bootstrap, /from\('workspaces'\)/);
+  assert.match(bootstrap, /includeDetails=1/);
   assert.match(bootstrap, /from\('document_metadata'\)/);
+});
+
+test('document details separate lifecycle, location and stored configuration', () => {
+  const details = source.slice(
+    source.indexOf("activeTab === 'details' ? ("),
+    source.indexOf("activeTab === 'permisos' ? (")
+  );
+
+  assert.match(details, /Información del documento/);
+  assert.match(details, /Ciclo de vida/);
+  assert.match(details, /Ubicación y organización/);
+  assert.match(details, /Configuración del documento/);
+  assert.match(details, /document\.version_number/);
+  assert.match(details, /document\.descripcion\?\.trim\(\)/);
+  assert.match(details, /document\.participation_order/);
+  assert.match(details, /document\.recordatorio_frecuencia/);
+  assert.doesNotMatch(details, /MODIFICADO POR|Firmantes \(|Seguridad y NOM-151/);
 });
 
 test('viewer renders protected PDF bytes before showing fields or signature stamps', () => {

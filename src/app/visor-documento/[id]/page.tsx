@@ -8,6 +8,7 @@ import {
   ZoomOut,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Maximize2,
   Users,
   MessageSquare,
@@ -59,12 +60,18 @@ import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { LegalHoldPanel } from '@/components/documents/LegalHoldPanel';
 import { AccessProtectionPanel } from '@/components/documents/AccessProtectionPanel';
 import { DocumentPackagePanel } from '@/components/documents/DocumentPackagePanel';
+import {
+  ParticipantEvidenceDrawer,
+  participantDetailDate,
+  type ParticipantDetails,
+} from '@/components/documents/ParticipantEvidenceDrawer';
 import { OrganizationDocumentGovernancePanel } from '@/components/documents/OrganizationDocumentGovernancePanel';
 import { ContractIntelligencePanel } from '@/components/documents/ContractIntelligencePanel';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createNotification } from '@/lib/notificationsInApp';
 import { getNom151Presentation } from '@/lib/nom151/presentation';
+import { orderDocumentActivity, removeDuplicateSynthesizedActivity } from '@/lib/documents/activity-timeline';
 import {
   DOCUMENT_VIEWER_SELECT,
   LEGACY_DOCUMENT_VIEWER_SELECT,
@@ -110,6 +117,13 @@ interface DocumentData {
   formato?: string;
   file_type?: string;
   source_template_id?: string | null;
+  descripcion?: string | null;
+  etiquetas_ids?: string[] | null;
+  etiquetas?: Array<{ id: string; nombre: string; color?: string | null }>;
+  version_number?: number | null;
+  espacio_nombre?: string;
+  participation_order?: string | null;
+  recordatorio_frecuencia?: string | null;
   tiene_vencimiento?: boolean;
   tiene_codigo_acceso?: boolean;
   metadatos_adicionales?: boolean;
@@ -129,6 +143,7 @@ interface DocumentData {
   cancelacion_descripcion?: string;
   cancelado_at?: string;
   fecha_completado?: string;
+  additional_access_level?: 'view' | 'download' | 'evidence';
   workspace_id?: string;
   current_custodian_workspace_id?: string;
   custody_updated_at?: string;
@@ -282,6 +297,88 @@ function derivePadesUiStatus(certification: CryptographicCertification | null): 
   return 'SIN PADES';
 }
 
+function PadesTechnicalDetails({ certification }: { certification: CryptographicCertification }) {
+  const rows: Array<[string, string | null]> = [
+    [
+      'Integridad',
+      certification.integrityStatus === 'valid' && certification.verificationStatus === 'valid'
+        ? 'Válida'
+        : 'No verificada',
+    ],
+    ['Perfil', `${certification.padesProfile} · Verificado`],
+    [
+      'Proveedor de llave',
+      certification.kmsProvider === 'gcp'
+        ? certification.kmsProtectionLevel === 'hsm'
+          ? 'Google Cloud HSM'
+          : 'Google Cloud KMS'
+        : certification.kmsProvider,
+    ],
+    [
+      'Nivel de protección',
+      certification.kmsProtectionLevel === 'hsm'
+        ? 'HSM'
+        : certification.kmsProtectionLevel,
+    ],
+    ['Entorno criptográfico', certification.cryptoEnvironment],
+    ['Versión de llave', certification.kmsKeyVersion],
+    [
+      'Algoritmo',
+      certification.kmsKeySizeBits
+        ? `RSA ${certification.kmsKeySizeBits} / ${certification.padesDigestAlgorithm}`
+        : [certification.padesSignatureAlgorithm, certification.padesDigestAlgorithm]
+            .filter(Boolean)
+            .join(' · '),
+    ],
+    [
+      'Certificado X.509',
+      certification.certificateChainStatus === 'valid'
+        ? `Cadena válida · Serial ${certification.padesCertificateSerial}`
+        : certification.padesCertificateSerial,
+    ],
+    ['Vínculo SPKI', certification.certificateKeyMatches === true ? 'Válido' : null],
+    ['Firma criptográfica', certification.padesSigningTimeDeclared || certification.padesVerifiedAt],
+    ...(certification.padesProfile === 'PAdES-B-T'
+      ? [
+          [
+            'Sello RFC 3161',
+            certification.timestampStatus === 'valid'
+              ? `Verificado · ${certification.timestampGenTime}`
+              : null,
+          ],
+          [
+            'Proveedor TSA',
+            certification.timestampProvider === 'freetsa'
+              ? 'FreeTSA'
+              : certification.timestampProvider,
+          ],
+          ['Rol del proveedor', certification.timestampProviderRole],
+          ['Serial RFC 3161', certification.timestampSerialNumber],
+          ['Policy OID', certification.timestampPolicyOid],
+          ['Bundle de confianza', certification.timestampTrustBundleId],
+          ['Confianza TSA', certification.timestampTrustStatus === 'valid' ? 'Válida' : null],
+        ] satisfies Array<[string, string | null]>
+      : []),
+    ['Huella SHA-256 del certificado', certification.padesCertificateFingerprintSha256],
+    ['Huella SHA-256 de la llave del certificado', certification.certificatePublicKeyFingerprintSha256],
+    ['Huella SHA-256 del certificado TSA', certification.timestampCertificateFingerprintSha256],
+    ['Ancla de confianza TSA', certification.timestampTrustRootFingerprintSha256],
+  ];
+
+  return (
+    <div className="divide-y divide-border/60">
+      {rows.filter(([, value]) => Boolean(value)).map(([label, value]) => (
+        <div key={label} className="px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <p className="mt-0.5 break-all text-[11px] text-foreground">{value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 async function apiAuthHeaders(includeJson = false): Promise<Record<string, string>> {
   const {
     data: { session },
@@ -299,7 +396,9 @@ async function fetchDocumentActivity(documentId: string): Promise<ActivityEvent[
   );
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload?.error || 'No fue posible cargar la actividad.');
+    const error = new Error(payload?.error || 'No fue posible cargar la actividad.') as Error & { status?: number };
+    error.status = response.status;
+    throw error;
   }
   return Array.isArray(payload?.events) ? (payload.events as ActivityEvent[]) : [];
 }
@@ -534,11 +633,19 @@ interface DocumentAccessPermission {
   id: string;
   grantee_user_id: string | null;
   grantee_email: string | null;
-  access_level: 'view' | 'edit';
-  can_invite: boolean;
+  grantee_name?: string | null;
+  created_by_name?: string | null;
+  access_level: 'view' | 'download' | 'evidence';
   created_by: string;
   created_at: string;
   updated_at: string;
+}
+
+interface PermissionSearchUser {
+  id: string;
+  name: string;
+  email: string;
+  unavailableReason: string | null;
 }
 
 function PdfCanvas({
@@ -933,9 +1040,11 @@ export default function VisorDocumentoPage() {
   const [canManagePermissions, setCanManagePermissions] = useState(false);
   const [canInviteViewers, setCanInviteViewers] = useState(false);
   const [canEditDocument, setCanEditDocument] = useState(false);
-  const [permissionEmail, setPermissionEmail] = useState('');
-  const [permissionAccessLevel, setPermissionAccessLevel] = useState<'view' | 'edit'>('view');
-  const [permissionCanInvite, setPermissionCanInvite] = useState(false);
+  const [permissionQuery, setPermissionQuery] = useState('');
+  const [permissionSelectedUser, setPermissionSelectedUser] = useState<PermissionSearchUser | null>(null);
+  const [permissionSearchResults, setPermissionSearchResults] = useState<PermissionSearchUser[]>([]);
+  const [permissionSearchLoading, setPermissionSearchLoading] = useState(false);
+  const [permissionAccessLevel, setPermissionAccessLevel] = useState<'view' | 'download' | 'evidence'>('view');
   const [permissionSaving, setPermissionSaving] = useState(false);
   const [participantes, setParticipantes] = useState<Participante[]>([]);
   const [additionalMetadata, setAdditionalMetadata] = useState<AdditionalMetadataRecord[]>([]);
@@ -983,6 +1092,11 @@ export default function VisorDocumentoPage() {
   // NEW: participation responses for filled field values
   const [participationResponses, setParticipationResponses] = useState<ParticipationResponse[]>([]);
   const [participationResponsesLoaded, setParticipationResponsesLoaded] = useState(false);
+  const [selectedParticipantIndex, setSelectedParticipantIndex] = useState<number | null>(null);
+  const [participantDetails, setParticipantDetails] = useState<Record<string, ParticipantDetails>>({});
+  const [participantDetailsLoading, setParticipantDetailsLoading] = useState<Record<string, boolean>>({});
+  const [participantDetailsErrors, setParticipantDetailsErrors] = useState<Record<string, string>>({});
+  const participantDetailRequests = useRef<Partial<Record<string, Promise<void>>>>({});
 
   const [notes, setNotes] = useState<DocumentNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
@@ -1076,9 +1190,31 @@ export default function VisorDocumentoPage() {
     (padesVerified &&
       cryptographicCertification?.padesProfile === 'PAdES-B-T' &&
       cryptographicCertification.timestampStatus === 'valid');
-  const integralEvidenceVerified = padesBtVerified && nom151EvidenceStatus === 'valid';
   const finalDeliverableAvailable =
     nom151LookupComplete && padesBtVerified && nom151Data?.verification_status === 'verified';
+  const signedPdfReadyForDownload =
+    Boolean(document?.sealed_pdf_path) && finalDeliverableAvailable;
+  const auditEvidenceStatuses: Array<[string, string]> = cryptographicCertification
+    ? [
+        ['Integridad SHA-256', cryptographicCertification.integrityStatus],
+        ['Versionado documental', cryptographicCertification.documentVersionId ? 'valid' : 'pending'],
+        ['Cadena de evidencia', cryptographicCertification.sourceDocumentHash ? 'valid' : 'pending'],
+        ['Firma PDF PAdES', cryptographicCertification.pdfSignatureStatus],
+        ['Certificado institucional', cryptographicCertification.certificateStatus],
+        [
+          cryptographicCertification.timestampStatus === 'valid'
+            ? 'Sello RFC 3161 externo'
+            : 'Estampa RFC 3161',
+          cryptographicCertification.timestampStatus || 'not_configured',
+        ],
+        ['Verificación independiente', cryptographicCertification.verificationStatus],
+        ['Constancia NOM-151', nom151EvidenceStatus],
+      ]
+    : [];
+  const auditArtifactsReady =
+    signedPdfReadyForDownload &&
+    auditEvidenceStatuses.length === 8 &&
+    auditEvidenceStatuses.every(([, status]) => status === 'valid');
   const blockchainEvidenceReady = blockchainEvidence?.status === 'VERIFIED';
   const blockchainEvidenceFailed = Boolean(
     blockchainEvidenceError ||
@@ -1366,7 +1502,7 @@ export default function VisorDocumentoPage() {
 
     const requestedArchivo = new URLSearchParams(window.location.search).get('archivo');
     const requestedVariant =
-      requestedArchivo !== 'original' && finalDeliverableAvailable
+      document.additional_access_level || (requestedArchivo !== 'original' && finalDeliverableAvailable)
         ? 'certified'
         : 'original';
     const nextFileUrl = `/api/documentos/${encodeURIComponent(document.id)}/viewer-file?variant=${requestedVariant}`;
@@ -1379,7 +1515,7 @@ export default function VisorDocumentoPage() {
       );
     });
     return () => window.cancelAnimationFrame(variantFrame);
-  }, [document?.id, finalDeliverableAvailable]);
+  }, [document?.id, document?.additional_access_level, finalDeliverableAvailable]);
 
   // ── Signed PDF state ───────────────────────────────────────────────────────
   const [downloadingSignedPdf, setDownloadingSignedPdf] = useState(false);
@@ -1579,8 +1715,8 @@ export default function VisorDocumentoPage() {
         | 'evidence-manifest'
     ) => {
       if (!docId || !cryptographicCertification?.certificationUuid) return;
-      if ((kind === 'package' || kind === 'certified-pdf') && !finalDeliverableAvailable) {
-        setCertificationError('El entregable final está pendiente de la constancia NOM-151 emitida y verificada.');
+      if (!auditArtifactsReady) {
+        setCertificationError('Las descargas estarán disponibles cuando todas las verificaciones, incluida NOM-151, estén completas.');
         return;
       }
       setCertificationDownload(kind);
@@ -1636,7 +1772,7 @@ export default function VisorDocumentoPage() {
         setCertificationDownload(null);
       }
     },
-    [cryptographicCertification, docId, document, finalDeliverableAvailable, logActivity]
+    [auditArtifactsReady, cryptographicCertification, docId, document, logActivity]
   );
 
   // ── NOM-151 polling (only when completado) ─────────────────────────────────
@@ -1717,7 +1853,7 @@ export default function VisorDocumentoPage() {
     setDownloadingOriginal(true);
     try {
       const response = await fetch(
-        `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=original`,
+        `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=original&download=1`,
         { headers: await apiAuthHeaders() }
       );
       if (!response.ok) {
@@ -1783,20 +1919,20 @@ export default function VisorDocumentoPage() {
       );
       return;
     }
-    if (!padesBtVerified) {
+    if (!document.additional_access_level && !padesBtVerified) {
       alert(
         'La descarga certificada estará disponible cuando la firma PAdES-B-T del PDF termine su verificación técnica.'
       );
       return;
     }
-    if (!finalDeliverableAvailable) {
+    if (!document.additional_access_level && !finalDeliverableAvailable) {
       alert('El PDF final estará disponible cuando la constancia NOM-151 esté emitida y verificada. Puedes descargar el documento original mientras tanto.');
       return;
     }
     setDownloadingSignedPdf(true);
     try {
       const response = await fetch(
-        `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=certified`,
+        `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=certified&download=1`,
         { headers: await apiAuthHeaders() }
       );
       if (!response.ok) {
@@ -1832,7 +1968,7 @@ export default function VisorDocumentoPage() {
     } finally {
       setDownloadingSignedPdf(false);
     }
-  }, [apiAuthHeaders, docId, document?.nombre, document?.sealed_pdf_path, finalDeliverableAvailable, padesBtVerified]);
+  }, [apiAuthHeaders, docId, document?.nombre, document?.sealed_pdf_path, document?.additional_access_level, finalDeliverableAvailable, padesBtVerified]);
 
   // ── Generate NOM-151 constancia via Nubarium ───────────────────────────────
   const generateNom151 = useCallback(
@@ -2190,7 +2326,7 @@ export default function VisorDocumentoPage() {
     <table class="kv-table">
       <tr><td>Identificador</td><td>${docId}</td></tr>
       <tr><td>Título</td><td style="font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:10px;">${document.nombre}</td></tr>
-      <tr><td>Workspace</td><td style="font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:10px;">${document.organizacion || document.workspace_id || '—'}</td></tr>
+      <tr><td>Workspace</td><td style="font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:10px;">${document.espacio_nombre || document.workspace_id || '—'}</td></tr>
       <tr><td>Páginas</td><td style="font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;font-size:10px;">${document.metadata?.pdf_page_count ?? '—'}</td></tr>
       <tr><td>SHA-256</td><td>${hashFinal}</td></tr>
       <tr><td>Creado</td><td>${fechaCreado}</td></tr>
@@ -2470,8 +2606,34 @@ export default function VisorDocumentoPage() {
     }
   }, [docId, userId]);
 
+  useEffect(() => {
+    if (!docId || !canManagePermissions || permissionSelectedUser || permissionQuery.trim().length < 3) {
+      setPermissionSearchResults([]);
+      setPermissionSearchLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setPermissionSearchLoading(true);
+      try {
+        const response = await fetch(
+          `/api/documentos/${encodeURIComponent(docId)}/permissions?q=${encodeURIComponent(permissionQuery.trim())}`,
+          { headers: await apiAuthHeaders(), signal: controller.signal, cache: 'no-store' }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) setPermissionSearchResults(Array.isArray(payload.users) ? payload.users : []);
+        else setPermissionSearchResults([]);
+      } catch (error) {
+        if (!controller.signal.aborted) setPermissionSearchResults([]);
+      } finally {
+        if (!controller.signal.aborted) setPermissionSearchLoading(false);
+      }
+    }, 300);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [canManagePermissions, docId, permissionQuery, permissionSelectedUser]);
+
   const saveDocumentPermission = async () => {
-    if (!permissionEmail.trim() || permissionSaving) return;
+    if (!permissionSelectedUser || permissionSaving) return;
     setPermissionSaving(true);
     setPermissionsError(null);
     try {
@@ -2479,16 +2641,16 @@ export default function VisorDocumentoPage() {
         method: 'POST',
         headers: await apiAuthHeaders(true),
         body: JSON.stringify({
-          email: permissionEmail,
+          userId: permissionSelectedUser.id,
           accessLevel: permissionAccessLevel,
-          canInvite: permissionCanInvite,
         }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'No fue posible guardar el permiso.');
-      setPermissionEmail('');
+      setPermissionQuery('');
+      setPermissionSelectedUser(null);
+      setPermissionSearchResults([]);
       setPermissionAccessLevel('view');
-      setPermissionCanInvite(false);
       await loadDocumentPermissions();
     } catch (error) {
       setPermissionsError(
@@ -2610,46 +2772,41 @@ export default function VisorDocumentoPage() {
 
         // A derived PDF can exist before its PAdES-B-T verification finishes.
         // Start with the original and let the verified certification state switch variants.
-        const requestedFileVariant = 'original';
+        const requestedFileVariant = data.additional_access_level ? 'certified' : 'original';
         const viewerFileUrl = `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=${requestedFileVariant}`;
 
         // Preserve the existing loading state and visible values while removing
         // three sequential round trips from the viewer bootstrap.
-        const [profileResult, folderResult, workspaceResult, metadataResult] = await Promise.all([
-          data.owner_id
+        const [profileResult, folderResult, metadataResult] = await Promise.all([
+          data.owner_id && !data.additional_access_level
             ? supabase
                 .from('user_profiles')
                 .select('full_name, nombre, apellido_paterno, apellido_materno')
                 .eq('id', data.owner_id)
                 .single()
             : Promise.resolve({ data: null }),
-          data.carpeta_id
+          data.carpeta_id && !data.additional_access_level
             ? supabase.from('carpetas').select('nombre').eq('id', data.carpeta_id).single()
             : Promise.resolve({ data: null }),
-          supabase
-            .from('workspaces')
-            .select('name')
-            .eq('owner_id', data.owner_id)
-            .eq('workspace_type', 'personal')
-            .single(),
-          supabase
-            .from('document_metadata')
-            .select(
-              'pdf_page_count, pdf_is_native, pdf_has_acroform, pdf_has_prior_sigs, pdf_author, pdf_creator_software, pdf_created_at, pdf_modified_at, pdf_metadata_raw, analyzed_at'
-            )
-            .eq('documentos_id', docId)
-            .maybeSingle(),
+          data.additional_access_level
+            ? Promise.resolve({ data: null })
+            : supabase
+                .from('document_metadata')
+                .select(
+                  'pdf_page_count, pdf_is_native, pdf_has_acroform, pdf_has_prior_sigs, pdf_author, pdf_creator_software, pdf_created_at, pdf_modified_at, pdf_metadata_raw, analyzed_at'
+                )
+                .eq('documentos_id', docId)
+                .maybeSingle(),
         ]);
 
         const profile = profileResult.data;
         const ownerNombre =
-          profile?.full_name ||
+          data.owner_nombre || profile?.full_name ||
           [profile?.nombre, profile?.apellido_paterno, profile?.apellido_materno]
             .filter(Boolean)
             .join(' ') ||
           'Usuario';
-        const carpetaNombre = folderResult.data?.nombre || 'Documentos Generales';
-        const organizacion = workspaceResult.data?.name || 'Mi Organización';
+        const carpetaNombre = folderResult.data?.nombre || 'Sin carpeta';
 
         const loadedDocument: DocumentData = {
           ...data,
@@ -2658,12 +2815,13 @@ export default function VisorDocumentoPage() {
           vencimiento_timezone: data.fecha_vencimiento_timezone || null,
           owner_nombre: ownerNombre,
           carpeta_nombre: carpetaNombre,
-          organizacion,
-          formato: data.file_type || 'application/pdf',
+          espacio_nombre: 'No registrado',
+          organizacion: 'No registrado',
+          formato: data.file_type || undefined,
           hash_sha256: data.file_hash_sha256 || '—',
           firma_completa: 'Pendiente',
           fecha_constancia: 'Pendiente',
-          origen: data.origen || 'Plataforma Web',
+          origen: data.source_template_id ? 'Plantilla' : 'No registrado',
           documento_id: data.documento_id || undefined,
           cancelacion_motivo: data.cancelacion_motivo || undefined,
           cancelacion_descripcion: data.cancelacion_descripcion || undefined,
@@ -2677,6 +2835,38 @@ export default function VisorDocumentoPage() {
           metadata: metadataResult.data || null,
         };
         setDocument(loadedDocument);
+        void (async () => {
+          try {
+            const response = await fetch(
+              `/api/documentos/obtener?id=${encodeURIComponent(docId)}&includeDetails=1`,
+              { headers: await apiAuthHeaders() }
+            );
+            if (!response.ok) {
+              setDocument((current) => current?.id === docId ? { ...current, version_number: null } : current);
+              return;
+            }
+            const { data: details } = await response.json();
+            setDocument((current) =>
+              current?.id === docId
+                ? {
+                    ...current,
+                    version_number: details.version_number,
+                    etiquetas: details.etiquetas,
+                    carpeta_nombre: details.carpeta_nombre || current.carpeta_nombre,
+                    owner_nombre: details.owner_nombre || current.owner_nombre,
+                    espacio_nombre: details.workspace?.name || 'No registrado',
+                    organizacion:
+                      details.workspace?.workspace_type === 'personal'
+                        ? 'No aplica'
+                        : details.workspace?.legal_name || details.workspace?.name || 'No registrado',
+                  }
+                : current
+            );
+          } catch (detailsError) {
+            console.error('[visor-documento] No fue posible cargar los detalles complementarios:', detailsError);
+            setDocument((current) => current?.id === docId ? { ...current, version_number: null } : current);
+          }
+        })();
         const templateHeaders = await apiAuthHeaders();
         const resolvedTemplate = await loadTemplateDocumentSource({
           documentId: docId,
@@ -2784,6 +2974,7 @@ export default function VisorDocumentoPage() {
           setActivityEvents(await fetchDocumentActivity(docId));
           return;
         } catch (activityApiError) {
+          if ((activityApiError as { status?: number }).status === 403) return;
           console.warn(
             '[visor-documento] Activity API unavailable, using direct fallback:',
             activityApiError
@@ -2824,38 +3015,34 @@ export default function VisorDocumentoPage() {
         // ── 2. document_audit_trail (legal audit) ────────────────────────────
         const { data: auditData } = await supabase
           .from('document_audit_trail')
-          .select(
-            'id, action_code, action_description_es, action_category, action_result, actor_name, actor_email, actor_role, document_status_at_action, ip_address, action_at, metadata_encrypted'
-          )
+          .select('id, event_type, event_data, metadata, created_at')
           .eq('document_id', docId)
-          .order('action_at', { ascending: false });
+          .order('created_at', { ascending: false });
 
         if (auditData) {
           auditData.forEach((row: any) => {
             // Avoid duplicates with security_audit_log by checking action+time proximity
             const isDuplicate = allEvents.some(
               (e) =>
-                e.action === row.action_code &&
-                Math.abs(new Date(e.created_at).getTime() - new Date(row.action_at).getTime()) <
+                e.action === row.event_type &&
+                Math.abs(new Date(e.created_at).getTime() - new Date(row.created_at).getTime()) <
                   5000
             );
             if (!isDuplicate) {
               allEvents.push({
                 id: `adt_${row.id}`,
-                action: row.action_code,
+                action: row.event_type,
                 details: {
-                  description: row.action_description_es,
-                  result: row.action_result,
-                  ip_address: row.ip_address,
-                  actor_role: row.actor_role,
-                  doc_status: row.document_status_at_action,
+                  description: row.event_data?.description || row.metadata?.description,
+                  result: row.event_data?.result || row.metadata?.result,
+                  doc_status: row.event_data?.document_status || row.metadata?.document_status,
                 },
-                created_at: row.action_at,
-                actor_name: row.actor_name || 'Sistema',
-                actor_email: row.actor_email || '',
+                created_at: row.created_at,
+                actor_name: row.event_data?.actor_name || row.metadata?.actor_name || 'Sistema',
+                actor_email: row.event_data?.actor_email || row.metadata?.actor_email || '',
                 source: 'audit_trail',
-                category: row.action_category,
-                doc_state_after: row.document_status_at_action,
+                category: row.event_data?.category || row.metadata?.category,
+                doc_state_after: row.event_data?.document_status || row.metadata?.document_status,
               });
             }
           });
@@ -2954,7 +3141,7 @@ export default function VisorDocumentoPage() {
           }
 
           // Document completed event
-          if (docData.fecha_completado && docData.estado === 'completado') {
+          if (docData.fecha_completado) {
             const completedExists = allEvents.some((e) => e.action === 'documento_completado');
             if (!completedExists) {
               allEvents.push({
@@ -3007,30 +3194,6 @@ export default function VisorDocumentoPage() {
               participant_email: pEmail,
             });
 
-            // Participant viewed (en_revision or beyond)
-            if (p.sub_estado && p.sub_estado !== 'sin_revisar') {
-              // Check if there's already a view event for this participant
-              const viewExists = allEvents.some(
-                (e) =>
-                  (e.action === 'documento_visto' || e.action === 'documento_abierto') &&
-                  (e.actor_email === pEmail || e.participant_email === pEmail)
-              );
-              if (!viewExists && pEmail) {
-                allEvents.push({
-                  id: `synth_viewed_${idx}_${docId}`,
-                  action: 'documento_visto',
-                  details: { participant_email: pEmail },
-                  created_at: docData.updated_at || docData.created_at,
-                  actor_name: pName,
-                  actor_email: pEmail,
-                  source: 'synthesized',
-                  category: 'acceso',
-                  participant_name: pName,
-                  participant_email: pEmail,
-                });
-              }
-            }
-
             // Terminal participation states
             if (p.sub_estado === 'firmo' && p.fecha_firma) {
               allEvents.push({
@@ -3072,12 +3235,12 @@ export default function VisorDocumentoPage() {
               });
             }
 
-            if (p.sub_estado === 'aprobo') {
+            if (p.sub_estado === 'aprobo' && (p.fecha_firma || p.fecha_participacion)) {
               allEvents.push({
                 id: `synth_aprobo_${idx}_${docId}`,
                 action: 'aprobacion_otorgada',
                 details: { participant_email: pEmail },
-                created_at: p.fecha_firma || docData.updated_at || docData.created_at,
+                created_at: p.fecha_firma || p.fecha_participacion,
                 actor_name: pName,
                 actor_email: pEmail,
                 source: 'synthesized',
@@ -3088,12 +3251,12 @@ export default function VisorDocumentoPage() {
               });
             }
 
-            if (p.sub_estado === 'cancelo') {
+            if (p.sub_estado === 'cancelo' && docData.cancelado_at) {
               allEvents.push({
                 id: `synth_cancelo_${idx}_${docId}`,
                 action: 'documento_cancelado',
                 details: { participant_email: pEmail },
-                created_at: docData.cancelado_at || docData.updated_at || docData.created_at,
+                created_at: docData.cancelado_at,
                 actor_name: pName,
                 actor_email: pEmail,
                 source: 'synthesized',
@@ -3105,12 +3268,12 @@ export default function VisorDocumentoPage() {
             }
 
             // Participation state change: en_revision
-            if (p.sub_estado === 'en_revision' && pEmail) {
+            if (p.sub_estado === 'en_revision' && pEmail && p.fecha_participacion) {
               allEvents.push({
                 id: `synth_en_revision_${idx}_${docId}`,
                 action: 'cambio_estado_participacion',
                 details: { participant_email: pEmail, estado_nuevo: 'En revisión' },
-                created_at: docData.updated_at || docData.created_at,
+                created_at: p.fecha_participacion,
                 actor_name: pName,
                 actor_email: pEmail,
                 source: 'synthesized',
@@ -3165,18 +3328,9 @@ export default function VisorDocumentoPage() {
         }
 
         // ── 5. Deduplicate and sort ──────────────────────────────────────────
-        const seen = new Set<string>();
-        const unique = allEvents.filter((e) => {
-          // Deduplicate synthesized participant_assigned if audit_trail already has it
-          const key = `${e.action}_${e.actor_email}_${new Date(e.created_at).toISOString().slice(0, 16)}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-
-        unique.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-        setActivityEvents(unique);
+        setActivityEvents(orderDocumentActivity(removeDuplicateSynthesizedActivity(
+          allEvents.filter((event) => Number.isFinite(Date.parse(event.created_at)))
+        )));
       } catch (err) {
         console.error('Error loading activity:', err);
       } finally {
@@ -3469,6 +3623,15 @@ export default function VisorDocumentoPage() {
         }),
       });
       if (res.ok) {
+        const participantIndex = participantes.findIndex((part) => part.id === p.id);
+        if (participantIndex >= 0) {
+          const key = `${docId}:${participantIndex}`;
+          setParticipantDetails((current) => {
+            const next = { ...current };
+            delete next[key];
+            return next;
+          });
+        }
         setReminderSentFor((prev) => new Set(prev).add(p.id));
         // Log reminder activity
         logActivity('recordatorio_enviado', 'notificacion', {
@@ -3506,6 +3669,34 @@ export default function VisorDocumentoPage() {
     } finally {
       setSendingReminderFor(null);
     }
+  };
+
+  const loadParticipantDetails = (index: number) => {
+    const key = `${docId}:${index}`;
+    if (participantDetails[key] || participantDetailRequests.current[key]) return;
+
+    setParticipantDetailsLoading((current) => ({ ...current, [key]: true }));
+    setParticipantDetailsErrors((current) => ({ ...current, [key]: '' }));
+    const request = (async () => {
+      try {
+        const response = await fetch(
+          `/api/documentos/${encodeURIComponent(docId)}/participant-details?participantIndex=${index}`,
+          { headers: await apiAuthHeaders(), cache: 'no-store' }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || 'No fue posible consultar la evidencia.');
+        setParticipantDetails((current) => ({ ...current, [key]: payload.data as ParticipantDetails }));
+      } catch (error) {
+        setParticipantDetailsErrors((current) => ({
+          ...current,
+          [key]: error instanceof Error ? error.message : 'No fue posible consultar la evidencia.',
+        }));
+      } finally {
+        setParticipantDetailsLoading((current) => ({ ...current, [key]: false }));
+        delete participantDetailRequests.current[key];
+      }
+    })();
+    participantDetailRequests.current[key] = request;
   };
 
   const handleAccept = async () => {
@@ -4390,8 +4581,8 @@ export default function VisorDocumentoPage() {
       recordatorio_enviado: 'Recordatorio enviado',
       notificacion_completado_enviada: 'Notificación de completado enviada',
       firma_iniciada: 'Proceso de firma iniciado',
-      firma_completada: 'Documento firmado',
-      firma_rechazada: 'Firma rechazada',
+      firma_completada: 'Firma registrada',
+      firma_rechazada: 'Participación rechazada',
       firma_delegada: 'Firma delegada',
       aprobacion_otorgada: 'Documento aprobado',
       aprobacion_rechazada: 'Aprobación rechazada',
@@ -4414,6 +4605,19 @@ export default function VisorDocumentoPage() {
       acceso_revocado: 'Acceso revocado',
       nota_agregada: 'Nota agregada',
       mensaje_enviado: 'Mensaje enviado',
+      DOCUMENT_INTERNAL_IMPORT: 'Contenido incorporado al documento',
+      document_source_hash_reconciled: 'Integridad del documento de origen comprobada',
+      pdf_firmado_generado: 'PDF firmado generado',
+      pades_bt_verified: 'Firma del PDF verificada',
+      evidence_finalization_enqueued: 'Preparación de evidencias iniciada',
+      certification_completed: 'Certificación final completada',
+      nom151_requested: 'Constancia NOM-151 solicitada',
+      nom151_verified: 'Constancia NOM-151 verificada',
+      document_completed_email_queued: 'Avisos de finalización en preparación',
+      document_completed_email_processing: 'Avisos de finalización en envío',
+      document_completed_email_sent: 'Avisos de finalización enviados',
+      certificacion_criptografica_generada: 'Constancia técnica generada',
+      certificacion_criptografica_descargada: 'Constancia técnica descargada',
       LEGAL_HOLD_ACTIVATED: 'Legal Hold activado',
       LEGAL_HOLD_UPDATED: 'Legal Hold actualizado',
       LEGAL_HOLD_RELEASED: 'Legal Hold liberado',
@@ -4429,7 +4633,7 @@ export default function VisorDocumentoPage() {
       VIEW_ACCESS_SESSION_EXPIRED: 'Expiró el desbloqueo temporal',
     };
     // Enrich label with participant name if available
-    const base = map[action] || action?.replace(/_/g, ' ') || 'Evento';
+    const base = map[action] || 'Evento registrado';
     if (
       event?.participant_name &&
       (action === 'documento_visto' || action === 'documento_abierto')
@@ -4476,7 +4680,14 @@ export default function VisorDocumentoPage() {
       // Only show description if it doesn't contain workspace info
       parts.unshift(details.description);
     }
-    return parts.length > 0 ? parts.join(' · ') : null;
+    if (parts.length > 0) return parts.join(' · ');
+    const explanations: Record<string, string> = {
+      DOCUMENT_INTERNAL_IMPORT: 'Se incorporó contenido de otro documento al crear este expediente.',
+      document_source_hash_reconciled: 'Se comprobó que el contenido de origen conserva su huella digital.',
+      pades_bt_verified: 'Se verificó la firma del PDF generado.',
+      evidence_finalization_enqueued: 'Se inició la preparación de las evidencias finales.',
+    };
+    return explanations[event.action] || null;
   };
 
   const effectiveCampos = React.useMemo(() => camposSolicitados, [camposSolicitados]);
@@ -4639,7 +4850,7 @@ export default function VisorDocumentoPage() {
   // automatica. No depende de abrir Descargas: al cargar el documento el
   // propietario solicita los artefactos pendientes una sola vez.
   useEffect(() => {
-    if (document?.estado !== 'completado' || !docId || !user?.id)
+    if (document?.estado !== 'completado' || document.additional_access_level || !docId || !user?.id)
       return;
 
     if (
@@ -4675,6 +4886,7 @@ export default function VisorDocumentoPage() {
   }, [
     docId,
     document?.estado,
+    document?.additional_access_level,
     document?.file_type,
     document?.owner_id,
     document?.sealed_pdf_path,
@@ -5433,7 +5645,7 @@ export default function VisorDocumentoPage() {
     {
       key: 'activity',
       icon: <Activity size={20} />,
-      title: 'Actividad y auditoría',
+      title: 'Actividad',
       label: 'Actividad',
     },
     ...(accessSummary.enabled && accessSummary.canManage
@@ -5505,9 +5717,15 @@ export default function VisorDocumentoPage() {
         ]
       : []),
   ];
-  const toolbarItems = allToolbarItems.filter(
-    (item) => item.key !== 'comments' || participantes.length > 1
-  );
+  const toolbarItems = allToolbarItems.filter((item) => {
+    if (document.additional_access_level) {
+      return item.key === 'details' || item.key === 'participants' ||
+        (item.key === 'descargas' && document.additional_access_level !== 'view') ||
+        (document.additional_access_level === 'evidence' &&
+          (item.key === 'activity' || item.key === 'auditoria'));
+    }
+    return item.key !== 'comments' || participantes.length > 1;
+  });
   const collaborationAvailable = Boolean(
     activeWorkspace?.workspaceType === 'business' &&
     activeWorkspace.collaborationEnabled &&
@@ -5907,7 +6125,24 @@ export default function VisorDocumentoPage() {
             </nav>
 
             <div className="document-viewer-panel absolute inset-y-0 right-[72px] z-20 flex w-[376px] max-w-[calc(100%-72px)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50 shadow-[-12px_0_28px_rgba(15,23,42,0.08)] lg:static lg:z-auto lg:w-[376px] lg:shadow-none 2xl:w-[416px]">
-              {activeTab === 'details' ? (
+              {document.additional_access_level &&
+              (activeTab === 'details' || !toolbarItems.some((item) => item.key === activeTab)) ? (
+                <>
+                  <div className="viewer-panel-header"><span className="viewer-panel-title">Detalles del documento</span></div>
+                  <div className="flex-1 overflow-y-auto p-4">
+                    <div className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white px-4">
+                      {[
+                        ['Nombre', document.nombre],
+                        ['ID', document.documento_id || document.id],
+                        ['Estado', 'Completado'],
+                        ['Completado', formatDate(document.fecha_completado)],
+                      ].map(([label, value]) => (
+                        <div key={label} className="py-3 text-xs"><p className="font-medium text-slate-500">{label}</p><p className="mt-1 break-all text-slate-900">{value}</p></div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : activeTab === 'details' ? (
                 <>
                   <div className="viewer-panel-header">
                     <span className="viewer-panel-title">Detalles del documento</span>
@@ -5918,7 +6153,7 @@ export default function VisorDocumentoPage() {
                       <div className="rounded-xl border border-border bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-border/60">
                           <span className="text-sm font-semibold text-foreground">
-                            Información General
+                            Información del documento
                           </span>
                         </div>
                         <div className="p-4 flex flex-col gap-3">
@@ -5942,9 +6177,9 @@ export default function VisorDocumentoPage() {
                                 FORMATO
                               </p>
                               <p className="text-sm text-foreground">
-                                {templateDocument && document.estado !== 'completado'
-                                  ? 'Documento de plantilla'
-                                  : document.formato || 'PDF'}
+                                {document.formato?.toLowerCase().startsWith('application/pdf') || document.formato?.toLowerCase() === 'pdf'
+                                  ? 'PDF'
+                                  : document.formato || 'No registrado'}
                               </p>
                             </div>
                             <div className="flex-1">
@@ -5962,7 +6197,7 @@ export default function VisorDocumentoPage() {
                                 PÁGINAS
                               </p>
                               <p className="text-sm text-foreground">
-                                {document.metadata?.pdf_page_count ?? totalPages ?? '—'}
+                                {document.metadata?.pdf_page_count ?? (templateDocument ? undefined : totalPages) ?? '—'}
                               </p>
                             </div>
                             <div className="flex-1">
@@ -5980,12 +6215,34 @@ export default function VisorDocumentoPage() {
                           </div>
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                              PROVIENE
+                              ORIGEN
                             </p>
                             <p className="text-sm text-foreground">
-                              {document.origen || 'Plataforma Web'}
+                              {document.origen || 'No registrado'}
                             </p>
                           </div>
+                          <div className="flex gap-4">
+                            <div className="flex-1">
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">VERSIÓN</p>
+                              <p className="text-sm text-foreground">{document.version_number === undefined ? 'Cargando...' : document.version_number ? `v${document.version_number}` : 'No disponible'}</p>
+                            </div>
+                          </div>
+                          {document.descripcion?.trim() && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">DESCRIPCIÓN</p>
+                              <p className="text-sm text-foreground whitespace-pre-wrap break-words">{document.descripcion}</p>
+                            </div>
+                          )}
+                          {document.etiquetas && document.etiquetas.length > 0 && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">ETIQUETAS</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {document.etiquetas.map((tag) => (
+                                  <span key={tag.id} className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-700">{tag.nombre}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -6068,10 +6325,10 @@ export default function VisorDocumentoPage() {
                         </div>
                       )}
 
-                      {/* ── Auditoría ────────────────────────────────────────── */}
+                      {/* ── Ciclo de vida ────────────────────────────────────── */}
                       <div className="rounded-xl border border-border bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-border/60">
-                          <span className="text-sm font-semibold text-foreground">Auditoría</span>
+                          <span className="text-sm font-semibold text-foreground">Ciclo de vida</span>
                         </div>
                         <div className="p-4 flex flex-col gap-3">
                           <div>
@@ -6084,7 +6341,7 @@ export default function VisorDocumentoPage() {
                           </div>
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                              FECHA Y HORA DE CREACIÓN
+                              CREADO
                             </p>
                             <p className="text-sm text-foreground">
                               {formatDate(document.created_at)}
@@ -6092,15 +6349,7 @@ export default function VisorDocumentoPage() {
                           </div>
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                              MODIFICADO POR
-                            </p>
-                            <p className="text-sm text-foreground">
-                              {formatDisplayName(document.owner_nombre)}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                              FECHA Y HORA DE MODIFICACIÓN
+                              ÚLTIMA ACTUALIZACIÓN
                             </p>
                             <p className="text-sm text-foreground">
                               {formatDate(document.updated_at)}
@@ -6108,7 +6357,7 @@ export default function VisorDocumentoPage() {
                           </div>
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                              FECHA DE VENCIMIENTO
+                              VENCIMIENTO
                             </p>
                             <p className="text-sm text-foreground">
                               {document.vencimiento
@@ -6124,16 +6373,40 @@ export default function VisorDocumentoPage() {
                           {document.fecha_completado && (
                             <div>
                               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                                FECHA Y HORA DE FIRMADO POR TODAS LAS PARTES
+                                COMPLETADO
                               </p>
                               <p className="text-sm text-foreground">
                                 {formatDate(document.fecha_completado)}
                               </p>
                             </div>
                           )}
+                          {document.cancelado_at && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">CANCELADO</p>
+                              <p className="text-sm text-foreground">{formatDate(document.cancelado_at)}</p>
+                            </div>
+                          )}
+                          {document.estado === 'rechazado' && participantes.some((p) => p.fecha_rechazo) && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">RECHAZADO</p>
+                              <p className="text-sm text-foreground">{formatDate(participantes.filter((p) => p.fecha_rechazo).map((p) => p.fecha_rechazo!).sort().at(-1))}</p>
+                            </div>
+                          )}
+                          {document.cancelacion_motivo && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">MOTIVO DE CANCELACIÓN</p>
+                              <p className="text-sm text-foreground">{document.cancelacion_motivo}</p>
+                            </div>
+                          )}
+                          {document.cancelacion_descripcion && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">DETALLE DE CANCELACIÓN</p>
+                              <p className="text-sm text-foreground">{document.cancelacion_descripcion}</p>
+                            </div>
+                          )}
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                              ZONA HORARIA
+                              ZONA HORARIA DE VISUALIZACIÓN
                             </p>
                             <p className="text-sm text-foreground">
                               Hora local del visor: {getEffectiveTimeZone()} (
@@ -6143,18 +6416,22 @@ export default function VisorDocumentoPage() {
                         </div>
                       </div>
 
-                      {/* ── Ubicación ────────────────────────────────────────── */}
+                      {/* ── Ubicación y organización ────────────────────────── */}
                       <div className="rounded-xl border border-border bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-border/60">
-                          <span className="text-sm font-semibold text-foreground">Ubicación</span>
+                          <span className="text-sm font-semibold text-foreground">Ubicación y organización</span>
                         </div>
                         <div className="p-4 flex flex-col gap-3">
+                          <div>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">ESPACIO</p>
+                            <p className="text-sm text-foreground">{document.espacio_nombre || 'No registrado'}</p>
+                          </div>
                           <div>
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
                               CARPETA
                             </p>
                             <p className="text-sm text-foreground">
-                              {document.carpeta_nombre || 'Documentos Generales'}
+                              {document.carpeta_nombre || 'Sin carpeta'}
                             </p>
                           </div>
                           <div>
@@ -6162,227 +6439,70 @@ export default function VisorDocumentoPage() {
                               ORGANIZACIÓN
                             </p>
                             <p className="text-sm text-foreground">
-                              {document.organizacion || 'Mi Organización'}
+                              {document.organizacion || 'No aplica'}
                             </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">PROPIETARIO</p>
+                            <p className="text-sm text-foreground">{formatDisplayName(document.owner_nombre)}</p>
                           </div>
                         </div>
                       </div>
 
-                      {/* ── Firmantes ────────────────────────────────────────── */}
+                      {/* ── Configuración del documento ────────────────────── */}
                       <div className="rounded-xl border border-border bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-border/60">
-                          <span className="text-sm font-semibold text-foreground">
-                            Firmantes ({participantes.length})
-                          </span>
+                          <span className="text-sm font-semibold text-foreground">Configuración del documento</span>
                         </div>
-                        <div className="p-4">
-                          {participantes.length === 0 ? (
-                            <p className="text-xs text-muted-foreground">
-                              Sin firmantes registrados.
-                            </p>
-                          ) : (
-                            <div className="flex flex-col gap-3">
-                              {participantes.map((p, idx) => {
-                                const pEstado =
-                                  participanteEstadoConfig[p.estado?.toLowerCase()] ||
-                                  participanteEstadoConfig['pendiente'];
-                                const initials = getInitials(p.nombre || 'U');
-                                return (
-                                  <div
-                                    key={p.id}
-                                    className="rounded-lg border border-border bg-slate-50 p-3"
-                                  >
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-[10px] font-semibold text-blue-600">
-                                          {initials}
-                                        </span>
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-medium text-foreground truncate">
-                                          {p.nombre}
-                                        </p>
-                                        {p.email && (
-                                          <p className="text-[10px] text-muted-foreground truncate">
-                                            {p.email}
-                                          </p>
-                                        )}
-                                      </div>
-                                      <span
-                                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${pEstado.bg} ${pEstado.color} flex-shrink-0`}
-                                      >
-                                        {pEstado.label}
-                                      </span>
-                                    </div>
-                                    <div className="flex flex-col gap-1.5 mt-1">
-                                      <div className="flex gap-2">
-                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
-                                          Método firma
-                                        </span>
-                                        <span className="text-[10px] text-foreground">
-                                          {p.metodo_firma || '—'}
-                                        </span>
-                                      </div>
-                                      <div className="flex gap-2">
-                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
-                                          IP firmante
-                                        </span>
-                                        <span className="text-[10px] text-foreground font-mono">
-                                          {p.ip_address || '—'}
-                                        </span>
-                                      </div>
-                                      <div className="flex gap-2">
-                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
-                                          Lugar firma
-                                        </span>
-                                        <span className="text-[10px] text-foreground">
-                                          {p.lugar_firma || '—'}
-                                        </span>
-                                      </div>
-                                      <div className="flex gap-2">
-                                        <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
-                                          Fecha firma
-                                        </span>
-                                        <span className="text-[10px] text-foreground">
-                                          {p.fecha_firma ? formatDate(p.fecha_firma) : '—'}
-                                        </span>
-                                      </div>
-                                      {p.motivo_rechazo && (
-                                        <div className="flex gap-2">
-                                          <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
-                                            Motivo rechazo
-                                          </span>
-                                          <span className="text-[10px] text-red-600">
-                                            {p.motivo_rechazo}
-                                          </span>
-                                        </div>
-                                      )}
-                                      {p.fecha_rechazo && (
-                                        <div className="flex gap-2">
-                                          <span className="text-[10px] font-semibold text-slate-400 uppercase w-24 flex-shrink-0">
-                                            Fecha rechazo
-                                          </span>
-                                          <span className="text-[10px] text-foreground">
-                                            {formatDate(p.fecha_rechazo)}
-                                          </span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                        <div className="p-4 flex flex-col gap-3">
+                          <div>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">VENCIMIENTO</p>
+                            <p className="text-sm text-foreground">{document.vencimiento ? formatDate(document.vencimiento) : 'Sin vencimiento'}</p>
+                          </div>
+                          {document.participation_order && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">ORDEN DE FIRMA</p>
+                              <p className="text-sm text-foreground">
+                                {({ paralelo: 'Paralelo', secuencial: 'Secuencial', mixto: 'Mixto' } as Record<string, string>)[document.participation_order] || document.participation_order}
+                              </p>
+                            </div>
+                          )}
+                          {document.recordatorio_frecuencia && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">RECORDATORIOS</p>
+                              <p className="text-sm text-foreground">
+                                {({ diario: 'Diario', cada_2_dias: 'Cada 2 días', cada_3_dias: 'Cada 3 días', semanal: 'Semanal', quincenal: 'Quincenal' } as Record<string, string>)[document.recordatorio_frecuencia] || document.recordatorio_frecuencia}
+                              </p>
+                            </div>
+                          )}
+                          {document.tiene_codigo_acceso && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">CÓDIGO DE ACCESO</p>
+                              <p className="text-sm text-foreground">Requerido</p>
+                            </div>
+                          )}
+                          {document.es_publico && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">PORTAL PÚBLICO</p>
+                              <p className="text-sm text-foreground">{document.estado === 'completado' ? 'Publicado' : 'Al completar'}</p>
+                            </div>
+                          )}
+                          {(document.legal_hold || document.legal_hold_status === 'ACTIVE') && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">LEGAL HOLD</p>
+                              <p className="text-sm text-foreground">Activo</p>
                             </div>
                           )}
                         </div>
                       </div>
-
-                      {/* ── Cancelación (condicional) ─────────────────────────── */}
-                      {(document.cancelacion_motivo || document.cancelado_at) && (
-                        <div className="rounded-xl border border-border bg-white overflow-hidden">
-                          <div className="px-4 py-3 border-b border-border/60">
+                      {/* ── Metadatos del PDF (opcional) ─────────────────────── */}
+                      {document.metadata && Object.values(document.metadata).some(Boolean) && (
+                        <details className="rounded-xl border border-border bg-white overflow-hidden">
+                          <summary className="cursor-pointer px-4 py-3">
                             <span className="text-sm font-semibold text-foreground">
-                              Cancelación
+                              Metadatos del PDF
                             </span>
-                          </div>
-                          <div className="p-4 flex flex-col gap-3">
-                            {document.cancelacion_motivo && (
-                              <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                                  MOTIVO DE RECHAZO / CANCELACIÓN
-                                </p>
-                                <p className="text-sm text-foreground">
-                                  {document.cancelacion_motivo}
-                                </p>
-                              </div>
-                            )}
-                            {document.cancelacion_descripcion && (
-                              <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                                  DESCRIPCIÓN
-                                </p>
-                                <p className="text-sm text-foreground">
-                                  {document.cancelacion_descripcion}
-                                </p>
-                              </div>
-                            )}
-                            {document.cancelado_at && (
-                              <div>
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                                  FECHA Y HORA DE RECHAZO / CANCELACIÓN
-                                </p>
-                                <p className="text-sm text-foreground">
-                                  {formatDate(document.cancelado_at)}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── Seguridad y NOM-151 ──────────────────────────────── */}
-                      <div className="rounded-xl border border-border bg-white overflow-hidden">
-                        <div className="px-4 py-3 border-b border-border/60">
-                          <span className="text-sm font-semibold text-foreground">
-                            Seguridad y NOM-151
-                          </span>
-                        </div>
-                        <div className="p-4 flex flex-col gap-3">
-                          <div className="flex gap-4">
-                            <div className="flex-1">
-                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                                NOM-151
-                              </p>
-                              <span
-                                className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded ${document.fecha_constancia && document.fecha_constancia !== 'Pendiente' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}
-                              >
-                                {document.fecha_constancia &&
-                                document.fecha_constancia !== 'Pendiente'
-                                  ? 'Sí'
-                                  : 'No'}
-                              </span>
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                                FECHA CONSTANCIA
-                              </p>
-                              <p className="text-sm text-foreground">
-                                {document.fecha_constancia || 'Pendiente'}
-                              </p>
-                            </div>
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                              IDENTIFICADOR HASH NOM-151
-                            </p>
-                            <p className="text-xs text-foreground font-mono break-all">
-                              {document.hash_sha256 || '—'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                              DATOS DE EMISOR DE CONSTANCIA
-                            </p>
-                            <p className="text-sm text-foreground">DocuBox TSA Service</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
-                              FIRMA COMPLETA
-                            </p>
-                            <p className="text-sm text-foreground">
-                              {document.firma_completa || 'Pendiente'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* ── Metadata del Archivo ─────────────────────────────── */}
-                      {document.metadata && (
-                        <div className="rounded-xl border border-border bg-white overflow-hidden">
-                          <div className="px-4 py-3 border-b border-border/60">
-                            <span className="text-sm font-semibold text-foreground">
-                              Metadata del Archivo
-                            </span>
-                          </div>
+                          </summary>
                           <div className="p-4 flex flex-col gap-3">
                             {document.metadata.pdf_author && (
                               <div>
@@ -6483,7 +6603,7 @@ export default function VisorDocumentoPage() {
                               </div>
                             )}
                           </div>
-                        </div>
+                        </details>
                       )}
                     </div>
                   </div>
@@ -6495,27 +6615,27 @@ export default function VisorDocumentoPage() {
                   </div>
                   <div className="flex-1 overflow-y-auto p-4">
                     <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 text-xs leading-5 text-slate-600">
-                      Define quién puede consultar o editar este documento. Los permisos se aplican
-                      al iniciar sesión con el correo indicado.
+                      Comparte el documento completado con usuarios registrados, sin agregarlos al proceso de firma.
                     </div>
 
                     <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4">
                       <div className="flex items-center gap-2">
                         <Shield size={16} className="text-slate-500" />
-                        <h3 className="text-sm font-semibold text-slate-900">Acceso del flujo</h3>
+                        <h3 className="text-sm font-semibold text-slate-900">Acceso por función</h3>
                       </div>
                       <p className="mt-2 text-xs leading-5 text-slate-500">
-                        El propietario, los administradores activos del espacio y los participantes
-                        del proceso conservan acceso según su función.
+                        El propietario, los administradores autorizados y los participantes conservan el acceso correspondiente a su función.
                       </p>
                       <div className="mt-3 flex flex-col gap-2">
                         <div className="flex items-center justify-between gap-3 text-xs">
                           <span className="truncate text-slate-700">
                             {document?.owner_nombre || 'Propietario del documento'}
                           </span>
-                          <span className="shrink-0 font-medium text-slate-500">Propietario</span>
+                          <span className="shrink-0 font-medium text-slate-500">
+                            Propietario{participantes.some((p) => p.id === document.owner_id || p.nombre === document.owner_nombre) ? ' · Participante' : ''}
+                          </span>
                         </div>
-                        {participantes.slice(0, 4).map((participant) => (
+                        {participantes.filter((p) => p.id !== document.owner_id && p.nombre !== document.owner_nombre).slice(0, 4).map((participant) => (
                           <div
                             key={participant.id}
                             className="flex items-center justify-between gap-3 text-xs"
@@ -6528,9 +6648,9 @@ export default function VisorDocumentoPage() {
                             </span>
                           </div>
                         ))}
-                        {participantes.length > 4 && (
+                        {participantes.length > 5 && (
                           <p className="text-xs text-slate-400">
-                            y {participantes.length - 4} participantes más
+                            y {participantes.length - 5} participantes más
                           </p>
                         )}
                       </div>
@@ -6549,49 +6669,68 @@ export default function VisorDocumentoPage() {
                       <div className="mb-3 flex items-center gap-2">
                         <UserPlus size={16} className="text-primary" />
                         <h3 className="text-sm font-semibold text-slate-900">
-                          {canManagePermissions ? 'Agregar acceso' : 'Invitar lector'}
+                          Agregar acceso
                         </h3>
                       </div>
                       <div className="flex flex-col gap-3">
                         <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-700">
-                          Correo electrónico
+                          Buscar usuario registrado
                           <input
-                            type="email"
-                            value={permissionEmail}
-                            onChange={(event) => setPermissionEmail(event.target.value)}
-                            placeholder="persona@ejemplo.com"
+                            type="search"
+                            value={permissionQuery}
+                            onChange={(event) => {
+                              setPermissionQuery(event.target.value);
+                              setPermissionSelectedUser(null);
+                            }}
+                            placeholder="Nombre del espacio o correo completo"
                             className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                           />
                         </label>
+                        {permissionSelectedUser ? (
+                          <div className="flex items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs">
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-slate-900">{permissionSelectedUser.name}</p>
+                              <p className="truncate text-slate-600">{permissionSelectedUser.email}</p>
+                            </div>
+                            <button type="button" onClick={() => { setPermissionSelectedUser(null); setPermissionQuery(''); }} title="Quitar selección" className="shrink-0 text-slate-500 hover:text-slate-900"><X size={15} /></button>
+                          </div>
+                        ) : permissionSearchLoading ? (
+                          <p className="text-xs text-slate-500">Buscando usuarios…</p>
+                        ) : permissionSearchResults.length ? (
+                          <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200">
+                            {permissionSearchResults.map((result) => (
+                              <button key={result.id} type="button" disabled={Boolean(result.unavailableReason)}
+                                onClick={() => { setPermissionSelectedUser(result); setPermissionQuery(result.name); }}
+                                className="flex w-full flex-col border-b border-slate-100 px-3 py-2 text-left text-xs last:border-0 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                                <span className="font-semibold text-slate-900">{result.name}</span>
+                                <span className="text-slate-500">{result.email}{result.unavailableReason ? ` · ${result.unavailableReason}` : ''}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : permissionQuery.trim().length >= 3 ? (
+                          <p className="text-xs text-slate-500">No encontramos un usuario registrado. Para usuarios externos, escribe su correo completo.</p>
+                        ) : null}
                         <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-700">
-                          Acceso
+                          Permiso
                           <select
                             value={permissionAccessLevel}
                             onChange={(event) =>
-                              setPermissionAccessLevel(event.target.value as 'view' | 'edit')
+                              setPermissionAccessLevel(event.target.value as 'view' | 'download' | 'evidence')
                             }
-                            disabled={!canManagePermissions}
                             className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                           >
-                            <option value="view">Puede ver el documento</option>
-                            <option value="edit">Puede editar el documento</option>
+                            <option value="view">Solo visualizar</option>
+                            <option value="download">Visualizar y descargar</option>
+                            <option value="evidence">Documento y evidencias</option>
                           </select>
                         </label>
-                        {canManagePermissions && (
-                          <label className="flex items-start gap-2 text-xs leading-5 text-slate-600">
-                            <input
-                              type="checkbox"
-                              checked={permissionCanInvite}
-                              onChange={(event) => setPermissionCanInvite(event.target.checked)}
-                              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-                            />
-                            <span>Puede invitar a otras personas a ver el documento.</span>
-                          </label>
+                        {permissionAccessLevel === 'evidence' && (
+                          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Este permiso puede incluir información técnica y de auditoría del proceso de firma.</p>
                         )}
                         <button
                           type="button"
                           onClick={() => void saveDocumentPermission()}
-                          disabled={!permissionEmail.trim() || permissionSaving}
+                          disabled={!permissionSelectedUser || permissionSaving}
                           className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {permissionSaving ? (
@@ -6599,13 +6738,13 @@ export default function VisorDocumentoPage() {
                           ) : (
                             <UserPlus size={14} />
                           )}
-                          {canManagePermissions ? 'Guardar permiso' : 'Invitar lector'}
+                          Otorgar acceso
                         </button>
                       </div>
                     </div>
 
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-semibold text-slate-900">Accesos asignados</h3>
+                      <h3 className="text-sm font-semibold text-slate-900">Accesos adicionales</h3>
                       <span className="text-xs text-slate-500">{documentPermissions.length}</span>
                     </div>
                     {permissionsLoading ? (
@@ -6626,36 +6765,36 @@ export default function VisorDocumentoPage() {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-medium text-slate-900">
-                                  {permission.grantee_email || 'Usuario registrado'}
+                                  {permission.grantee_name || permission.grantee_email || 'Usuario registrado'}
                                 </p>
+                                <p className="truncate text-xs text-slate-500">{permission.grantee_email}</p>
                                 <div className="mt-1 flex flex-wrap gap-1.5">
                                   <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                                    {permission.access_level === 'edit' ? (
-                                      <Edit3 size={10} />
-                                    ) : (
-                                      <Eye size={10} />
-                                    )}
-                                    {permission.access_level === 'edit'
-                                      ? 'Puede editar'
-                                      : 'Puede ver'}
+                                    <Eye size={10} />
+                                    {permission.access_level === 'evidence'
+                                      ? 'Documento y evidencias'
+                                      : permission.access_level === 'download'
+                                        ? 'Visualizar y descargar'
+                                        : 'Solo visualizar'}
                                   </span>
-                                  {permission.can_invite && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
-                                      <UserPlus size={10} /> Puede invitar
-                                    </span>
-                                  )}
                                 </div>
+                                <p className="mt-1 text-[11px] text-slate-500">Agregado por {permission.created_by_name || 'usuario autorizado'} · {formatDate(permission.created_at)}</p>
                               </div>
                               <div className="flex shrink-0 gap-1">
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setPermissionEmail(permission.grantee_email || '');
+                                    setPermissionSelectedUser({
+                                      id: permission.grantee_user_id || '',
+                                      name: permission.grantee_name || permission.grantee_email || 'Usuario registrado',
+                                      email: permission.grantee_email || '',
+                                      unavailableReason: null,
+                                    });
+                                    setPermissionQuery(permission.grantee_name || permission.grantee_email || '');
                                     setPermissionAccessLevel(permission.access_level);
-                                    setPermissionCanInvite(permission.can_invite);
                                     setPermissionsError(null);
                                   }}
-                                  disabled={!permission.grantee_email || permissionSaving}
+                                  disabled={!permission.grantee_user_id || permissionSaving}
                                   className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                                   title="Modificar permiso"
                                 >
@@ -7181,8 +7320,30 @@ export default function VisorDocumentoPage() {
                   <div className="viewer-panel-header">
                     <span className="viewer-panel-title">Participantes</span>
                   </div>
-                  <div className="flex-1 overflow-y-auto">
-                    {participantes.length === 0 ? (
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    {document.additional_access_level ? (
+                      <div className="space-y-2 p-3">
+                        {participantes.map((participant, index) => (
+                          <div key={`${participant.nombre}-${index}`} className="rounded-md border border-slate-200 bg-white p-3 text-xs">
+                            <p className="font-semibold text-slate-900">{participant.nombre || 'Participante'}</p>
+                            <p className="mt-1 text-slate-600">{[participant.rolDocumento, participant.acto].filter(Boolean).join(' · ')}</p>
+                            <p className="mt-1 text-slate-600">{getParticipantBadges(participant).main?.label || participant.sub_estado || 'Participación registrada'}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : selectedParticipantIndex !== null ? (
+                      <ParticipantEvidenceDrawer
+                        data={participantDetails[`${docId}:${selectedParticipantIndex}`]}
+                        loading={Boolean(participantDetailsLoading[`${docId}:${selectedParticipantIndex}`])}
+                        error={participantDetailsErrors[`${docId}:${selectedParticipantIndex}`]}
+                        fallbackName={participantes[selectedParticipantIndex]?.nombre || 'Participante'}
+                        onClose={() => setSelectedParticipantIndex(null)}
+                        onActivity={() => {
+                          setSelectedParticipantIndex(null);
+                          setActiveTab('activity');
+                        }}
+                      />
+                    ) : participantes.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-40 gap-2 px-4">
                         <Users size={32} className="text-slate-200" />
                         <p className="text-xs text-muted-foreground text-center">
@@ -7210,6 +7371,14 @@ export default function VisorDocumentoPage() {
                               response.participante_email.trim().toLowerCase() ===
                                 p.email.trim().toLowerCase() && response.firma_completada
                           );
+                          const hasSigned = Boolean(
+                            ownSignedResponse ||
+                            ['firmo', 'firmado'].includes(String(p.sub_estado || p.estado || '').toLowerCase())
+                          );
+                          const detailKey = `${docId}:${idx}`;
+                          const detail = participantDetails[detailKey];
+                          const detailLoading = Boolean(participantDetailsLoading[detailKey]);
+                          const detailError = participantDetailsErrors[detailKey];
                           return (
                             <div
                               key={p.id}
@@ -7312,56 +7481,86 @@ export default function VisorDocumentoPage() {
                                   </span>
                                 </div>
                               )}
-                              {/* Divider + Dates */}
-                              <div className="border-t border-slate-100 mt-3 mb-2.5" />
-                              {/* Fecha de notificación */}
-                              {p.fecha_notificacion && (
-                                <div className="flex items-start gap-1.5 mt-1.5">
-                                  <Bell size={13} className="text-slate-400 flex-shrink-0 mt-0.5" />
-                                  <div>
-                                    <span className="text-[10px] font-semibold text-slate-400 uppercase block">
-                                      Fecha de notificación
-                                    </span>
-                                    <span className="text-xs text-slate-600">
-                                      {formatDate(p.fecha_notificacion)}
-                                    </span>
-                                  </div>
+                              <div className="mt-3 border-t border-slate-100" />
+                              <details
+                                className="group py-2"
+                                onToggle={(event) => {
+                                  if (event.currentTarget.open) loadParticipantDetails(idx);
+                                }}
+                              >
+                                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px] font-semibold uppercase text-slate-600">
+                                  <span className="flex items-center gap-2"><Bell size={13} /> Notificaciones y recordatorios</span>
+                                  <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
+                                </summary>
+                                <div className="space-y-2.5 pt-3 text-xs text-slate-600">
+                                  {detailLoading && <p>Cargando historial...</p>}
+                                  {detailError && <p role="alert" className="text-red-700">{detailError}</p>}
+                                  {detail?.scope === 'summary' && <p>El historial de notificaciones de esta persona está restringido.</p>}
+                                  {detail?.notifications && (
+                                    <>
+                                      <div>
+                                        <p className="font-medium text-slate-700">Notificación inicial</p>
+                                        <p className="mt-0.5">{participantDetailDate(detail.notifications.initial?.at)}{detail.notifications.initial && ` · ${detail.notifications.initial.status}`}</p>
+                                      </div>
+                                      <div>
+                                        <p className="font-medium text-slate-700">Último recordatorio</p>
+                                        <p className="mt-0.5">{participantDetailDate(detail.notifications.lastReminder?.at)}{detail.notifications.lastReminder && ` · ${detail.notifications.lastReminder.status}`}</p>
+                                      </div>
+                                      <div>
+                                        <p className="font-medium text-slate-700">Recordatorios enviados</p>
+                                        <p className="mt-0.5">{detail.notifications.reminderCount ?? 'Historial no disponible'}</p>
+                                      </div>
+                                      {detail.notifications.history.length > 0 && (
+                                        <details className="group/history border-t border-slate-100 pt-2">
+                                          <summary className="flex cursor-pointer list-none items-center justify-between text-blue-700">
+                                            Ver historial de notificaciones ({detail.notifications.history.length})
+                                            <ChevronDown size={14} className="transition-transform group-open/history:rotate-180" />
+                                          </summary>
+                                          <ol className="mt-2 space-y-2">
+                                            {detail.notifications.history.map((event) => (
+                                              <li key={event.id} className="border-l-2 border-slate-200 pl-2">
+                                                <span className="font-medium">{event.type === 'initial' ? 'Notificación inicial' : 'Recordatorio'}</span>
+                                                <span className="block">{participantDetailDate(event.at)} · {event.status}</span>
+                                              </li>
+                                            ))}
+                                          </ol>
+                                        </details>
+                                      )}
+                                    </>
+                                  )}
                                 </div>
-                              )}
-                              {/* Fecha de último recordatorio */}
-                              {p.fecha_recordatorio && (
-                                <div className="flex items-start gap-1.5 mt-1.5">
-                                  <Clock
-                                    size={13}
-                                    className="text-slate-400 flex-shrink-0 mt-0.5"
-                                  />
-                                  <div>
-                                    <span className="text-[10px] font-semibold text-slate-400 uppercase block">
-                                      Fecha de último recordatorio
-                                    </span>
-                                    <span className="text-xs text-slate-600">
-                                      {formatDate(p.fecha_recordatorio)}
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
-                              {/* Fecha de participación */}
-                              {p.fecha_participacion && (
-                                <div className="flex items-start gap-1.5 mt-1.5">
-                                  <CheckCircle2
-                                    size={13}
-                                    className="text-slate-400 flex-shrink-0 mt-0.5"
-                                  />
-                                  <div>
-                                    <span className="text-[10px] font-semibold text-slate-400 uppercase block">
-                                      Fecha de participación
-                                    </span>
-                                    <span className="text-xs text-slate-600">
-                                      {formatDate(p.fecha_participacion)}
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
+                              </details>
+                              <details
+                                className="group border-t border-slate-100 py-2"
+                                onToggle={(event) => {
+                                  if (event.currentTarget.open) loadParticipantDetails(idx);
+                                }}
+                              >
+                                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px] font-semibold uppercase text-slate-600">
+                                  <span className="flex items-center gap-2"><PenLine size={13} /> Participación</span>
+                                  <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
+                                </summary>
+                                <dl className="space-y-2 pt-3 text-xs">
+                                  <div className="flex justify-between gap-3"><dt className="text-slate-500">Método</dt><dd className="text-right text-slate-700">{detail?.method || p.metodo_firma || 'No registrado'}</dd></div>
+                                  <div className="flex justify-between gap-3"><dt className="text-slate-500">Estado</dt><dd className="text-right text-slate-700">{detail?.status || mainBadge?.label || subBadge?.label || p.estado}</dd></div>
+                                  <div className="flex justify-between gap-3"><dt className="text-slate-500">Fecha y hora</dt><dd className="text-right text-slate-700">{participantDetailDate(detail?.signedAt || p.fecha_participacion || p.fecha_firma)}</dd></div>
+                                  {detail?.scope === 'full' && detail.evidence?.otpVerified !== null && detail.evidence?.otpVerified !== undefined && (
+                                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Autenticación</dt><dd className="text-right text-slate-700">OTP {detail.evidence.otpVerified ? 'verificado' : 'no verificado'}</dd></div>
+                                  )}
+                                </dl>
+                                {hasSigned && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedParticipantIndex(idx);
+                                      loadParticipantDetails(idx);
+                                    }}
+                                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:underline"
+                                  >
+                                    <Eye size={14} /> Ver evidencia de firma
+                                  </button>
+                                )}
+                              </details>
                               {/* Send Reminder button — only for pending/non-terminal participants with email */}
                               {isAuthenticatedParticipant && ownSignedResponse && (
                                 <button
@@ -7705,7 +7904,7 @@ export default function VisorDocumentoPage() {
                 <>
                   <div className="viewer-panel-header justify-between">
                     <div>
-                      <span className="viewer-panel-title">Actividad y auditoría</span>
+                      <span className="viewer-panel-title">Actividad</span>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         Registro detallado de acciones y eventos.
                       </p>
@@ -7719,6 +7918,10 @@ export default function VisorDocumentoPage() {
                           setActivityLoading(false);
                           return;
                         } catch (activityApiError) {
+                          if ((activityApiError as { status?: number }).status === 403) {
+                            setActivityLoading(false);
+                            return;
+                          }
                           console.warn(
                             '[visor-documento] Activity refresh API unavailable, using direct fallback:',
                             activityApiError
@@ -7734,11 +7937,9 @@ export default function VisorDocumentoPage() {
                             .order('created_at', { ascending: false }),
                           supabase
                             .from('document_audit_trail')
-                            .select(
-                              'id, action_code, action_description_es, action_category, action_result, actor_name, actor_email, actor_role, document_status_at_action, ip_address, action_at, metadata_encrypted'
-                            )
+                            .select('id, event_type, event_data, metadata, created_at')
                             .eq('document_id', docId)
-                            .order('action_at', { ascending: false }),
+                            .order('created_at', { ascending: false }),
                           supabase
                             .from('document_activity_log')
                             .select(
@@ -7774,29 +7975,27 @@ export default function VisorDocumentoPage() {
                               auditRes.data.forEach((row: any) => {
                                 const isDup = allEvents.some(
                                   (e) =>
-                                    e.action === row.action_code &&
+                                    e.action === row.event_type &&
                                     Math.abs(
                                       new Date(e.created_at).getTime() -
-                                        new Date(row.action_at).getTime()
+                                        new Date(row.created_at).getTime()
                                     ) < 5000
                                 );
                                 if (!isDup)
                                   allEvents.push({
                                     id: `adt_${row.id}`,
-                                    action: row.action_code,
+                                    action: row.event_type,
                                     details: {
-                                      description: row.action_description_es,
-                                      result: row.action_result,
-                                      ip_address: row.ip_address,
-                                      actor_role: row.actor_role,
-                                      doc_status: row.document_status_at_action,
+                                      description: row.event_data?.description || row.metadata?.description,
+                                      result: row.event_data?.result || row.metadata?.result,
+                                      doc_status: row.event_data?.document_status || row.metadata?.document_status,
                                     },
-                                    created_at: row.action_at,
-                                    actor_name: row.actor_name || 'Sistema',
-                                    actor_email: row.actor_email || '',
+                                    created_at: row.created_at,
+                                    actor_name: row.event_data?.actor_name || row.metadata?.actor_name || 'Sistema',
+                                    actor_email: row.event_data?.actor_email || row.metadata?.actor_email || '',
                                     source: 'audit_trail',
-                                    category: row.action_category,
-                                    doc_state_after: row.document_status_at_action,
+                                    category: row.event_data?.category || row.metadata?.category,
+                                    doc_state_after: row.event_data?.document_status || row.metadata?.document_status,
                                   });
                               });
                             if (actRes.data)
@@ -7825,18 +8024,55 @@ export default function VisorDocumentoPage() {
                                   category: 'seguridad',
                                 })
                               );
-                            const seen = new Set<string>();
-                            const unique = allEvents.filter((e) => {
-                              const key = `${e.action}_${e.actor_email}_${new Date(e.created_at).toISOString().slice(0, 16)}`;
-                              if (seen.has(key)) return false;
-                              seen.add(key);
-                              return true;
-                            });
-                            unique.sort(
-                              (a, b) =>
-                                new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-                            );
-                            setActivityEvents(unique);
+                            if (document?.created_at) {
+                              allEvents.push({
+                                id: `synth_created_${docId}`,
+                                action: 'documento_creado',
+                                details: { nombre: document.nombre },
+                                created_at: document.created_at,
+                                actor_name: document.owner_nombre || 'Propietario',
+                                actor_email: '',
+                                source: 'synthesized',
+                              });
+                              participantes.forEach((participant, index) => {
+                                allEvents.push({
+                                  id: `synth_part_assigned_${index}_${docId}`,
+                                  action: 'participante_asignado',
+                                  details: { participant_email: participant.email },
+                                  created_at: document.created_at!,
+                                  actor_name: 'Sistema',
+                                  actor_email: '',
+                                  source: 'synthesized',
+                                  participant_name: participant.nombre,
+                                  participant_email: participant.email,
+                                });
+                              });
+                            }
+                            if (document?.fecha_completado) {
+                              allEvents.push({
+                                id: `synth_completed_${docId}`,
+                                action: 'documento_completado',
+                                details: null,
+                                created_at: document.fecha_completado,
+                                actor_name: 'Sistema',
+                                actor_email: '',
+                                source: 'synthesized',
+                              });
+                            }
+                            if (document?.cancelado_at) {
+                              allEvents.push({
+                                id: `synth_canceled_${docId}`,
+                                action: 'documento_cancelado',
+                                details: { reason: document.cancelacion_motivo },
+                                created_at: document.cancelado_at,
+                                actor_name: 'Sistema',
+                                actor_email: '',
+                                source: 'synthesized',
+                              });
+                            }
+                            setActivityEvents(orderDocumentActivity(removeDuplicateSynthesizedActivity(
+                              allEvents.filter((event) => Number.isFinite(Date.parse(event.created_at)))
+                            )));
                           })
                           .finally(() => setActivityLoading(false));
                       }}
@@ -7959,6 +8195,57 @@ export default function VisorDocumentoPage() {
                     )}
                   </div>
                 </>
+              ) : document.additional_access_level && activeTab === 'descargas' ? (
+                <>
+                  <div className="viewer-panel-header"><span className="viewer-panel-title">Descargas</span></div>
+                  <div className="flex-1 overflow-y-auto p-4">
+                    <div className="rounded-md border border-slate-200 bg-white p-4">
+                      <p className="text-sm font-semibold text-slate-900">Documento firmado</p>
+                      <p className="mt-1 text-xs text-slate-500">PDF final del documento completado.</p>
+                      <button type="button" onClick={downloadSignedPdf}
+                        disabled={downloadingSignedPdf || !document.sealed_pdf_path}
+                        className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary text-sm font-semibold text-white disabled:opacity-50">
+                        <Download size={15} /> {downloadingSignedPdf ? 'Descargando…' : 'Descargar PDF final'}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : document.additional_access_level === 'evidence' && activeTab === 'auditoria' ? (
+                <>
+                  <div className="viewer-panel-header"><span className="viewer-panel-title">Auditoría</span></div>
+                  <div className="flex-1 space-y-4 overflow-y-auto p-4">
+                    <div className="rounded-md border border-slate-200 bg-white p-4">
+                      <h3 className="text-sm font-semibold text-slate-900">Evidencia del documento</h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
+                        Consulta la evidencia técnica disponible del documento completado. Las constancias personales de los participantes no están incluidas.
+                      </p>
+                      <button type="button" onClick={downloadConstanciaGeneralPdf}
+                        disabled={downloadingConstanciaGeneral}
+                        className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                        <Download size={15} /> Descargar constancia general
+                      </button>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-white p-4">
+                      <h3 className="text-sm font-semibold text-slate-900">XML de evidencia</h3>
+                      <p className="mt-1 text-xs text-slate-600">{evidenceV2?.xmlAvailable ? 'Disponible' : 'Pendiente'}</p>
+                      <button type="button" onClick={() => void downloadEvidenceV2('xml')}
+                        disabled={!evidenceV2?.xmlAvailable || evidenceV2Download !== null}
+                        className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                        <Download size={15} /> Descargar XML
+                      </button>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-white p-4">
+                      <h3 className="text-sm font-semibold text-slate-900">Paquete de evidencia</h3>
+                      <p className="mt-1 text-xs text-slate-600">{evidenceV2?.packageAvailable && finalDeliverableAvailable ? 'Disponible' : 'Pendiente'}</p>
+                      <button type="button" onClick={() => void downloadEvidenceV2('package')}
+                        disabled={!evidenceV2?.packageAvailable || !finalDeliverableAvailable || evidenceV2Download !== null}
+                        className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                        <Download size={15} /> Descargar paquete
+                      </button>
+                    </div>
+                    {evidenceV2Error && <p className="text-xs text-red-700" role="alert">{evidenceV2Error}</p>}
+                  </div>
+                </>
               ) : activeTab === 'descargas' || activeTab === 'auditoria' ? (
                 /* ── Descargas y auditoría ──────────────────────────────── */
                 <div className="flex flex-col h-full min-h-0">
@@ -7968,326 +8255,15 @@ export default function VisorDocumentoPage() {
                     </span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
-                    <div className="p-4 space-y-4">
-                      {/* ── Constancia de Integridad y Evidencia Digital ── */}
-                      {activeTab === 'auditoria' && (
-                        <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
-                          <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                            <Shield size={15} className="text-primary" />
-                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                              Integridad y Evidencia Digital
-                            </span>
-                            <span
-                              className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                                integralEvidenceVerified
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : padesBtVerified
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : cryptographicCertification?.executionStatus === 'failed'
-                                      ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                      : cryptographicCertification?.integrityStatus === 'valid'
-                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                        : 'bg-muted text-muted-foreground border-border'
-                              }`}
-                            >
-                              {integralEvidenceVerified
-                                ? 'Verificación integral'
-                                : padesBtVerified
-                                  ? 'PAdES-B-T verificado'
-                                  : cryptographicCertification?.padesProfile === 'PAdES-B-B' &&
-                                      cryptographicCertification.verificationStatus === 'valid'
-                                    ? 'Estampa pendiente'
-                                    : cryptographicCertification?.executionStatus === 'failed'
-                                      ? 'Requiere atención'
-                                      : cryptographicCertification?.integrityStatus === 'valid'
-                                        ? 'Integridad registrada'
-                                        : cryptographicCertification
-                                          ? 'Procesando'
-                                          : !certificationProviderChecked
-                                            ? 'Comprobando'
-                                            : 'Disponible'}
-                            </span>
-                          </div>
-                          <div className="p-4 space-y-3">
-                            <div>
-                              <p className="text-sm font-semibold text-foreground">
-                                Constancia Técnica de Integridad y Evidencia Digital
-                              </p>
-                              <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
-                                Versión documental exacta, hash SHA-256 y cadena de evidencia con
-                                estados verificables por capacidad.
-                              </p>
-                            </div>
-
-                            {cryptographicCertification?.status === 'COMPLETED' ? (
-                              <>
-                                {cryptographicCertification.verificationStatus !== 'valid' && (
-                                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2.5 text-xs text-blue-800">
-                                    <span className="font-semibold">
-                                      Evidencia de integridad sin certificación PAdES.
-                                    </span>{' '}
-                                    Esta versión fue registrada con el perfil criptográfico{' '}
-                                    {cryptographicCertification.cryptoEnvironment ||
-                                      'no identificado'}
-                                    ; no contiene todavía firma PAdES, certificado X.509, RFC 3161
-                                    ni NOM-151 verificadas.
-                                  </div>
-                                )}
-                                <div className="overflow-hidden rounded-lg border border-border bg-white">
-                                  {[
-                                    [
-                                      'Integridad SHA-256',
-                                      cryptographicCertification.integrityStatus,
-                                    ],
-                                    [
-                                      'Versionado documental',
-                                      cryptographicCertification.documentVersionId
-                                        ? 'valid'
-                                        : 'pending',
-                                    ],
-                                    [
-                                      'Cadena de evidencia',
-                                      cryptographicCertification.sourceDocumentHash
-                                        ? 'valid'
-                                        : 'pending',
-                                    ],
-                                    [
-                                      'Firma PDF PAdES',
-                                      cryptographicCertification.pdfSignatureStatus,
-                                    ],
-                                    [
-                                      'Certificado institucional',
-                                      cryptographicCertification.certificateStatus,
-                                    ],
-                                    [
-                                      cryptographicCertification.timestampStatus === 'valid'
-                                        ? 'Sello RFC 3161 externo'
-                                        : 'Estampa RFC 3161',
-                                      cryptographicCertification.timestampStatus ||
-                                        'not_configured',
-                                    ],
-                                    [
-                                      'Verificación independiente',
-                                      cryptographicCertification.verificationStatus,
-                                    ],
-                                    ['Constancia NOM-151', nom151EvidenceStatus],
-                                  ].map(([label, status], index) => (
-                                    <div
-                                      key={label}
-                                      className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
-                                    >
-                                      <span className="text-xs font-medium text-foreground">
-                                        {label}
-                                      </span>
-                                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                                        <span
-                                          className={`size-2 rounded-full ${cryptoStatusClasses(status)}`}
-                                        />
-                                        {cryptoEvidenceStatusLabel(label, status)}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                      Versión exacta
-                                    </span>
-                                    <span className="text-xs font-semibold text-foreground">
-                                      v{cryptographicCertification.documentVersionNumber}
-                                    </span>
-                                  </div>
-                                  {cryptographicCertification.sourceDocumentHash && (
-                                    <div>
-                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        SHA-256 de origen
-                                      </span>
-                                      <p
-                                        className="mt-1 truncate font-mono text-[10px] text-foreground"
-                                        title={cryptographicCertification.sourceDocumentHash}
-                                      >
-                                        {cryptographicCertification.sourceDocumentHash}
-                                      </p>
-                                    </div>
-                                  )}
-                                </div>
-                                {cryptographicCertification.verificationStatus === 'valid' && (
-                                  <>
-                                    <button
-                                      onClick={() => downloadCertificationArtifact('certificate')}
-                                      disabled={certificationDownload !== null}
-                                      className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60"
-                                    >
-                                      {certificationDownload === 'certificate' ? (
-                                        <RefreshCw size={15} className="animate-spin" />
-                                      ) : (
-                                        <Download size={15} />
-                                      )}
-                                      {certificationDownload === 'certificate'
-                                        ? 'Descargando…'
-                                        : 'Descargar constancia PDF'}
-                                    </button>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <button
-                                        onClick={() => downloadCertificationArtifact('package')}
-                                        disabled={certificationDownload !== null || !finalDeliverableAvailable}
-                                        className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
-                                      >
-                                        {certificationDownload === 'package' ? (
-                                          <RefreshCw size={14} className="animate-spin" />
-                                        ) : (
-                                          <Download size={14} />
-                                        )}
-                                        Paquete técnico
-                                      </button>
-                                      <button
-                                        onClick={() =>
-                                          downloadCertificationArtifact('certified-pdf')
-                                        }
-                                        disabled={certificationDownload !== null || !finalDeliverableAvailable}
-                                        className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
-                                      >
-                                        {certificationDownload === 'certified-pdf' ? (
-                                          <RefreshCw size={14} className="animate-spin" />
-                                        ) : (
-                                          <Download size={14} />
-                                        )}
-                                        PDF certificado
-                                      </button>
-                                    </div>
-                                    <div className="border-t border-border/60 pt-3">
-                                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Artefactos tecnicos protegidos
-                                      </p>
-                                      <div className="grid grid-cols-2 gap-2">
-                                        {[
-                                          ['verification-report', 'Reporte de verificacion'],
-                                          ['signing-certificate', 'Certificado X.509'],
-                                          ['certificate-chain', 'Cadena X.509'],
-                                          ['evidence-manifest', 'Manifiesto de evidencia'],
-                                          ...(cryptographicCertification.timestampStatus === 'valid'
-                                            ? [['timestamp-token', 'Estampa RFC 3161']]
-                                            : []),
-                                        ].map(([artifact, label]) => (
-                                          <button
-                                            key={artifact}
-                                            onClick={() =>
-                                              downloadCertificationArtifact(
-                                                artifact as
-                                                  | 'verification-report'
-                                                  | 'timestamp-token'
-                                                  | 'signing-certificate'
-                                                  | 'certificate-chain'
-                                                  | 'evidence-manifest'
-                                              )
-                                            }
-                                            disabled={certificationDownload !== null}
-                                            className="flex min-w-0 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted/50 disabled:opacity-60"
-                                          >
-                                            {certificationDownload === artifact ? (
-                                              <RefreshCw
-                                                size={14}
-                                                className="shrink-0 animate-spin"
-                                              />
-                                            ) : (
-                                              <Download size={14} className="shrink-0" />
-                                            )}
-                                            <span className="truncate">{label}</span>
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </>
-                                )}
-                              </>
-                            ) : !certificationProviderChecked ? (
-                              <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs font-semibold text-muted-foreground">
-                                <RefreshCw size={14} className="animate-spin" />
-                                Comprobando infraestructura criptográfica
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                {!certificationE2eEnabled && (
-                                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-3 text-xs leading-relaxed text-blue-900">
-                                    La ejecucion integral esta deshabilitada para este entorno. La
-                                    tarjeta seguira mostrando evidencia ya existente sin iniciar
-                                    nuevas certificaciones.
-                                  </div>
-                                )}
-                                {!certificationProviderReady && (
-                                  <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 text-amber-900">
-                                    <p className="text-xs font-semibold">
-                                      Capacidades criptográficas aún no configuradas
-                                    </p>
-                                    <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed">
-                                      {Array.from(new Set(certificationProviderMissing)).map(
-                                        (provider, index) => (
-                                          <li
-                                            key={`cryptographic-provider-${provider}-${index}`}
-                                            className="flex items-start gap-2"
-                                          >
-                                            <span className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500" />
-                                            <span>
-                                              {CRYPTOGRAPHIC_PROVIDER_LABELS[provider] || provider}
-                                            </span>
-                                          </li>
-                                        )
-                                      )}
-                                    </ul>
-                                    <p className="mt-2 text-[10px] leading-relaxed text-amber-800">
-                                      Puedes registrar la versión exacta, su hash y la cadena de
-                                      evidencia sin declarar esas capacidades como válidas.
-                                    </p>
-                                  </div>
-                                )}
-                                <button
-                                  onClick={generateCryptographicCertification}
-                                  disabled={
-                                    certificationLoading ||
-                                    document?.estado !== 'completado' ||
-                                    !certificationE2eEnabled
-                                  }
-                                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-                                >
-                                  {certificationLoading ? (
-                                    <RefreshCw size={15} className="animate-spin" />
-                                  ) : (
-                                    <Shield size={15} />
-                                  )}
-                                  {certificationLoading
-                                    ? 'Registrando integridad…'
-                                    : !certificationE2eEnabled
-                                      ? 'Ejecucion integral deshabilitada'
-                                      : cryptographicCertification?.status === 'FAILED'
-                                        ? 'Reintentar registro'
-                                        : certificationProviderReady
-                                          ? 'Generar certificación'
-                                          : 'Registrar integridad y evidencia'}
-                                </button>
-                              </div>
-                            )}
-
-                            {(certificationError || cryptographicCertification?.errorMessage) && (
-                              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
-                                {certificationError || cryptographicCertification?.errorMessage}
-                              </div>
-                            )}
-                            <p className="text-[10px] leading-relaxed text-muted-foreground">
-                              Cada capacidad sólo se marca como operativa cuando existe evidencia
-                              técnica verificable de su ejecución.
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
+                    <div className="flex flex-col gap-4 p-4">
                       {/* ── Constancia de auditoría hasta el cierre ── */}
                       {activeTab === 'auditoria' && (
                         <div className="rounded-xl border border-border bg-white shadow-sm">
                           <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                              Constancia de auditoría
-                            </span>
-                            <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                            <h3 className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-foreground">
+                              Constancia de Auditoría
+                            </h3>
+                            <span className="ml-auto shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                               PDF
                             </span>
                           </div>
@@ -8326,469 +8302,156 @@ export default function VisorDocumentoPage() {
                         </div>
                       )}
 
-                      {/* ── Descargas del documento ── */}
-                      {activeTab === 'descargas' && (
-                        <>
-                          {/* ── 1. Documento derivado del proceso de firma ── */}
-                          <div className="rounded-xl border border-border bg-white shadow-sm">
-                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                                Documento firmado
-                              </span>
-                              <span
-                                className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                                  padesUiStatus === 'PAdES VERIFICADO'
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : padesUiStatus === 'PAdES ERROR'
-                                      ? 'bg-red-50 text-red-700 border-red-200'
-                                      : padesUiStatus === 'PAdES EN PROCESO'
-                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                        : 'bg-muted text-muted-foreground border-border'
-                                }`}
-                              >
-                                {padesUiStatus}
-                              </span>
-                            </div>
-                            <div className="p-4">
-                              <div className="mb-4">
-                                <p className="text-sm font-semibold text-foreground truncate">
-                                  {document?.nombre || 'Documento'} — Firmado
-                                </p>
-                                <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
-                                  {!document?.sealed_pdf_path
-                                    ? 'El PDF final se habilitará al concluir el sellado del documento y validar la huella del archivo original.'
-                                    : padesVerified
-                                      ? 'PDF con firma PAdES respaldada por la verificación técnica registrada.'
-                                      : 'El PDF derivado ya existe, pero la descarga certificada permanece bloqueada hasta que la firma PAdES sea verificable técnicamente.'}
-                                </p>
-                              </div>
-                              {signedPdfError && (
-                                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
-                                  No se pudo completar el cierre PAdES de esta versión.{' '}
-                                  {signedPdfError}
-                                </div>
-                              )}
-                              {padesVerified && cryptographicCertification && (
-                                <div className="mb-4 overflow-hidden rounded-lg border border-border bg-muted/20">
-                                  {[
-                                    [
-                                      'Integridad',
-                                      cryptographicCertification.integrityStatus === 'valid' &&
-                                      cryptographicCertification.verificationStatus === 'valid'
-                                        ? 'Válida'
-                                        : 'No verificada',
-                                    ],
-                                    [
-                                      'Perfil',
-                                      `${cryptographicCertification.padesProfile} · Verificado`,
-                                    ],
-                                    [
-                                      'Proveedor de llave',
-                                      cryptographicCertification.kmsProvider === 'gcp'
-                                        ? cryptographicCertification.kmsProtectionLevel === 'hsm'
-                                          ? 'Google Cloud HSM'
-                                          : 'Google Cloud KMS'
-                                        : cryptographicCertification.kmsProvider,
-                                    ],
-                                    [
-                                      'Nivel de protección',
-                                      cryptographicCertification.kmsProtectionLevel === 'hsm'
-                                        ? 'HSM'
-                                        : cryptographicCertification.kmsProtectionLevel,
-                                    ],
-                                    [
-                                      'Entorno criptográfico',
-                                      cryptographicCertification.cryptoEnvironment,
-                                    ],
-                                    ['Versión de llave', cryptographicCertification.kmsKeyVersion],
-                                    [
-                                      'Algoritmo',
-                                      cryptographicCertification.kmsKeySizeBits
-                                        ? `RSA ${cryptographicCertification.kmsKeySizeBits} / ${cryptographicCertification.padesDigestAlgorithm}`
-                                        : [
-                                            cryptographicCertification.padesSignatureAlgorithm,
-                                            cryptographicCertification.padesDigestAlgorithm,
-                                          ]
-                                            .filter(Boolean)
-                                            .join(' · '),
-                                    ],
-                                    [
-                                      'Certificado X.509',
-                                      cryptographicCertification.certificateChainStatus === 'valid'
-                                        ? `Cadena válida · Serial ${cryptographicCertification.padesCertificateSerial}`
-                                        : cryptographicCertification.padesCertificateSerial,
-                                    ],
-                                    [
-                                      'Vínculo SPKI',
-                                      cryptographicCertification.certificateKeyMatches === true
-                                        ? 'Válido'
-                                        : null,
-                                    ],
-                                    [
-                                      'Firma criptográfica',
-                                      cryptographicCertification.padesSigningTimeDeclared ||
-                                        cryptographicCertification.padesVerifiedAt,
-                                    ],
-                                    ...(cryptographicCertification.padesProfile === 'PAdES-B-T'
-                                      ? [
-                                          [
-                                            'Sello RFC 3161',
-                                            cryptographicCertification.timestampStatus === 'valid'
-                                              ? `Verificado · ${cryptographicCertification.timestampGenTime}`
-                                              : null,
-                                          ],
-                                          [
-                                            'Proveedor TSA',
-                                            cryptographicCertification.timestampProvider ===
-                                            'freetsa'
-                                              ? 'FreeTSA'
-                                              : cryptographicCertification.timestampProvider,
-                                          ],
-                                          [
-                                            'Rol del proveedor',
-                                            cryptographicCertification.timestampProviderRole,
-                                          ],
-                                          [
-                                            'Serial RFC 3161',
-                                            cryptographicCertification.timestampSerialNumber,
-                                          ],
-                                          [
-                                            'Policy OID',
-                                            cryptographicCertification.timestampPolicyOid,
-                                          ],
-                                          [
-                                            'Bundle de confianza',
-                                            cryptographicCertification.timestampTrustBundleId,
-                                          ],
-                                          [
-                                            'Confianza TSA',
-                                            cryptographicCertification.timestampTrustStatus ===
-                                            'valid'
-                                              ? 'Válida'
-                                              : null,
-                                          ],
-                                        ]
-                                      : []),
-                                  ]
-                                    .filter(([, value]) => Boolean(value))
-                                    .map(([label, value], index) => (
-                                      <div
-                                        key={label}
-                                        className={`px-3 py-2 ${index ? 'border-t border-border/60' : ''}`}
-                                      >
-                                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                          {label}
-                                        </p>
-                                        <p className="mt-0.5 break-all text-[11px] text-foreground">
-                                          {value}
-                                        </p>
-                                      </div>
-                                    ))}
-                                  {cryptographicCertification.padesCertificateFingerprintSha256 && (
-                                    <div className="border-t border-border/60 px-3 py-2">
-                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Huella SHA-256 del certificado
-                                      </p>
-                                      <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">
-                                        {
-                                          cryptographicCertification.padesCertificateFingerprintSha256
-                                        }
-                                      </p>
-                                    </div>
-                                  )}
-                                  {cryptographicCertification.certificatePublicKeyFingerprintSha256 && (
-                                    <div className="border-t border-border/60 px-3 py-2">
-                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Huella SHA-256 de la llave del certificado
-                                      </p>
-                                      <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">
-                                        {
-                                          cryptographicCertification.certificatePublicKeyFingerprintSha256
-                                        }
-                                      </p>
-                                    </div>
-                                  )}
-                                  {cryptographicCertification.timestampCertificateFingerprintSha256 && (
-                                    <div className="border-t border-border/60 px-3 py-2">
-                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Huella SHA-256 del certificado TSA
-                                      </p>
-                                      <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">
-                                        {
-                                          cryptographicCertification.timestampCertificateFingerprintSha256
-                                        }
-                                      </p>
-                                    </div>
-                                  )}
-                                  {cryptographicCertification.timestampTrustRootFingerprintSha256 && (
-                                    <div className="border-t border-border/60 px-3 py-2">
-                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Ancla de confianza TSA
-                                      </p>
-                                      <p className="mt-0.5 break-all font-mono text-[10px] text-foreground">
-                                        {
-                                          cryptographicCertification.timestampTrustRootFingerprintSha256
-                                        }
-                                      </p>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              <button
-                                onClick={downloadSignedPdf}
-                                disabled={
-                                  downloadingSignedPdf ||
-                                  !document?.sealed_pdf_path ||
-                                  !finalDeliverableAvailable
-                                }
-                                title={
-                                  !document?.sealed_pdf_path
-                                    ? 'La descarga estará disponible al finalizar el sellado del documento.'
-                                    : !padesVerified
-                                      ? 'La descarga certificada requiere una firma PAdES verificada.'
-                                      : !finalDeliverableAvailable
-                                        ? 'Pendiente de constancia NOM-151 emitida y verificada.'
-                                      : undefined
-                                }
-                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
-                                {downloadingSignedPdf ? (
-                                  <RefreshCw size={15} className="animate-spin" />
-                                ) : (
-                                  <Download size={15} />
-                                )}
-                                {downloadingSignedPdf
-                                  ? 'Descargando…'
-                                  : !document?.sealed_pdf_path
-                                    ? 'PDF firmado en preparación'
-                                    : !padesVerified
-                                      ? padesUiStatus === 'PAdES ERROR'
-                                        ? 'Error de verificación PAdES'
-                                        : 'Pendiente de verificación PAdES'
-                                      : !finalDeliverableAvailable
-                                        ? 'Pendiente de NOM-151'
-                                      : 'Descargar PDF firmado'}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* ── 2. Documento Original ── */}
-                          <div className="rounded-xl border border-border bg-white shadow-sm">
-                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                                Documento Original
-                              </span>
-                              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                                PDF
-                              </span>
-                            </div>
-                            <div className="p-4">
-                              <div className="mb-4">
-                                <p className="text-sm font-semibold text-foreground truncate">
-                                  {document?.nombre || 'Documento'}
-                                </p>
-                                <p className="text-xs mt-1 text-muted-foreground">
-                                  Archivo PDF original del documento
-                                </p>
-                              </div>
-                              <button
-                                onClick={downloadOriginalDocument}
-                                disabled={downloadingOriginal || !document?.file_url}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
-                                {downloadingOriginal ? (
-                                  <RefreshCw size={15} className="animate-spin" />
-                                ) : (
-                                  <Download size={15} />
-                                )}
-                                {downloadingOriginal ? 'Descargando…' : 'Descargar PDF'}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* ── 3. Constancia General de Firma ── */}
-                          <div className="rounded-xl border border-border bg-white shadow-sm">
-                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                                Constancia General de Firma
-                              </span>
-                              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                                PDF
-                              </span>
-                            </div>
-                            <div className="p-4">
-                              <div className="mb-4">
-                                <p className="text-sm font-semibold text-foreground">
-                                  Constancia General de Firma Electrónica
-                                </p>
-                                <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
-                                  Documento compartido entre todas las partes del proceso de firma
-                                </p>
-                              </div>
-                              <button
-                                onClick={downloadConstanciaGeneralPdf}
-                                disabled={downloadingConstanciaGeneral}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
-                                {downloadingConstanciaGeneral ? (
-                                  <RefreshCw size={15} className="animate-spin" />
-                                ) : (
-                                  <Download size={15} />
-                                )}
-                                {downloadingConstanciaGeneral ? 'Generando…' : 'Descargar PDF'}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* ── 4. Constancia NOM-151 ── */}
-                          <div className="rounded-xl border border-border bg-white shadow-sm">
-                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                                Constancia NOM-151
-                              </span>
-                              <span
-                                className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                                  nom151Presentation.verificationStatus === 'verified'
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : nom151Presentation.verificationStatus === 'failed'
-                                      ? 'bg-red-50 text-red-700 border-red-200'
-                                      : 'bg-muted text-muted-foreground border-border'
-                                }`}
-                              >
-                                {nom151Presentation.statusLabel}
-                              </span>
-                            </div>
-                            <div className="p-4">
-                              {nom151Data ? (
-                                <div className="space-y-3">
-                                  <div className="flex items-center gap-2">
-                                    <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
-                                    <p className="text-sm font-semibold text-foreground">
-                                      Constancia NOM-151 verificada
-                                    </p>
-                                  </div>
-                                  {!nom151Data.production_trusted && (
-                                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                                      Emisión de desarrollo verificada técnicamente; no confirmada como constancia productiva.
-                                    </p>
-                                  )}
-                                  <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        PSC
-                                      </span>
-                                      <span className="max-w-[190px] text-right text-xs text-foreground">
-                                        {nom151Data.psc_name ||
-                                          'Proveedor de Servicios de Certificación'}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Folio / identificador
-                                      </span>
-                                      <span className="text-xs font-mono text-foreground truncate max-w-[140px]">
-                                        {nom151Data.nubarium_codigo_validacion}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Fecha emisión
-                                      </span>
-                                      <span className="text-right text-xs text-foreground">
-                                        {formatEvidenceTimestamp(
-                                          nom151Data.issued_at || nom151Data.created_at
-                                        )}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Estado de integridad
-                                      </span>
-                                      <span className="text-right text-xs font-medium text-emerald-700">
-                                        {nom151Presentation.integrityLabel}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <button
-                                    onClick={downloadNom151Pdf}
-                                    disabled={downloadingNom151Pdf}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-                                  >
-                                    {downloadingNom151Pdf ? (
-                                      <RefreshCw size={15} className="animate-spin" />
-                                    ) : (
-                                      <Download size={15} />
-                                    )}
-                                    {downloadingNom151Pdf
-                                      ? 'Generando…'
-                                      : 'Descargar Constancia PDF'}
-                                  </button>
-                                  <button
-                                    onClick={downloadAnsFile}
-                                    disabled={downloadingAns}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                                  >
-                                    {downloadingAns ? (
-                                      <RefreshCw size={15} className="animate-spin" />
-                                    ) : (
-                                      <Download size={15} />
-                                    )}
-                                    {downloadingAns ? 'Descargando…' : 'Descargar .asn1'}
-                                  </button>
-                                  <a
-                                    href="https://validatuconstancia.pscworld.com/"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border border-border text-foreground hover:bg-muted/50 transition-colors"
-                                  >
-                                    <Shield size={15} />
-                                    Verificar validez en PSC
-                                  </a>
-                                </div>
-                              ) : (
-                                <div className="flex flex-col items-center gap-3 py-4">
-                                  {nom151Generating || nom151Polling ? (
-                                    <RefreshCw
-                                      size={24}
-                                      className="animate-spin text-muted-foreground"
-                                    />
-                                  ) : nom151Error ? (
-                                    <AlertTriangle size={24} className="text-amber-500" />
-                                  ) : (
-                                    <Clock size={24} className="text-muted-foreground" />
-                                  )}
-                                  <p className="text-sm text-center text-muted-foreground">
-                                    {nom151Generating || nom151Polling
-                                      ? 'Generando constancia NOM-151…'
-                                      : nom151Error
-                                        ? 'No fue posible emitir la constancia NOM-151.'
-                                      : nom151Blocked
-                                          ? 'Pendiente del cierre criptográfico PAdES-B-T.'
-                                          : 'Constancia NOM-151 pendiente de generación.'}
-                                    <br />
-                                    <span className="text-xs">
-                                      {nom151Error ||
-                                        (nom151Blocked
-                                          ? 'Docubox la solicitará automáticamente al PSC cuando el PDF final sea verificable.'
-                                          : 'Docubox la generará con el proveedor de conservación.')}
-                                    </span>
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                        </>
-                      )}
                       {activeTab === 'auditoria' && (
                         <>
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                                Evidencia Blockchain
-                              </span>
+                              <h3 className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-foreground">
+                                XML de Evidencia
+                              </h3>
                               <span
-                                className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold ${blockchainEvidenceReady ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : blockchainEvidenceFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
+                                className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${evidenceV2?.xmlAvailable ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : evidenceV2Error || evidenceV2?.state === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
+                              >
+                                {evidenceV2?.xmlAvailable
+                                  ? evidenceV2.state === 'verified'
+                                    ? 'Verificado'
+                                    : 'Generado'
+                                  : evidenceV2Loading
+                                    ? 'Consultando'
+                                    : evidenceV2Error || evidenceV2?.state === 'error'
+                                      ? 'Requiere atención'
+                                      : 'Preparando'}
+                              </span>
+                            </div>
+                            <div className="space-y-3 p-4">
+                              {evidenceV2?.xmlAvailable ? (
+                                <>
+                                  <div className="flex items-start gap-2">
+                                    <CheckCircle2
+                                      size={18}
+                                      className="mt-0.5 shrink-0 text-emerald-600"
+                                    />
+                                    <div>
+                                      <p className="text-sm font-semibold text-foreground">
+                                        Evidencia criptográfica del documento
+                                      </p>
+                                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                                        El XML vincula el PDF final, las firmas y la cadena
+                                        probatoria. La versión técnica se conserva sin reescrituras.
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
+                                    {[
+                                      ['Versión técnica', `V${evidenceV2.schemaVersion}`],
+                                      [
+                                        'Integridad del documento',
+                                        evidenceV2.verification?.documentIntegrity || 'unavailable',
+                                      ],
+                                      [
+                                        'Cadena de evidencia',
+                                        evidenceV2.verification?.evidenceChain || 'unavailable',
+                                      ],
+                                      [
+                                        'Firma Docubox',
+                                        evidenceV2.verification?.docuboxSignature || 'unavailable',
+                                      ],
+                                      [
+                                        'RFC 3161',
+                                        evidenceV2.verification?.timestamp || 'unavailable',
+                                      ],
+                                      [
+                                        'OpenTimestamps',
+                                        evidenceV2.verification?.openTimestamps || 'unavailable',
+                                      ],
+                                      ['NOM-151', evidenceV2.verification?.nom151 || 'unavailable'],
+                                    ].map(([label, value], index) => (
+                                      <div
+                                        key={label}
+                                        className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
+                                      >
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                          {label}
+                                        </span>
+                                        <span className="max-w-[190px] text-right text-xs text-foreground">
+                                          {value === 'valid'
+                                            ? 'Válida'
+                                            : value === 'pending'
+                                              ? 'Pendiente'
+                                              : value === 'not_applicable'
+                                                ? 'No aplica'
+                                                : value === 'unavailable'
+                                                  ? 'No disponible'
+                                                  : value}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {evidenceV2.evidenceRoot && (
+                                    <p
+                                      className="truncate font-mono text-[10px] text-muted-foreground"
+                                      title={evidenceV2.evidenceRoot}
+                                    >
+                                      Raíz SHA-256: {evidenceV2.evidenceRoot}
+                                    </p>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => void downloadEvidenceV2('xml')}
+                                    disabled={evidenceV2Download !== null}
+                                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-xs font-normal text-white hover:opacity-90 disabled:opacity-60"
+                                  >
+                                    {evidenceV2Download === 'xml' ? (
+                                      <RefreshCw size={14} className="animate-spin" />
+                                    ) : (
+                                      <Download size={14} />
+                                    )}{' '}
+                                    Descargar XML
+                                  </button>
+                                </>
+                              ) : (
+                                <div className="flex flex-col items-center gap-3 py-4 text-center">
+                                  {evidenceV2Loading ? (
+                                    <RefreshCw
+                                      size={24}
+                                      className="animate-spin text-muted-foreground"
+                                    />
+                                  ) : (
+                                    <Clock size={24} className="text-muted-foreground" />
+                                  )}
+                                  <div>
+                                    <p className="text-sm font-semibold text-foreground">
+                                      {evidenceV2Loading
+                                        ? 'Consultando la evidencia'
+                                        : evidenceV2?.state === 'waiting_certifications'
+                                          ? 'Esperando certificaciones'
+                                          : evidenceV2?.state === 'generating'
+                                            ? 'Generando evidencia'
+                                            : 'Evidencia en preparación'}
+                                    </p>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {evidenceV2Error ||
+                                        evidenceV2?.errorCode ||
+                                        'Se genera automáticamente al completar el documento.'}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                              {evidenceV2Error && evidenceV2 && (
+                                <p className="text-xs text-red-600" role="alert">
+                                  {evidenceV2Error}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
+                              <h3 className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-foreground">
+                                Evidencia Blockchain
+                              </h3>
+                              <span
+                                className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${blockchainEvidenceReady ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : blockchainEvidenceFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
                               >
                                 {blockchainEvidenceStatusLabel}
                               </span>
@@ -9110,156 +8773,305 @@ export default function VisorDocumentoPage() {
                             </div>
                           </div>
 
-                          <div className="rounded-xl border border-border bg-white shadow-sm">
-                            <div className="flex items-center gap-2 rounded-t-xl border-b border-border/60 bg-muted/30 px-4 py-3">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                                XML de Evidencia
-                              </span>
-                              <span
-                                className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-normal ${evidenceV2?.xmlAvailable ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : evidenceV2Error || evidenceV2?.state === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}
-                              >
-                                {evidenceV2?.xmlAvailable
-                                  ? evidenceV2.state === 'verified'
-                                    ? 'Verificado'
-                                    : 'Generado'
-                                  : evidenceV2Loading
-                                    ? 'Consultando'
-                                    : evidenceV2Error || evidenceV2?.state === 'error'
-                                      ? 'Requiere atención'
-                                      : 'Preparando'}
-                              </span>
-                            </div>
-                            <div className="space-y-3 p-4">
-                              {evidenceV2?.xmlAvailable ? (
-                                <>
-                                  <div className="flex items-start gap-2">
-                                    <CheckCircle2
-                                      size={18}
-                                      className="mt-0.5 shrink-0 text-emerald-600"
-                                    />
-                                    <div>
-                                      <p className="text-sm font-semibold text-foreground">
-                                        Evidencia criptográfica del documento
-                                      </p>
-                                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                                        El XML vincula el PDF final, las firmas y la cadena
-                                        probatoria. La versión técnica se conserva sin reescrituras.
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
-                                    {[
-                                      ['Versión técnica', `V${evidenceV2.schemaVersion}`],
-                                      [
-                                        'Integridad del documento',
-                                        evidenceV2.verification?.documentIntegrity || 'unavailable',
-                                      ],
-                                      [
-                                        'Cadena de evidencia',
-                                        evidenceV2.verification?.evidenceChain || 'unavailable',
-                                      ],
-                                      [
-                                        'Firma Docubox',
-                                        evidenceV2.verification?.docuboxSignature || 'unavailable',
-                                      ],
-                                      [
-                                        'RFC 3161',
-                                        evidenceV2.verification?.timestamp || 'unavailable',
-                                      ],
-                                      [
-                                        'OpenTimestamps',
-                                        evidenceV2.verification?.openTimestamps || 'unavailable',
-                                      ],
-                                      ['NOM-151', evidenceV2.verification?.nom151 || 'unavailable'],
-                                    ].map(([label, value], index) => (
-                                      <div
-                                        key={label}
-                                        className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
-                                      >
-                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                          {label}
-                                        </span>
-                                        <span className="max-w-[190px] text-right text-xs text-foreground">
-                                          {value === 'valid'
-                                            ? 'Válida'
-                                            : value === 'pending'
-                                              ? 'Pendiente'
-                                              : value === 'not_applicable'
-                                                ? 'No aplica'
-                                                : value === 'unavailable'
-                                                  ? 'No disponible'
-                                                  : value}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                  {evidenceV2.evidenceRoot && (
-                                    <p
-                                      className="truncate font-mono text-[10px] text-muted-foreground"
-                                      title={evidenceV2.evidenceRoot}
-                                    >
-                                      Raíz SHA-256: {evidenceV2.evidenceRoot}
-                                    </p>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => void downloadEvidenceV2('xml')}
-                                    disabled={evidenceV2Download !== null}
-                                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-xs font-normal text-white hover:opacity-90 disabled:opacity-60"
-                                  >
-                                    {evidenceV2Download === 'xml' ? (
-                                      <RefreshCw size={14} className="animate-spin" />
-                                    ) : (
-                                      <Download size={14} />
-                                    )}{' '}
-                                    Descargar XML
-                                  </button>
-                                </>
-                              ) : (
-                                <div className="flex flex-col items-center gap-3 py-4 text-center">
-                                  {evidenceV2Loading ? (
-                                    <RefreshCw
-                                      size={24}
-                                      className="animate-spin text-muted-foreground"
-                                    />
-                                  ) : (
-                                    <Clock size={24} className="text-muted-foreground" />
-                                  )}
-                                  <div>
-                                    <p className="text-sm font-semibold text-foreground">
-                                      {evidenceV2Loading
-                                        ? 'Consultando la evidencia'
-                                        : evidenceV2?.state === 'waiting_certifications'
-                                          ? 'Esperando certificaciones'
-                                          : evidenceV2?.state === 'generating'
-                                            ? 'Generando evidencia'
-                                            : 'Evidencia en preparación'}
-                                    </p>
-                                    <p className="mt-1 text-xs text-muted-foreground">
-                                      {evidenceV2Error ||
-                                        evidenceV2?.errorCode ||
-                                        'Se genera automáticamente al completar el documento.'}
-                                    </p>
-                                  </div>
-                                </div>
-                              )}
-                              {evidenceV2Error && evidenceV2 && (
-                                <p className="text-xs text-red-600" role="alert">
-                                  {evidenceV2Error}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
                           {/* Evidence XML and its downloadable container are separate. */}
                         </>
                       )}
+                      {/* ── Constancia de Integridad y Evidencia Digital ── */}
+                      {activeTab === 'auditoria' && (
+                        <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+                          <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                            <h3 className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-foreground">
+                              Integridad y Evidencia Digital
+                            </h3>
+                            <span
+                              className={`ml-auto shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                                auditArtifactsReady
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : padesBtVerified
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                    : cryptographicCertification?.executionStatus === 'failed'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                      : cryptographicCertification?.integrityStatus === 'valid'
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                        : 'bg-muted text-muted-foreground border-border'
+                              }`}
+                            >
+                              {auditArtifactsReady
+                                ? 'Verificación integral'
+                                : padesBtVerified
+                                  ? 'Verificaciones pendientes'
+                                  : cryptographicCertification?.padesProfile === 'PAdES-B-B' &&
+                                      cryptographicCertification.verificationStatus === 'valid'
+                                    ? 'Estampa pendiente'
+                                    : cryptographicCertification?.executionStatus === 'failed'
+                                      ? 'Requiere atención'
+                                      : cryptographicCertification?.integrityStatus === 'valid'
+                                        ? 'Integridad registrada'
+                                        : cryptographicCertification
+                                          ? 'Procesando'
+                                          : !certificationProviderChecked
+                                            ? 'Comprobando'
+                                            : 'Disponible'}
+                            </span>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">
+                                Constancia Técnica de Integridad y Evidencia Digital
+                              </p>
+                              <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
+                                Versión documental exacta, hash SHA-256 y cadena de evidencia con
+                                estados verificables por capacidad.
+                              </p>
+                            </div>
+
+                            {cryptographicCertification?.status === 'COMPLETED' ? (
+                              <>
+                                {cryptographicCertification.verificationStatus !== 'valid' && (
+                                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2.5 text-xs text-blue-800">
+                                    <span className="font-semibold">
+                                      Evidencia de integridad sin certificación PAdES.
+                                    </span>{' '}
+                                    Esta versión fue registrada con el perfil criptográfico{' '}
+                                    {cryptographicCertification.cryptoEnvironment ||
+                                      'no identificado'}
+                                    ; no contiene todavía firma PAdES, certificado X.509, RFC 3161
+                                    ni NOM-151 verificadas.
+                                  </div>
+                                )}
+                                <div className="overflow-hidden rounded-lg border border-border bg-white">
+                                  {auditEvidenceStatuses.map(([label, status], index) => (
+                                    <div
+                                      key={label}
+                                      className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index ? 'border-t border-border/60' : ''}`}
+                                    >
+                                      <span className="text-xs font-medium text-foreground">
+                                        {label}
+                                      </span>
+                                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                                        <span
+                                          className={`size-2 rounded-full ${cryptoStatusClasses(status)}`}
+                                        />
+                                        {cryptoEvidenceStatusLabel(label, status)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                      Versión exacta
+                                    </span>
+                                    <span className="text-xs font-semibold text-foreground">
+                                      v{cryptographicCertification.documentVersionNumber}
+                                    </span>
+                                  </div>
+                                  {cryptographicCertification.sourceDocumentHash && (
+                                    <div>
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        SHA-256 de origen
+                                      </span>
+                                      <p
+                                        className="mt-1 truncate font-mono text-[10px] text-foreground"
+                                        title={cryptographicCertification.sourceDocumentHash}
+                                      >
+                                        {cryptographicCertification.sourceDocumentHash}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                                {!auditArtifactsReady && (
+                                  <p className="text-xs leading-relaxed text-amber-800" role="status">
+                                    Las descargas estarán disponibles cuando todas las verificaciones,
+                                    incluida NOM-151, estén completas.
+                                  </p>
+                                )}
+                                {cryptographicCertification.verificationStatus === 'valid' && (
+                                  <>
+                                    <button
+                                      onClick={() => downloadCertificationArtifact('certificate')}
+                                      disabled={certificationDownload !== null || !auditArtifactsReady}
+                                      className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60"
+                                    >
+                                      {certificationDownload === 'certificate' ? (
+                                        <RefreshCw size={15} className="animate-spin" />
+                                      ) : (
+                                        <Download size={15} />
+                                      )}
+                                      {certificationDownload === 'certificate'
+                                        ? 'Descargando…'
+                                        : 'Descargar constancia PDF'}
+                                    </button>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <button
+                                        onClick={() => downloadCertificationArtifact('package')}
+                                        disabled={certificationDownload !== null || !auditArtifactsReady}
+                                        className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
+                                      >
+                                        {certificationDownload === 'package' ? (
+                                          <RefreshCw size={14} className="animate-spin" />
+                                        ) : (
+                                          <Download size={14} />
+                                        )}
+                                        Paquete técnico
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          downloadCertificationArtifact('certified-pdf')
+                                        }
+                                        disabled={certificationDownload !== null || !auditArtifactsReady}
+                                        className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted/50 disabled:opacity-60"
+                                      >
+                                        {certificationDownload === 'certified-pdf' ? (
+                                          <RefreshCw size={14} className="animate-spin" />
+                                        ) : (
+                                          <Download size={14} />
+                                        )}
+                                        PDF certificado
+                                      </button>
+                                    </div>
+                                    <div className="border-t border-border/60 pt-3">
+                                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Artefactos tecnicos protegidos
+                                      </p>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {[
+                                          ['verification-report', 'Reporte de verificacion'],
+                                          ['signing-certificate', 'Certificado X.509'],
+                                          ['certificate-chain', 'Cadena X.509'],
+                                          ['evidence-manifest', 'Manifiesto de evidencia'],
+                                          ...(cryptographicCertification.timestampStatus === 'valid'
+                                            ? [['timestamp-token', 'Estampa RFC 3161']]
+                                            : []),
+                                        ].map(([artifact, label]) => (
+                                          <button
+                                            key={artifact}
+                                            onClick={() =>
+                                              downloadCertificationArtifact(
+                                                artifact as
+                                                  | 'verification-report'
+                                                  | 'timestamp-token'
+                                                  | 'signing-certificate'
+                                                  | 'certificate-chain'
+                                                  | 'evidence-manifest'
+                                              )
+                                            }
+                                            disabled={certificationDownload !== null || !auditArtifactsReady}
+                                            className="flex min-w-0 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted/50 disabled:opacity-60"
+                                          >
+                                            {certificationDownload === artifact ? (
+                                              <RefreshCw
+                                                size={14}
+                                                className="shrink-0 animate-spin"
+                                              />
+                                            ) : (
+                                              <Download size={14} className="shrink-0" />
+                                            )}
+                                            <span className="truncate">{label}</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </>
+                            ) : !certificationProviderChecked ? (
+                              <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs font-semibold text-muted-foreground">
+                                <RefreshCw size={14} className="animate-spin" />
+                                Comprobando infraestructura criptográfica
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {!certificationE2eEnabled && (
+                                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-3 text-xs leading-relaxed text-blue-900">
+                                    La ejecucion integral esta deshabilitada para este entorno. La
+                                    tarjeta seguira mostrando evidencia ya existente sin iniciar
+                                    nuevas certificaciones.
+                                  </div>
+                                )}
+                                {!certificationProviderReady && (
+                                  <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 text-amber-900">
+                                    <p className="text-xs font-semibold">
+                                      Capacidades criptográficas aún no configuradas
+                                    </p>
+                                    <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed">
+                                      {Array.from(new Set(certificationProviderMissing)).map(
+                                        (provider, index) => (
+                                          <li
+                                            key={`cryptographic-provider-${provider}-${index}`}
+                                            className="flex items-start gap-2"
+                                          >
+                                            <span className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500" />
+                                            <span>
+                                              {CRYPTOGRAPHIC_PROVIDER_LABELS[provider] || provider}
+                                            </span>
+                                          </li>
+                                        )
+                                      )}
+                                    </ul>
+                                    <p className="mt-2 text-[10px] leading-relaxed text-amber-800">
+                                      Puedes registrar la versión exacta, su hash y la cadena de
+                                      evidencia sin declarar esas capacidades como válidas.
+                                    </p>
+                                  </div>
+                                )}
+                                <button
+                                  onClick={generateCryptographicCertification}
+                                  disabled={
+                                    certificationLoading ||
+                                    document?.estado !== 'completado' ||
+                                    !certificationE2eEnabled
+                                  }
+                                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  {certificationLoading ? (
+                                    <RefreshCw size={15} className="animate-spin" />
+                                  ) : (
+                                    <Shield size={15} />
+                                  )}
+                                  {certificationLoading
+                                    ? 'Registrando integridad…'
+                                    : !certificationE2eEnabled
+                                      ? 'Ejecucion integral deshabilitada'
+                                      : cryptographicCertification?.status === 'FAILED'
+                                        ? 'Reintentar registro'
+                                        : certificationProviderReady
+                                          ? 'Generar certificación'
+                                          : 'Registrar integridad y evidencia'}
+                                </button>
+                              </div>
+                            )}
+
+                            {(certificationError || cryptographicCertification?.errorMessage) && (
+                              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                                {certificationError || cryptographicCertification?.errorMessage}
+                              </div>
+                            )}
+                            <p className="text-[10px] leading-relaxed text-muted-foreground">
+                              Cada capacidad sólo se marca como operativa cuando existe evidencia
+                              técnica verificable de su ejecución.
+                            </p>
+                            {padesVerified && cryptographicCertification && (
+                              <details className="group border-t border-border/60 pt-3">
+                                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-primary">
+                                  Detalles técnicos del documento firmado
+                                  <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
+                                </summary>
+                                <div className="mt-2 rounded-md border border-border/60">
+                                  <PadesTechnicalDetails certification={cryptographicCertification} />
+                                </div>
+                              </details>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       {activeTab === 'auditoria' && (
                         <div className="rounded-xl border border-border bg-white shadow-sm">
                           <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                            <h3 className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-foreground">
                               Paquete de Evidencia
-                            </span>
+                            </h3>
                             {evidenceV2?.packageAvailable && finalDeliverableAvailable ? (
                               <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
                                 Disponible
@@ -9353,6 +9165,306 @@ export default function VisorDocumentoPage() {
                             )}
                           </div>
                         </div>
+                      )}
+                      {/* ── Descargas del documento ── */}
+                      {activeTab === 'descargas' && (
+                        <>
+                          {/* ── 1. Documento derivado del proceso de firma ── */}
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                                Documento firmado
+                              </span>
+                              <span
+                                className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                                  signedPdfReadyForDownload
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : padesUiStatus === 'PAdES ERROR'
+                                      ? 'bg-red-50 text-red-700 border-red-200'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                                }`}
+                              >
+                                {signedPdfReadyForDownload
+                                  ? 'Listo para descarga'
+                                  : padesUiStatus === 'PAdES ERROR'
+                                    ? 'Requiere atención'
+                                    : 'Pendiente'}
+                              </span>
+                            </div>
+                            <div className="p-4">
+                              <div className="mb-4">
+                                <p className="text-sm font-semibold text-foreground truncate">
+                                  {document?.nombre || 'Documento'} — Firmado
+                                </p>
+                                <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
+                                  {!document?.sealed_pdf_path
+                                    ? 'Estamos preparando el documento firmado. Podrás descargarlo cuando termine el proceso.'
+                                    : signedPdfReadyForDownload
+                                      ? 'Tu documento firmado está listo para descargar.'
+                                      : 'El documento ya está firmado. Podrás descargarlo cuando termine la validación.'}
+                                </p>
+                              </div>
+                              {signedPdfError && (
+                                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                                  No se pudo completar el cierre PAdES de esta versión.{' '}
+                                  {signedPdfError}
+                                </div>
+                              )}
+                              {padesVerified && cryptographicCertification && (
+                                <details className="group mb-4 rounded-lg border border-border bg-muted/20">
+                                  <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-medium text-foreground [&::-webkit-details-marker]:hidden">
+                                    Ver detalles técnicos
+                                    <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
+                                  </summary>
+                                  <div className="border-t border-border/60">
+                                    <PadesTechnicalDetails certification={cryptographicCertification} />
+                                  </div>
+                                </details>
+                              )}
+                              <button
+                                onClick={downloadSignedPdf}
+                                disabled={
+                                  downloadingSignedPdf ||
+                                  !signedPdfReadyForDownload
+                                }
+                                title={
+                                  !document?.sealed_pdf_path
+                                    ? 'La descarga estará disponible al finalizar el sellado del documento.'
+                                    : !padesVerified
+                                      ? 'La descarga certificada requiere una firma PAdES verificada.'
+                                      : !finalDeliverableAvailable
+                                        ? 'Pendiente de constancia NOM-151 emitida y verificada.'
+                                      : undefined
+                                }
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {downloadingSignedPdf ? (
+                                  <RefreshCw size={15} className="animate-spin" />
+                                ) : (
+                                  <Download size={15} />
+                                )}
+                                {downloadingSignedPdf
+                                  ? 'Descargando…'
+                                  : !document?.sealed_pdf_path
+                                    ? 'PDF firmado en preparación'
+                                    : !padesVerified
+                                      ? padesUiStatus === 'PAdES ERROR'
+                                        ? 'Error de verificación PAdES'
+                                        : 'Pendiente de verificación PAdES'
+                                      : !finalDeliverableAvailable
+                                        ? 'Pendiente de NOM-151'
+                                      : 'Descargar PDF firmado'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* ── 2. Documento Original ── */}
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                                Documento Original
+                              </span>
+                              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                                PDF
+                              </span>
+                            </div>
+                            <div className="p-4">
+                              <div className="mb-4">
+                                <p className="text-sm font-semibold text-foreground truncate">
+                                  {document?.nombre || 'Documento'}
+                                </p>
+                                <p className="text-xs mt-1 text-muted-foreground">
+                                  Archivo PDF original del documento
+                                </p>
+                              </div>
+                              <button
+                                onClick={downloadOriginalDocument}
+                                disabled={downloadingOriginal || !document?.file_url}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {downloadingOriginal ? (
+                                  <RefreshCw size={15} className="animate-spin" />
+                                ) : (
+                                  <Download size={15} />
+                                )}
+                                {downloadingOriginal ? 'Descargando…' : 'Descargar PDF'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* ── 3. Constancia General de Firma ── */}
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                                Constancia General de Firma
+                              </span>
+                              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                                PDF
+                              </span>
+                            </div>
+                            <div className="p-4">
+                              <div className="mb-4">
+                                <p className="text-sm font-semibold text-foreground">
+                                  Constancia General de Firma Electrónica
+                                </p>
+                                <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
+                                  Documento compartido entre todas las partes del proceso de firma
+                                </p>
+                              </div>
+                              <button
+                                onClick={downloadConstanciaGeneralPdf}
+                                disabled={downloadingConstanciaGeneral}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {downloadingConstanciaGeneral ? (
+                                  <RefreshCw size={15} className="animate-spin" />
+                                ) : (
+                                  <Download size={15} />
+                                )}
+                                {downloadingConstanciaGeneral ? 'Generando…' : 'Descargar PDF'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* ── 4. Constancia NOM-151 ── */}
+                          <div className="rounded-xl border border-border bg-white shadow-sm">
+                            <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                                Constancia NOM-151
+                              </span>
+                              <span
+                                className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                                  nom151Presentation.verificationStatus === 'verified'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : nom151Presentation.verificationStatus === 'failed'
+                                      ? 'bg-red-50 text-red-700 border-red-200'
+                                      : 'bg-muted text-muted-foreground border-border'
+                                }`}
+                              >
+                                {nom151Presentation.statusLabel}
+                              </span>
+                            </div>
+                            <div className="p-4">
+                              {nom151Data ? (
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+                                    <p className="text-sm font-semibold text-foreground">
+                                      Constancia NOM-151 verificada
+                                    </p>
+                                  </div>
+                                  {!nom151Data.production_trusted && (
+                                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                      Emisión de desarrollo verificada técnicamente; no confirmada como constancia productiva.
+                                    </p>
+                                  )}
+                                  <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        PSC
+                                      </span>
+                                      <span className="max-w-[190px] text-right text-xs text-foreground">
+                                        {nom151Data.psc_name ||
+                                          'Proveedor de Servicios de Certificación'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Folio / identificador
+                                      </span>
+                                      <span className="text-xs font-mono text-foreground truncate max-w-[140px]">
+                                        {nom151Data.nubarium_codigo_validacion}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Fecha emisión
+                                      </span>
+                                      <span className="text-right text-xs text-foreground">
+                                        {formatEvidenceTimestamp(
+                                          nom151Data.issued_at || nom151Data.created_at
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Estado de integridad
+                                      </span>
+                                      <span className="text-right text-xs font-medium text-emerald-700">
+                                        {nom151Presentation.integrityLabel}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={downloadNom151Pdf}
+                                    disabled={downloadingNom151Pdf}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    {downloadingNom151Pdf ? (
+                                      <RefreshCw size={15} className="animate-spin" />
+                                    ) : (
+                                      <Download size={15} />
+                                    )}
+                                    {downloadingNom151Pdf
+                                      ? 'Generando…'
+                                      : 'Descargar Constancia PDF'}
+                                  </button>
+                                  <button
+                                    onClick={downloadAnsFile}
+                                    disabled={downloadingAns}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    {downloadingAns ? (
+                                      <RefreshCw size={15} className="animate-spin" />
+                                    ) : (
+                                      <Download size={15} />
+                                    )}
+                                    {downloadingAns ? 'Descargando…' : 'Descargar .asn1'}
+                                  </button>
+                                  <a
+                                    href="https://validatuconstancia.pscworld.com/"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border border-border text-foreground hover:bg-muted/50 transition-colors"
+                                  >
+                                    <Shield size={15} />
+                                    Verificar validez en PSC
+                                  </a>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center gap-3 py-4">
+                                  {nom151Generating || nom151Polling ? (
+                                    <RefreshCw
+                                      size={24}
+                                      className="animate-spin text-muted-foreground"
+                                    />
+                                  ) : nom151Error ? (
+                                    <AlertTriangle size={24} className="text-amber-500" />
+                                  ) : (
+                                    <Clock size={24} className="text-muted-foreground" />
+                                  )}
+                                  <p className="text-sm text-center text-muted-foreground">
+                                    {nom151Generating || nom151Polling
+                                      ? 'Generando constancia NOM-151…'
+                                      : nom151Error
+                                        ? 'No fue posible emitir la constancia NOM-151.'
+                                      : nom151Blocked
+                                          ? 'Pendiente del cierre criptográfico PAdES-B-T.'
+                                          : 'Constancia NOM-151 pendiente de generación.'}
+                                    <br />
+                                    <span className="text-xs">
+                                      {nom151Error ||
+                                        (nom151Blocked
+                                          ? 'Docubox la solicitará automáticamente al PSC cuando el PDF final sea verificable.'
+                                          : 'Docubox la generará con el proveedor de conservación.')}
+                                    </span>
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                        </>
                       )}
                     </div>
                   </div>

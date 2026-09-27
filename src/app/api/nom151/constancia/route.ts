@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { service } = await requireDocumentAccess(req, documentId);
+    const { service } = await requireDocumentAccess(req, documentId, { additionalAccess: 'evidence' });
     const pades = await service
       .from('document_certifications')
       .select('id,document_version_id,certified_pdf_sha256,pades_pdf_hash_after_signature,pades_profile')
