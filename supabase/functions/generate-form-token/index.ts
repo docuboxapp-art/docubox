@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { requiresFormSignature } from '../_shared/form-signature-policy.ts';
+import { getClientIp } from '../_shared/client-ip.ts';
 
 declare const Deno: {
   env: {
@@ -122,7 +123,7 @@ serve(async (req) => {
     const token = Array.from(tokenBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 
     const expiresAt = new Date(Date.now() + expiration * 60 * 60 * 1000).toISOString();
-    const ipIssued = req.headers.get('x-forwarded-for') || null;
+    const ipIssued = getClientIp(req.headers);
 
     // Insert token
     const { data: tokenRow, error: insertError } = await supabase
@@ -143,6 +144,7 @@ serve(async (req) => {
       .single();
 
     if (insertError) {
+      console.error('Form token insert failed:', insertError.code, insertError.message);
       return new Response(
         JSON.stringify({ error: 'Error al crear el token' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

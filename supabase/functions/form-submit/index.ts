@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { requiresFormSignature } from '../_shared/form-signature-policy.ts';
+import { getClientIp } from '../_shared/client-ip.ts';
 
 declare const Deno: {
   env: {
@@ -112,7 +113,7 @@ serve(async (req) => {
     }
 
     // 3. Get client info
-    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('cf-connecting-ip') || null;
+    const ipAddress = getClientIp(req.headers);
     const userAgent = req.headers.get('user-agent') || null;
     // 4. Save response
     const { data: responseRow, error: insertError } = await supabase
@@ -134,6 +135,7 @@ serve(async (req) => {
       .single();
 
     if (insertError) {
+      console.error('Form response insert failed:', insertError.code, insertError.message);
       return new Response(
         JSON.stringify({ error: insertError.code === '23505' ? 'Este formulario ya fue respondido por tu cuenta.' : 'Error al guardar la respuesta', code: insertError.code === '23505' ? 'ALREADY_RESPONDED' : 'SAVE_FAILED' }),
         { status: insertError.code === '23505' ? 409 : 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
