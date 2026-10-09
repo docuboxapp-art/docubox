@@ -31,8 +31,8 @@ export async function POST(request: NextRequest) {
       .select('id,workspace_id,status,settings,allowed_signature_types')
       .eq('id', templateId).maybeSingle();
     if (templateError || !template) return NextResponse.json({ error: 'Formulario no encontrado.' }, { status: 404 });
-    if (template.status !== 'published' || template.settings?.accessMode === 'public')
-      return NextResponse.json({ error: 'Este formulario no admite invitaciones privadas.' }, { status: 409 });
+    if (template.status !== 'published')
+      return NextResponse.json({ error: 'Este formulario no está publicado.' }, { status: 409 });
     const allowedTypes = template.allowed_signature_types?.length
       ? template.allowed_signature_types
       : template.settings?.allowedSignatureTypes?.length

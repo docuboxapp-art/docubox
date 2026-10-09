@@ -188,6 +188,23 @@ test('publication validates title, fields, field identities and expiration witho
   assert.match(publicationError({ ...signed, schema: [] }), /Agrega el campo Firma/);
 });
 
+test('legacy legal fields receive editable text and cannot publish with an empty acceptance', () => {
+  const legacy = formTemplateFromRow(row({
+    schema: [
+      { id: 'consent', type: 'consentimiento', label: 'Consentimiento', slug: 'consentimiento', required: true, description: '' },
+      { id: 'declaration', type: 'declaration', label: 'Declaración', slug: 'declaracion', required: true, description: '' },
+      { id: 'signature', type: 'signature_block', label: 'Firma', slug: 'firma', required: true },
+    ],
+  }));
+  assert.match(legacy.schema[0].description, /autorizo el tratamiento/);
+  assert.equal(legacy.schema[0].acceptanceLabel, 'Otorgo mi consentimiento.');
+  assert.match(legacy.schema[1].description, /Declaro bajo protesta/);
+  assert.equal(legacy.schema[1].acceptanceLabel, 'Confirmo esta declaración.');
+  assert.equal(publicationError(legacy), null);
+  const cleared = { ...legacy, schema: [{ ...legacy.schema[0], acceptanceLabel: '' }, ...legacy.schema.slice(1)] };
+  assert.match(publicationError(cleared), /casilla de aceptación/);
+});
+
 test('draft updates are scoped and optimistic, never rewrite owner/workspace/status', async () => {
   const { db, calls } = client({ data: row(), error: null });
   await persistFormDraft(db, formTemplateFromRow(row()), 'workspace-a', 'editor-a');

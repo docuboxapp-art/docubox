@@ -4,6 +4,7 @@ import React from 'react';
 import { GitBranch, Plus, Trash2, X } from 'lucide-react';
 import { useFormBuilder, type FormField } from '@/contexts/FormBuilderContext';
 import { getFieldTypeLabel } from '@/lib/forms/schema';
+import { isLegalField, legalFieldContent } from '@/lib/forms/legal-field-content';
 
 import {
   Input,
@@ -20,6 +21,7 @@ export default function FieldProperties() {
   const update = (updates: Partial<FormField>) => {
     if (selectedField) updateField(selectedField.id, updates);
   };
+  const legalContent = selectedField ? legalFieldContent(selectedField) : null;
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-[#E2E8F0] bg-white dark:border-border dark:bg-card">
@@ -64,16 +66,26 @@ export default function FieldProperties() {
                 }
               />
               <Input
-                label="Descripción"
-                value={selectedField.description || ''}
+                label={selectedField.type === 'consentimiento' ? 'Texto del consentimiento' : selectedField.type === 'declaration' ? 'Texto de la declaración' : 'Descripción'}
+                value={legalContent ? selectedField.description ?? legalContent.description : selectedField.description || ''}
                 onChange={(value) => update({ description: value })}
                 multiline
+                maxLength={legalContent ? 1000 : undefined}
               />
-              <Input
+              {legalContent && <>
+                <Input
+                  label="Texto junto a la casilla de aceptación"
+                  value={selectedField.acceptanceLabel ?? legalContent.acceptanceLabel}
+                  onChange={(value) => update({ acceptanceLabel: value })}
+                  maxLength={160}
+                />
+                <p className="text-[11px] leading-4 text-[#64748B]">El participante verá ambos textos y su aceptación se registrará en el PDF.</p>
+              </>}
+              {!isLegalField(selectedField.type) && <Input
                 label="Placeholder"
                 value={selectedField.placeholder || ''}
                 onChange={(value) => update({ placeholder: value })}
-              />
+              />}
               <Input
                 label="Nombre interno"
                 value={selectedField.slug}

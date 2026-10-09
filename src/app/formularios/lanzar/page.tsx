@@ -8,6 +8,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Copy,
   Edit3,
   FileText,
   Loader2,
@@ -57,9 +58,9 @@ const signatureIcons = {
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const launchSteps = [
   {
-    label: 'Participante',
+    label: 'Acceso y participante',
     icon: User,
-    description: 'Elige quién responderá el formulario y cómo recibirá el enlace.',
+    description: 'Elige cómo se accederá al formulario y, si es privado, quién recibirá el enlace.',
   },
   {
     label: 'Firma',
@@ -71,6 +72,10 @@ const launchSteps = [
     icon: Send,
     description: 'Revisa los datos antes de enviar el enlace personal.',
   },
+] as const;
+const publicLaunchSteps = [
+  { label: 'Acceso', icon: ShieldCheck, description: 'Elige cómo se compartirá el formulario.' },
+  { label: 'Confirmar código', icon: Send, description: 'Activa el acceso público y comparte el código.' },
 ] as const;
 
 function LaunchContent() {
@@ -100,6 +105,9 @@ function LaunchContent() {
   const [platformSearched, setPlatformSearched] = useState(false);
   const [showManualParticipant, setShowManualParticipant] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [accessMode, setAccessMode] = useState<'private' | 'public'>('private');
+  const [publicAccessInfo, setPublicAccessInfo] = useState<{ url: string; code: string } | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [signatureType, setSignatureType] = useState<SignatureType | ''>('');
   const [requireLiveness, setRequireLiveness] = useState(false);
   const [expirationHours, setExpirationHours] = useState<number | null>(null);
@@ -140,9 +148,7 @@ function LaunchContent() {
           .order('nombre'),
       ]);
       if (!active) return;
-      const availableForms = ((formResult.data || []) as FormChoice[]).filter(
-        (item) => item.settings?.accessMode !== 'public'
-      );
+      const availableForms = (formResult.data || []) as FormChoice[];
       const creatorIds = [...new Set(availableForms.map((item) => item.created_by).filter(Boolean))];
       const creatorResult = creatorIds.length
         ? await supabase.from('user_profiles').select('id,full_name').in('id', creatorIds)
@@ -195,6 +201,7 @@ function LaunchContent() {
   const signatureOptions = (
     allowedTypes?.length ? allowedTypes : ['click_sign', 'autografa_digital', 'efirma_sat']
   ).filter((type): type is SignatureType => type in signatureLabels);
+  const canLaunchPublicly = signatureOptions.includes('autografa_digital');
   const hasConfiguredExpiration = form?.settings?.configureLinkExpiration === true;
   const configuredHours = Number(form?.settings?.expirationHours);
   const defaultHours =
@@ -231,17 +238,22 @@ function LaunchContent() {
     chooseParticipant({ id: 'new', name: manualName.trim(), email: manualEmail.trim() });
     setShowManualParticipant(false);
   };
-  const activeStep = launchSteps[step - 1];
+  const visibleSteps = accessMode === 'public' ? publicLaunchSteps : launchSteps;
+  const currentStepIndex = accessMode === 'public' ? (step === 3 ? 1 : 0) : step - 1;
+  const activeStep = visibleSteps[currentStepIndex];
   const ActiveStepIcon = activeStep.icon;
-  const progress = Math.round(((step - 1) / (launchSteps.length - 1)) * 100);
+  const progress = Math.round((currentStepIndex / (visibleSteps.length - 1)) * 100);
 
   const goBack = () => {
     setError('');
     if (step === 1) setSelectedId('');
-    else setStep((step - 1) as 1 | 2);
+    else setStep(accessMode === 'public' ? 1 : (step - 1) as 1 | 2);
   };
   const advance = () => {
-    if (step === 1) next();
+    if (step === 1 && accessMode === 'public') {
+      setError('');
+      setStep(3);
+    } else if (step === 1) next();
     else if (signatureType) {
       setError('');
       setStep(3);
@@ -307,6 +319,33 @@ function LaunchContent() {
       setError(cause instanceof Error ? cause.message : 'No se pudo buscar al participante.');
     } finally {
       setPlatformSearching(false);
+    }
+  };
+  const activatePublicAccess = async () => {
+    if (!form || !canLaunchPublicly) {
+      setError('Este formulario necesita firma autógrafa digital para activar el acceso público.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+      const response = await fetch(`/api/formularios/publico/${encodeURIComponent(form.id)}/codigo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      const result = await response.json();
+      if (!response.ok || !result.code)
+        throw new Error(result.error || 'No se pudo activar el acceso público.');
+      setPublicAccessInfo({ url: `${window.location.origin}/formulario-publico/${form.id}`, code: result.code });
+      setCodeCopied(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo activar el acceso público.');
+    } finally {
+      setBusy(false);
     }
   };
   const send = async () => {
@@ -411,6 +450,28 @@ function LaunchContent() {
     );
   }
 
+  if (publicAccessInfo) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-100 p-4">
+        <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-7 shadow-xl">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Check size={22} /></span>
+            <div><h1 className="text-xl font-semibold text-slate-950">Acceso público activado</h1><p className="text-sm text-slate-500">{form?.name}</p></div>
+          </div>
+          <p className="mt-5 text-sm leading-6 text-slate-600">Comparte este enlace y código. Cada persona deberá iniciar sesión y superar una prueba de vida antes de abrir el formulario.</p>
+          <label className="mt-5 block text-sm font-medium text-slate-700">Enlace público<input readOnly value={publicAccessInfo.url} className="mt-1.5 block w-full rounded-md border border-slate-200 px-3 py-2.5 text-sm font-normal" /></label>
+          <label className="mt-4 block text-sm font-medium text-slate-700">Código de acceso<input readOnly value={publicAccessInfo.code} className="mt-1.5 block w-full rounded-md border border-slate-200 px-3 py-2.5 font-mono text-sm font-semibold tracking-wide" /></label>
+          <p className="mt-3 text-xs text-slate-500">El código permanece disponible para este formulario; volver a lanzarlo públicamente mostrará el mismo código.</p>
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={() => router.push('/formularios')} className="rounded-md border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700">Cerrar</button>
+            <button type="button" onClick={() => void navigator.clipboard.writeText(`${publicAccessInfo.url}\nCódigo: ${publicAccessInfo.code}`).then(() => setCodeCopied(true)).catch(() => setError('No se pudo copiar. Selecciona el enlace y el código manualmente.'))} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white"><Copy size={15} /> {codeCopied ? 'Copiado' : 'Copiar enlace y código'}</button>
+          </div>
+        </div>
+        {error && <BottomNotice message={error} tone="critical" onClose={() => setError('')} />}
+      </div>
+    );
+  }
+
   return (
     <div
       ref={containerRef}
@@ -422,30 +483,30 @@ function LaunchContent() {
           aria-label="Pasos de lanzamiento del formulario"
           className="mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100/80 p-1 sm:gap-1"
         >
-          {launchSteps.map(({ label, icon: StepIcon }, index) => (
+          {visibleSteps.map(({ label, icon: StepIcon }, index) => (
             <React.Fragment key={label}>
               <button
                 type="button"
                 aria-label={label}
-                aria-current={step === index + 1 ? 'step' : undefined}
+                aria-current={currentStepIndex === index ? 'step' : undefined}
                 title={label}
-                disabled={busy || index + 1 >= step}
+                disabled={busy || index >= currentStepIndex}
                 onClick={() => {
-                  setStep((index + 1) as 1 | 2);
+                  setStep(accessMode === 'public' ? 1 : (index + 1) as 1 | 2);
                   setError('');
                 }}
-                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors sm:px-2.5 ${step === index + 1 ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]' : index + 1 < step ? 'text-slate-700 hover:bg-white hover:text-primary' : 'text-slate-400'} disabled:cursor-default`}
+                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors sm:px-2.5 ${currentStepIndex === index ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]' : index < currentStepIndex ? 'text-slate-700 hover:bg-white hover:text-primary' : 'text-slate-400'} disabled:cursor-default`}
               >
                 <span
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${step === index + 1 ? 'bg-primary text-white' : index + 1 < step ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'}`}
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${currentStepIndex === index ? 'bg-primary text-white' : index < currentStepIndex ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'}`}
                 >
-                  {index + 1 < step ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
+                  {index < currentStepIndex ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                 </span>
                 <span className="hidden md:inline">{label}</span>
               </button>
-              {index < launchSteps.length - 1 && (
+              {index < visibleSteps.length - 1 && (
                 <span
-                  className={`h-px w-1 shrink-0 sm:w-3 ${index + 1 < step ? 'bg-primary/50' : 'bg-slate-200'}`}
+                  className={`h-px w-1 shrink-0 sm:w-3 ${index < currentStepIndex ? 'bg-primary/50' : 'bg-slate-200'}`}
                 />
               )}
             </React.Fragment>
@@ -482,7 +543,7 @@ function LaunchContent() {
             </span>
             <h1 className="text-[20px] font-normal">{activeStep.label}</h1>
             <span className="shrink-0 rounded-md bg-slate-200/70 px-1.5 py-0.5 text-sm text-slate-600">
-              Paso {step} de {launchSteps.length}
+              Paso {currentStepIndex + 1} de {visibleSteps.length}
             </span>
             <p className="hidden min-w-0 truncate text-sm text-slate-500 lg:block">
               {activeStep.description}
@@ -534,7 +595,7 @@ function LaunchContent() {
                   <div className="mb-4 flex items-start justify-between gap-4">
                     <div>
                       <h2 className="text-base font-semibold">Selecciona un formulario publicado</h2>
-                      <p className="mt-1 text-sm text-slate-500">Elige el formulario que enviarás mediante un enlace personal.</p>
+                      <p className="mt-1 text-sm text-slate-500">Elige el formulario que vas a lanzar.</p>
                     </div>
                     <button
                       type="button"
@@ -558,6 +619,7 @@ function LaunchContent() {
                             setExpirationHours(null);
                             setSignatureType('');
                             setRequireLiveness(false);
+                            setAccessMode('private');
                             setError('');
                           }}
                           className="group flex w-full items-center justify-between gap-4 rounded-lg border border-slate-200 p-4 text-left transition-colors hover:border-primary hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -569,13 +631,13 @@ function LaunchContent() {
                                 {item.description}
                               </span>
                             )}
-                            <span className="mt-2 block text-xs text-slate-500">
+                            <span className="form-launch-choice-meta mt-2 block text-xs text-slate-500">
                               {typeof item.settings?.documentTypeName === 'string' && item.settings.documentTypeName.trim()
                                 ? `${item.settings.documentTypeName.trim()} · `
                                 : ''}Versión {item.version_number || 1}.0
                               {item.published_at ? ` · Publicado el ${new Date(item.published_at).toLocaleDateString('es-MX')}` : ''}
                             </span>
-                            <span className="mt-1 block text-xs text-slate-500">
+                            <span className="form-launch-choice-meta mt-1 block text-xs text-slate-500">
                               Creado por: {creatorNames[item.created_by]
                                 || (item.created_by === user?.id
                                   ? (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) || user.email
@@ -601,6 +663,23 @@ function LaunchContent() {
                   <>
                     {step === 1 && (
                       <>
+                        <fieldset>
+                          <legend className="mb-2 text-sm font-semibold text-slate-900">Acceso al formulario</legend>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {([
+                              { value: 'private', title: 'Invitación privada', description: 'Envía un enlace personal a un participante por correo.' },
+                              { value: 'public', title: 'Formulario público con código', description: 'Comparte un código. Cada persona inicia sesión y supera una prueba de vida.' },
+                            ] as const).map((option) => (
+                              <label key={option.value} className={`flex gap-3 rounded-lg border p-4 ${accessMode === option.value ? 'border-primary bg-blue-50/60' : 'border-slate-200 bg-white'} ${option.value === 'public' && !canLaunchPublicly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+                                <input type="radio" name="launch-access-mode" value={option.value} checked={accessMode === option.value} disabled={option.value === 'public' && !canLaunchPublicly} onChange={() => { setAccessMode(option.value); setError(''); }} className="mt-1 accent-primary" />
+                                <span><span className="block text-sm font-medium text-slate-900">{option.title}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span></span>
+                              </label>
+                            ))}
+                          </div>
+                          {!canLaunchPublicly && <p className="mt-2 text-xs text-amber-700">Para usar un código público, el formulario debe admitir firma autógrafa digital.</p>}
+                          <p className="mt-2 text-xs text-slate-500">Una invitación privada no revoca un código público que ya se haya compartido.</p>
+                        </fieldset>
+                        {accessMode === 'private' ? <>
                         <div>
                           <h2 className="text-base font-semibold">Participante</h2>
                           <p className="mt-1 text-sm text-slate-500">
@@ -681,6 +760,7 @@ function LaunchContent() {
                             </span>
                           </span>
                         </label>
+                        </> : <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4 text-sm leading-6 text-slate-700">No necesitas elegir un participante. El código se compartirá con quienes deban responder; la prueba de vida será obligatoria antes de acceder.</div>}
                       </>
                     )}
                     {step === 2 && (
@@ -719,6 +799,20 @@ function LaunchContent() {
                       </>
                     )}
                     {step === 3 && (
+                      accessMode === 'public' ? (
+                        <div className="space-y-4">
+                          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-5">
+                            <h2 className="text-lg font-semibold text-slate-950">Confirma el acceso público</h2>
+                            <p className="mt-1 text-sm leading-6 text-slate-600">Se habilitará un código para <strong>{form.name}</strong>. No se enviará un correo a un participante específico.</p>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-700">
+                            <p><strong>Acceso:</strong> enlace y código compartidos por ti.</p>
+                            <p className="mt-2"><strong>Identidad:</strong> cuenta con correo verificado y prueba de vida obligatoria.</p>
+                            <p className="mt-2"><strong>Firma:</strong> firma autógrafa digital.</p>
+                            <p className="mt-4 text-xs text-slate-500">Si ya activaste un código para este formulario, se mostrará el mismo para conservar los accesos compartidos.</p>
+                          </div>
+                        </div>
+                      ) : (
                       <div className="space-y-4">
                         <div className="flex flex-col gap-4 rounded-lg border border-emerald-200/80 bg-emerald-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex min-w-0 items-center gap-3">
@@ -920,6 +1014,7 @@ function LaunchContent() {
                           </div>
                         </section>
                       </div>
+                      )
                     )}
                     {error && !participantPickerOpen && <BottomNotice message={error} tone="critical" onClose={() => setError('')} />}
                   </>
@@ -943,10 +1038,10 @@ function LaunchContent() {
           <button
             type="button"
             disabled={busy || !form}
-            onClick={() => void send()}
+            onClick={() => void (accessMode === 'public' ? activatePublicAccess() : send())}
             className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
           >
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {deliveryMode === 'scheduled' ? 'Programar envío' : 'Confirmar y enviar'}
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {accessMode === 'public' ? 'Activar código público' : deliveryMode === 'scheduled' ? 'Programar envío' : 'Confirmar y enviar'}
           </button>
         ) : (
           <button

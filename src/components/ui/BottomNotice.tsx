@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 
 export type NoticeTone = 'critical' | 'followup' | 'warning' | 'success' | 'neutral';
@@ -15,17 +15,32 @@ export function noticeToneFromMessage(message: string): NoticeTone {
 }
 
 export function NoticeCard({ message, tone, onClose }: { message: string; tone?: NoticeTone; onClose?: () => void }) {
+  const [dismissedMessage, setDismissedMessage] = useState<string | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDismissedMessage(message);
+      onCloseRef.current?.();
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
+  if (dismissedMessage === message) return null;
+
   const resolvedTone = tone || noticeToneFromMessage(message);
   return (
     <div className="app-feedback-toast" data-tone={resolvedTone} role={resolvedTone === 'critical' ? 'alert' : 'status'}>
       <span>{message}</span>
-      {onClose && <button type="button" onClick={onClose} aria-label="Cerrar aviso"><X size={14} aria-hidden="true" /></button>}
+      <button type="button" onClick={() => { setDismissedMessage(message); onCloseRef.current?.(); }} aria-label="Cerrar aviso"><X size={14} aria-hidden="true" /></button>
     </div>
   );
 }
 
 export function BottomNotice(props: Parameters<typeof NoticeCard>[0]) {
-  const [dismissedMessage, setDismissedMessage] = useState<string | null>(null);
-  if (dismissedMessage === props.message) return null;
-  return <div className="app-feedback-position"><NoticeCard {...props} onClose={props.onClose || (() => setDismissedMessage(props.message))} /></div>;
+  return <div className="app-feedback-position"><NoticeCard {...props} /></div>;
 }

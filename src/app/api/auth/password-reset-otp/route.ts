@@ -142,14 +142,14 @@ function buildPasswordResetEmailHtml(params: {
                 <tr>
                   <td valign="middle"><img src="${LOGO_URL}" alt="Docubox" width="104" style="display:block;width:104px;max-width:104px;height:auto;border:0;"></td>
                   <td class="footer-links" valign="middle" align="right" style="text-align:right;">
-                    <a class="footer-link" href="${APP_URL}/login" style="display:inline-block;margin-left:20px;font-size:12px;color:#64748B;text-decoration:none;">Mi cuenta</a>
-                    <a class="footer-link" href="${APP_URL}/politica-privacidad" style="display:inline-block;margin-left:20px;font-size:12px;color:#64748B;text-decoration:none;">Privacidad</a>
+                    <a class="footer-link" href="${APP_URL}/politica-privacidad" style="display:inline-block;margin-left:20px;font-size:12px;color:#9ca3af;text-decoration:none;">Política de privacidad</a>
+                    <a class="footer-link" href="${APP_URL}/terminos-condiciones" style="display:inline-block;margin-left:20px;font-size:12px;color:#9ca3af;text-decoration:none;">Términos y condiciones</a>
                   </td>
                 </tr>
                 <tr>
                   <td colspan="2" style="padding-top:16px;border-top:1px solid #F1F5F9;">
                     <p style="margin:16px 0 4px;font-size:11px;line-height:1.6;color:#6B7280;">© ${year} Docubox. Todos los derechos reservados.</p>
-                    <p style="margin:0;font-size:11px;line-height:1.6;color:#6B7280;">Recibiste este mensaje porque se solicitó recuperar el acceso a tu cuenta.</p>
+                    <p style="margin:0;font-size:11px;line-height:1.6;color:#4b5563;">Recibiste este mensaje porque se solicitó recuperar el acceso a tu cuenta.</p>
                   </td>
                 </tr>
               </table>

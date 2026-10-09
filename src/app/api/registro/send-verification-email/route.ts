@@ -130,8 +130,8 @@ function buildVerificationEmailHtml(recipientName: string, verificationUrl: stri
                     <img src="${LOGO_LIGHT}" alt="Docubox" width="104" height="auto" style="display:block;border:0;max-width:104px;" />
                   </td>
                   <td style="vertical-align:middle;text-align:right;">
-                    <a class="footer-link" href="${APP_URL}/login" style="font-size:12px;color:#64748b;text-decoration:none;display:inline-block;margin-left:20px;">Mi cuenta</a>
-                    <a class="footer-link" href="${APP_URL}/politica-privacidad" style="font-size:12px;color:#64748b;text-decoration:none;display:inline-block;margin-left:20px;">Privacidad</a>
+                    <a class="footer-link" href="${APP_URL}/politica-privacidad" style="font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Política de privacidad</a>
+                    <a class="footer-link" href="${APP_URL}/terminos-condiciones" style="font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Términos y condiciones</a>
                   </td>
                 </tr>
                 <tr>
@@ -139,7 +139,7 @@ function buildVerificationEmailHtml(recipientName: string, verificationUrl: stri
                     <p style="font-size:11px;color:#6b7280;margin:16px 0 4px;line-height:1.6;">
                       © ${year} Docubox. Todos los derechos reservados.
                     </p>
-                    <p style="font-size:11px;color:#6b7280;margin:0;line-height:1.6;">
+                    <p style="font-size:11px;color:#4b5563;margin:0;line-height:1.6;">
                       Recibiste este mensaje porque se inició un registro con esta dirección.
                     </p>
                   </td>

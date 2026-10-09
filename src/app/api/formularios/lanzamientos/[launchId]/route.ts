@@ -26,7 +26,9 @@ async function manage(req: NextRequest, context: Context, action: Action) {
     const service = createServiceClient();
     const { data: launch, error: launchError } = await service
       .from('form_tokens')
-      .select('id,template_id,recipient_name,recipient_email,token,expires_at,used_at,launcher_name,sent_to_self')
+      .select(
+        'id,template_id,recipient_name,recipient_email,token,expires_at,used_at,launched_by_user_id,launcher_name,sent_to_self'
+      )
       .eq('id', launchId)
       .maybeSingle();
     if (launchError || !launch)
@@ -40,7 +42,10 @@ async function manage(req: NextRequest, context: Context, action: Action) {
       .maybeSingle();
     if (templateError || !template)
       return NextResponse.json({ error: 'No tienes acceso a este formulario.' }, { status: 403 });
-    if (launch.used_at || (launch.expires_at && new Date(launch.expires_at).getTime() <= Date.now()))
+    if (
+      launch.used_at ||
+      (launch.expires_at && new Date(launch.expires_at).getTime() <= Date.now())
+    )
       return NextResponse.json({ error: 'Este enlace ya no está pendiente.' }, { status: 409 });
 
     if (action === 'cancel') {
@@ -73,7 +78,41 @@ async function manage(req: NextRequest, context: Context, action: Action) {
       ? template.workspaces[0]?.name || 'DOCUBOX'
       : (template.workspaces as { name?: string } | null)?.name || 'DOCUBOX';
     const formUrl = `${getPublicAppUrl()}/portal-formulario/${encodeURIComponent(launch.token)}`;
-    const requesterName = launch.launcher_name?.trim() || 'No registrado';
+    // Older links predate launcher identity columns. For those, the authenticated
+    // person requesting this reminder is the only verified sender we can name.
+    const requesterId = launch.launched_by_user_id || user.id;
+    const { data: requesterProfile, error: requesterProfileError } = await service
+      .from('user_profiles')
+      .select('full_name')
+      .eq('id', requesterId)
+      .maybeSingle();
+    if (requesterProfileError)
+      console.error(
+        '[form-launch-management] Requester profile lookup failed:',
+        requesterProfileError.code
+      );
+    const requesterAccount =
+      requesterId === user.id
+        ? user
+        : (await service.auth.admin.getUserById(requesterId)).data.user;
+    const requesterName =
+      [
+        launch.launcher_name,
+        requesterProfile?.full_name,
+        requesterAccount?.user_metadata?.full_name,
+        requesterAccount?.email,
+        user.user_metadata?.full_name,
+        user.email,
+      ]
+        .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        ?.replace(/[\r\n]+/g, ' ')
+        .trim() || 'Usuario de Docubox';
+    const sentToSelf =
+      launch.sent_to_self === true ||
+      Boolean(
+        requesterAccount?.email &&
+        requesterAccount.email.trim().toLowerCase() === launch.recipient_email.trim().toLowerCase()
+      );
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
@@ -87,7 +126,7 @@ async function manage(req: NextRequest, context: Context, action: Action) {
           formName: template.name,
           workspaceName,
           requesterName,
-          sentToSelf: launch.sent_to_self === true,
+          sentToSelf,
           formUrl,
           expiresAt: launch.expires_at,
         }),

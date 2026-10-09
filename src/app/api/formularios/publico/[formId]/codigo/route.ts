@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'private, no-store, max-age=0' };
 
-export async function GET(request: NextRequest, context: { params: Promise<{ formId: string }> }) {
+async function accessCode(request: NextRequest, context: { params: Promise<{ formId: string }> }, create: boolean) {
   const { formId } = await context.params;
   const jwt = request.headers
     .get('Authorization')
@@ -33,10 +33,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ for
   if (!user) return NextResponse.json({ error: 'Sesión no válida.' }, { status: 401, headers });
   const { data: form } = await service
     .from('form_templates')
-    .select('id,status,settings,created_by,workspace_id')
+    .select('id,status,settings,created_by,workspace_id,allowed_signature_types')
     .eq('id', formId)
     .maybeSingle();
-  if (!form || form.status !== 'published' || form.settings?.accessMode !== 'public')
+  if (!form || form.status !== 'published')
     return NextResponse.json(
       { error: 'No tienes acceso al código de este formulario.' },
       { status: 403, headers }
@@ -65,6 +65,12 @@ export async function GET(request: NextRequest, context: { params: Promise<{ for
     );
   if (existing)
     return NextResponse.json({ code: decryptPublicCode(existing.code_ciphertext) }, { headers });
+  if (!create)
+    return NextResponse.json({ error: 'Este formulario aún no tiene un código público. Actívalo desde Lanzar formulario.' }, { status: 404, headers });
+  const allowedTypes = Array.isArray(form.allowed_signature_types) && form.allowed_signature_types.length
+    ? form.allowed_signature_types : form.settings?.allowedSignatureTypes;
+  if (Array.isArray(allowedTypes) && allowedTypes.length && !allowedTypes.includes('autografa_digital'))
+    return NextResponse.json({ error: 'Habilita la firma autógrafa digital antes de activar el acceso público.' }, { status: 409, headers });
   const code = createPublicCode();
   const { error } = await service.from('form_public_access_codes').insert({
     form_id: formId,
@@ -72,7 +78,20 @@ export async function GET(request: NextRequest, context: { params: Promise<{ for
     code_hash: hashPublicCode(code),
     code_ciphertext: encryptPublicCode(code),
   });
+  if (error?.code === '23505') {
+    const { data: concurrent } = await service.from('form_public_access_codes')
+      .select('code_ciphertext').eq('form_id', formId).maybeSingle();
+    if (concurrent) return NextResponse.json({ code: decryptPublicCode(concurrent.code_ciphertext) }, { headers });
+  }
   if (error)
     return NextResponse.json({ error: 'No se pudo generar el código.' }, { status: 503, headers });
   return NextResponse.json({ code }, { headers });
+}
+
+export async function GET(request: NextRequest, context: { params: Promise<{ formId: string }> }) {
+  return accessCode(request, context, false);
+}
+
+export async function POST(request: NextRequest, context: { params: Promise<{ formId: string }> }) {
+  return accessCode(request, context, true);
 }

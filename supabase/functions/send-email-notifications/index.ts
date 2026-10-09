@@ -180,27 +180,17 @@ function buildFooter(year: number): string {
               <img src="${LOGO_LIGHT}" alt="Docubox" width="104" height="auto" style="display:block;border:0;max-width:104px;" />
             </td>
             <td style="vertical-align:middle;text-align:right;">
-              <a href="${APP_URL}/login" style="font-family:'Google Sans','Google Sans Text',Arial,sans-serif;font-size:12px;color:#64748b;text-decoration:none;display:inline-block;margin-left:20px;">Mi cuenta</a>
               <a href="${APP_URL}/politica-privacidad" style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Política de privacidad</a>
               <a href="${APP_URL}/terminos-condiciones" style="font-family:'Inter',Arial,sans-serif;font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:20px;">Términos y condiciones</a>
             </td>
           </tr>
-          <tr>
-            <td colspan="2" style="border-top:1px solid #f1f5f9;padding-top:20px;margin-top:20px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr><td style="padding-top:16px;">
-                  <p style="font-family:'Inter',Arial,sans-serif;font-size:11px;color:#6b7280;margin:0 0 4px;">
-                    © ${year} Docubox. Todos los derechos reservados.
-                  </p>
-                  <p style="font-family:'Inter',Arial,sans-serif;font-size:11px;color:#4b5563;margin:0;line-height:1.6;">
-                    Recibiste este correo porque tienes una cuenta activa en Docubox.
-                    Si no reconoces esta actividad, <a href="${APP_URL}/login" style="color:#64748b;text-decoration:underline;">gestiona tu cuenta aquí</a>.
-                  </p>
-                </td></tr>
-              </table>
-            </td>
-          </tr>
         </table>
+        <p style="border-top:1px solid #f1f5f9;padding-top:20px;margin:20px 0 4px;font-family:'Inter',Arial,sans-serif;font-size:11px;color:#6b7280;">
+          © ${year} Docubox. Todos los derechos reservados.
+        </p>
+        <p style="font-family:'Inter',Arial,sans-serif;font-size:11px;color:#4b5563;margin:0;line-height:1.6;">
+          Recibiste este correo porque tienes una cuenta activa en Docubox. Si no reconoces esta actividad, revisa la seguridad de tu cuenta.
+        </p>
       </td>
     </tr>`;
 }

@@ -99,6 +99,17 @@
     font-weight: 500 !important;
   }
 
+  button.form-property-section-trigger,
+  button.form-property-section-trigger * {
+    font-size: 0.75rem !important;
+  }
+
+  button .form-launch-choice-meta {
+    font-size: 0.75rem !important;
+    font-weight: 400 !important;
+    line-height: 1rem;
+  }
+
   /* Dense two-line workspace control: preserve its compact information hierarchy. */
   .workspace-selector-button .workspace-selector-caption {
     font-size: 0.625rem !important;
@@ -623,7 +634,7 @@ button.metric-action-card .metric-action-label {
 }
 
 button.metric-action-card .metric-action-link {
-  font-size: 0.625rem !important;
+  font-size: 0.75rem !important;
   font-weight: 500 !important;
   line-height: 1rem !important;
 }

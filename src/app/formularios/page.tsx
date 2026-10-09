@@ -109,16 +109,6 @@ export default function FormulariosPage() {
   const removeRequestId = useRef(0);
   const loadRequestId = useRef(0);
 
-  useEffect(() => {
-    const saved = sessionStorage.getItem('docubox_recent_public_form_access');
-    if (!saved) return;
-    sessionStorage.removeItem('docubox_recent_public_form_access');
-    try {
-      const value = JSON.parse(saved) as { name: string; url: string; code: string };
-      if (value.name && value.url && value.code) setPublicAccessInfo(value);
-    } catch { /* Ignore obsolete data from another session. */ }
-  }, []);
-
   const loadForms = async () => {
     if (!activeWorkspace) return;
     const requestId = ++loadRequestId.current;
@@ -479,8 +469,8 @@ export default function FormulariosPage() {
       const result = await response.json();
       if (!response.ok || !result.code) throw new Error(result.error || 'No se pudo consultar el código.');
       setPublicAccessInfo({ name: form.name, url: `${window.location.origin}/formulario-publico/${form.id}`, code: result.code });
-    } catch {
-      setNotice('No se pudo obtener el código de acceso. Revisa la migración y tus permisos.');
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : 'No se pudo consultar el código de acceso.');
     }
   };
 
@@ -495,7 +485,7 @@ export default function FormulariosPage() {
                 Crea, publica y administra formularios que generan documentos listos para firma.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2"><button type="button" onClick={() => router.push('/formularios/lanzar')} disabled={!forms.some((form) => form.status === 'published' && form.settings?.accessMode !== 'public')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-primary bg-white px-4 text-sm font-600 text-primary transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"><Send size={16} /> Lanzar formulario</button><button
+            <div className="flex flex-wrap gap-2"><button type="button" onClick={() => router.push('/formularios/lanzar')} disabled={!forms.some((form) => form.status === 'published')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-primary bg-white px-4 text-sm font-600 text-primary transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"><Send size={16} /> Lanzar formulario</button><button
               type="button"
               onClick={() => router.push('/formularios/nuevo')}
               className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-600 text-white shadow-sm transition-colors hover:bg-primary/90"
@@ -640,7 +630,7 @@ export default function FormulariosPage() {
                         <td className="relative px-3 py-3 text-right">
                           <div className="inline-flex items-center gap-1">
                             <button type="button" onClick={() => router.push(`/formularios/preview?id=${form.id}`)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Vista previa" aria-label={`Vista previa de ${form.name}`}><Eye size={13} /></button>
-                            {form.status === 'published' && (form.settings?.accessMode === 'public' ? <button type="button" onClick={() => void copyPublicLink(form)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Ver enlace y código de acceso" aria-label={`Ver enlace y código de ${form.name}`}><Link2 size={13} /></button> : <button type="button" onClick={() => { router.push(`/formularios/lanzar?id=${encodeURIComponent(form.id)}`); setActiveMenu(null); }} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Lanzar formulario" aria-label={`Lanzar formulario ${form.name}`}><Send size={13} /></button>)}
+                            {form.status === 'published' && <button type="button" onClick={() => { router.push(`/formularios/lanzar?id=${encodeURIComponent(form.id)}`); setActiveMenu(null); }} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Lanzar formulario" aria-label={`Lanzar formulario ${form.name}`}><Send size={13} /></button>}
                             <button
                               type="button"
                               onClick={() => void toggleFavorite(form)}
@@ -735,7 +725,7 @@ const ActionMenu = React.forwardRef<HTMLDivElement, { form: FormRow; position: {
     <div id="form-actions-menu" ref={ref} style={position} role="group" aria-label={`Acciones de ${form.name}`} className="fixed z-[80] max-h-[calc(100vh-24px)] w-52 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1.5 text-left shadow-[0_18px_45px_-16px_rgba(15,23,42,0.3)] dark:border-border dark:bg-card">
       <MenuAction icon={Eye} label="Vista previa" onClick={closeAfter(onPreview)} />
       {canViewFormResponses(form.status) && <MenuAction icon={BarChart3} label="Ver respuestas" onClick={closeAfter(onResponses)} />}
-      {form.status === 'published' && (form.settings?.accessMode === 'public' ? <MenuAction icon={Link2} label="Ver enlace y código" onClick={closeAfter(onCopyPublic)} /> : <MenuAction icon={Send} label="Lanzar formulario" onClick={closeAfter(onLaunch)} />)}
+      {form.status === 'published' && <><MenuAction icon={Send} label="Lanzar formulario" onClick={closeAfter(onLaunch)} /><MenuAction icon={Link2} label="Consultar código público" onClick={closeAfter(onCopyPublic)} /></>}
       <MenuAction icon={Copy} label="Duplicar" onClick={closeAfter(onDuplicate)} />
       {form.status === 'published' && <MenuAction icon={CirclePause} label="Pausar formulario" onClick={closeAfter(onPause)} />}
       {form.status === 'paused' && <MenuAction icon={Play} label="Reanudar formulario" onClick={closeAfter(onResume)} />}

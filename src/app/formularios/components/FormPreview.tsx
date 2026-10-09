@@ -8,6 +8,8 @@ import { sampleValueForField } from '@/lib/forms/schema';
 import { formFontFamily } from '@/lib/typography/font-families';
 import { useFormTypography } from '@/hooks/useFormTypography';
 import { formatFormFieldValue, isFormFieldRequired, isFormFieldVisible } from '@/lib/forms/field-behavior';
+import { isLegalField, legalFieldContent } from '@/lib/forms/legal-field-content';
+import { getFormPageSize } from '@/lib/forms/pdf-page-sizes';
 import FieldRenderer from './FieldRenderer';
 import { FormWebHeader } from './FormWebHeader';
 
@@ -78,6 +80,11 @@ export default function FormPreview({ template, mode, values: controlledValues, 
 
 function PdfMirror({ template, values, example, designPreview, signatureType }: { template: FormTemplate; values: Record<string, unknown>; example: boolean; designPreview: boolean; signatureType?: SignatureType }) {
   const pdf = template.settings.pdfSchema;
+  const paper = getFormPageSize(pdf.pageSize);
+  const pageWidth = pdf.orientation === 'landscape' ? paper.height : paper.width;
+  const pageHeight = pdf.orientation === 'landscape' ? paper.width : paper.height;
+  const previewWidth = Math.min(980, Math.round(760 * pageWidth / 612));
+  const pageAspectRatio = `${pageWidth}/${pageHeight}`;
   const folio = useMemo(() => `FORM-${new Date().getFullYear()}-000123`, []);
   const hash = '8f3a9d74b19e7c641f42d2d57a3bb9f86f943d916e7036f1e85618c6c72a982b';
   const signatureMethod = signatureType === 'efirma_sat' ? 'e.firma SAT' : signatureType === 'autografa_digital' ? 'Firma autógrafa digital' : 'Click & Sign';
@@ -86,9 +93,9 @@ function PdfMirror({ template, values, example, designPreview, signatureType }: 
   ));
 
   return (
-    <div className="mx-auto w-full space-y-4" style={{ maxWidth: pdf.orientation === 'landscape' ? 980 : 760, fontFamily: formFontFamily(pdf.typography) }}>
+    <div className="mx-auto w-full space-y-4" style={{ maxWidth: previewWidth, fontFamily: formFontFamily(pdf.typography) }}>
       {pdf.coverPage && (
-        <div className="bg-white p-12 shadow-[0_10px_35px_rgba(24,24,27,0.10)]" style={{ aspectRatio: pdf.orientation === 'landscape' ? (pdf.pageSize === 'a4' ? '297/210' : '11/8.5') : (pdf.pageSize === 'a4' ? '210/297' : '8.5/11') }}>
+        <div className="bg-white p-12 shadow-[0_10px_35px_rgba(24,24,27,0.10)]" style={{ aspectRatio: pageAspectRatio }}>
           <div className="flex h-full flex-col justify-between border border-[#E2E8F0] p-10">
             <div><p className="text-xs font-semibold uppercase" style={{ color: pdf.primaryColor }}>{pdf.header}</p></div>
             <div>
@@ -101,7 +108,7 @@ function PdfMirror({ template, values, example, designPreview, signatureType }: 
         </div>
       )}
 
-      <div className="bg-white shadow-[0_10px_35px_rgba(24,24,27,0.10)]" style={{ minHeight: pdf.orientation === 'landscape' ? 680 : 980, padding: pdf.margins === 'narrow' ? 24 : pdf.margins === 'wide' ? 72 : 48, aspectRatio: pdf.orientation === 'landscape' ? (pdf.pageSize === 'a4' ? '297/210' : '11/8.5') : (pdf.pageSize === 'a4' ? '210/297' : '8.5/11') }}>
+      <div className="bg-white shadow-[0_10px_35px_rgba(24,24,27,0.10)]" style={{ padding: pdf.margins === 'narrow' ? 24 : pdf.margins === 'wide' ? 72 : 48, aspectRatio: pageAspectRatio }}>
         <header className="flex items-start justify-between gap-6 border-b border-[#E2E8F0] pb-5">
           <div className="flex-1" style={{ textAlign: pdf.headerAlignment }}>
             <p className="text-[10px] font-semibold uppercase" style={{ color: pdf.primaryColor }}>{pdf.header}</p>
@@ -141,7 +148,10 @@ function PdfMirror({ template, values, example, designPreview, signatureType }: 
                     <div key={field.id} className={`${pdf.columns === 'two' && ['textarea', 'fiscal_address', 'declaration', 'consentimiento', 'signature_block'].includes(field.type) ? 'sm:col-span-2' : ''} ${field.pdf?.pageBreakBefore ? 'border-t-2 border-dashed border-[#CBD5E1] pt-3 sm:col-span-2' : ''}`}>
                       <dt className="text-[10px] font-medium uppercase text-[#64748B]">{field.pdf?.label || field.label}</dt>
                       <dd className={field.type === 'signature_block' ? 'mt-1 flex h-20 items-center justify-center border border-[#CBD5E1] text-xs text-[#64748B]' : 'mt-1 border-b border-[#CBD5E1] pb-2 text-xs leading-5 text-[#1E293B]'}>
-                        {field.type === 'signature_block' ? (signatureType ? `Espacio reservado para ${signatureMethod}` : 'Espacio reservado para firma') : formatFormFieldValue(field, values[field.id] ?? (example ? sampleValueForField(field) : undefined))}
+                        {field.type === 'signature_block' ? (signatureType ? `${signatureMethod} pendiente de confirmar` : 'Firma pendiente de confirmar') : isLegalField(field.type) ? <>
+                          <p className="whitespace-pre-line text-[#475569]">{legalFieldContent(field)?.description}</p>
+                          <p className="mt-1 font-medium">{legalFieldContent(field)?.acceptanceLabel} {formatFormFieldValue(field, values[field.id] ?? (example ? sampleValueForField(field) : undefined))}</p>
+                        </> : formatFormFieldValue(field, values[field.id] ?? (example ? sampleValueForField(field) : undefined))}
                       </dd>
                     </div>
                   ))}
@@ -152,12 +162,12 @@ function PdfMirror({ template, values, example, designPreview, signatureType }: 
           {signatureType && !hasVisibleSignatureBlock && (
             <section>
               <p className="text-[10px] font-medium uppercase text-[#64748B]">Firma del participante</p>
-              <div className="mt-1 flex h-20 items-center justify-center border border-[#CBD5E1] text-xs text-[#64748B]">Espacio reservado para {signatureMethod}</div>
+              <div className="mt-1 flex h-20 items-center justify-center border border-[#CBD5E1] text-xs text-[#64748B]">{signatureMethod} pendiente de confirmar</div>
             </section>
           )}
         </div>
 
-        {signatureType && <p className="mt-5 text-[10px] text-[#64748B]">Vista previa antes de firmar. La estampa elegida y sus datos de firma aparecerán en el PDF final.{pdf.showQr ? ' El QR de verificación se incorporará a la evidencia.' : ''}</p>}
+        {signatureType && <p className="mt-5 text-[10px] text-[#64748B]">Esta vista aún no está firmada. Tras confirmar la firma en el siguiente paso, la estampa se colocará en el campo indicado del PDF final.{pdf.showQr ? ' El QR de verificación se incorporará a la evidencia.' : ''}</p>}
 
         {(pdf.showHash || pdf.showQr || pdf.showAuditTrail || pdf.showEvidenceSheet) && (
           <section className="mt-10 border-t border-[#E2E8F0] pt-5">
@@ -175,7 +185,11 @@ function PdfMirror({ template, values, example, designPreview, signatureType }: 
 
         {pdf.consentPage && <section className="mt-8 border-t-2 border-dashed border-[#CBD5E1] pt-5 text-xs text-[#475569]">
           <p className="font-semibold text-[#0F172A]">Hoja de consentimiento y declaraciones</p>
-          <p className="mt-2">Incluye las respuestas de los campos de consentimiento y declaración.</p>
+          {template.schema.filter((field) => isLegalField(field.type)).map((field) => <div key={field.id} className="mt-4 space-y-1">
+            <p className="font-medium text-[#0F172A]">{field.label}</p>
+            <p className="whitespace-pre-line">{legalFieldContent(field)?.description}</p>
+            <p>{legalFieldContent(field)?.acceptanceLabel} {formatFormFieldValue(field, values[field.id] ?? (example ? sampleValueForField(field) : undefined))}</p>
+          </div>)}
         </section>}
         {pdf.showAttachments && template.schema.some((field) => field.type === 'imagen' || field.type === 'documento') && <section className="mt-8 border-t-2 border-dashed border-[#CBD5E1] pt-5 text-xs text-[#475569]">
           <p className="font-semibold text-[#0F172A]">Anexos</p>

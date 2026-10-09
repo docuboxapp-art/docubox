@@ -1,4 +1,6 @@
 import { isFormTypography, type FormTypography } from '../typography/font-families.ts';
+import { defaultLegalFieldContent, isLegalField } from './legal-field-content.ts';
+import { normalizeFormPageSize, type FormPageSize } from './pdf-page-sizes.ts';
 
 export type SignatureType = 'efirma_sat' | 'autografa_digital' | 'click_sign';
 
@@ -82,6 +84,7 @@ export interface FormField {
   slug: string;
   placeholder?: string;
   description?: string;
+  acceptanceLabel?: string;
   defaultValue?: unknown;
   required: boolean;
   readOnly: boolean;
@@ -131,7 +134,7 @@ export interface PdfSchema {
   columns: 'one' | 'two';
   showSectionNumbers: boolean;
   showDescription: boolean;
-  pageSize: 'letter' | 'a4';
+  pageSize: FormPageSize;
   showPageNumbers: boolean;
   showFolio: boolean;
   showDate: boolean;
@@ -336,6 +339,10 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
           required: field.type === 'signature_block' ? true : field.required,
           conditionalVisible: field.type === 'signature_block' ? false : field.conditionalVisible,
           conditionalRule: field.type === 'signature_block' ? undefined : field.conditionalRule,
+          description: isLegalField(field.type) && !field.description?.trim()
+            ? defaultLegalFieldContent(field.type).description : field.description,
+          acceptanceLabel: isLegalField(field.type) && !field.acceptanceLabel?.trim()
+            ? defaultLegalFieldContent(field.type).acceptanceLabel : field.acceptanceLabel,
           label: field.type === 'business_name' && field.label === 'Razón social'
             ? 'Nombre o denominación social'
             : field.type === 'fiscal_address' && field.label === 'Domicilio fiscal'
@@ -388,6 +395,7 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
       pdfSchema: {
         ...defaults.settings.pdfSchema,
         ...(input.settings?.pdfSchema || {}),
+        pageSize: normalizeFormPageSize(input.settings?.pdfSchema?.pageSize),
         typography: isFormTypography(input.settings?.pdfSchema?.typography)
           ? input.settings!.pdfSchema!.typography
           : defaults.settings.pdfSchema.typography,

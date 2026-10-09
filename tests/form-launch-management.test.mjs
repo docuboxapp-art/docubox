@@ -14,7 +14,15 @@ function fixture({ authorized = true, used = false, expired = false, self = fals
   const launch = { id: launchId, template_id: 'form-1', recipient_name: 'Ana', recipient_email: 'ana@example.com', token: 'private-token', expires_at: noExpiry ? null : expired ? '2000-01-01T00:00:00Z' : '2099-01-01T00:00:00Z', used_at: used ? '2026-10-09T12:00:00Z' : null, launcher_name: 'Carlos Lanzador', sent_to_self: self };
   const service = {
     from(table) {
-      assert.equal(table, 'form_tokens');
+      assert.ok(['form_tokens', 'user_profiles'].includes(table));
+      if (table === 'user_profiles') {
+        const profileBuilder = {
+          select() { return profileBuilder; },
+          eq() { return profileBuilder; },
+          maybeSingle() { return Promise.resolve({ data: { full_name: 'Carlos Lanzador' }, error: null }); },
+        };
+        return profileBuilder;
+      }
       let action = 'select';
       const builder = {
         select() { return builder; },

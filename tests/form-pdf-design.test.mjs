@@ -38,16 +38,18 @@ const runtime = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText.replaceAll('globalThis.Deno', 'Deno');
 
-async function generateFixture({ orientation = 'portrait', coverPage = false, columns = 'one', flags = {}, responseData = {}, fieldPageBreak = false, includeSignature = false, requireSignature = false, returnLayout = false } = {}) {
+async function generateFixture({ pageSize = 'a4', orientation = 'portrait', coverPage = false, columns = 'one', flags = {}, responseData = {}, fieldPageBreak = false, fieldCount = 12, legalContent, declarationContent, includeSignature = false, requireSignature = false, returnLayout = false } = {}) {
   let handler;
   let savedBytes;
   let savedLayout;
-  const fields = Array.from({ length: 12 }, (_, index) => ({
+  const fields = Array.from({ length: fieldCount }, (_, index) => ({
     id: `field-${index}`, sectionId: 'section-general', label: `Campo ${index + 1}`,
     type: index === 5 ? 'textarea' : 'text',
   }));
   fields.push({ id: 'email', sectionId: 'section-general', label: 'Correo', type: 'email' });
   fields.push({ id: 'consent', sectionId: 'section-general', label: 'Autorizo el uso de datos', type: 'consentimiento' });
+  if (legalContent) Object.assign(fields.at(-1), legalContent);
+  if (declarationContent) fields.push({ id: 'declaration', sectionId: 'section-general', label: 'Declaración', type: 'declaration', ...declarationContent });
   fields.push({ id: 'attachment', sectionId: 'section-general', label: 'Anexo', type: 'documento' });
   if (includeSignature) fields.push({ id: 'signature', sectionId: 'section-general', label: 'Firma', type: 'signature_block' });
   if (fieldPageBreak) fields[1].pdf = { pageBreakBefore: true };
@@ -59,7 +61,7 @@ async function generateFixture({ orientation = 'portrait', coverPage = false, co
       id: 'fixture', name: 'Formulario de muestra', description: 'Descripción visible en el PDF',
       form_schema: { fields, sections: [{ id: 'section-general', title: 'Datos generales' }] },
       pdf_schema: {
-        pageSize: 'a4', orientation, coverPage, columns, margins: 'normal',
+        pageSize, orientation, coverPage, columns, margins: 'normal',
         typography: 'serif', headerAlignment: 'center', showUnanswered: true,
         showEvidenceSheet: false, showQr: false, showHash: false,
         showAuditTrail: false, showRespondentEmail: false, showIp: false,
@@ -125,7 +127,7 @@ test('un formulario firmable conserva un espacio de firma aunque su sección no 
   assert.equal(layout.placements[0].label, 'Firma');
 });
 
-test('la posición del formulario recibe la estampa preseleccionada y su QR en el PDF firmado', async () => {
+test('la posición del formulario recibe la estampa elegida y el QR cuando el diseño lo incluye', async () => {
   const { bytes, layout } = await generateFixture({
     includeSignature: true, requireSignature: true, returnLayout: true,
     flags: { showUnanswered: false, showQr: false },
@@ -157,7 +159,7 @@ test('la posición del formulario recibe la estampa preseleccionada y su QR en e
         assuranceLevel: 'standard', additionalDocumentMetadata: [],
     };
     for (const [signature_method, signature_stamp_style] of [
-      ['clicksign', 'CC2'], ['autografa', 'AC3'], ['efirma', 'EC2'],
+      ['clicksign', 'CC2'], ['autografa', 'AC1'], ['autografa', 'AC3'], ['efirma', 'EC2'],
     ]) {
       const result = await createSignedDocumentPdf({
         originalBytes: bytes,
@@ -175,7 +177,11 @@ test('la posición del formulario recibe la estampa preseleccionada y su QR en e
       const imageObjects = signed.context.enumerateIndirectObjects().filter(([, object]) =>
         object instanceof pdfLib.PDFRawStream && object.dict.get(pdfLib.PDFName.of('Subtype'))?.toString() === '/Image'
       );
-      assert.ok(imageObjects.length > 0, `La estampa ${signature_stamp_style} debe incrustar un QR real en el PDF`);
+      if (signature_stamp_style === 'AC1') {
+        assert.equal(imageObjects.length, 0, 'AC1 es la estampa compacta sin QR ni imagen si no hay trazo');
+      } else {
+        assert.ok(imageObjects.length > 0, `La estampa ${signature_stamp_style} debe incrustar un QR real en el PDF`);
+      }
     }
   } finally {
     await rm(buildDirectory, { recursive: true, force: true });
@@ -192,18 +198,35 @@ test('el diseño del PDF respeta orientación, columnas y portada', async () => 
   assert.ok(landscape.getPageCount() > portrait.getPageCount());
 });
 
+test('el PDF generado usa las dimensiones de cada tamaño de hoja en ambas orientaciones', async () => {
+  const sizes = {
+    letter: [612, 792], oficio: [612, 936], legal: [612, 1008],
+    tabloid: [792, 1224], a5: [419.53, 595.28],
+    a4: [595.28, 841.89], a3: [841.89, 1190.55],
+  };
+  for (const [pageSize, [width, height]] of Object.entries(sizes)) {
+    for (const orientation of ['portrait', 'landscape']) {
+      const pdf = await generateFixture({ pageSize, orientation, fieldCount: 2 });
+      const page = pdf.getPages()[0];
+      assert.equal(page.getWidth(), orientation === 'portrait' ? width : height, pageSize);
+      assert.equal(page.getHeight(), orientation === 'portrait' ? height : width, pageSize);
+    }
+  }
+});
+
 test('las hojas opcionales y los anexos modifican el PDF generado', async () => {
   const base = await generateFixture();
   const withConsent = await generateFixture({ flags: { consentPage: true } });
   const withHash = await generateFixture({ flags: { showHash: true } });
   const withAudit = await generateFixture({ flags: { showAuditTrail: true } });
   const withQr = await generateFixture({ flags: { showQr: true } });
-  const withFieldBreak = await generateFixture({ fieldPageBreak: true });
+  const baseForBreak = await generateFixture({ fieldCount: 2 });
+  const withFieldBreak = await generateFixture({ fieldCount: 2, fieldPageBreak: true });
   assert.equal(withConsent.getPageCount(), base.getPageCount() + 1);
   assert.equal(withHash.getPageCount(), base.getPageCount() + 1);
   assert.equal(withAudit.getPageCount(), base.getPageCount() + 1);
   assert.equal(withQr.getPageCount(), base.getPageCount() + 1);
-  assert.equal(withFieldBreak.getPageCount(), base.getPageCount() + 1);
+  assert.equal(withFieldBreak.getPageCount(), baseForBreak.getPageCount() + 1);
   assert.ok(contentOperators(withHash).includes(encodedText('SHA-256 de respuestas')));
   assert.ok(contentOperators(withAudit).includes(encodedText('BITÁCORA')));
   const evidence = await generateFixture({ flags: { showEvidenceSheet: true, showFolio: false } });
@@ -216,6 +239,20 @@ test('las hojas opcionales y los anexos modifican el PDF generado', async () => 
   assert.ok(withAttachments.catalog.get(pdfLib.PDFName.of('Names')));
   const withoutAttachments = await generateFixture({ flags: { showAttachments: false }, responseData: { attachment: attachmentData } });
   assert.equal(withoutAttachments.catalog.get(pdfLib.PDFName.of('Names')), undefined);
+});
+
+test('el PDF conserva el texto legal y la frase de aceptación configurados', async () => {
+  const pdf = await generateFixture({
+    legalContent: { description: 'Autorizo datos propios', acceptanceLabel: 'Acepto expresamente' },
+    declarationContent: { description: 'Los datos son correctos', acceptanceLabel: 'Confirmo bajo protesta' },
+    responseData: { consent: true, declaration: true },
+  });
+  const operators = contentOperators(pdf);
+  assert.ok(operators.includes(encodedText('Autorizo datos propios')));
+  assert.ok(operators.includes(encodedText('Acepto expresamente')));
+  assert.ok(operators.includes(encodedText('Los datos son correctos')));
+  assert.ok(operators.includes(encodedText('Confirmo bajo protesta')));
+  assert.ok(operators.includes(encodedText('Sí, acepto')));
 });
 
 test('encabezado, pie, fecha, folio y paginación obedecen la configuración', async () => {

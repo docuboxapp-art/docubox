@@ -21,6 +21,7 @@ import {
 import type { FormPdfDefaults } from '@/lib/forms/pdf-defaults';
 import { reusableFormAppearance } from '@/lib/forms/appearance-defaults';
 import { snapshotFormExperience, type FormExperienceDefaults } from '@/lib/forms/experience-defaults';
+import { defaultLegalFieldContent, isLegalField } from '@/lib/forms/legal-field-content';
 
 export type {
   FieldOption,
@@ -486,7 +487,8 @@ function createDefaultField(type: FieldType): FormField {
     label,
     slug: `${label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')}_${id.slice(0, 4)}`,
     placeholder: '',
-    description: '',
+    description: isLegalField(type) ? defaultLegalFieldContent(type).description : '',
+    acceptanceLabel: isLegalField(type) ? defaultLegalFieldContent(type).acceptanceLabel : undefined,
     required: ['consentimiento', 'declaration', 'signature_block'].includes(type),
     readOnly: false,
     editableBeforeSign: true,

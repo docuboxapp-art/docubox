@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { wrapDocuboxEmail } from '@/lib/emailFooter';
 import { isInternalAdminRequest } from '@/lib/security/internal-admin';
 import { sendSms, SmsConfigurationError } from '@/lib/smsNotifications';
 import {
@@ -238,16 +239,17 @@ export async function POST(request: Request) {
           from: fromEmail,
           to: [testRecipient],
           subject: '✅ Prueba directa Resend — DocuBox',
-          html: `
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;border-radius:8px;">
+          html: wrapDocuboxEmail(
+            `
               <h2 style="color:#1e40af;">Prueba de envío directo (Resend API)</h2>
               <p style="color:#374151;">Este correo fue enviado directamente desde la API de Resend usando <strong>from: ${fromEmail}</strong>.</p>
               <p style="color:#374151;">Destinatario: <strong>${testRecipient}</strong></p>
               <p style="color:#374151;">Fecha y hora: <strong>${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}</strong></p>
               <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
               <p style="color:#6b7280;font-size:12px;">Si recibes este correo, el dominio noreply@docubox.com.mx está verificado en Resend.</p>
-            </div>
           `,
+            'Recibiste este correo porque solicitaste una prueba de notificaciones en Docubox.'
+          ),
         };
 
         const res = await fetch('https://api.resend.com/emails', {

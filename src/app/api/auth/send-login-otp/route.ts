@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { docuboxEmailFooter, docuboxEmailSafetyLine } from '@/lib/emailFooter';
 
 const FROM_EMAIL = process.env.FROM_EMAIL || 'Docubox <noreply@docubox.com.mx>';
 
@@ -45,12 +46,9 @@ function buildLoginOtpEmailHtml(params: {
               </p>
             </td>
           </tr>
-          <tr>
-            <td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 32px;text-align:center;">
-              <p style="margin:0;font-size:11px;color:#94a3b8;">Docubox - Plataforma de firma electronica</p>
-            </td>
-          </tr>
+          ${docuboxEmailFooter('Recibiste este correo porque se solicitó un código para iniciar sesión en tu cuenta Docubox.')}
         </table>
+        ${docuboxEmailSafetyLine}
       </td>
     </tr>
   </table>

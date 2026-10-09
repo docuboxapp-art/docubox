@@ -337,7 +337,6 @@ export default function ReportsWorkspace({
 
   const showToast = (message: string) => {
     setToast(message);
-    window.setTimeout(() => setToast(null), 2800);
   };
 
   const allReports = useMemo(() => [...REPORT_PRESETS, ...savedReports], [savedReports]);

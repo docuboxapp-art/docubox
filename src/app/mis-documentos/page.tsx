@@ -37,6 +37,7 @@ import {
   Home,
   RotateCcw,
   LayoutTemplate,
+  ClipboardList,
 } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { BottomNotice } from '@/components/ui/BottomNotice';
@@ -2445,7 +2446,6 @@ function MisDocumentosContent() {
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 3000);
   };
 
   const openContextMenu = (e: React.MouseEvent, doc: Document) => {
@@ -5876,6 +5876,8 @@ function MisDocumentosContent() {
                     <LayoutTemplate size={15} className="shrink-0" />
                   ) : option.value === 'documento' ? (
                     <FileText size={15} className="shrink-0" />
+                  ) : option.value === 'formulario' ? (
+                    <ClipboardList size={15} className="shrink-0" />
                   ) : (
                     <span className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
                   )}

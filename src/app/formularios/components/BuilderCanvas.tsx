@@ -160,7 +160,7 @@ export default function BuilderCanvas() {
                             }}
                             className="flex h-9 items-center gap-2 rounded-md px-3 text-xs font-medium text-[#1E6BFF] hover:bg-[#EFF6FF]"
                           >
-                            <Plus size={14} /> Agregar pregunta
+                            <Plus size={14} /> Agregar campo
                           </button>
                         )}
                         {state.template.settings.multiStep && sectionIndex < state.template.sections.length - 1 && (

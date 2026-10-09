@@ -27,7 +27,7 @@ export function PanelSection({
           aria-expanded={open}
           aria-controls={contentId}
           onClick={() => setOpen((current) => !current)}
-          className={`flex w-full items-center gap-2 border-b border-[#E2E8F0] pb-2 text-left text-[11px] font-semibold uppercase text-[#64748B] transition-colors hover:text-[#1E6BFF] focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#1E6BFF] dark:border-border ${open ? 'mb-3' : ''}`}
+          className={`form-property-section-trigger flex w-full items-center gap-2 border-b border-[#E2E8F0] pb-2 text-left font-semibold uppercase text-[#64748B] transition-colors hover:text-[#1E6BFF] focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#1E6BFF] dark:border-border ${open ? 'mb-3' : ''}`}
         >
           {Icon && <Icon size={13} />}
           <span className="flex-1">{title}</span>
@@ -45,12 +45,14 @@ export function Input({
   onChange,
   multiline,
   mono,
+  maxLength,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   multiline?: boolean;
   mono?: boolean;
+  maxLength?: number;
 }) {
   return (
     <label className="block">
@@ -61,12 +63,14 @@ export function Input({
         <textarea
           rows={3}
           value={value}
+          maxLength={maxLength}
           onChange={(event) => onChange(event.target.value)}
           className={`${inputClass} h-auto resize-none py-2 ${mono ? 'font-mono' : ''}`}
         />
       ) : (
         <input
           value={value}
+          maxLength={maxLength}
           onChange={(event) => onChange(event.target.value)}
           className={`${inputClass} ${mono ? 'font-mono' : ''}`}
         />

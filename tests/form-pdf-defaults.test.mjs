@@ -55,3 +55,12 @@ test('form PDF defaults validate local values and preserve explicit choices', ()
     defaults.pdfSchema.primaryColor
   );
 });
+
+test('los nuevos tamaños de hoja se conservan en plantillas y valores predeterminados', () => {
+  for (const pageSize of ['letter', 'oficio', 'legal', 'tabloid', 'a5', 'a4', 'a3']) {
+    assert.equal(normalizeFormTemplate({ settings: { pdfSchema: { pageSize } } }).settings.pdfSchema.pageSize, pageSize);
+    assert.equal(normalizeFormPdfDefaults({ pdfSchema: { pageSize } }).pdfSchema.pageSize, pageSize);
+  }
+  assert.equal(normalizeFormTemplate({ settings: { pdfSchema: { pageSize: 'unknown' } } }).settings.pdfSchema.pageSize, 'letter');
+  assert.equal(normalizeFormPdfDefaults({ pdfSchema: { pageSize: 'unknown' } }).pdfSchema.pageSize, 'letter');
+});

@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomInt, randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { docuboxEmailFooter, docuboxEmailSafetyLine } from '@/lib/emailFooter';
 import {
   assertKioskDocumentScope,
   kioskParticipantMatchesUser,
@@ -244,8 +245,9 @@ export async function POST(request: NextRequest) {
           <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F8FAFC;border-radius:8px;margin:0 0 24px;"><tr><td style="padding:16px;font-size:13px;line-height:1.6;color:#475569;">Si no solicitaste este código, ignora este mensaje. Docubox nunca te pedirá compartirlo.</td></tr></table>
           <p style="margin:0;font-size:12px;line-height:1.6;color:#94A3B8;">Por seguridad, nunca compartas este código por teléfono o chat.</p>
         </td></tr>
-        <tr><td style="padding:20px 40px;border-top:1px solid #EBEBF0;background:#FFFFFF;text-align:center;"><p style="margin:0;font-size:11px;color:#94A3B8;">Este correo fue enviado de forma segura por Docubox.</p></td></tr>
+        ${docuboxEmailFooter('Recibiste este correo porque se solicitó confirmar una firma electrónica en Docubox.')}
       </table>
+      ${docuboxEmailSafetyLine}
     </td></tr>
   </table>
 </body></html>`,

@@ -90,6 +90,23 @@ function stringifyAnswer(value: unknown, type?: string): string {
   return String(value ?? 'Sin respuesta');
 }
 
+function legalFieldContent(field: { type?: string; description?: string; acceptanceLabel?: string }) {
+  if (field.type !== 'consentimiento' && field.type !== 'declaration') return null;
+  const defaults = field.type === 'consentimiento'
+    ? {
+        description: 'He leído la información de este formulario y autorizo el tratamiento de los datos que proporciono para atender la solicitud indicada, conforme al aviso de privacidad aplicable.',
+        acceptanceLabel: 'Otorgo mi consentimiento.',
+      }
+    : {
+        description: 'Declaro bajo protesta de decir verdad que la información y los documentos que proporciono son correctos y completos según mi conocimiento.',
+        acceptanceLabel: 'Confirmo esta declaración.',
+      };
+  return {
+    description: field.description?.trim() || defaults.description,
+    acceptanceLabel: field.acceptanceLabel?.trim() || defaults.acceptanceLabel,
+  };
+}
+
 function responseAnswer(answers: Record<string, unknown>, field: any): unknown {
   return answers[field.id] ?? answers[field.slug];
 }
@@ -177,7 +194,12 @@ serve(async (req) => {
     const requiresSignature = requiresFormSignature(template.settings, fields);
     const sections = template.form_schema?.sections || template.settings?.sections || [{ id: 'general', title: 'Información', showInPdf: true }];
     const pdfSchema = Object.keys(template.pdf_schema || {}).length ? template.pdf_schema : template.settings?.pdfSchema || {};
-    const pageDimensions = pdfSchema.pageSize === 'a4' ? [595.28, 841.89] : [612, 792];
+    const paperSizes: Record<string, [number, number]> = {
+      letter: [612, 792], oficio: [612, 936], legal: [612, 1008],
+      tabloid: [792, 1224], a5: [419.53, 595.28],
+      a4: [595.28, 841.89], a3: [841.89, 1190.55],
+    };
+    const pageDimensions = [...(paperSizes[pdfSchema.pageSize] || paperSizes.letter)];
     if (pdfSchema.orientation === 'landscape') pageDimensions.reverse();
     const PAGE = { width: pageDimensions[0], height: pageDimensions[1], margin: pdfSchema.margins === 'narrow' ? 28 : pdfSchema.margins === 'wide' ? 72 : 54 };
     const primary = hexToRgb(pdfSchema.primaryColor || '#1E6BFF');
@@ -304,7 +326,10 @@ serve(async (req) => {
         const answer = stringifyAnswer(responseRow.response_data?.[field.id] ?? responseRow.response_data?.[field.slug], field.type);
         const lines = wrapText(answer, Math.max(12, Math.floor(width / 6)));
         const labels = wrapText(field.pdf?.label || field.label, Math.max(12, Math.floor(width / 5)));
-        const height = field.type === 'signature_block' ? 112 : 22 + labels.length * 11 + lines.length * 13;
+        const legal = legalFieldContent(field);
+        const legalLines = legal ? wrapText(legal.description, Math.max(12, Math.floor(width / 5))) : [];
+        const acceptanceLines = legal ? wrapText(legal.acceptanceLabel, Math.max(12, Math.floor(width / 5))) : [];
+        const height = field.type === 'signature_block' ? 112 : 22 + labels.length * 11 + legalLines.length * 11 + acceptanceLines.length * 11 + lines.length * 13;
         if (!rightColumn) { ensureSpace(height); rowTop = y; rowBottom = y; }
         else if (rowTop - height < PAGE.margin + 30) { y = rowBottom; newPage(); rightColumn = false; rowTop = y; rowBottom = y; }
         const x = PAGE.margin + (rightColumn ? columnWidth + gap : 0);
@@ -314,6 +339,8 @@ serve(async (req) => {
           y -= 82;
           addSignatureBox(field, x, y, width);
         } else {
+          for (const line of legalLines) { page.drawText(line, { x, y, size: 9, font: regular, color: rgb(0.34, 0.38, 0.45) }); y -= 11; }
+          for (const line of acceptanceLines) { page.drawText(line, { x, y, size: 9, font: bold, color: rgb(0.15, 0.15, 0.17) }); y -= 11; }
           for (const line of lines) { page.drawText(line, { x, y, size: 10, font: regular, color: rgb(0.15, 0.15, 0.17) }); y -= 13; }
           page.drawLine({ start: { x, y: y + 5 }, end: { x: x + width, y: y + 5 }, thickness: 0.5, color: rgb(0.9, 0.9, 0.92) });
         }
@@ -348,9 +375,13 @@ serve(async (req) => {
         for (const line of wrapText(String(field.label || 'Declaración'), 75)) {
           page.drawText(line, { x: PAGE.margin, y, size: 10, font: bold }); y -= 14;
         }
-        if (field.description) {
-          for (const line of wrapText(String(field.description), 85)) {
+        const legal = legalFieldContent(field);
+        if (legal) {
+          for (const line of wrapText(legal.description, 85)) {
             ensureSpace(15); page.drawText(line, { x: PAGE.margin, y, size: 9, font: regular }); y -= 13;
+          }
+          for (const line of wrapText(legal.acceptanceLabel, 85)) {
+            ensureSpace(15); page.drawText(line, { x: PAGE.margin, y, size: 9, font: bold }); y -= 13;
           }
         }
         for (const line of wrapText(stringifyAnswer(responseAnswer(answers, field), field.type), 85)) {

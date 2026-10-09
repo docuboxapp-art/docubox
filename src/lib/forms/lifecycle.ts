@@ -7,6 +7,7 @@ import {
   type FormSettings,
   type PdfSchema,
 } from './schema';
+import { isLegalField } from './legal-field-content';
 
 export const FORM_STATUS_LABELS: Record<FormTemplate['status'], string> = {
   draft: 'Borrador',
@@ -74,13 +75,15 @@ export function signatureFieldError(template: FormTemplate): string | null {
 
 export function publicationError(template: FormTemplate): string | null {
   if (!template.name.trim()) return 'Escribe el nombre del formulario.';
-  if (template.settings.accessMode === 'public' && template.settings.allowedSignatureTypes.length > 0 && !template.settings.allowedSignatureTypes.includes('autografa_digital'))
-    return 'El enlace público requiere firma autógrafa digital para solicitar la prueba de vida.';
   const missingSignature = signatureFieldError(template);
   if (missingSignature) return missingSignature;
   if (!template.schema.length) return 'Agrega al menos un campo antes de publicar.';
   if (template.schema.some((field) => !field.label.trim() || !field.slug.trim()))
     return 'Completa la etiqueta y el nombre interno de cada campo.';
+  if (template.schema.some((field) => isLegalField(field.type) && (!field.description?.trim() || !field.acceptanceLabel?.trim())))
+    return 'Completa el texto y la casilla de aceptación de cada consentimiento o declaración.';
+  if (template.schema.some((field) => isLegalField(field.type) && ((field.description?.length || 0) > 1000 || (field.acceptanceLabel?.length || 0) > 160)))
+    return 'Reduce el texto legal a 1000 caracteres y la casilla de aceptación a 160.';
   if (new Set(template.schema.map((field) => field.slug)).size !== template.schema.length)
     return 'Cada campo debe tener un nombre interno diferente.';
   if (template.settings.configureLinkExpiration && (!Number.isFinite(template.settings.expirationHours) || template.settings.expirationHours < 1 / 60 || template.settings.expirationHours > 720))

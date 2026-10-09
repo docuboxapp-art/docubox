@@ -554,7 +554,6 @@ export default function PlantillasGalleryPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const showToast = useCallback((type: 'success' | 'error', message: string) => {
     setToast({ type, message });
-    setTimeout(() => setToast(null), 3500);
   }, []);
 
   const fetchPlantillas = useCallback(async () => {

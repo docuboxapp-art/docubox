@@ -51,6 +51,7 @@ import {
   Building2,
   Sparkles,
   LayoutTemplate,
+  ClipboardList,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
@@ -117,6 +118,7 @@ interface DocumentData {
   formato?: string;
   file_type?: string;
   source_template_id?: string | null;
+  source_form_response_id?: string | null;
   descripcion?: string | null;
   etiquetas_ids?: string[] | null;
   etiquetas?: Array<{ id: string; nombre: string; color?: string | null }>;
@@ -548,6 +550,7 @@ interface ParticipationResponse {
   campos_completados: Array<{ campo_id: string; label: string; value: string }>;
   firma_data: string | null;
   firma_completada: boolean;
+  signature_stamp_style?: string | null;
 }
 
 interface DocumentNote {
@@ -639,6 +642,18 @@ interface DocumentAccessPermission {
   created_by: string;
   created_at: string;
   updated_at: string;
+}
+
+interface FormResponseSummary {
+  formName: string;
+  description: string | null;
+  version: number | null;
+  createdBy: string | null;
+  respondentName: string | null;
+  respondentEmail: string | null;
+  submittedAt: string | null;
+  folio: string | null;
+  sections: Array<{ title: string; fields: Array<{ label: string; value: string }> }>;
 }
 
 interface PermissionSearchUser {
@@ -983,6 +998,9 @@ export default function VisorDocumentoPage() {
   const [document, setDocument] = useState<DocumentData | null>(null);
   const [templateDocument, setTemplateDocument] =
     useState<PublishedTemplateDocument | null>(null);
+  const [formResponseSummary, setFormResponseSummary] = useState<FormResponseSummary | null>(null);
+  const [formResponseLoading, setFormResponseLoading] = useState(false);
+  const [formResponseError, setFormResponseError] = useState('');
   const [loading, setLoading] = useState(true);
   const [docError, setDocError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
@@ -1012,6 +1030,7 @@ export default function VisorDocumentoPage() {
     | 'governance'
     | 'lucia'
     | 'template-origin'
+    | 'form-origin'
   >('details');
   const [accessSummary, setAccessSummary] = useState({
     loaded: false,
@@ -1194,6 +1213,12 @@ export default function VisorDocumentoPage() {
     nom151LookupComplete && padesBtVerified && nom151Data?.verification_status === 'verified';
   const signedPdfReadyForDownload =
     Boolean(document?.sealed_pdf_path) && finalDeliverableAvailable;
+  const formFinalPdfPending = Boolean(
+    document?.source_form_response_id && document.estado === 'completado' && !signedPdfReadyForDownload
+  );
+  const formStampStyle = participationResponses.find((response) => response.firma_completada)
+    ?.signature_stamp_style?.trim().toUpperCase() || null;
+  const formStampOmitsQr = formStampStyle === 'AC1' || formStampStyle === 'AC2';
   const auditEvidenceStatuses: Array<[string, string]> = cryptographicCertification
     ? [
         ['Integridad SHA-256', cryptographicCertification.integrityStatus],
@@ -1516,6 +1541,33 @@ export default function VisorDocumentoPage() {
     });
     return () => window.cancelAnimationFrame(variantFrame);
   }, [document?.id, document?.additional_access_level, finalDeliverableAvailable]);
+
+  useEffect(() => {
+    if (!document?.id || !document.source_form_response_id) return;
+    let active = true;
+    const load = async () => {
+      setFormResponseSummary(null);
+      setFormResponseLoading(true);
+      setFormResponseError('');
+      try {
+        const response = await fetch(
+          `/api/documentos/${encodeURIComponent(document.id)}/form-response`,
+          { headers: await apiAuthHeaders(), cache: 'no-store' }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || 'No se pudo consultar el formulario.');
+        if (active) setFormResponseSummary(payload as FormResponseSummary);
+      } catch (error) {
+        if (active) setFormResponseError(
+          error instanceof Error ? error.message : 'No se pudo consultar el formulario.'
+        );
+      } finally {
+        if (active) setFormResponseLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [document?.id, document?.source_form_response_id]);
 
   // ── Signed PDF state ───────────────────────────────────────────────────────
   const [downloadingSignedPdf, setDownloadingSignedPdf] = useState(false);
@@ -2821,7 +2873,7 @@ export default function VisorDocumentoPage() {
           hash_sha256: data.file_hash_sha256 || '—',
           firma_completa: 'Pendiente',
           fecha_constancia: 'Pendiente',
-          origen: data.source_template_id ? 'Plantilla' : 'No registrado',
+          origen: data.source_form_response_id ? 'Formulario' : data.source_template_id ? 'Plantilla' : 'No registrado',
           documento_id: data.documento_id || undefined,
           cancelacion_motivo: data.cancelacion_motivo || undefined,
           cancelacion_descripcion: data.cancelacion_descripcion || undefined,
@@ -4245,7 +4297,9 @@ export default function VisorDocumentoPage() {
   };
 
   const estadoInfo = document
-    ? estadoConfig[document.estado] || {
+    ? document.source_form_response_id && document.estado === 'completado' && !signedPdfReadyForDownload
+      ? { label: 'Firma registrada', color: 'text-amber-700', bg: 'bg-amber-50' }
+      : estadoConfig[document.estado] || {
         label: document.estado?.toUpperCase() || '—',
         color: 'text-gray-700',
         bg: 'bg-gray-100',
@@ -4816,7 +4870,9 @@ export default function VisorDocumentoPage() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.storage_path) {
         throw new Error(
-          payload.error || response.statusText || 'No se pudo generar el PDF final firmado.'
+          payload.code === 'PADES_PROVIDER_NOT_READY'
+            ? 'El certificado institucional de Docubox no está disponible. Reintenta el cierre cuando se haya corregido su configuración.'
+            : payload.error || response.statusText || 'No se pudo generar el PDF final firmado.'
         );
       }
 
@@ -5015,8 +5071,9 @@ export default function VisorDocumentoPage() {
     const resolvedTipo = campo.tipo || (campo.label === 'Firma' ? 'firma' : 'texto');
     const isFirma =
       resolvedTipo === 'firma' || campo.label === 'Firma' || campo.label?.toLowerCase() === 'firma';
-    // The sealed PDF already contains the selected stamp; a raw-image overlay obscures it.
-    if (isFirma && document?.estado === 'completado' && document.sealed_pdf_path) return null;
+    // The original PDF remains on screen while final certification is pending.
+    // Hide the preview overlay only when the verified final PDF is displayed.
+    if (isFirma && document?.estado === 'completado' && finalDeliverableAvailable) return null;
     const filledValue = getFilledValueForCampo(campo);
     const firmaData = isFirma ? getFirmaDataForCampo(campo) : null;
 
@@ -5031,7 +5088,7 @@ export default function VisorDocumentoPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={firmaData}
-            alt="Firma estampada"
+            alt="Firma capturada, vista previa pendiente del PDF final"
             style={{
               width: '100%',
               height: '100%',
@@ -5591,6 +5648,16 @@ export default function VisorDocumentoPage() {
           },
         ]
       : []),
+    ...(document.source_form_response_id
+      ? [
+          {
+            key: 'form-origin' as typeof activeTab,
+            icon: <ClipboardList size={20} />,
+            title: 'Datos capturados en el formulario',
+            label: 'Formulario',
+          },
+        ]
+      : []),
     ...(packageReadiness.loaded && packageReadiness.hasContent
       ? [
           {
@@ -6041,7 +6108,12 @@ export default function VisorDocumentoPage() {
                   <p className="text-sm">PDF final pendiente de constancia NOM-151 emitida y verificada.</p>
                 </div>
               ) : document.file_url ? (
-                <div className="flex min-h-full min-w-full items-start justify-center p-4 md:p-6">
+                <div className="flex min-h-full min-w-full flex-col items-center gap-3 p-4 md:p-6">
+                  {formFinalPdfPending && (
+                    <div role="status" className="w-full max-w-[800px] rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+                      <strong>Firma registrada; PDF final pendiente.</strong> Estás viendo el PDF original con el trazo capturado como vista previa. La estampa seleccionada se incorporará al PDF descargable cuando finalice la certificación.{formStampOmitsQr && ' El diseño elegido para esta firma no incluye QR.'}
+                    </div>
+                  )}
                   <div className="relative flex-shrink-0 border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.12)]">
                     <PdfCanvas
                       fileUrl={document.file_url}
@@ -7040,6 +7112,49 @@ export default function VisorDocumentoPage() {
                     documentId={document.id}
                     workspaceId={document.workspace_id}
                   />
+                </>
+              ) : activeTab === 'form-origin' && document.source_form_response_id ? (
+                <>
+                  <div className="viewer-panel-header">
+                    <span className="viewer-panel-title">Detalle del formulario</span>
+                  </div>
+                  <div className="flex-1 space-y-4 overflow-y-auto p-3">
+                    {formResponseLoading ? (
+                      <p className="rounded-lg border border-slate-200 bg-white p-4 text-xs text-slate-500">Cargando respuestas…</p>
+                    ) : formResponseError ? (
+                      <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-xs text-red-700">{formResponseError}</p>
+                    ) : formResponseSummary ? (
+                      <>
+                        <section className="rounded-lg border border-slate-200 bg-white p-4">
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-primary"><ClipboardList size={18} /></span>
+                            <div className="min-w-0">
+                              <p className="break-words text-sm font-semibold text-slate-900">{formResponseSummary.formName}</p>
+                              <p className="mt-0.5 text-xs text-slate-500">Formulario de origen</p>
+                            </div>
+                          </div>
+                          {formResponseSummary.description && <p className="mt-3 whitespace-pre-wrap break-words text-xs leading-5 text-slate-600">{formResponseSummary.description}</p>}
+                          <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-100 pt-3">
+                            <div><dt className="text-[10px] font-semibold uppercase text-slate-400">Versión</dt><dd className="mt-0.5 text-xs text-slate-700">{formResponseSummary.version ? `v${formResponseSummary.version}` : 'Sin versión'}</dd></div>
+                            <div><dt className="text-[10px] font-semibold uppercase text-slate-400">Creado por</dt><dd className="mt-0.5 break-words text-xs text-slate-700">{formResponseSummary.createdBy || 'No disponible'}</dd></div>
+                            <div className="col-span-2"><dt className="text-[10px] font-semibold uppercase text-slate-400">Respondido por</dt><dd className="mt-0.5 break-words text-xs text-slate-700">{formResponseSummary.respondentName || formResponseSummary.respondentEmail || 'No disponible'}</dd>{formResponseSummary.respondentName && formResponseSummary.respondentEmail && <dd className="break-all text-[11px] text-slate-500">{formResponseSummary.respondentEmail}</dd>}</div>
+                            <div className="col-span-2"><dt className="text-[10px] font-semibold uppercase text-slate-400">Enviado</dt><dd className="mt-0.5 text-xs text-slate-700">{formResponseSummary.submittedAt ? formatDate(formResponseSummary.submittedAt) : 'No disponible'}</dd></div>
+                            {formStampStyle && <div className="col-span-2"><dt className="text-[10px] font-semibold uppercase text-slate-400">Estampa de firma elegida</dt><dd className="mt-0.5 text-xs text-slate-700">{formStampStyle}{formStampOmitsQr ? ' · Diseño sin QR' : ''}</dd></div>}
+                            {formResponseSummary.folio && <div className="col-span-2"><dt className="text-[10px] font-semibold uppercase text-slate-400">Folio</dt><dd className="mt-0.5 break-all font-mono text-[11px] text-slate-700">{formResponseSummary.folio}</dd></div>}
+                          </dl>
+                        </section>
+                        <h3 className="text-sm font-semibold text-slate-900">Información capturada</h3>
+                        {formResponseSummary.sections.length ? formResponseSummary.sections.map((section, index) => (
+                          <section key={`${section.title}-${index}`} className="rounded-lg border border-slate-200 bg-white p-4">
+                            <h4 className="text-xs font-semibold text-slate-900">{section.title}</h4>
+                            <dl className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+                              {section.fields.map((field, fieldIndex) => <div key={`${field.label}-${fieldIndex}`}><dt className="text-[10px] font-semibold uppercase text-slate-400">{field.label}</dt><dd className="mt-0.5 whitespace-pre-wrap break-words text-xs text-slate-700">{field.value}</dd></div>)}
+                            </dl>
+                          </section>
+                        )) : <p className="rounded-lg border border-dashed border-slate-200 bg-white p-4 text-xs text-slate-500">No hay respuestas visibles para mostrar.</p>}
+                      </>
+                    ) : null}
+                  </div>
                 </>
               ) : activeTab === 'template-origin' && isTemplateOriginDocument ? (
                 <>
@@ -9173,20 +9288,20 @@ export default function VisorDocumentoPage() {
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
                               <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                                Documento firmado
+                                {document.source_form_response_id ? 'PDF final del formulario' : 'Documento firmado'}
                               </span>
                               <span
                                 className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                                   signedPdfReadyForDownload
                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : padesUiStatus === 'PAdES ERROR'
+                                    : signedPdfError || padesUiStatus === 'PAdES ERROR'
                                       ? 'bg-red-50 text-red-700 border-red-200'
                                       : 'bg-amber-50 text-amber-700 border-amber-200'
                                 }`}
                               >
                                 {signedPdfReadyForDownload
                                   ? 'Listo para descarga'
-                                  : padesUiStatus === 'PAdES ERROR'
+                                  : signedPdfError || padesUiStatus === 'PAdES ERROR'
                                     ? 'Requiere atención'
                                     : 'Pendiente'}
                               </span>
@@ -9194,20 +9309,28 @@ export default function VisorDocumentoPage() {
                             <div className="p-4">
                               <div className="mb-4">
                                 <p className="text-sm font-semibold text-foreground truncate">
-                                  {document?.nombre || 'Documento'} — Firmado
+                                  {document?.nombre || 'Documento'}{signedPdfReadyForDownload ? ' — Firmado' : ''}
                                 </p>
                                 <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
                                   {!document?.sealed_pdf_path
-                                    ? 'Estamos preparando el documento firmado. Podrás descargarlo cuando termine el proceso.'
+                                    ? signedPdfError
+                                      ? 'La firma quedó registrada, pero aún no existe un PDF final verificable.'
+                                      : 'La firma quedó registrada. Estamos preparando la estampa y la certificación del PDF final.'
                                     : signedPdfReadyForDownload
                                       ? 'Tu documento firmado está listo para descargar.'
                                       : 'El documento ya está firmado. Podrás descargarlo cuando termine la validación.'}
                                 </p>
                               </div>
                               {signedPdfError && (
-                                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
-                                  No se pudo completar el cierre PAdES de esta versión.{' '}
-                                  {signedPdfError}
+                                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800">
+                                  No se pudo cerrar el PDF final. {signedPdfError}
+                                  <button
+                                    type="button"
+                                    onClick={() => void ensureFinalSignedPdf()}
+                                    className="mt-2 block font-semibold underline"
+                                  >
+                                    Reintentar cierre del PDF
+                                  </button>
                                 </div>
                               )}
                               {padesVerified && cryptographicCertification && (
@@ -9246,7 +9369,7 @@ export default function VisorDocumentoPage() {
                                 {downloadingSignedPdf
                                   ? 'Descargando…'
                                   : !document?.sealed_pdf_path
-                                    ? 'PDF firmado en preparación'
+                                    ? signedPdfError ? 'PDF final requiere atención' : 'PDF final en preparación'
                                     : !padesVerified
                                       ? padesUiStatus === 'PAdES ERROR'
                                         ? 'Error de verificación PAdES'
@@ -9274,7 +9397,9 @@ export default function VisorDocumentoPage() {
                                   {document?.nombre || 'Documento'}
                                 </p>
                                 <p className="text-xs mt-1 text-muted-foreground">
-                                  Archivo PDF original del documento
+                                  {formFinalPdfPending
+                                    ? 'Este archivo original no incluye la estampa final.'
+                                    : 'Archivo PDF original del documento'}
                                 </p>
                               </div>
                               <button
@@ -9287,7 +9412,7 @@ export default function VisorDocumentoPage() {
                                 ) : (
                                   <Download size={15} />
                                 )}
-                                {downloadingOriginal ? 'Descargando…' : 'Descargar PDF'}
+                                {downloadingOriginal ? 'Descargando…' : 'Descargar PDF original'}
                               </button>
                             </div>
                           </div>
@@ -9449,13 +9574,15 @@ export default function VisorDocumentoPage() {
                                       : nom151Error
                                         ? 'No fue posible emitir la constancia NOM-151.'
                                       : nom151Blocked
-                                          ? 'Pendiente del cierre criptográfico PAdES-B-T.'
+                                          ? 'En espera del PDF final PAdES-B-T.'
                                           : 'Constancia NOM-151 pendiente de generación.'}
                                     <br />
                                     <span className="text-xs">
                                       {nom151Error ||
                                         (nom151Blocked
-                                          ? 'Docubox la solicitará automáticamente al PSC cuando el PDF final sea verificable.'
+                                          ? signedPdfError
+                                            ? 'Primero debe resolverse el error de certificación del PDF mostrado arriba.'
+                                            : 'Docubox la solicitará al PSC cuando el PDF final sea verificable.'
                                           : 'Docubox la generará con el proveedor de conservación.')}
                                     </span>
                                   </p>

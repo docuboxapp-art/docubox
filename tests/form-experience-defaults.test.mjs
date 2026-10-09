@@ -38,9 +38,10 @@ test('experience defaults validate values and keep presentation mode consistent'
   });
   assert.equal(normalized.mode, 'scroll');
   assert.equal(normalized.expirationHours, 0.5);
-  assert.equal(normalized.configureLinkExpiration, true);
+  assert.equal(normalized.configureLinkExpiration, false);
   assert.equal(normalized.requiresSignature, true);
   assert.equal(normalizeFormExperienceDefaults({ requiresSignature: false }).requiresSignature, true);
+  assert.equal(normalizeFormExperienceDefaults({ configureLinkExpiration: true, expirationHours: 0.5 }).configureLinkExpiration, true);
   assert.equal(normalizeFormExperienceDefaults({ configureLinkExpiration: false, expirationHours: 0.5 }).configureLinkExpiration, false);
   assert.equal(normalizeFormExperienceDefaults({ expirationHours: 0 }).expirationHours, 72);
 });

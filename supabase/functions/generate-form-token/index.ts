@@ -102,9 +102,6 @@ serve(async (req) => {
         { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    if (template.settings?.accessMode === 'public') {
-      return new Response(JSON.stringify({ error: 'Este formulario utiliza enlace público. Comparte su enlace en lugar de enviar una invitación privada.' }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
     const requiresSignature = requiresFormSignature(template.settings, template.form_schema?.fields || template.schema || []);
     const validSignatureTypes = ['click_sign', 'autografa_digital', 'efirma_sat'];
     const allowedSignatureTypes = template.allowed_signature_types?.length

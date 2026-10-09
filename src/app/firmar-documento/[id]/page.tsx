@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Save,
   FileText,
+  FileCheck2,
   User,
   Shield,
   ShieldCheck,
@@ -217,6 +218,7 @@ interface DocumentData {
   file_url?: string;
   file_type?: string;
   source_template_id?: string | null;
+  source_form_response_id?: string | null;
   campos_solicitados?: CampoSolicitado[];
   participantes?: any[];
 }
@@ -4586,9 +4588,11 @@ function SignatureStampDisplay({
 function ExitConfirmModal({
   onConfirm,
   onCancel,
+  isFormResponseDocument = false,
 }: {
   onConfirm: () => void;
   onCancel: () => void;
+  isFormResponseDocument?: boolean;
 }) {
   return (
     <div
@@ -4607,12 +4611,15 @@ function ExitConfirmModal({
           </div>
           <div>
             <h3 className="text-base font-semibold text-gray-900">¿Salir del proceso?</h3>
-            <p className="text-sm text-gray-500 mt-0.5">Tu progreso no guardado se perderá.</p>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {isFormResponseDocument ? 'La firma del formulario seguirá pendiente.' : 'Tu progreso no guardado se perderá.'}
+            </p>
           </div>
         </div>
         <p className="text-sm text-gray-600 mb-6">
-          Si sales ahora, perderás los campos completados y tendrás que volver a iniciar el proceso
-          de firma.
+          {isFormResponseDocument
+            ? 'Tus respuestas ya están guardadas. Podrás retomar la firma desde el mismo enlace del formulario.'
+            : 'Si sales ahora, perderás los campos completados y tendrás que volver a iniciar el proceso de firma.'}
         </p>
         <div className="flex items-center justify-end gap-3">
           <button
@@ -5160,6 +5167,7 @@ export default function FirmarDocumentoPage() {
     'registrando' | 'preparando_pdf' | 'certificando_pdf'
   >('registrando');
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [finalPdfPending, setFinalPdfPending] = useState(false);
   // Inline success animation state
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
@@ -6409,7 +6417,7 @@ export default function FirmarDocumentoPage() {
         const { data, error } = await supabase
           .from('documentos')
           .select(
-            'id, nombre, estado, owner_id, file_url, file_type, source_template_id, campos_solicitados, participantes'
+            'id, nombre, estado, owner_id, file_url, file_type, source_template_id, source_form_response_id, campos_solicitados, participantes'
           )
           .eq('id', docId)
           .single();
@@ -6655,12 +6663,16 @@ export default function FirmarDocumentoPage() {
       });
       if (restorableSession) {
         if (restorableSession.step && restorableSession.step !== 'completado') {
-          setStep(restorableSession.step);
+          setStep(
+            data.source_form_response_id
+              ? restorableSession.step === 'firma' ? 'firma' : 'terminos'
+              : restorableSession.step
+          );
         }
         if (restorableSession.terminosAceptados) {
           setTerminosAceptados(restorableSession.terminosAceptados);
         }
-        if (restorableSession.camposPersonalizados?.length > 0) {
+        if (!data.source_form_response_id && restorableSession.camposPersonalizados?.length > 0) {
           setCamposPersonalizados(restorableSession.camposPersonalizados);
         }
       }
@@ -6737,7 +6749,10 @@ export default function FirmarDocumentoPage() {
 
   // ── Derived state ──────────────────────────────────────────────────────────
   const hasCamposPrefijados = camposPrefijados.length > 0;
-  const isTemplateOriginDocument = Boolean(document?.source_template_id || templateDocument);
+  const isFormResponseDocument = Boolean(document?.source_form_response_id);
+  const isTemplateOriginDocument = Boolean(
+    document?.source_template_id || templateDocument || isFormResponseDocument
+  );
   const logicalCamposPrefijados = React.useMemo(() => {
     const seen = new Set<string>();
     return camposPrefijados.filter((campo, index) => {
@@ -6955,6 +6970,17 @@ export default function FirmarDocumentoPage() {
   const handleAceptarTerminos = () => {
     if (!terminosAceptados) return;
     if (geoLoading || geoBlocked) return;
+    if (isFormResponseDocument) {
+      if (!camposPrefijados.some((campo) => resolveFieldTipo(campo) === 'firma')) {
+        setSubmitError(
+          'Este formulario no tiene un campo de firma válido. Solicita al remitente que revise su configuración.'
+        );
+        return;
+      }
+      setSubmitError(null);
+      setStep('firma');
+      return;
+    }
     if (myRole === 'aprobador' || myRole === 'testigo') {
       setStep('aprobacion');
     } else {
@@ -6964,6 +6990,7 @@ export default function FirmarDocumentoPage() {
 
   const handleContinuarDesdeCampos = () => {
     if (geoLoading || geoBlocked) return;
+    if (isFormResponseDocument) return;
     if (myRole === 'firmante') {
       // Check if firma field is inserted
       if (!hasFirmaInserted) {
@@ -7041,7 +7068,9 @@ export default function FirmarDocumentoPage() {
       ? 'Firma Autógrafa Digital'
       : isClickSign
         ? 'Click & Sign'
-        : savedSignatureType === 'efirma'
+        : isFormResponseDocument
+          ? 'Método de firma no configurado'
+          : savedSignatureType === 'efirma'
           ? 'e.firma SAT'
           : savedSignatureType === 'firma_electronica'
             ? 'Firma Electrónica Digital'
@@ -7268,6 +7297,16 @@ export default function FirmarDocumentoPage() {
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!document || !user) return;
+    if (
+      isFormResponseDocument &&
+      (!camposPrefijados.some((campo) => resolveFieldTipo(campo) === 'firma') ||
+        (!isEfirmaSAT && !isAutografaDigital && !isClickSign))
+    ) {
+      setSubmitError(
+        'No se puede firmar este formulario porque su campo o método de firma no está configurado correctamente.'
+      );
+      return;
+    }
     if (geoLoading || geoBlocked || !geoRef.current) {
       setSubmitError(
         geoDenied
@@ -7280,6 +7319,7 @@ export default function FirmarDocumentoPage() {
     setSubmitting(true);
     setSubmissionPhase('registrando');
     setSubmitError(null);
+    setFinalPdfPending(false);
     try {
       const supabase = createClient();
 
@@ -7325,6 +7365,9 @@ export default function FirmarDocumentoPage() {
       const activeAutographEvidenceId =
         autographEvidenceId ||
         (UUID_PATTERN.test(persistedAutographEvidenceId) ? persistedAutographEvidenceId : null);
+      if (isFormResponseDocument && isAutografaDigital && !activeAutographEvidenceId) {
+        throw new Error('Completa la captura de la firma autógrafa antes de firmar el formulario.');
+      }
       const persistedSignedAt = String(persistedCompletion?.completionSignedAt || '');
       const now = Number.isFinite(Date.parse(persistedSignedAt))
         ? new Date(persistedSignedAt).toISOString()
@@ -7376,15 +7419,19 @@ export default function FirmarDocumentoPage() {
 
       const sigTypeLabel = isEfirmaSAT
         ? 'e.firma (SAT)'
+        : isFormResponseDocument && isAutografaDigital
+          ? 'Firma Autógrafa Digital'
+          : isFormResponseDocument && isClickSign
+            ? 'Click & Sign'
         : savedSignatureType === 'efirma'
           ? 'e.firma (SAT)'
           : savedSignatureType === 'firma_electronica'
             ? 'Firma Electrónica Digital'
             : 'Firma Autógrafa Digital';
       const selectedSignatureMethod =
-        isEfirmaSAT || savedSignatureType === 'efirma'
+        isEfirmaSAT || (!isFormResponseDocument && savedSignatureType === 'efirma')
           ? 'efirma'
-          : activeAutographEvidenceId
+          : (isFormResponseDocument ? isAutografaDigital && activeAutographEvidenceId : activeAutographEvidenceId)
             ? 'autografa'
             : 'clicksign';
       const selectedStampStyle =
@@ -7612,7 +7659,11 @@ export default function FirmarDocumentoPage() {
                   myParticipantData?.role ||
                   myParticipantData?.acto ||
                   myRole,
-                signature_method_label: isEfirmaSAT ? 'e.firma SAT' : 'Firma autógrafa',
+                signature_method_label: isEfirmaSAT
+                  ? 'e.firma SAT'
+                  : isAutografaDigital
+                    ? 'Firma autógrafa'
+                    : 'Click & Sign',
                 otp_verified: isEfirmaSAT ? null : (autographStampContext?.otpVerified ?? null),
                 authentication_status: isEfirmaSAT
                   ? 'Validación SAT'
@@ -7741,6 +7792,12 @@ export default function FirmarDocumentoPage() {
           });
           if (!sealResponse.ok) {
             const payload = await sealResponse.json().catch(() => ({}));
+            setFinalPdfPending(true);
+            if (payload?.code === 'PADES_PROVIDER_NOT_READY') {
+              throw new Error(
+                'Tu firma quedó registrada, pero el certificado institucional de Docubox no está listo. El PDF final sigue pendiente; podrás reintentar su cierre desde el documento.'
+              );
+            }
             throw new Error(payload?.error || `FINAL_CERTIFICATION_FAILED_${sealResponse.status}`);
           }
           void fetch(`/api/documentos/${document.id}/evidence`, {
@@ -7755,6 +7812,7 @@ export default function FirmarDocumentoPage() {
             console.warn('[evidence-finalization] No se pudo iniciar la finalización automática:', error);
           });
         } catch (artifactError) {
+          setFinalPdfPending(true);
           console.error(
             '[firmar-documento] Error al generar los artefactos finales:',
             artifactError
@@ -7799,7 +7857,13 @@ export default function FirmarDocumentoPage() {
   };
 
   const steps =
-    myRole === 'aprobador' || myRole === 'testigo'
+    isFormResponseDocument
+      ? [
+          { id: 'formulario', label: 'Formulario enviado' },
+          { id: 'terminos', label: 'Consentimiento' },
+          { id: 'firma', label: 'Firma' },
+        ]
+      : myRole === 'aprobador' || myRole === 'testigo'
       ? [
           { id: 'terminos', label: 'Términos' },
           { id: 'aprobacion', label: myRole === 'testigo' ? 'Testimonio' : 'Aprobación' },
@@ -7812,6 +7876,7 @@ export default function FirmarDocumentoPage() {
 
   const currentStepIndex = steps.findIndex((s) => s.id === step);
   const signingStepIcons: Record<string, React.ElementType> = {
+    formulario: FileCheck2,
     terminos: Shield,
     campos: Type,
     firma: PenLine,
@@ -7821,15 +7886,20 @@ export default function FirmarDocumentoPage() {
   const CurrentSigningStepIcon = signingStepIcons[currentStepData?.id || 'terminos'] || FileText;
   const currentStepDescription = (
     {
-      terminos: 'Revisa las condiciones y confirma tu consentimiento para participar.',
+      formulario: 'Respuestas guardadas.',
+      terminos: isFormResponseDocument
+        ? 'Es el mismo formulario que respondiste. Revisa su PDF y confirma tu consentimiento.'
+        : 'Revisa las condiciones y confirma tu consentimiento para participar.',
       campos: 'Completa la informacion solicitada y ubica los campos necesarios.',
-      firma: 'Selecciona tu metodo y confirma la firma del documento.',
+      firma: isFormResponseDocument
+        ? 'Confirma la firma configurada; se estampará en el campo indicado de este formulario.'
+        : 'Selecciona tu metodo y confirma la firma del documento.',
       aprobacion: 'Revisa la informacion y registra tu decision sobre el documento.',
     } as Record<string, string>
   )[currentStepData?.id || 'terminos'];
-  const completionPercent = Math.round(
-    (Math.max(currentStepIndex, 0) / Math.max(steps.length - 1, 1)) * 100
-  );
+  const completionPercent = isFormResponseDocument
+    ? step === 'firma' ? 50 : 0
+    : Math.round((Math.max(currentStepIndex, 0) / Math.max(steps.length - 1, 1)) * 100);
 
   // ── Fullscreen handler ─────────────────────────────────────────────────────
   const handleToggleFullscreen = useCallback(() => {
@@ -8276,8 +8346,15 @@ export default function FirmarDocumentoPage() {
           <div className="flex-1">
             <AppLogo size={36} />
           </div>
-          {/* Step bar intentionally hidden on success state */}
-          <div className="flex-1 flex items-center justify-end gap-1"></div>
+          {isFormResponseDocument && (
+            <nav aria-label="Progreso del formulario y firma" className="flex flex-1 items-center justify-end gap-2 text-xs text-green-700 sm:gap-4">
+              {['Formulario enviado', 'Consentimiento', 'Firma'].map((label) => (
+                <span key={label} title={`${label} completado`} className="inline-flex items-center gap-1">
+                  <CheckCircle2 size={14} /> <span className="hidden sm:inline">{label}</span>
+                </span>
+              ))}
+            </nav>
+          )}
         </header>
 
         {/* ── Body ─────────────────────────────────────────────────────────── */}
@@ -8499,14 +8576,16 @@ export default function FirmarDocumentoPage() {
                       className={`text-xl font-semibold mb-1 ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
                       {myRole === 'firmante'
-                        ? '¡Documento firmado!'
+                        ? isFormResponseDocument ? '¡Formulario firmado!' : '¡Documento firmado!'
                         : myRole === 'testigo'
                           ? '¡Testimonio registrado!'
                           : '¡Aprobación registrada!'}
                     </h2>
                     <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
                       {myRole === 'firmante'
-                        ? 'Tu firma ha sido registrada exitosamente.'
+                        ? isFormResponseDocument
+                          ? 'Tus respuestas quedaron firmadas y la estampa se colocó en el PDF final.'
+                          : 'Tu firma ha sido registrada exitosamente.'
                         : myRole === 'testigo'
                           ? 'Tu participación como testigo quedó registrada.'
                           : 'Tu aprobación ha sido registrada exitosamente.'}
@@ -9603,7 +9682,7 @@ export default function FirmarDocumentoPage() {
       >
         <AppLogo size={34} imageClassName="max-sm:w-24" />
         <nav
-          aria-label="Pasos de firma"
+          aria-label={isFormResponseDocument ? 'Progreso del formulario y firma' : 'Pasos de firma'}
           className={`mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border p-1 sm:gap-1 ${isDark ? 'border-gray-700 bg-gray-900/70' : 'border-slate-200 bg-slate-100/80'}`}
         >
           {steps.map((s, idx) => {
@@ -9615,9 +9694,10 @@ export default function FirmarDocumentoPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')
+                    isCompleted && s.id !== 'formulario' &&
+                    setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')
                   }
-                  disabled={!isCompleted}
+                  disabled={!isCompleted || s.id === 'formulario'}
                   aria-current={isActive ? 'step' : undefined}
                   aria-label={s.label}
                   title={s.label}
@@ -9683,6 +9763,7 @@ export default function FirmarDocumentoPage() {
       {/* Exit confirmation modal */}
       {showExitModal && (
         <ExitConfirmModal
+          isFormResponseDocument={isFormResponseDocument}
           onConfirm={async () => {
             setShowExitModal(false);
             if (kioskSessionId) {
@@ -9896,6 +9977,20 @@ export default function FirmarDocumentoPage() {
                       /* totalPages already set */
                     }}
                   />
+                  {isFormResponseDocument && placedFields.some((field) => field.page === docModalPage) && (
+                    <div className="pointer-events-none absolute inset-0">
+                      {placedFields
+                        .filter((field) => field.page === docModalPage)
+                        .map((field) => (
+                          <CompletedFieldStamp
+                            key={field.id}
+                            field={field}
+                            firmaDataUrl={firmaData}
+                            stampDisplayProps={field.tipo === 'firma' && firmaData ? previewStampProps : undefined}
+                          />
+                        ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -9924,10 +10019,12 @@ export default function FirmarDocumentoPage() {
           </div>
           <div className={`flex w-full items-center gap-2 text-sm font-normal sm:w-44 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
             <span className="sr-only">Progreso</span>
-            <div className={`h-1.5 flex-1 overflow-hidden rounded-full ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`} role="progressbar" aria-label="Progreso" aria-valuenow={completionPercent} aria-valuemin={0} aria-valuemax={100}>
+            <div className={`h-1.5 flex-1 overflow-hidden rounded-full ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`} role="progressbar" aria-label={isFormResponseDocument ? 'Avance de firma' : 'Progreso'} aria-valuenow={completionPercent} aria-valuemin={0} aria-valuemax={100}>
               <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${completionPercent}%` }} />
             </div>
-            <span className="w-8 text-right tabular-nums">{completionPercent}%</span>
+            <span className={`${isFormResponseDocument ? 'w-12' : 'w-8'} text-right tabular-nums`}>
+              {isFormResponseDocument ? (step === 'firma' ? '2 de 2' : '1 de 2') : `${completionPercent}%`}
+            </span>
           </div>
           <p className={`w-full truncate text-sm lg:hidden ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
             {currentStepDescription}
@@ -10025,7 +10122,7 @@ export default function FirmarDocumentoPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground bg-white border border-border rounded-full shadow-sm hover:shadow-md transition-all"
                   >
                     <Maximize2 size={14} className="text-foreground" />
-                    Ver documento completo
+                    {isFormResponseDocument ? 'Ver PDF del formulario' : 'Ver documento completo'}
                   </button>
                 </div>
 
@@ -10192,12 +10289,14 @@ export default function FirmarDocumentoPage() {
                     <h2
                       className={`text-lg font-semibold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
-                      Términos y condiciones
+                      {isFormResponseDocument ? 'Confirma la firma del formulario' : 'Términos y condiciones'}
                     </h2>
                     <p
                       className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
                     >
-                      Antes de continuar, revisa y acepta los términos de participación.
+                      {isFormResponseDocument
+                        ? 'Tus respuestas ya están guardadas. Revisa el PDF y acepta las condiciones para firmarlo en el campo previsto.'
+                        : 'Antes de continuar, revisa y acepta los términos de participación.'}
                     </p>
                   </div>
 
@@ -12009,12 +12108,14 @@ export default function FirmarDocumentoPage() {
                     <h2
                       className={`text-lg font-semibold ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
-                      Asentar firma
+                      {isFormResponseDocument ? 'Firma el formulario' : 'Asentar firma'}
                     </h2>
                     <p
                       className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}
                     >
-                      Captura tu firma para registrarla en el documento.
+                      {isFormResponseDocument
+                        ? 'La firma se estampará en el campo ya definido del PDF. No necesitas completar ni colocar más campos.'
+                        : 'Captura tu firma para registrarla en el documento.'}
                     </p>
                   </div>
 
@@ -12147,6 +12248,7 @@ export default function FirmarDocumentoPage() {
                       {/* Check for pre-recorded autograph signature — new UX */}
                       {savedSignature &&
                         savedSignatureType === 'autografa' &&
+                        !isFormResponseDocument &&
                         !formRequiresLiveness &&
                         usePreloadedSignature === null &&
                         !autographFlowDone && (
@@ -12202,6 +12304,7 @@ export default function FirmarDocumentoPage() {
                       {/* Using pre-recorded signature */}
                       {savedSignature &&
                         savedSignatureType === 'autografa' &&
+                        !isFormResponseDocument &&
                         !formRequiresLiveness &&
                         usePreloadedSignature === true && (
                           <div
@@ -12242,7 +12345,7 @@ export default function FirmarDocumentoPage() {
                         )}
 
                       {/* Full autograph flow — when no pre-recorded or user chose to draw new */}
-                      {(formRequiresLiveness || !savedSignature ||
+                      {(isFormResponseDocument || formRequiresLiveness || !savedSignature ||
                         savedSignatureType !== 'autografa' ||
                         usePreloadedSignature === false) &&
                         !autographFlowDone && (
@@ -12301,7 +12404,8 @@ export default function FirmarDocumentoPage() {
                           </div>
 
                           {/* Save signature selector */}
-                          {wantToSaveSignature === null &&
+                          {!isFormResponseDocument &&
+                            wantToSaveSignature === null &&
                             !newSignatureSaved &&
                             !signatureSavePromptDismissed && (
                               <div
@@ -12416,8 +12520,43 @@ export default function FirmarDocumentoPage() {
                     </>
                   )}
 
+                  {isFormResponseDocument && isClickSign && !isAutografaDigital && !isEfirmaSAT && (
+                    <div className={`space-y-4 rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
+                      <div>
+                        <p className="text-sm font-semibold">Click & Sign</p>
+                        <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
+                          Confirma tu nombre y la firma configurada para este formulario. La estampa se colocará en el campo señalado del PDF.
+                        </p>
+                      </div>
+                      <p className={`rounded-lg px-3 py-2 text-sm ${isDark ? 'bg-gray-700 text-gray-200' : 'bg-slate-50 text-slate-800'}`}>
+                        {userProfile.nombre_completo || user.user_metadata?.full_name || user.email}
+                      </p>
+                      {firmaConfirmada ? (
+                        <p className="flex items-center gap-2 text-sm text-green-700"><CheckCircle2 size={16} /> Firma confirmada. Puedes revisar la estampa y firmar ahora.</p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const name = userProfile.nombre_completo || user.user_metadata?.full_name || user.email || '';
+                            const signature = generateTypedSignatureDataUrl(name, 'print');
+                            if (signature) handleFirmaSaved(signature);
+                          }}
+                          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white"
+                        >
+                          <PenLine size={15} /> Preparar firma Click & Sign
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {isFormResponseDocument && !isClickSign && !isAutografaDigital && !isEfirmaSAT && (
+                    <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                      El método de firma de esta invitación no está disponible. Solicita al remitente que revise la configuración.
+                    </p>
+                  )}
+
                   {/* ── NON-AUTÓGRAFA FLOW (existing) ─────────────────────── */}
-                  {!isAutografaDigital && !isEfirmaSAT && (
+                  {!isFormResponseDocument && !isAutografaDigital && !isEfirmaSAT && (
                     <>
                       <div
                         className={`flex items-center gap-3 rounded-xl p-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}
@@ -13000,9 +13139,19 @@ export default function FirmarDocumentoPage() {
 
               {/* Error */}
               {submitError && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
                   <AlertTriangle size={15} className="text-red-500 flex-shrink-0" />
-                  <p className="text-sm text-red-700">{submitError}</p>
+                  <div>
+                    <p className="text-sm text-red-700">{submitError}</p>
+                    {finalPdfPending && document?.id && (
+                      <a
+                        href={`/visor-documento/${document.id}`}
+                        className="mt-2 inline-block text-xs font-semibold text-red-800 underline"
+                      >
+                        Ver estado del documento
+                      </a>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -13017,7 +13166,7 @@ export default function FirmarDocumentoPage() {
                 <button
                   onClick={() => {
                     if (step === 'campos') setStep('terminos');
-                    else if (step === 'firma') setStep('campos');
+                    else if (step === 'firma') setStep(isFormResponseDocument ? 'terminos' : 'campos');
                     else if (step === 'aprobacion')
                       setStep(
                         myRole === 'aprobador' || myRole === 'testigo' ? 'terminos' : 'campos'
@@ -13030,7 +13179,7 @@ export default function FirmarDocumentoPage() {
                 </button>
               )}
               {/* Guardar avance — only in campos and firma steps */}
-              {(step === 'campos' || step === 'firma') && (
+              {!isFormResponseDocument && (step === 'campos' || step === 'firma') && (
                 <button
                   onClick={() => setShowSaveProgressModal(true)}
                   disabled={savingProgress}
@@ -13058,7 +13207,7 @@ export default function FirmarDocumentoPage() {
                   ) : (
                     <ChevronDown size={14} className="rotate-[-90deg]" />
                   )}
-                  Continuar
+                  {isFormResponseDocument ? 'Continuar a firma' : 'Continuar'}
                 </button>
               )}
 
@@ -13097,7 +13246,7 @@ export default function FirmarDocumentoPage() {
                     </>
                   ) : (
                     <>
-                      <Save size={14} /> Firmar ahora
+                      <Save size={14} /> {isFormResponseDocument ? 'Firmar formulario' : 'Firmar ahora'}
                     </>
                   )}
                 </button>

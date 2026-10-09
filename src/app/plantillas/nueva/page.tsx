@@ -3620,7 +3620,6 @@ function NuevaPlantillaPage() {
   const addToast = useCallback((type: 'success' | 'error' | 'info', message: string) => {
     const id = `toast-${Date.now()}`;
     setToasts((prev) => [...prev, { id, type, message }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
   }, []);
 
   const applyImportedTemplate = useCallback(

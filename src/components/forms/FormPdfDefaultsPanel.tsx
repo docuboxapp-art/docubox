@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Check, Save } from 'lucide-react';
 import FormPreview from '@/app/formularios/components/FormPreview';
 import { PDF_CONTENT_OPTIONS, type FormPdfDefaults } from '@/lib/forms/pdf-defaults';
+import { FORM_PAGE_SIZES } from '@/lib/forms/pdf-page-sizes';
 import { type PdfSchema } from '@/lib/forms/schema';
 import { createFormDesignPreviewTemplate } from '@/lib/forms/design-preview-template';
 import { ExperienceOption } from './ExperienceOption';
@@ -34,7 +35,7 @@ export function FormPdfDefaultsPanel({ initialSettings, onSave, saved = true }: 
         <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
           <h2 className="text-base font-medium">Formato y distribución</h2>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label><span className="mb-1.5 block text-sm font-medium">Tamaño de página</span><select className={inputClass} value={pdf.pageSize} onChange={(event) => update({ pageSize: event.target.value as PdfSchema['pageSize'] })}><option value="letter">Carta</option><option value="a4">A4</option></select></label>
+            <label><span className="mb-1.5 block text-sm font-medium">Tamaño de página</span><select className={inputClass} value={pdf.pageSize} onChange={(event) => update({ pageSize: event.target.value as PdfSchema['pageSize'] })}>{FORM_PAGE_SIZES.map((size) => <option key={size.value} value={size.value}>{size.label}</option>)}</select></label>
             <label><span className="mb-1.5 block text-sm font-medium">Orientación</span><select className={inputClass} value={pdf.orientation} onChange={(event) => update({ orientation: event.target.value as PdfSchema['orientation'] })}><option value="portrait">Vertical</option><option value="landscape">Horizontal</option></select></label>
             <label><span className="mb-1.5 block text-sm font-medium">Márgenes</span><select className={inputClass} value={pdf.margins} onChange={(event) => update({ margins: event.target.value as PdfSchema['margins'] })}><option value="normal">Normales</option><option value="narrow">Estrechos</option><option value="wide">Amplios</option></select></label>
             <label><span className="mb-1.5 block text-sm font-medium">Tipografía</span><FormTypographySelect className={inputClass} value={pdf.typography} onChange={(typography) => update({ typography })} /></label>

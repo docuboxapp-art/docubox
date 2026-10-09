@@ -1,4 +1,5 @@
 import { createDefaultPdfSchema, type PdfSchema } from './schema';
+import { normalizeFormPageSize } from './pdf-page-sizes';
 import { isFormTypography } from '@/lib/typography/font-families';
 
 export interface FormPdfDefaults {
@@ -41,7 +42,7 @@ export function normalizeFormPdfDefaults(value: unknown): FormPdfDefaults {
       typeof source.primaryColor === 'string' && /^#[0-9a-f]{6}$/i.test(source.primaryColor)
         ? (source.primaryColor.toUpperCase() === '#4F46E5' ? '#1E6BFF' : source.primaryColor)
         : defaults.pdfSchema.primaryColor,
-    pageSize: source.pageSize === 'a4' ? 'a4' : 'letter',
+    pageSize: normalizeFormPageSize(source.pageSize),
     typography: isFormTypography(source.typography) ? source.typography : defaults.pdfSchema.typography,
     orientation: source.orientation === 'landscape' ? 'landscape' : 'portrait',
     margins: source.margins === 'narrow' || source.margins === 'wide' ? source.margins : 'normal',

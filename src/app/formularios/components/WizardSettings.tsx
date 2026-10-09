@@ -9,8 +9,10 @@ import { FormTypographySelect } from '@/components/forms/FormTypographySelect';
 import { hasFormExperienceChanges, snapshotFormExperience } from '@/lib/forms/experience-defaults';
 import { normalizeFormAppearanceDefaults, reusableFormAppearance } from '@/lib/forms/appearance-defaults';
 import { normalizeFormPdfDefaults, PDF_CONTENT_OPTIONS } from '@/lib/forms/pdf-defaults';
+import { FORM_PAGE_SIZES, type FormPageSize } from '@/lib/forms/pdf-page-sizes';
 import { formDefaultsErrorMessage, loadFormDefaults, saveFormDefault } from '@/lib/forms/remote-defaults';
 import { formSaveError } from '@/lib/forms/lifecycle';
+import { isLegalField, legalFieldContent } from '@/lib/forms/legal-field-content';
 import { FormDesignSaveError, saveFormAndDesignDefaults } from '@/lib/forms/design-save';
 import { WizardDesignPreview } from './WizardDesignPreview';
 import { createClient } from '@/lib/supabase/client';
@@ -97,6 +99,7 @@ export function GeneralSettings() {
 
   const selectedType = types.find((item) => item.id === settings.documentTypeId);
   const selectedTags = tags.filter((item) => settings.tagIds.includes(item.id));
+  const legalFields = state.template.schema.filter((field) => isLegalField(field.type));
   return (
     <div className="mx-auto grid w-full max-w-[1480px] grid-cols-1 items-start gap-5 p-5 sm:p-8 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
@@ -109,20 +112,6 @@ export function GeneralSettings() {
           </p>
         </div>
         <div className="space-y-4">
-          <fieldset>
-            <legend className="mb-2 text-sm font-medium text-slate-700 dark:text-foreground">Acceso al formulario</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {([
-                { value: 'private', title: 'Invitación privada', description: 'Se envía a una persona. Accede por el portal de invitaciones y crea su cuenta si es su primera vez.' },
-                { value: 'public', title: 'Formulario público con código', description: 'Se genera un código de acceso. Cada persona deberá iniciar sesión y aprobar una prueba de vida antes de abrir el formulario.' },
-              ] as const).map((option) => (
-                <label key={option.value} className={`flex cursor-pointer gap-3 rounded-lg border p-3 ${settings.accessMode === option.value ? 'border-primary bg-blue-50/60' : 'border-slate-200 bg-white dark:border-border dark:bg-card'}`}>
-                  <input type="radio" name="form-access-mode" value={option.value} checked={settings.accessMode === option.value} onChange={() => dispatch({ type: 'SET_SETTINGS', payload: { accessMode: option.value, allowedSignatureTypes: option.value === 'public' ? ['autografa_digital'] : [] } })} className="mt-1 accent-primary" />
-                  <span><span className="block text-sm font-medium text-slate-900 dark:text-foreground">{option.title}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span></span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">
               Nombre del formulario <span className="text-red-500">*</span>
@@ -253,6 +242,27 @@ export function GeneralSettings() {
               {catalogError}
             </p>
           )}
+        </div>
+        <div className="mt-6 border-t border-slate-200 pt-5 dark:border-border">
+          <h3 className="text-sm font-semibold text-slate-950 dark:text-foreground">Consentimientos y declaraciones</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Configura el texto que leerá y aceptará el participante en cada campo legal. También puedes editarlo desde las propiedades del campo.</p>
+          {legalFields.length ? <div className="mt-4 space-y-5">
+            {legalFields.map((field) => {
+              const content = legalFieldContent(field);
+              if (!content) return null;
+              return <div key={field.id} className="space-y-3 rounded-lg border border-slate-200 p-4 dark:border-border">
+                <p className="text-sm font-medium text-slate-900 dark:text-foreground">{field.label}</p>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-slate-600">Texto que verá el participante</span>
+                  <textarea rows={4} maxLength={1000} value={field.description ?? content.description} onChange={(event) => dispatch({ type: 'UPDATE_FIELD', payload: { id: field.id, updates: { description: event.target.value } } })} className={`${formInputClass} h-auto resize-y py-2.5`} />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-slate-600">Texto de la casilla de aceptación</span>
+                  <input maxLength={160} value={field.acceptanceLabel ?? content.acceptanceLabel} onChange={(event) => dispatch({ type: 'UPDATE_FIELD', payload: { id: field.id, updates: { acceptanceLabel: event.target.value } } })} className={formInputClass} />
+                </label>
+              </div>;
+            })}
+          </div> : <p className="mt-3 text-xs text-slate-500">Agrega un campo de Consentimiento o Declaración bajo protesta en Contenido para configurar sus textos.</p>}
         </div>
       </section>
       <aside className="h-fit xl:sticky xl:top-5 xl:max-h-[calc(100dvh-220px)] xl:overflow-y-auto">
@@ -636,13 +646,14 @@ export function PdfSettings({ onSaveForm }: { onSaveForm: () => Promise<string |
                   onChange={(event) =>
                     dispatch({
                       type: 'SET_PDF_SCHEMA',
-                      payload: { pageSize: event.target.value as 'letter' | 'a4' },
+                      payload: { pageSize: event.target.value as FormPageSize },
                     })
                   }
                   className={formInputClass}
                 >
-                  <option value="letter">Carta</option>
-                  <option value="a4">A4</option>
+                  {FORM_PAGE_SIZES.map((size) => (
+                    <option key={size.value} value={size.value}>{size.label}</option>
+                  ))}
                 </select>
               </label>
               <label className="block">

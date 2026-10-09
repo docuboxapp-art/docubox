@@ -116,7 +116,7 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
     .eq('id', access.form_id)
     .maybeSingle();
   if (formError) return reply('No se pudo consultar el formulario.', 503);
-  if (!form || form.status !== 'published' || form.settings?.accessMode !== 'public')
+  if (!form || form.status !== 'published')
     return reply('Este formulario público no está disponible.', 404);
   const allowedTypes =
     Array.isArray(form.allowed_signature_types) && form.allowed_signature_types.length

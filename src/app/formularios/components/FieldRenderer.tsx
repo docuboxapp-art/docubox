@@ -7,6 +7,7 @@ import { validateRFC, validateCURP, validatePhoneMX, formatPhoneMX } from '@/uti
 import SignaturePad from './SignaturePad';
 import { Upload, X, CheckCircle, AlertCircle, FileKey2, Loader2, ShieldCheck } from 'lucide-react';
 import { getFormFieldIcon } from '@/components/forms/field-icons';
+import { legalFieldContent } from '@/lib/forms/legal-field-content';
 
 const ESTADOS_MX = [
   'Aguascalientes','Baja California','Baja California Sur','Campeche','Chiapas',
@@ -28,6 +29,7 @@ interface FieldRendererProps {
 
 export default function FieldRenderer({ field, value, onChange, error, formToken, signatureType, requiredOverride }: FieldRendererProps) {
   const required = requiredOverride ?? field.required;
+  const legalContent = legalFieldContent(field);
   const address: Record<string, string> = value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, string>
     : { street: typeof value === 'string' ? value : '' };
@@ -66,7 +68,7 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
       )}
-      {field.description && (
+      {field.description && !legalContent && (
         <p className="text-xs text-muted-foreground">{field.description}</p>
       )}
 
@@ -415,20 +417,22 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
         </div>
       )}
 
-      {['consentimiento', 'declaration'].includes(field.type) && (
+      {legalContent && (
         <div className="border border-border rounded-xl p-4 bg-muted/30 space-y-3">
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            {field.description || 'He leído y acepto los términos y condiciones del presente documento.'}
+          <p className="text-sm font-medium text-foreground">{field.label}</p>
+          <p className="whitespace-pre-line text-xs text-muted-foreground leading-relaxed">
+            {legalContent.description}
           </p>
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
               checked={!!(value as boolean)}
               onChange={(e) => onChange(e.target.checked)}
+              disabled={field.readOnly}
               className="mt-0.5 w-4 h-4 rounded border-border text-primary focus:ring-primary/30"
             />
             <span className="text-sm font-medium text-foreground">
-              {field.label}
+              {legalContent.acceptanceLabel}
               {required && <span className="text-red-500 ml-1">*</span>}
             </span>
           </label>

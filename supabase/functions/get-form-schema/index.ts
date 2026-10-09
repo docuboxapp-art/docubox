@@ -50,22 +50,6 @@ serve(async (req) => {
       );
     }
 
-    // Check expiration
-    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-      return new Response(
-        JSON.stringify({ error: 'Este enlace ha expirado', code: 'TOKEN_EXPIRED' }),
-        { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Check if already used
-    if (tokenRow.used_at) {
-      return new Response(
-        JSON.stringify({ error: 'Este formulario ya fue respondido', code: 'TOKEN_USED', used_at: tokenRow.used_at }),
-        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const template = tokenRow.form_templates as {
       id: string;
       name: string;
@@ -76,13 +60,6 @@ serve(async (req) => {
       workspace_id: string;
       workspaces: { name: string; logo_url?: string };
     };
-
-    if (!template || template.status !== 'published') {
-      return new Response(
-        JSON.stringify({ error: 'Este formulario no está disponible.', code: 'FORM_UNAVAILABLE' }),
-        { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
     if (
       tokenRow.recipient_email?.trim().toLowerCase() !== user.email?.trim().toLowerCase() ||
@@ -95,6 +72,52 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'La prueba de vida es obligatoria antes de abrir este formulario.', code: 'LIVENESS_REQUIRED' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
+    // A used invitation may still need signing. Return its document only to
+    // the authenticated recipient, even when the original deadline has passed.
+    if (tokenRow.used_at) {
+      const { data: responseRow, error: responseError } = await supabase
+        .from('form_responses')
+        .select('id,document_id,status')
+        .eq('token_id', tokenRow.id)
+        .order('submitted_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (responseError) throw responseError;
+      const { data: documentRow, error: documentError } = responseRow
+        ? await supabase.from('documentos')
+            .select('id,estado')
+            .eq('source_form_response_id', responseRow.id)
+            .maybeSingle()
+        : { data: null, error: null };
+      if (documentError) throw documentError;
+      return new Response(
+        JSON.stringify({
+          error: 'Este formulario ya fue respondido',
+          code: 'TOKEN_USED',
+          used_at: tokenRow.used_at,
+          response_id: responseRow?.id || null,
+          response_status: responseRow?.status || null,
+          document_id: documentRow?.id || responseRow?.document_id || null,
+          document_state: documentRow?.estado || null,
+        }),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
+      return new Response(
+        JSON.stringify({ error: 'Este enlace ha expirado', code: 'TOKEN_EXPIRED' }),
+        { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!template || template.status !== 'published') {
+      return new Response(
+        JSON.stringify({ error: 'Este formulario no está disponible.', code: 'FORM_UNAVAILABLE' }),
+        { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     let documentTypeName = typeof template.settings?.documentTypeName === 'string'
       ? template.settings.documentTypeName : '';
     const documentTypeId = typeof template.settings?.documentTypeId === 'string'
@@ -103,6 +126,24 @@ serve(async (req) => {
       const { data: documentType } = await supabase.from('tipo_documento')
         .select('nombre').eq('id', documentTypeId).maybeSingle();
       documentTypeName = documentType?.nombre || '';
+    }
+
+    // The recipient has already been authenticated and matched to this token.
+    // Never resolve these values from the sender's workspace or token metadata.
+    const fields = Array.isArray(template.schema) ? template.schema : [];
+    const hasPersonalFields = fields.some((field) =>
+      field && typeof field === 'object' &&
+      ['rfc', 'curp', 'business_name', 'person_first_name', 'person_last_name', 'person_second_last_name', 'fiscal_address'].includes((field as { type?: string }).type || '')
+    );
+    let participantProfile = null;
+    if (hasPersonalFields) {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('full_name,nombre,apellido_paterno,apellido_materno,personalidad_juridica,rfc,curp,calle,num_exterior,num_interior,colonia,municipio,localidad,estado')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (error) throw error;
+      participantProfile = data;
     }
 
     // Return schema without sensitive workspace data
@@ -131,6 +172,7 @@ serve(async (req) => {
         workspaceLogo: template.workspaces?.logo_url || null,
         expiresAt: tokenRow.expires_at,
         recipientName: tokenRow.recipient_name || null,
+        participantProfile: participantProfile || null,
         signatureType: ['click_sign', 'autografa_digital', 'efirma_sat'].includes(tokenRow.signature_type)
           ? tokenRow.signature_type : 'click_sign',
         requireLiveness: tokenRow.require_liveness === true && !tokenRow.liveness_verified_at,

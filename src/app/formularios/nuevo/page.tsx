@@ -31,6 +31,7 @@ import { useFormAutoSave } from '@/hooks/useFormAutoSave';
 import { createClient } from '@/lib/supabase/client';
 import { templateApiFetch } from '@/lib/templates/client';
 import { readFormPdfDefaults } from '@/lib/forms/pdf-defaults';
+import { getFormPageSize } from '@/lib/forms/pdf-page-sizes';
 import { readFormAppearanceDefaults } from '@/lib/forms/appearance-defaults';
 import { readFormExperienceDefaults } from '@/lib/forms/experience-defaults';
 import { loadFormDefaults } from '@/lib/forms/remote-defaults';
@@ -144,6 +145,7 @@ function BuilderWorkspace() {
   );
   const activeStep = visibleSteps[step];
   const StepIcon = activeStep.icon;
+  const signatureRequiredForNext = !readOnly && activeStep.id === 'contenido' && Boolean(signatureFieldError(template));
   const wizardProgress = Math.round((step / (visibleSteps.length - 1)) * 100);
 
   useEffect(() => {
@@ -325,21 +327,7 @@ function BuilderWorkspace() {
     }
     try {
       if (publication === 'published') {
-        const publishedId = await save(true);
-        if (template.settings.accessMode === 'public' && publishedId) {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session) throw new Error('La sesión expiró antes de generar el código de acceso.');
-          const response = await fetch(`/api/formularios/publico/${encodeURIComponent(publishedId)}/codigo`, {
-            headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
-          });
-          const result = await response.json();
-          if (!response.ok || !result.code) throw new Error(result.error || 'No se pudo generar el código de acceso.');
-          sessionStorage.setItem('docubox_recent_public_form_access', JSON.stringify({
-            name: template.name,
-            url: `${window.location.origin}/formulario-publico/${publishedId}`,
-            code: result.code,
-          }));
-        }
+        await save(true);
         setNotice('');
         setPublicationSuccess(true);
       } else {
@@ -349,20 +337,6 @@ function BuilderWorkspace() {
         const reviewed = await submitFormForApproval(supabase, formId, activeWorkspace.id, publicationContext.approvalWorkflow.id);
         dispatch({ type: 'SET_TEMPLATE', payload: reviewed });
         if (reviewed.status === 'published') {
-          if (reviewed.settings.accessMode === 'public' && reviewed.id) {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) throw new Error('La sesión expiró antes de generar el código de acceso.');
-            const response = await fetch(`/api/formularios/publico/${encodeURIComponent(reviewed.id)}/codigo`, {
-              headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
-            });
-            const result = await response.json();
-            if (!response.ok || !result.code) throw new Error(result.error || 'No se pudo generar el código de acceso.');
-            sessionStorage.setItem('docubox_recent_public_form_access', JSON.stringify({
-              name: reviewed.name,
-              url: `${window.location.origin}/formulario-publico/${reviewed.id}`,
-              code: result.code,
-            }));
-          }
           setNotice('');
           setPublicationSuccess(true);
         } else {
@@ -804,7 +778,7 @@ function BuilderWorkspace() {
                         `${template.sections.length} ${template.sections.length === 1 ? 'sección' : 'secciones'} · ${template.schema.length} ${template.schema.length === 1 ? 'campo' : 'campos'}`,
                       ],
                       ['PDF', template.settings.configurePdfDetails
-                        ? (template.settings.pdfSchema.pageSize === 'letter' ? 'Carta' : 'A4')
+                        ? getFormPageSize(template.settings.pdfSchema.pageSize).label
                         : 'Predeterminado'],
                       ['Firma', 'Requerida'],
                     ].map(([label, value]) => (
@@ -856,15 +830,19 @@ function BuilderWorkspace() {
             </button>
           )}
           {step < visibleSteps.length - 1 ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => navigate(step + 1)}
-              className={primaryClass}
-            >
-              Siguiente
-              <ArrowRight size={16} />
-            </button>
+            <>
+              {signatureRequiredForNext && <span id="signature-next-hint" className="sr-only">Agrega el campo Firma para continuar.</span>}
+              <button
+                type="button"
+                disabled={busy || signatureRequiredForNext}
+                aria-describedby={signatureRequiredForNext ? 'signature-next-hint' : undefined}
+                onClick={() => navigate(step + 1)}
+                className={primaryClass}
+              >
+                Siguiente
+                <ArrowRight size={16} />
+              </button>
+            </>
           ) : readOnly ? (
             publicationContext?.permissions.canCreateVersion ? (
               <button type="button" disabled={busy} onClick={() => void newVersion(versionChoice)} className={primaryClass}>
@@ -892,9 +870,7 @@ function BuilderWorkspace() {
       {publicationSuccess && (
         <WizardSuccessScreen
           title="Formulario publicado"
-          description={template.settings.accessMode === 'public'
-            ? 'El enlace y el código de acceso están listos para compartir.'
-            : 'El formulario está listo para lanzarse a los participantes.'}
+          description="El formulario está listo para lanzarse a los participantes."
           destination="/formularios"
           destinationLabel="Formularios"
         />
