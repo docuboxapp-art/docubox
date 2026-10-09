@@ -8,11 +8,13 @@ import {
   Check,
   CheckCircle2,
   Copy,
+  Edit3,
   Loader2,
   Mail,
   Maximize2,
   Search,
   Send,
+  ShieldCheck,
   Smartphone,
   Trash2,
   User,
@@ -37,9 +39,14 @@ type FormChoice = {
 };
 type Participant = { id: string; name: string; email: string };
 const signatureLabels: Record<SignatureType, string> = {
-  click_sign: 'Firma por aceptación',
+  click_sign: 'Click & Sign',
   autografa_digital: 'Firma autógrafa digital',
-  efirma_sat: 'e.firma del SAT',
+  efirma_sat: 'e.firma SAT',
+};
+const signatureIcons = {
+  click_sign: CheckCircle2,
+  autografa_digital: Edit3,
+  efirma_sat: ShieldCheck,
 };
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const launchSteps = [
@@ -120,7 +127,11 @@ function LaunchContent() {
           .order('nombre'),
       ]);
       if (!active) return;
-      setForms(((formResult.data || []) as FormChoice[]).filter((item) => item.settings?.accessMode !== 'public'));
+      setForms(
+        ((formResult.data || []) as FormChoice[]).filter(
+          (item) => item.settings?.accessMode !== 'public'
+        )
+      );
       setContacts(
         (contactResult.data || [])
           .filter((item) => item.email)
@@ -633,17 +644,28 @@ function LaunchContent() {
                             </p>
                           </div>
                           <div className="space-y-2">
-                            {signatureOptions.map((type) => (
-                              <button
-                                type="button"
-                                key={type}
-                                onClick={() => setSignatureType(type)}
-                                className={`flex w-full items-center justify-between rounded-lg border p-4 text-left text-sm ${signatureType === type ? 'border-primary bg-blue-50 text-primary' : 'border-slate-200'}`}
-                              >
-                                {signatureLabels[type]}
-                                {signatureType === type && <Check size={16} />}
-                              </button>
-                            ))}
+                            {signatureOptions.map((type) => {
+                              const Icon = signatureIcons[type];
+                              return (
+                                <button
+                                  type="button"
+                                  key={type}
+                                  onClick={() => setSignatureType(type)}
+                                  className={`flex w-full items-center justify-between rounded-lg border p-4 text-left text-sm ${signatureType === type ? 'border-primary bg-blue-50 text-primary' : 'border-slate-200'}`}
+                                >
+                                  <span className="flex items-center gap-3">
+                                    <Icon
+                                      size={18}
+                                      className={
+                                        signatureType === type ? 'text-primary' : 'text-slate-400'
+                                      }
+                                    />
+                                    {signatureLabels[type]}
+                                  </span>
+                                  {signatureType === type && <Check size={16} />}
+                                </button>
+                              );
+                            })}
                           </div>
                         </>
                       )}
