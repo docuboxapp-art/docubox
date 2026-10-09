@@ -255,6 +255,52 @@ test('production provider rejects the retired external certificate identity', as
   assert.equal(result.detail, 'PRODUCTION_CERTIFICATE_VISIBLE_IDENTITY_INVALID');
 });
 
+test('production certificate rotation selects the complete active chain over retired sensitive values', async () => {
+  const provider = keyProvider('hsm');
+  const issued = await createKmsSelfSignedProductionCertificate({
+    keyProvider: provider,
+    keyId: 'docubox-development-signing',
+    subject: {
+      commonName: 'Docubox',
+      organization: 'Docubox',
+      organizationalUnit: 'Production Trust Services',
+      country: 'MX',
+    },
+    validityDays: 90,
+  });
+  const names = [
+    'DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_PEM',
+    'DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_CHAIN_PEM',
+    'DOCUBOX_PRODUCTION_TRUST_ROOT_CERTIFICATE_PEM',
+    'DOCUBOX_PRODUCTION_ACTIVE_SIGNING_CERTIFICATE_PEM',
+    'DOCUBOX_PRODUCTION_ACTIVE_SIGNING_CERTIFICATE_CHAIN_PEM',
+    'DOCUBOX_PRODUCTION_ACTIVE_TRUST_ROOT_CERTIFICATE_PEM',
+    'DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_KEY_ID',
+  ];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names.slice(0, 3)) process.env[name] = 'retired certificate';
+    for (const name of names.slice(3, 6)) process.env[name] = issued.certificatePem;
+    process.env.DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_KEY_ID = 'docubox-development-signing';
+    const active = ProductionCertificateProvider.fromEnvironment(provider);
+    const result = await active.verifyCertificateChain();
+    assert.equal(result.status, 'valid');
+    assert.equal(result.certificate?.subject.includes('CN=Docubox\n'), true);
+
+    delete process.env.DOCUBOX_PRODUCTION_ACTIVE_TRUST_ROOT_CERTIFICATE_PEM;
+    assert.throws(
+      () => ProductionCertificateProvider.fromEnvironment(provider),
+      { code: 'PRODUCTION_ACTIVE_CERTIFICATE_INCOMPLETE' }
+    );
+  } finally {
+    for (const name of names) {
+      const value = previous[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
 test('production provider rejects a development-named X.509 certificate', async (context) => {
   try {
     await runOpenSsl(['version']);

@@ -456,13 +456,24 @@ export class ProductionCertificateProvider implements CertificateProvider {
 
   static fromEnvironment(keyProvider: KeyManagementProvider) {
     const threshold = Number(process.env.DOCUBOX_PRODUCTION_CERTIFICATE_EXPIRING_SOON_DAYS || 30);
+    const activeSigning = configuredValue('DOCUBOX_PRODUCTION_ACTIVE_SIGNING_CERTIFICATE_PEM');
+    const activeChain = configuredValue('DOCUBOX_PRODUCTION_ACTIVE_SIGNING_CERTIFICATE_CHAIN_PEM');
+    const activeRoot = configuredValue('DOCUBOX_PRODUCTION_ACTIVE_TRUST_ROOT_CERTIFICATE_PEM');
+    const rotating = Boolean(activeSigning || activeChain || activeRoot);
+    if (rotating && (!activeSigning || !activeChain || !activeRoot)) {
+      throw new CertificationError(
+        'PRODUCTION_ACTIVE_CERTIFICATE_INCOMPLETE',
+        'La rotación del certificado de producción requiere certificado, cadena y raíz.',
+        503
+      );
+    }
     return new ProductionCertificateProvider(keyProvider, {
       environment: 'PRODUCTION',
-      signingCertificatePem: configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_PEM'),
+      signingCertificatePem: activeSigning || configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_PEM'),
       signingCertificatePath: configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_PATH'),
-      trustRootPem: configuredValue('DOCUBOX_PRODUCTION_TRUST_ROOT_CERTIFICATE_PEM'),
+      trustRootPem: activeRoot || configuredValue('DOCUBOX_PRODUCTION_TRUST_ROOT_CERTIFICATE_PEM'),
       trustRootPath: configuredValue('DOCUBOX_PRODUCTION_TRUST_ROOT_CERTIFICATE_PATH'),
-      chainPem: configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_CHAIN_PEM'),
+      chainPem: activeChain || configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_CHAIN_PEM'),
       chainPath: configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_CHAIN_PATH'),
       signingKeyId: configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_KEY_ID') || configuredValue('GOOGLE_KMS_PRODUCTION_KEY_NAME'),
       expiringSoonDays: Number.isFinite(threshold) && threshold >= 1 ? threshold : 30,
@@ -471,10 +482,10 @@ export class ProductionCertificateProvider implements CertificateProvider {
 
   static missingConfiguration() {
     const missing: string[] = [];
-    if (!configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_PATH') && !configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_PEM')) {
+    if (!configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_PATH') && !configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_PEM') && !configuredValue('DOCUBOX_PRODUCTION_ACTIVE_SIGNING_CERTIFICATE_PEM')) {
       missing.push('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_PATH');
     }
-    if (!configuredValue('DOCUBOX_PRODUCTION_TRUST_ROOT_CERTIFICATE_PATH') && !configuredValue('DOCUBOX_PRODUCTION_TRUST_ROOT_CERTIFICATE_PEM')) {
+    if (!configuredValue('DOCUBOX_PRODUCTION_TRUST_ROOT_CERTIFICATE_PATH') && !configuredValue('DOCUBOX_PRODUCTION_TRUST_ROOT_CERTIFICATE_PEM') && !configuredValue('DOCUBOX_PRODUCTION_ACTIVE_TRUST_ROOT_CERTIFICATE_PEM')) {
       missing.push('DOCUBOX_PRODUCTION_TRUST_ROOT_CERTIFICATE_PATH');
     }
     if (!configuredValue('DOCUBOX_PRODUCTION_SIGNING_CERTIFICATE_KEY_ID') && !configuredValue('GOOGLE_KMS_PRODUCTION_KEY_NAME')) {

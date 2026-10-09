@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString, rgb } from 'pdf-lib';
 import { build } from 'esbuild';
 import nextEnv from '@next/env';
-import { embedDocuboxPdfFonts } from '../src/lib/pdf/embedded-fonts';
-import { assertPdfFontsEmbedded } from '../src/lib/pdf/font-audit';
+import { embedDocuboxPdfFonts } from '../src/lib/pdf/embedded-fonts.ts';
+import { assertPdfFontsEmbedded } from '../src/lib/pdf/font-audit.ts';
 
 nextEnv.loadEnvConfig(process.cwd());
 
