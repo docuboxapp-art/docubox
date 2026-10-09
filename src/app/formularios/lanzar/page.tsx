@@ -507,12 +507,6 @@ function LaunchContent() {
             {form && (
               <>
                 <div className="space-y-5">
-                  {(step !== 3 || sentUrl) && (
-                    <div className="rounded-lg bg-slate-50 p-3 text-sm">
-                      <span className="text-slate-500">Formulario:</span>{' '}
-                      <strong>{form.name}</strong>
-                    </div>
-                  )}
                   {sentUrl ? (
                     <div className="space-y-4">
                       <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5 text-emerald-800">
@@ -536,73 +530,44 @@ function LaunchContent() {
                       {step === 1 && (
                         <>
                           <div>
-                            <h2 className="text-base font-semibold">Lista de participantes</h2>
+                            <h2 className="text-base font-semibold">Participante</h2>
                             <p className="mt-1 text-sm text-slate-500">
-                              Añade una persona para recibir y completar este formulario.
+                              Selecciona una persona para recibir y completar el formulario.
                             </p>
                           </div>
-                          <div className="overflow-x-auto rounded-lg border border-slate-200">
-                            <table className="w-full min-w-[660px] text-left text-sm">
-                              <thead className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                                <tr>
-                                  <th className="px-4 py-3 font-medium">Nombre</th>
-                                  <th className="px-4 py-3 font-medium">Tipo de Firma</th>
-                                  <th className="px-4 py-3 font-medium">Notificación</th>
-                                  <th className="px-4 py-3 font-medium">Configuración</th>
-                                  <th className="px-4 py-3 font-medium">Acciones</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {selectedParticipant ? (
-                                  <tr>
-                                    <td className="px-4 py-3">
-                                      <p className="font-semibold">{selectedParticipant.name}</p>
-                                      <p className="text-xs text-slate-500">
-                                        {selectedParticipant.email}
-                                      </p>
-                                    </td>
-                                    <td className="px-4 py-3 text-xs text-slate-600">
-                                      {signatureType ? signatureLabels[signatureType] : '—'}
-                                    </td>
-                                    <td className="px-4 py-3 text-xs text-slate-600">
-                                      Correo electrónico
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      <span
-                                        className={`rounded-full px-3 py-1 text-xs font-semibold text-white ${signatureType ? 'bg-emerald-500' : 'bg-red-500'}`}
-                                      >
-                                        {signatureType ? 'Configurado' : 'Sin configurar'}
-                                      </span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      <button
-                                        type="button"
-                                        title="Quitar participante"
-                                        aria-label="Quitar participante"
-                                        onClick={() => {
-                                          setParticipant(null);
-                                          setSignatureType('');
-                                          setRequireLiveness(false);
-                                        }}
-                                        className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
-                                      >
-                                        <Trash2 size={16} />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ) : (
-                                  <tr>
-                                    <td
-                                      colSpan={5}
-                                      className="px-4 py-7 text-center text-sm text-slate-500"
-                                    >
-                                      No hay un participante seleccionado.
-                                    </td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
+                          {selectedParticipant ? (
+                            <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-4">
+                              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-sm font-semibold text-blue-700">
+                                {selectedParticipant.name.charAt(0).toUpperCase()}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-slate-950">
+                                  {selectedParticipant.name}
+                                </p>
+                                <p className="mt-0.5 truncate text-xs text-slate-500">
+                                  {selectedParticipant.email}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                title="Quitar participante"
+                                aria-label="Quitar participante"
+                                onClick={() => {
+                                  setParticipant(null);
+                                  setSignatureType('');
+                                  setRequireLiveness(false);
+                                }}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                              <UserPlus size={18} className="shrink-0 text-slate-400" />
+                              No hay un participante seleccionado.
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={() => {
