@@ -85,17 +85,24 @@ async function manage(req: NextRequest, context: Context, action: Action) {
       method: 'POST',
       headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: 'DOCUBOX <noreply@docubox.mx>',
+        from: process.env.RESEND_FROM_EMAIL || 'Docubox <noreply@docubox.com.mx>',
         to: [launch.recipient_email],
         subject: `Recordatorio: completa el formulario ${template.name}`,
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:24px"><h2 style="color:#1e6bff">Tienes un formulario pendiente</h2><p>Hola ${escapeHtml(launch.recipient_name || launch.recipient_email)},</p><p><strong>${escapeHtml(workspaceName)}</strong> te recuerda completar el formulario <strong>${escapeHtml(template.name)}</strong>.</p><p>Este enlace vence el ${escapeHtml(expiry)}.</p><p style="margin:32px 0"><a href="${escapeHtml(formUrl)}" style="background:#1e6bff;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Completar formulario</a></p><p style="font-size:12px;color:#64748b">Si no esperabas este correo, puedes ignorarlo.</p></div>`,
       }),
     });
-    if (!emailResponse.ok)
+    if (!emailResponse.ok) {
+      const providerError = await emailResponse.json().catch(() => null);
+      console.error('[form-launch-management] Resend rejected reminder:', emailResponse.status, {
+        name: providerError && typeof providerError === 'object' ? providerError.name : undefined,
+        message:
+          providerError && typeof providerError === 'object' ? providerError.message : undefined,
+      });
       return NextResponse.json(
         { error: 'No se pudo reenviar el correo. Inténtalo de nuevo.' },
         { status: 502 }
       );
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[form-launch-management]', error);

@@ -168,7 +168,7 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            from: 'DOCUBOX <noreply@docubox.mx>',
+            from: Deno.env.get('RESEND_FROM_EMAIL') || 'Docubox <noreply@docubox.com.mx>',
             to: [String(recipient_email).trim()],
             subject: `${workspaceName} te ha enviado un formulario: ${template.name}`,
             html: `
@@ -191,7 +191,13 @@ serve(async (req) => {
             `,
           }),
         });
-        if (!emailResponse.ok) throw new Error(`Resend respondió ${emailResponse.status}`);
+        if (!emailResponse.ok) {
+          const providerError = await emailResponse.json().catch(() => null);
+          const detail = providerError && typeof providerError === 'object'
+            ? [providerError.name, providerError.message].filter((value) => typeof value === 'string').join(': ')
+            : '';
+          throw new Error(`Resend respondió ${emailResponse.status}${detail ? `: ${detail}` : ''}`);
+        }
       } catch (emailErr) {
         console.error('Email error:', emailErr);
         await supabase.from('form_tokens').delete().eq('id', tokenRow.id);
