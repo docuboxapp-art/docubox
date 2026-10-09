@@ -8,6 +8,7 @@ import {
   Search, ShieldCheck, Trash2, UsersRound,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
@@ -99,7 +100,7 @@ export default function IdentityPoliciesPage() {
             </Link>
           </header>
 
-          {notice && <div className="mt-4 flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Cerrar aviso">Cerrar</button></div>}
+          {notice && <BottomNotice message={notice} tone="success" onClose={() => setNotice('')} />}
           {localMode && <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700">Las politicas se conservan localmente hasta aplicar la migracion de identidad en Supabase.</div>}
 
           <section className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">

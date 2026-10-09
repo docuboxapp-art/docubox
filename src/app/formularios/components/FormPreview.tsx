@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { FileCheck2, Hash, QrCode, ShieldCheck } from 'lucide-react';
 import type { FormTemplate } from '@/contexts/FormBuilderContext';
+import type { SignatureType } from '@/lib/forms/schema';
 import { sampleValueForField } from '@/lib/forms/schema';
 import { formFontFamily } from '@/lib/typography/font-families';
 import { useFormTypography } from '@/hooks/useFormTypography';
@@ -18,9 +19,10 @@ interface FormPreviewProps {
   onValuesChange?: (values: Record<string, unknown>) => void;
   designPreview?: boolean;
   documentTypeName?: string;
+  signatureType?: SignatureType;
 }
 
-export default function FormPreview({ template, mode, values: controlledValues, interactive = false, onValuesChange, designPreview = false, documentTypeName }: FormPreviewProps) {
+export default function FormPreview({ template, mode, values: controlledValues, interactive = false, onValuesChange, designPreview = false, documentTypeName, signatureType }: FormPreviewProps) {
   const [internalValues, setInternalValues] = useState<Record<string, unknown>>({});
   const values = controlledValues || internalValues;
   const appearance = template.settings.appearance;
@@ -71,13 +73,17 @@ export default function FormPreview({ template, mode, values: controlledValues, 
     );
   }
 
-  return <PdfMirror template={template} values={values} example={controlledValues === undefined} designPreview={designPreview} />;
+  return <PdfMirror template={template} values={values} example={controlledValues === undefined} designPreview={designPreview} signatureType={signatureType} />;
 }
 
-function PdfMirror({ template, values, example, designPreview }: { template: FormTemplate; values: Record<string, unknown>; example: boolean; designPreview: boolean }) {
+function PdfMirror({ template, values, example, designPreview, signatureType }: { template: FormTemplate; values: Record<string, unknown>; example: boolean; designPreview: boolean; signatureType?: SignatureType }) {
   const pdf = template.settings.pdfSchema;
   const folio = useMemo(() => `FORM-${new Date().getFullYear()}-000123`, []);
   const hash = '8f3a9d74b19e7c641f42d2d57a3bb9f86f943d916e7036f1e85618c6c72a982b';
+  const signatureMethod = signatureType === 'efirma_sat' ? 'e.firma SAT' : signatureType === 'autografa_digital' ? 'Firma autógrafa digital' : 'Click & Sign';
+  const hasVisibleSignatureBlock = template.sections.some((section) => section.showInPdf !== false && template.schema.some((field) =>
+    field.type === 'signature_block' && (field.pdf?.sectionId || field.sectionId) === section.id && field.pdf?.show !== false && isFormFieldVisible(field, values)
+  ));
 
   return (
     <div className="mx-auto w-full space-y-4" style={{ maxWidth: pdf.orientation === 'landscape' ? 980 : 760, fontFamily: formFontFamily(pdf.typography) }}>
@@ -119,9 +125,9 @@ function PdfMirror({ template, values, example, designPreview }: { template: For
               Las respuestas y secciones aparecerán aquí al agregar campos.
             </div>
           )}
-          {template.sections.filter((section) => section.showInPdf).map((section, index) => {
+          {template.sections.filter((section) => section.showInPdf !== false).map((section, index) => {
             const fields = template.schema.filter((field) =>
-              (field.pdf?.sectionId || field.sectionId) === section.id && field.pdf?.show !== false && isFormFieldVisible(field, values) && (example || pdf.showUnanswered || (values[field.id] !== undefined && values[field.id] !== null && values[field.id] !== ''))
+              (field.pdf?.sectionId || field.sectionId) === section.id && field.pdf?.show !== false && isFormFieldVisible(field, values) && (field.type === 'signature_block' || example || pdf.showUnanswered || (values[field.id] !== undefined && values[field.id] !== null && values[field.id] !== ''))
             );
             if (!fields.length) return null;
             return (
@@ -135,7 +141,7 @@ function PdfMirror({ template, values, example, designPreview }: { template: For
                     <div key={field.id} className={`${pdf.columns === 'two' && ['textarea', 'fiscal_address', 'declaration', 'consentimiento', 'signature_block'].includes(field.type) ? 'sm:col-span-2' : ''} ${field.pdf?.pageBreakBefore ? 'border-t-2 border-dashed border-[#CBD5E1] pt-3 sm:col-span-2' : ''}`}>
                       <dt className="text-[10px] font-medium uppercase text-[#64748B]">{field.pdf?.label || field.label}</dt>
                       <dd className={field.type === 'signature_block' ? 'mt-1 flex h-20 items-center justify-center border border-[#CBD5E1] text-xs text-[#64748B]' : 'mt-1 border-b border-[#CBD5E1] pb-2 text-xs leading-5 text-[#1E293B]'}>
-                        {field.type === 'signature_block' ? 'Espacio reservado para firma' : formatFormFieldValue(field, values[field.id] ?? (example ? sampleValueForField(field) : undefined))}
+                        {field.type === 'signature_block' ? (signatureType ? `Espacio reservado para ${signatureMethod}` : 'Espacio reservado para firma') : formatFormFieldValue(field, values[field.id] ?? (example ? sampleValueForField(field) : undefined))}
                       </dd>
                     </div>
                   ))}
@@ -143,7 +149,15 @@ function PdfMirror({ template, values, example, designPreview }: { template: For
               </section>
             );
           })}
+          {signatureType && !hasVisibleSignatureBlock && (
+            <section>
+              <p className="text-[10px] font-medium uppercase text-[#64748B]">Firma del participante</p>
+              <div className="mt-1 flex h-20 items-center justify-center border border-[#CBD5E1] text-xs text-[#64748B]">Espacio reservado para {signatureMethod}</div>
+            </section>
+          )}
         </div>
+
+        {signatureType && <p className="mt-5 text-[10px] text-[#64748B]">Vista previa antes de firmar. La estampa elegida y sus datos de firma aparecerán en el PDF final.{pdf.showQr ? ' El QR de verificación se incorporará a la evidencia.' : ''}</p>}
 
         {(pdf.showHash || pdf.showQr || pdf.showAuditTrail || pdf.showEvidenceSheet) && (
           <section className="mt-10 border-t border-[#E2E8F0] pt-5">

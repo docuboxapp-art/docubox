@@ -7,9 +7,12 @@ export function normalizeFormAppearanceDefaults(value: unknown): FormAppearance 
   const source = value as Partial<FormAppearance>;
   const color = typeof source.accentColor === 'string' && /^#[0-9a-f]{6}$/i.test(source.accentColor)
     ? source.accentColor : defaults.accentColor;
+  const backgroundColor = typeof source.backgroundColor === 'string' && /^#[0-9a-f]{6}$/i.test(source.backgroundColor)
+    ? source.backgroundColor : defaults.backgroundColor;
 
   return {
     accentColor: color.toUpperCase() === '#4F46E5' ? defaults.accentColor : color,
+    backgroundColor,
     headerText: typeof source.headerText === 'string' && source.headerText !== 'Formulario firmable' ? source.headerText.slice(0, 120) : defaults.headerText,
     headerDescription: typeof source.headerDescription === 'string' ? source.headerDescription.slice(0, 500) : defaults.headerDescription,
     headerDocumentNumber: typeof source.headerDocumentNumber === 'string' ? source.headerDocumentNumber.slice(0, 120) : defaults.headerDocumentNumber,

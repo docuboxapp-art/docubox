@@ -51,7 +51,7 @@ serve(async (req) => {
     }
 
     // Check expiration
-    if (new Date(tokenRow.expires_at) < new Date()) {
+    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
       return new Response(
         JSON.stringify({ error: 'Este enlace ha expirado', code: 'TOKEN_EXPIRED' }),
         { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -91,6 +91,9 @@ serve(async (req) => {
     ) {
       return new Response(JSON.stringify({ error: 'Este enlace pertenece a otra cuenta.', code: 'FORBIDDEN' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
+    if (tokenRow.access_mode === 'public' && !tokenRow.liveness_verified_at) {
+      return new Response(JSON.stringify({ error: 'La prueba de vida es obligatoria antes de abrir este formulario.', code: 'LIVENESS_REQUIRED' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
     let documentTypeName = typeof template.settings?.documentTypeName === 'string'
       ? template.settings.documentTypeName : '';
@@ -128,7 +131,9 @@ serve(async (req) => {
         workspaceLogo: template.workspaces?.logo_url || null,
         expiresAt: tokenRow.expires_at,
         recipientName: tokenRow.recipient_name || null,
-        requireLiveness: tokenRow.require_liveness === true,
+        signatureType: ['click_sign', 'autografa_digital', 'efirma_sat'].includes(tokenRow.signature_type)
+          ? tokenRow.signature_type : 'click_sign',
+        requireLiveness: tokenRow.require_liveness === true && !tokenRow.liveness_verified_at,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

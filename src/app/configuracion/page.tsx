@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { Bell, Globe, Users, ShieldCheck, Key, Palette, Check, Mail, Smartphone, Loader2, Plus, Trash2, Copy, Webhook, Eye, EyeOff, AlertCircle, CheckCircle, Clock, Filter, Download, Building2, Lock, Edit3, X, Save, Activity, Image, Upload, Search, Info, Zap, Globe2, Link2, Fingerprint, FileText, FileCog } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -1612,7 +1613,7 @@ export default function ConfiguracionPage() {
         </div>
       )}
       {formDefaultsError && formDefaultsLoadedWorkspaceId === currentWsId && (
-        <p role="alert" className="text-sm text-red-600">{formDefaultsError}</p>
+        <BottomNotice message={formDefaultsError} tone="critical" onClose={() => setFormDefaultsError('')} />
       )}
       {currentWsId && formDefaultsLoadedWorkspaceId !== currentWsId ? (
         <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Cargando configuración guardada...</div>

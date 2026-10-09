@@ -108,7 +108,7 @@ test('el diseño web y PDF se guardan y vuelven a cargar con el formulario', asy
     ...original,
     settings: {
       ...original.settings,
-      appearance: { ...original.settings.appearance, headerText: 'Mi encabezado', headerDescription: 'Descripción visible', showDocumentNumber: false, showFooter: true },
+      appearance: { ...original.settings.appearance, headerText: 'Mi encabezado', headerDescription: 'Descripción visible', backgroundColor: '#EAF4FF', showDocumentNumber: false, showFooter: true },
       pdfSchema: { ...original.settings.pdfSchema, header: 'PDF personalizado', showIp: false, consentPage: true },
     },
   };
@@ -117,6 +117,7 @@ test('el diseño web y PDF se guardan y vuelven a cargar con el formulario', asy
   const payload = calls.find(([method]) => method === 'update')[1];
   assert.equal(payload.settings.appearance.headerText, 'Mi encabezado');
   assert.equal(payload.settings.appearance.headerDescription, 'Descripción visible');
+  assert.equal(payload.settings.appearance.backgroundColor, '#EAF4FF');
   assert.equal(payload.settings.appearance.showDocumentNumber, false);
   assert.equal(payload.settings.pdfSchema.showIp, false);
   assert.equal(payload.settings.pdfSchema.consentPage, true);
@@ -126,6 +127,7 @@ test('el diseño web y PDF se guardan y vuelven a cargar con el formulario', asy
   }));
   assert.equal(loaded.settings.appearance.headerText, 'Mi encabezado');
   assert.equal(loaded.settings.appearance.headerDescription, 'Descripción visible');
+  assert.equal(loaded.settings.appearance.backgroundColor, '#EAF4FF');
   assert.equal(loaded.settings.appearance.showDocumentNumber, false);
   assert.equal(loaded.settings.appearance.showFooter, true);
   assert.equal(loaded.settings.pdfSchema.header, 'PDF personalizado');

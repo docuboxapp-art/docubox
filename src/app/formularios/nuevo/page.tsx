@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import WizardSuccessScreen from '@/components/ui/WizardSuccessScreen';
 import { FormBuilderProvider, useFormBuilder } from '@/contexts/FormBuilderContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -98,7 +99,7 @@ function BuilderWorkspace() {
   const { state, dispatch } = useFormBuilder();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const { save, error, isSaving, isDirty } = useFormAutoSave(!loading && !loadError, false);
+  const { save, error, clearError, isSaving, isDirty } = useFormAutoSave(!loading && !loadError, false);
   const [step, setStep] = useState(0);
   const [furthest, setFurthest] = useState(0);
   const [notice, setNotice] = useState('');
@@ -324,7 +325,21 @@ function BuilderWorkspace() {
     }
     try {
       if (publication === 'published') {
-        await save(true);
+        const publishedId = await save(true);
+        if (template.settings.accessMode === 'public' && publishedId) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error('La sesión expiró antes de generar el código de acceso.');
+          const response = await fetch(`/api/formularios/publico/${encodeURIComponent(publishedId)}/codigo`, {
+            headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
+          });
+          const result = await response.json();
+          if (!response.ok || !result.code) throw new Error(result.error || 'No se pudo generar el código de acceso.');
+          sessionStorage.setItem('docubox_recent_public_form_access', JSON.stringify({
+            name: template.name,
+            url: `${window.location.origin}/formulario-publico/${publishedId}`,
+            code: result.code,
+          }));
+        }
         setNotice('');
         setPublicationSuccess(true);
       } else {
@@ -334,6 +349,20 @@ function BuilderWorkspace() {
         const reviewed = await submitFormForApproval(supabase, formId, activeWorkspace.id, publicationContext.approvalWorkflow.id);
         dispatch({ type: 'SET_TEMPLATE', payload: reviewed });
         if (reviewed.status === 'published') {
+          if (reviewed.settings.accessMode === 'public' && reviewed.id) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error('La sesión expiró antes de generar el código de acceso.');
+            const response = await fetch(`/api/formularios/publico/${encodeURIComponent(reviewed.id)}/codigo`, {
+              headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
+            });
+            const result = await response.json();
+            if (!response.ok || !result.code) throw new Error(result.error || 'No se pudo generar el código de acceso.');
+            sessionStorage.setItem('docubox_recent_public_form_access', JSON.stringify({
+              name: reviewed.name,
+              url: `${window.location.origin}/formulario-publico/${reviewed.id}`,
+              code: result.code,
+            }));
+          }
           setNotice('');
           setPublicationSuccess(true);
         } else {
@@ -518,16 +547,7 @@ function BuilderWorkspace() {
         </div>
       </section>
 
-      {(notice || error) && (
-        <div role="alert" className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2 text-sm dark:border-border dark:bg-card lg:px-6">
-          <span className={error ? 'text-red-600' : 'text-slate-700 dark:text-foreground'}>{notice || error}</span>
-          {notice && (
-            <button type="button" title="Cerrar aviso" aria-label="Cerrar aviso" onClick={() => setNotice('')}>
-              <X size={16} />
-            </button>
-          )}
-        </div>
-      )}
+      {(notice || error) && <BottomNotice message={error || notice} tone={error ? 'critical' : undefined} onClose={() => { setNotice(''); clearError(); }} />}
 
       {activeStep.id === 'contenido' && (
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-b border-border bg-card px-3 py-2">
@@ -872,7 +892,9 @@ function BuilderWorkspace() {
       {publicationSuccess && (
         <WizardSuccessScreen
           title="Formulario publicado"
-          description="El formulario está listo para lanzarse a los participantes."
+          description={template.settings.accessMode === 'public'
+            ? 'El enlace y el código de acceso están listos para compartir.'
+            : 'El formulario está listo para lanzarse a los participantes.'}
           destination="/formularios"
           destinationLabel="Formularios"
         />

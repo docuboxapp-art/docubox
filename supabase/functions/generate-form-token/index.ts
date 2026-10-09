@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { requiresFormSignature } from '../_shared/form-signature-policy.ts';
 import { getClientIp } from '../_shared/client-ip.ts';
+import { buildFormEmail } from '../_shared/form-email-template.ts';
 
 declare const Deno: {
   env: {
@@ -13,7 +14,6 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character));
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -57,7 +57,7 @@ serve(async (req) => {
       signature_type,
       require_liveness = false,
       notification_method = 'email',
-      expiration_hours = 72,
+      expiration_hours = null,
     } = await req.json();
 
     if (!template_id || !recipient_name?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(recipient_email || '').trim()) || notification_method !== 'email') {
@@ -72,9 +72,10 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    const recipientEmail = String(recipient_email).trim().toLowerCase();
 
-    const expiration = Number(expiration_hours);
-    if (!Number.isFinite(expiration) || expiration < 1 / 60 || expiration > 720) {
+    const expiration = expiration_hours == null ? null : Number(expiration_hours);
+    if (expiration !== null && (!Number.isFinite(expiration) || expiration < 1 / 60 || expiration > 720)) {
       return new Response(
         JSON.stringify({ error: 'La vigencia debe estar entre 1 minuto y 720 horas.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -117,12 +118,22 @@ serve(async (req) => {
     const resendApiKey = Deno.env.get('RESEND_API_KEY');
     if (!resendApiKey) return new Response(JSON.stringify({ error: 'El envío por correo no está configurado.' }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
+    const { data: launcherProfile, error: launcherProfileError } = await supabase
+      .from('user_profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (launcherProfileError) throw launcherProfileError;
+    const launcherName = String(launcherProfile?.full_name || user.user_metadata?.full_name || user.email || 'Usuario de Docubox').replace(/[\r\n]+/g, ' ').trim();
+    const sentToSelf = Boolean(user.email && user.email.trim().toLowerCase() === recipientEmail);
+
     // Generate token
     const tokenBytes = new Uint8Array(32);
     crypto.getRandomValues(tokenBytes);
     const token = Array.from(tokenBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 
-    const expiresAt = new Date(Date.now() + expiration * 60 * 60 * 1000).toISOString();
+    const expiresAt = template.settings?.configureLinkExpiration === true && expiration !== null
+      ? new Date(Date.now() + expiration * 60 * 60 * 1000).toISOString() : null;
     const ipIssued = getClientIp(req.headers);
 
     // Insert token
@@ -131,11 +142,14 @@ serve(async (req) => {
       .insert({
         template_id,
         access_mode: 'private',
-        recipient_email,
+        recipient_email: recipientEmail,
         recipient_name: recipient_name || null,
         signer_role: signer_role || null,
         signature_type,
         require_liveness,
+        launched_by_user_id: user.id,
+        launcher_name: launcherName,
+        sent_to_self: sentToSelf,
         token,
         expires_at: expiresAt,
         ip_issued: ipIssued,
@@ -165,10 +179,6 @@ serve(async (req) => {
     // Send email via Resend
     try {
         const workspaceName = (template.workspaces as { name: string })?.name || 'DOCUBOX';
-        const expiresDate = new Date(expiresAt).toLocaleDateString('es-MX', {
-          day: '2-digit', month: 'long', year: 'numeric',
-        });
-
         const emailResponse = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
@@ -177,26 +187,19 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             from: Deno.env.get('RESEND_FROM_EMAIL') || 'Docubox <noreply@docubox.com.mx>',
-            to: [String(recipient_email).trim()],
-            subject: `${workspaceName} te ha enviado un formulario: ${template.name}`,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-                <h2 style="color: #1a56db;">Tienes un formulario pendiente</h2>
-                <p>Hola ${escapeHtml(recipient_name)},</p>
-                <p><strong>${escapeHtml(workspaceName)}</strong> te ha enviado el formulario <strong>"${escapeHtml(template.name)}"</strong> para que lo completes.</p>
-                <p>Al registrar tu respuesta se generará una solicitud de firma.</p>
-                ${require_liveness ? '<p>La solicitud de firma incluirá una prueba de vida.</p>' : ''}
-                <p style="color: #6b7280; font-size: 14px;">Este enlace expira el ${expiresDate}.</p>
-                <div style="margin: 32px 0;">
-                  <a href="${escapeHtml(formUrl)}" style="background-color: #1a56db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
-                    Completar formulario →
-                  </a>
-                </div>
-                <p style="color: #9ca3af; font-size: 12px;">Si no esperabas este correo, puedes ignorarlo.</p>
-                <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-                <p style="color: #9ca3af; font-size: 11px;">Powered by DOCUBOX</p>
-              </div>
-            `,
+            to: [recipientEmail],
+            subject: sentToSelf ? `Tienes un formulario por completar: ${template.name}` : `${launcherName} te ha enviado un formulario: ${template.name}`,
+            html: buildFormEmail({
+              variant: 'invitation',
+              recipientName: String(recipient_name).trim(),
+              formName: template.name,
+              workspaceName,
+              requesterName: launcherName,
+              sentToSelf,
+              formUrl,
+              expiresAt,
+              requireLiveness: require_liveness,
+            }),
           }),
         });
         if (!emailResponse.ok) {

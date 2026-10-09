@@ -7,9 +7,7 @@ import {
   BadgeCheck,
   BellRing,
   Building2,
-  Check,
   CheckCircle2,
-  CircleAlert,
   Clipboard,
   CloudCog,
   Code2,
@@ -46,6 +44,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { OrganizationRetentionPolicies } from '@/components/organization/OrganizationRetentionPolicies';
 import { OrganizationDelegationPolicy } from '@/components/organization/OrganizationDelegationPolicy';
 
@@ -293,25 +292,7 @@ function Empty({
 }
 
 function Notice({ error, success }: { error: string; success: string }) {
-  return (
-    <>
-      {error && (
-        <div
-          role="alert"
-          className="flex gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-        >
-          <CircleAlert size={17} className="shrink-0" />
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="flex gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-          <Check size={17} className="shrink-0" />
-          {success}
-        </div>
-      )}
-    </>
-  );
+  return error ? <BottomNotice message={error} tone="critical" /> : success ? <BottomNotice message={success} tone="success" /> : null;
 }
 
 function Toggle({

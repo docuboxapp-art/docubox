@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { test } from 'node:test';
+import { build } from 'esbuild';
 
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
@@ -33,9 +38,10 @@ const runtime = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText.replaceAll('globalThis.Deno', 'Deno');
 
-async function generateFixture({ orientation = 'portrait', coverPage = false, columns = 'one', flags = {}, responseData = {}, fieldPageBreak = false } = {}) {
+async function generateFixture({ orientation = 'portrait', coverPage = false, columns = 'one', flags = {}, responseData = {}, fieldPageBreak = false, includeSignature = false, requireSignature = false, returnLayout = false } = {}) {
   let handler;
   let savedBytes;
+  let savedLayout;
   const fields = Array.from({ length: 12 }, (_, index) => ({
     id: `field-${index}`, sectionId: 'section-general', label: `Campo ${index + 1}`,
     type: index === 5 ? 'textarea' : 'text',
@@ -43,6 +49,7 @@ async function generateFixture({ orientation = 'portrait', coverPage = false, co
   fields.push({ id: 'email', sectionId: 'section-general', label: 'Correo', type: 'email' });
   fields.push({ id: 'consent', sectionId: 'section-general', label: 'Autorizo el uso de datos', type: 'consentimiento' });
   fields.push({ id: 'attachment', sectionId: 'section-general', label: 'Anexo', type: 'documento' });
+  if (includeSignature) fields.push({ id: 'signature', sectionId: 'section-general', label: 'Firma', type: 'signature_block' });
   if (fieldPageBreak) fields[1].pdf = { pageBreakBefore: true };
   const row = {
     workspace_id: 'fixture',
@@ -71,14 +78,18 @@ async function generateFixture({ orientation = 'portrait', coverPage = false, co
     from: () => Object.create(chain),
     storage: {
       createBucket: async () => ({}),
-      from: () => ({ upload: async (_path, bytes) => { savedBytes = bytes; return {}; } }),
+      from: () => ({ upload: async (path, bytes) => {
+        if (path.endsWith('.pdf')) savedBytes = bytes;
+        if (path.endsWith('.signature-layout.json')) savedLayout = JSON.parse(new TextDecoder().decode(bytes));
+        return {};
+      } }),
     },
   };
   const dependencies = {
     serve: (callback) => { handler = callback; },
     createClient: () => client,
     ...pdfLib,
-    requiresFormSignature: () => false,
+    requiresFormSignature: () => requireSignature,
     QRCode: qrCode,
     Deno: { env: { get: (key) => key === 'SUPABASE_SERVICE_ROLE_KEY' ? 'fixture-key' : 'http://localhost' } },
   };
@@ -89,8 +100,87 @@ async function generateFixture({ orientation = 'portrait', coverPage = false, co
   }));
   assert.equal(response.status, 200, await response.text());
   assert.ok(savedBytes);
-  return pdfLib.PDFDocument.load(savedBytes);
+  const pdf = await pdfLib.PDFDocument.load(savedBytes);
+  return returnLayout ? { pdf, layout: savedLayout, bytes: savedBytes } : pdf;
 }
+
+test('la firma pendiente permanece en el PDF y entrega una posición vinculada a su hash', async () => {
+  const { pdf, layout, bytes } = await generateFixture({
+    includeSignature: true, requireSignature: true, returnLayout: true,
+    flags: { showUnanswered: false },
+  });
+  assert.equal(layout.pdfSha256, createHash('sha256').update(bytes).digest('hex'));
+  assert.equal(layout.placements.length, 1);
+  const placement = layout.placements[0];
+  assert.equal(placement.id, 'signature');
+  assert.ok(placement.page >= 1 && placement.page <= pdf.getPageCount());
+  for (const key of ['x', 'y', 'width', 'height']) assert.ok(placement[key] > 0 && placement[key] < 100);
+  assert.ok(placement.x + placement.width <= 100);
+  assert.ok(placement.y + placement.height <= 100);
+});
+
+test('un formulario firmable conserva un espacio de firma aunque su sección no aparezca en el PDF', async () => {
+  const { layout } = await generateFixture({ requireSignature: true, returnLayout: true });
+  assert.equal(layout.placements.length, 1);
+  assert.equal(layout.placements[0].label, 'Firma');
+});
+
+test('la posición del formulario recibe la estampa preseleccionada y su QR en el PDF firmado', async () => {
+  const { bytes, layout } = await generateFixture({
+    includeSignature: true, requireSignature: true, returnLayout: true,
+    flags: { showUnanswered: false, showQr: false },
+  });
+  const buildDirectory = await mkdtemp(path.join(tmpdir(), 'docubox-form-stamp-'));
+  try {
+    const outfile = path.join(buildDirectory, 'pdf-stamp.cjs');
+    await build({
+      entryPoints: ['src/lib/signatures/pdf-stamp.ts'], outfile, bundle: true,
+      platform: 'node', format: 'cjs', tsconfig: 'tsconfig.json',
+    });
+    const { createSignedDocumentPdf } = require(outfile);
+    const field = {
+      ...layout.placements[0], tipo: 'firma', participantId: 'firmante@example.com',
+    };
+    const technicalMetadata = {
+        documentId: '11111111-1111-4111-8111-111111111111',
+        documentFolio: 'FORM-2026-TEST', tenantId: '22222222-2222-4222-8222-222222222222',
+        workspaceId: '22222222-2222-4222-8222-222222222222', documentVersion: 1,
+        title: 'Formulario de prueba', documentType: 'Formulario', originalSha256: createHash('sha256').update(bytes).digest('hex'),
+        createdAt: '2026-10-09T11:00:00Z', completedAt: '2026-10-09T12:00:00Z',
+        creatorId: '33333333-3333-4333-8333-333333333333', creatorName: 'Docubox',
+        signatureMethods: ['clicksign'], participantCount: 1, status: 'completado',
+        workflow: 'paralelo', caseFileId: null, templateId: null, formId: null,
+        nom151Status: 'not_issued_at_pdf_closure', certificationStatus: 'not_started_at_pdf_closure',
+        pdfSignatureStatus: 'not_configured_at_pdf_closure', certificateStatus: 'not_configured_at_pdf_closure',
+        padesProfile: null, timestampStatus: 'not_issued_at_pdf_closure', tsaProvider: null,
+        evidenceChainSha256: null, identityVerificationStatus: 'not_required',
+        assuranceLevel: 'standard', additionalDocumentMetadata: [],
+    };
+    for (const [signature_method, signature_stamp_style] of [
+      ['clicksign', 'CC2'], ['autografa', 'AC3'], ['efirma', 'EC2'],
+    ]) {
+      const result = await createSignedDocumentPdf({
+        originalBytes: bytes,
+        fields: [field],
+        responses: [{
+          participante_id: 'participant-1', participante_email: 'firmante@example.com',
+          participante_nombre: 'Firmante de prueba', firma_completada_at: '2026-10-09T12:00:00Z',
+          signature_method, signature_stamp_style, signature_hash: 'a'.repeat(64),
+          signature_metadata: { verification_url: 'https://docubox.mx/v/documento-prueba' },
+        }],
+        technicalMetadata: { ...technicalMetadata, signatureMethods: [signature_method] },
+      });
+      assert.equal(result.stampsApplied, 1, signature_stamp_style);
+      const signed = await pdfLib.PDFDocument.load(result.bytes);
+      const imageObjects = signed.context.enumerateIndirectObjects().filter(([, object]) =>
+        object instanceof pdfLib.PDFRawStream && object.dict.get(pdfLib.PDFName.of('Subtype'))?.toString() === '/Image'
+      );
+      assert.ok(imageObjects.length > 0, `La estampa ${signature_stamp_style} debe incrustar un QR real en el PDF`);
+    }
+  } finally {
+    await rm(buildDirectory, { recursive: true, force: true });
+  }
+});
 
 test('el diseño del PDF respeta orientación, columnas y portada', async () => {
   const portrait = await generateFixture({ orientation: 'portrait', coverPage: false, columns: 'two' });

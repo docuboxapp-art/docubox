@@ -14,7 +14,7 @@ import {
   ShieldCheck,
   KeyRound,
 } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
 
 type Step = 'email' | 'otp' | 'new-password' | 'success';
@@ -251,7 +251,6 @@ function OlvideContrasenaContent() {
 
   return (
     <main className="flex min-h-[100dvh] flex-col bg-[#f7f9fc] text-foreground">
-      <Toaster position="bottom-right" richColors />
       <header className="flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
         <div className="flex min-w-0 flex-1 items-center">
           <AppLogo size={34} />

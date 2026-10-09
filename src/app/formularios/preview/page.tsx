@@ -47,7 +47,7 @@ function PreviewContent() {
           </div>
         </header>
 
-        <div className="min-h-[700px] bg-[#F1F1F5] px-4 py-8 dark:bg-background md:px-8">
+        <div className="min-h-[700px] bg-[#F1F1F5] px-4 py-8 dark:bg-background md:px-8" style={template && mode === 'web' ? { backgroundColor: template.settings.appearance.backgroundColor } : undefined}>
           {loading ? <div className="flex min-h-[500px] items-center justify-center"><Loader2 size={24} className="animate-spin text-[#4F46E5]" /></div> : template ? <FormPreview template={template} mode={mode} /> : <div className="flex min-h-[500px] items-center justify-center text-sm text-[#71717A]">No se encontró el formulario.</div>}
         </div>
       </div>

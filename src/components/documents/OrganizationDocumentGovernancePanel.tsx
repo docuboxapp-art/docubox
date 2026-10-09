@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRightLeft, Check, Loader2, ShieldCheck, Trash2, X } from 'lucide-react';
+import { ArrowRightLeft, Loader2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 
 type Row = Record<string, any>;
 
@@ -230,20 +231,7 @@ export function OrganizationDocumentGovernancePanel({
           </div>
         ) : (
           <div className="space-y-4">
-            {error && (
-              <div
-                role="alert"
-                className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
-              >
-                {error}
-              </div>
-            )}
-            {message && (
-              <div className="flex gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                <Check size={14} />
-                {message}
-              </div>
-            )}
+            {error ? <BottomNotice message={error} tone="critical" /> : message ? <BottomNotice message={message} tone="success" /> : null}
 
             {tab === 'custody' && (
               <>

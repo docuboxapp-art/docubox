@@ -191,6 +191,24 @@ serve(async (req) => {
     const { regular, bold } = await embedFormFonts(pdf, pdfSchema.typography);
     let page = pdf.addPage([PAGE.width, PAGE.height]);
     let y = PAGE.height - PAGE.margin;
+    const signaturePlacements: Array<{ id: string; label: string; page: number; x: number; y: number; width: number; height: number }> = [];
+
+    const addSignatureBox = (field: { id?: string; label?: string }, x: number, boxY: number, width: number) => {
+      page.drawRectangle({ x, y: boxY, width, height: 76, borderColor: rgb(0.78, 0.81, 0.86), borderWidth: 0.8 });
+      const stampWidth = Math.min(width - 24, 250);
+      const stampHeight = 60;
+      const stampX = x + (width - stampWidth) / 2;
+      const stampY = boxY + 8;
+      signaturePlacements.push({
+        id: String(field.id || `firma-${signaturePlacements.length + 1}`),
+        label: String(field.label || 'Firma'),
+        page: pdf.getPageCount(),
+        x: (stampX / PAGE.width) * 100,
+        y: ((PAGE.height - stampY - stampHeight) / PAGE.height) * 100,
+        width: (stampWidth / PAGE.width) * 100,
+        height: (stampHeight / PAGE.height) * 100,
+      });
+    };
 
     const newPage = () => {
       page = pdf.addPage([PAGE.width, PAGE.height]);
@@ -258,7 +276,7 @@ serve(async (req) => {
       const sectionFields = fields.filter((field: any) =>
         (field.pdf?.sectionId || field.sectionId) === section.id &&
         field.pdf?.show !== false &&
-        (pdfSchema.showUnanswered === true || (answers[field.id] ?? answers[field.slug]) !== undefined && (answers[field.id] ?? answers[field.slug]) !== null && (answers[field.id] ?? answers[field.slug]) !== '')
+        (field.type === 'signature_block' || pdfSchema.showUnanswered === true || (answers[field.id] ?? answers[field.slug]) !== undefined && (answers[field.id] ?? answers[field.slug]) !== null && (answers[field.id] ?? answers[field.slug]) !== '')
       );
       if (!sectionFields.length) continue;
       if ((section.pageBreakBefore && sectionIndex > 0) || sectionFields[0]?.pdf?.pageBreakBefore) newPage();
@@ -294,8 +312,7 @@ serve(async (req) => {
         for (const label of labels) { page.drawText(label, { x, y, size: 8, font: bold, color: rgb(0.44, 0.44, 0.48) }); y -= 11; }
         if (field.type === 'signature_block') {
           y -= 82;
-          page.drawRectangle({ x, y, width, height: 76, borderColor: rgb(0.78, 0.81, 0.86), borderWidth: 0.8 });
-          page.drawText('Espacio reservado para firma', { x: x + 12, y: y + 38, size: 9, font: regular, color: rgb(0.44, 0.44, 0.48) });
+          addSignatureBox(field, x, y, width);
         } else {
           for (const line of lines) { page.drawText(line, { x, y, size: 10, font: regular, color: rgb(0.15, 0.15, 0.17) }); y -= 13; }
           page.drawLine({ start: { x, y: y + 5 }, end: { x: x + width, y: y + 5 }, thickness: 0.5, color: rgb(0.9, 0.9, 0.92) });
@@ -307,6 +324,15 @@ serve(async (req) => {
       }
       y = rowBottom;
       y -= 8;
+    }
+
+    // The signing document must always have a target, even if its section was hidden in the PDF design.
+    if (requiresSignature && signaturePlacements.length === 0) {
+      ensureSpace(145);
+      page.drawText('FIRMA DEL PARTICIPANTE', { x: PAGE.margin, y, size: 10, font: bold, color: primary });
+      y -= 100;
+      addSignatureBox({ label: 'Firma' }, PAGE.margin, y, PAGE.width - PAGE.margin * 2);
+      y -= 16;
     }
 
     if (pdfSchema.consentPage === true) {
@@ -418,6 +444,10 @@ serve(async (req) => {
     await supabase.storage.createBucket('form-artifacts', { public: false }).catch(() => undefined);
     const { error: uploadError } = await supabase.storage.from('form-artifacts').upload(path, bytes, { contentType: 'application/pdf', upsert: true });
     if (uploadError) throw uploadError;
+    const layoutPath = path.replace(/\.pdf$/i, '.signature-layout.json');
+    const layout = new TextEncoder().encode(JSON.stringify({ pdfSha256: hash, placements: signaturePlacements }));
+    const { error: layoutError } = await supabase.storage.from('form-artifacts').upload(layoutPath, layout, { contentType: 'application/json', upsert: true });
+    if (layoutError) throw layoutError;
 
     let generatedPdfId: string | null = null;
     const { data: generated, error: generatedError } = await supabase.from('generated_pdfs').insert({

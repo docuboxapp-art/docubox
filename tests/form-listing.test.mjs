@@ -8,7 +8,7 @@ import ts from 'typescript';
 const require = createRequire(import.meta.url);
 const source = readFileSync('src/app/formularios/page.tsx', 'utf8');
 
-function createListing(initialFavorites = [], description = '', formStatus = 'published', launches = []) {
+function createListing(initialFavorites = [], description = '', formStatus = 'published', launches = [], transientLaunchFailures = 0) {
   const slots = [];
   const effects = [];
   const requests = [];
@@ -39,6 +39,7 @@ function createListing(initialFavorites = [], description = '', formStatus = 'pu
     useLayoutEffect(callback, deps) { hooks.useEffect(callback, deps); },
   };
   const client = {
+    auth: { getSession: async () => ({ data: { session: null }, error: null }) },
     from(table) {
       const request = { table, action: 'select', filters: {} };
       const builder = {
@@ -56,11 +57,15 @@ function createListing(initialFavorites = [], description = '', formStatus = 'pu
             else savedFavorites.delete(request.filters.item_id);
             return Promise.resolve({ error: null }).then(resolve, reject);
           }
+          if (table === 'form_tokens' && transientLaunchFailures > 0) {
+            transientLaunchFailures--;
+            return Promise.resolve({ data: null, error: { message: 'Service Unavailable' }, status: 503 }).then(resolve, reject);
+          }
           const data = table === 'form_templates' ? [form]
             : table === 'tipo_documento' ? [{ id: 'type-1', nombre: 'Solicitud de credito' }]
             : table === 'form_tokens' ? launches
             : table === 'user_favorites' ? [...savedFavorites].map((item_id) => ({ item_id })) : [];
-          return Promise.resolve({ data, error: null }).then(resolve, reject);
+          return Promise.resolve({ data, error: null, status: 200 }).then(resolve, reject);
         },
       };
       return builder;
@@ -70,6 +75,7 @@ function createListing(initialFavorites = [], description = '', formStatus = 'pu
     react: hooks,
     'next/navigation': { useRouter: () => ({ push(route) { routes.push(route); } }) },
     '@/components/AppLayout': { default: () => null, __esModule: true },
+    '@/components/ui/BottomNotice': { BottomNotice: () => null },
     '@/contexts/WorkspaceContext': { useWorkspace: () => ({ activeWorkspace: { id: 'workspace-1' } }) },
     '@/contexts/AuthContext': { useAuth: () => ({ user: { id: 'user-1' } }) },
     '@/lib/supabase/client': { createClient: () => client },
@@ -80,10 +86,11 @@ function createListing(initialFavorites = [], description = '', formStatus = 'pu
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
   }).outputText;
   const exports = {};
-  new Function('require', 'exports', 'document', 'window', compiled)(
+  new Function('require', 'exports', 'document', 'window', 'sessionStorage', compiled)(
     (name) => modules[name] || require(name), exports,
     { addEventListener() {}, removeEventListener() {} },
     { setTimeout, clearTimeout, setInterval: () => 1, clearInterval() {} },
+    { getItem: () => null, removeItem() {} },
   );
   const render = () => { cursor = 0; return exports.default(); };
   const settle = async () => {
@@ -123,6 +130,15 @@ test('listings have no selection checkboxes and forms show the catalog type name
   assert.equal(listing.requests.find((request) => request.table === 'form_templates').filters.workspace_id, 'workspace-1');
 });
 
+test('a temporary launch service error is retried without leaving a false error notice', async () => {
+  const listing = createListing([], '', 'published', [], 1);
+  await listing.settle();
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  const tree = listing.render();
+  assert.equal(listing.requests.filter((request) => request.table === 'form_tokens').length, 2);
+  assert.equal(elements(tree, (node) => node.props.message?.includes('No se pudieron cargar los lanzamientos')).length, 0);
+});
+
 test('form favorites persist per user, survive loading, and can be removed', async () => {
   const listing = createListing();
   const tree = await listing.settle();
@@ -152,7 +168,7 @@ test('failed favorite writes restore the previous state and report the failure',
   const tree = listing.render();
   assert.equal(favoriteButton(tree).props['aria-pressed'], false);
   assert.equal(favoriteButton(tree).props.disabled, false);
-  assert.ok(elements(tree, (node) => Array.isArray(node.props.children) && node.props.children.includes('No fue posible actualizar tus favoritos.')).length);
+  assert.ok(elements(tree, (node) => node.props.message === 'No fue posible actualizar tus favoritos.').length);
 });
 
 test('each form has a direct preview action with its own form id', async () => {
@@ -229,7 +245,7 @@ test('form and response summaries start in the requested states and count only a
   const summary = (id) => elements(tree, (node) => node.type === 'button' && node.props['aria-controls'] === id)[0];
   assert.equal(summary('form-summary-metrics').props['aria-expanded'], false);
   assert.equal(summary('response-summary-metrics').props['aria-expanded'], true);
-  assert.equal(elements(tree, (node) => node.type === 'button' && node.props['aria-label'] === 'Gestionar 1 respuesta pendiente').length, 1);
+  assert.equal(elements(tree, (node) => node.type === 'button' && node.props['aria-label'] === 'Ver 1 respuesta pendiente').length, 1);
   summary('form-summary-metrics').props.onClick();
   tree = listing.render();
   assert.equal(summary('form-summary-metrics').props['aria-expanded'], true);

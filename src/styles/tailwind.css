@@ -609,6 +609,25 @@ hr.page-break::after {
   line-height: 1 !important;
 }
 
+/* The global button typography must preserve the same metric hierarchy as static cards. */
+button.metric-action-card .metric-action-value {
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  line-height: 1.75rem !important;
+}
+
+button.metric-action-card .metric-action-label {
+  font-size: 0.75rem !important;
+  font-weight: 400 !important;
+  line-height: 1rem !important;
+}
+
+button.metric-action-card .metric-action-link {
+  font-size: 0.625rem !important;
+  font-weight: 500 !important;
+  line-height: 1rem !important;
+}
+
 @container (max-width: 560px) {
   .document-viewer-workspace .document-viewer-tabs {
     position: absolute;
@@ -663,3 +682,70 @@ hr.page-break::after {
 .dark .document-viewer-panel {
   background: hsl(var(--muted));
 }
+
+/* Transient feedback uses the same compact bottom-center treatment throughout the app. */
+.app-feedback-position {
+  position: fixed;
+  z-index: 10000;
+  bottom: max(1.5rem, env(safe-area-inset-bottom));
+  left: 50%;
+  width: max-content;
+  max-width: calc(100vw - 2rem);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.app-feedback-toast,
+[data-sonner-toast] {
+  display: flex !important;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.5rem;
+  max-width: min(32rem, calc(100vw - 2rem));
+  padding: 0.7rem 0.875rem !important;
+  border: 0 !important;
+  border-radius: 0.375rem !important;
+  background: #020617 !important;
+  color: #fff !important;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 18%) !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  line-height: 1.35 !important;
+  pointer-events: auto;
+}
+
+.app-feedback-toast[data-tone='critical'],
+[data-sonner-toast][data-type='error'] { background: #b91c1c !important; color: #fff !important; }
+.app-feedback-toast[data-tone='warning'],
+[data-sonner-toast][data-type='warning'] { background: #d97706 !important; color: #fff !important; }
+.app-feedback-toast[data-tone='followup'],
+[data-sonner-toast][data-type='loading'] { background: #f59e0b !important; color: #111827 !important; }
+.app-feedback-toast[data-tone='success'],
+[data-sonner-toast][data-type='success'] { background: #047857 !important; color: #fff !important; }
+
+.app-feedback-toast > span { min-width: 0; overflow-wrap: anywhere; }
+.app-feedback-toast > button,
+[data-sonner-toast] [data-close-button] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin-left: auto;
+  order: 9;
+  position: static !important;
+  transform: none !important;
+  width: 1rem !important;
+  height: 1rem !important;
+  border: 0;
+  background: transparent !important;
+  color: inherit !important;
+  opacity: 0.72;
+  cursor: pointer;
+}
+.app-feedback-toast > button:hover,
+[data-sonner-toast] [data-close-button]:hover { opacity: 1; }
+.app-feedback-toast > button:focus-visible,
+[data-sonner-toast] [data-close-button]:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+[data-sonner-toast] [data-title],
+[data-sonner-toast] [data-description],
+[data-sonner-toast] [data-icon] { color: inherit !important; }

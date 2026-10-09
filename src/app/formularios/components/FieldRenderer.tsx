@@ -2,6 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { FormField } from '@/contexts/FormBuilderContext';
+import type { SignatureType } from '@/lib/forms/schema';
 import { validateRFC, validateCURP, validatePhoneMX, formatPhoneMX } from '@/utils/mexicanValidators';
 import SignaturePad from './SignaturePad';
 import { Upload, X, CheckCircle, AlertCircle, FileKey2, Loader2, ShieldCheck } from 'lucide-react';
@@ -21,10 +22,11 @@ interface FieldRendererProps {
   onChange: (value: unknown) => void;
   error?: string;
   formToken?: string;
+  signatureType?: SignatureType;
   requiredOverride?: boolean;
 }
 
-export default function FieldRenderer({ field, value, onChange, error, formToken, requiredOverride }: FieldRendererProps) {
+export default function FieldRenderer({ field, value, onChange, error, formToken, signatureType, requiredOverride }: FieldRendererProps) {
   const required = requiredOverride ?? field.required;
   const address: Record<string, string> = value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, string>
@@ -439,9 +441,20 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
             <ShieldCheck size={16} className="text-slate-500" /> {field.label}
             {required && <span className="text-xs text-red-600">Obligatorio</span>}
           </div>
-          <div className="flex h-16 items-center justify-center rounded-md border border-dashed border-slate-300 bg-white text-xs text-slate-500">
-            Espacio reservado para firma
-          </div>
+          {signatureType ? (
+            <div className="rounded-md border border-blue-200 bg-white px-4 py-3">
+              <p className="text-sm font-medium text-slate-900">
+                {signatureType === 'click_sign' ? 'Click & Sign' : signatureType === 'efirma_sat' ? 'e.firma SAT' : 'Firma autógrafa digital'}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Al enviar tus respuestas se abrirá el documento para insertar y confirmar tu firma.
+              </p>
+            </div>
+          ) : (
+            <div className="flex h-16 items-center justify-center rounded-md border border-dashed border-slate-300 bg-white text-xs text-slate-500">
+              Espacio reservado para firma
+            </div>
+          )}
         </div>
       )}
 

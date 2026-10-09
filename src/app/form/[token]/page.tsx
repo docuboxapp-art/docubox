@@ -1,22 +1,24 @@
 'use client';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import {
   AlertCircle, ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Clock,
-  FileCheck2, Loader2, Save, ShieldCheck,
+  FileCheck2, Loader2, Maximize2, Minimize2, Save, ShieldCheck, X,
 } from 'lucide-react';
 import PublicTokenLayout from '@/components/PublicTokenLayout';
+import AppLogo from '@/components/ui/AppLogo';
 import FieldRenderer from '../../formularios/components/FieldRenderer';
 import FormPreview from '../../formularios/components/FormPreview';
 import { FormWebHeader } from '../../formularios/components/FormWebHeader';
-import { normalizeFormTemplate, type FormField, type FormTemplate } from '@/lib/forms/schema';
+import { normalizeFormTemplate, type FormField, type FormTemplate, type SignatureType } from '@/lib/forms/schema';
 import { hasFormValue, isFormFieldRequired, isFormFieldVisible } from '@/lib/forms/field-behavior';
 import { formFontFamily } from '@/lib/typography/font-families';
 import { useFormTypography } from '@/hooks/useFormTypography';
 import { createClient } from '@/lib/supabase/client';
 
-type PageState = 'loading' | 'auth' | 'form' | 'review' | 'expired' | 'used' | 'error' | 'success';
+type PageState = 'loading' | 'auth' | 'form' | 'review' | 'signing' | 'expired' | 'used' | 'error' | 'success';
 
 interface RemoteFormSchema {
   templateId: string;
@@ -26,12 +28,14 @@ interface RemoteFormSchema {
   settings: Record<string, any>;
   workspaceName: string;
   workspaceLogo?: string;
-  expiresAt: string;
+  expiresAt: string | null;
   recipientName?: string;
+  signatureType?: SignatureType;
 }
 
 export default function FormResponsePage() {
   const params = useParams();
+  const router = useRouter();
   const token = params.token as string;
   const [pageState, setPageState] = useState<PageState>('loading');
   const [remoteSchema, setRemoteSchema] = useState<RemoteFormSchema | null>(null);
@@ -45,6 +49,7 @@ export default function FormResponsePage() {
   const [documentId, setDocumentId] = useState('');
   const [signatureRequired, setSignatureRequired] = useState(false);
   const [documentNotice, setDocumentNotice] = useState('');
+  const [preparingSignature, setPreparingSignature] = useState(false);
   const [honeypot, setHoneypot] = useState('');
   useFormTypography(template?.settings.appearance.typography);
 
@@ -168,6 +173,37 @@ export default function FormResponsePage() {
     }
   };
 
+  const promoteResponse = async (id: string, accessToken: string): Promise<string> => {
+    const promotion = await fetch(`/api/formularios/respuestas/${id}/documento`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!promotion.ok) throw new Error('No se pudo preparar el documento para la firma.');
+    const result = await promotion.json();
+    if (typeof result.document_id !== 'string' || !result.document_id) {
+      throw new Error('El documento todavía no está disponible para la firma.');
+    }
+    return result.document_id;
+  };
+
+  const retrySignature = async () => {
+    if (!responseId || preparingSignature) return;
+    setPreparingSignature(true);
+    setDocumentNotice('');
+    try {
+      const { data: { session } } = await createClient().auth.getSession();
+      if (!session?.access_token) throw new Error('Vuelve a iniciar sesión para continuar con la firma.');
+      const id = await promoteResponse(responseId, session.access_token);
+      setDocumentId(id);
+      setPageState('signing');
+      router.replace(`/firmar-documento/${id}`);
+    } catch (error) {
+      setDocumentNotice(error instanceof Error ? error.message : 'No se pudo preparar la firma.');
+    } finally {
+      setPreparingSignature(false);
+    }
+  };
+
   const submit = async () => {
     if (honeypot || !validateFields(visibleFields)) return;
     setSubmitting(true);
@@ -181,20 +217,25 @@ export default function FormResponsePage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'No se pudo enviar el formulario.');
       let generatedDocumentId = typeof data.document_id === 'string' ? data.document_id : '';
-      if (data.response_id) {
+      let promotionFailed = false;
+      if (data.response_id && !generatedDocumentId) {
         try {
-          const promoted = await fetch(`/api/formularios/respuestas/${data.response_id}/documento`, {
-            method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          if (promoted.ok) generatedDocumentId = (await promoted.json()).document_id || generatedDocumentId;
-          else if (!generatedDocumentId) setDocumentNotice('Tu respuesta se guardó; el PDF está pendiente de procesamiento.');
-        } catch { setDocumentNotice('Tu respuesta se guardó; el PDF está pendiente de procesamiento.'); }
+          generatedDocumentId = await promoteResponse(data.response_id, session.access_token);
+        } catch { promotionFailed = true; }
       }
       localStorage.removeItem(draftKey);
       setResponseId(data.response_id || '');
       setDocumentId(generatedDocumentId);
       setSignatureRequired(Boolean(data.signature_required));
-      setPageState('success');
+      if (data.signature_required && generatedDocumentId) {
+        setPageState('signing');
+        router.replace(`/firmar-documento/${generatedDocumentId}`);
+      } else {
+        if (promotionFailed || (data.signature_required && !generatedDocumentId)) {
+          setDocumentNotice('Tu respuesta quedó guardada. Reintenta preparar el documento para continuar con la firma.');
+        }
+        setPageState('success');
+      }
     } catch (submitError) {
       setMessage(submitError instanceof Error ? submitError.message : 'No se pudo enviar el formulario.');
     } finally { setSubmitting(false); }
@@ -205,20 +246,22 @@ export default function FormResponsePage() {
   if (pageState === 'expired') return <StatusCard icon={Clock} title="Enlace expirado" message="Este formulario ya no está disponible. Solicita un nuevo enlace al remitente." />;
   if (pageState === 'used') return <StatusCard icon={CheckCircle2} title="Formulario respondido" message="Este enlace ya fue utilizado y la respuesta quedó registrada." success />;
   if (pageState === 'error') return <StatusCard icon={AlertCircle} title="No se pudo abrir" message={message || 'Verifica el enlace e intenta nuevamente.'} />;
-  if (pageState === 'success') return <SuccessScreen signatureRequired={signatureRequired} responseId={responseId} documentId={documentId} confirmationMessage={template?.settings.appearance.confirmationMessage} documentNotice={documentNotice} />;
+  if (pageState === 'signing') return <StatusLayout><Loader2 size={28} className="animate-spin text-[#1E6BFF]" /><p>Abriendo el documento para firmar...</p></StatusLayout>;
+  if (pageState === 'success') return <SuccessScreen signatureRequired={signatureRequired} responseId={responseId} documentId={documentId} confirmationMessage={template?.settings.appearance.confirmationMessage} documentNotice={documentNotice} onRetrySignature={retrySignature} preparingSignature={preparingSignature} />;
   if (!template || !remoteSchema) return null;
 
   if (pageState === 'review') {
     return (
       <PublicTokenLayout token={token} luciaScope="public_form">
-        <div className="min-h-screen bg-[#F1F1F5]">
-          <PublicHeader schema={remoteSchema} progress={100} label="Revisión final" accentColor={template.settings.appearance.accentColor} showProgressBar={template.settings.appearance.showProgressBar} />
+        <div className="min-h-screen bg-[#F1F1F5]" style={{ backgroundColor: template.settings.appearance.backgroundColor }}>
+          <PublicHeader />
           <main className="mx-auto max-w-[1000px] px-4 py-8">
+            {template.settings.appearance.showProgressBar && <FormProgress progress={100} label="Revisión final" accentColor={template.settings.appearance.accentColor} />}
             <div className="mb-5 flex flex-col gap-3 rounded-md border border-[#EBEBF0] bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
               <div><div className="flex items-center gap-2 text-sm font-semibold"><FileCheck2 size={16} className="text-[#1E6BFF]" /> Revisa el PDF espejo</div><p className="mt-1 text-xs text-[#71717A]">Este contenido será la base del documento final y su evidencia de firma.</p></div>
               <button type="button" onClick={() => setPageState('form')} className="flex h-9 items-center gap-2 rounded-md border border-[#EBEBF0] px-3 text-xs font-medium"><ArrowLeft size={13} /> Corregir respuestas</button>
             </div>
-            <FormPreview template={template} mode="pdf" values={values} />
+            <FormPreview template={template} mode="pdf" values={values} signatureType={remoteSchema.signatureType || 'click_sign'} />
             <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-3 border border-[#EBEBF0] bg-white p-3 shadow-lg">
               <p className="hidden text-xs text-[#71717A] sm:block">Al continuar se registrará el hash y la bitácora de envío.</p>
               <button type="button" onClick={submit} disabled={submitting} style={{ backgroundColor: template.settings.appearance.accentColor }} className="ml-auto flex h-10 items-center gap-2 rounded-md bg-[#1E6BFF] px-5 text-sm font-semibold text-white disabled:opacity-50">{submitting ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />} Confirmar y enviar</button>
@@ -231,15 +274,16 @@ export default function FormResponsePage() {
 
   return (
     <PublicTokenLayout token={token} luciaScope="public_form">
-      <div className="min-h-screen bg-[#F8F8FB]">
-        <PublicHeader schema={remoteSchema} progress={progress} label={steps.length > 1 ? `Paso ${activeStep + 1} de ${steps.length}` : `${progress}% completado`} accentColor={template.settings.appearance.accentColor} showProgressBar={template.settings.appearance.showProgressBar} />
+      <div className="min-h-screen bg-[#F8F8FB]" style={{ backgroundColor: template.settings.appearance.backgroundColor }}>
+        <PublicHeader />
         <main className="mx-auto px-4 py-8" style={{ maxWidth: template.settings.appearance.width === 'wide' ? 1000 : 768, fontFamily: formFontFamily(template.settings.appearance.typography) }}>
+          {template.settings.appearance.showProgressBar && <FormProgress progress={progress} label={steps.length > 1 ? `Paso ${activeStep + 1} de ${steps.length}` : `${progress}% completado`} accentColor={template.settings.appearance.accentColor} />}
           <div className="overflow-hidden rounded-md border border-[#EBEBF0] bg-white shadow-sm">
             {template.settings.appearance.showAccentBar && <div className="h-1.5" style={{ backgroundColor: template.settings.appearance.accentColor }} />}
             <FormWebHeader template={template} headingLevel={1} />
             <div className={`${template.settings.appearance.compactSpacing ? 'space-y-3' : 'space-y-6'} p-6`} style={{ accentColor: template.settings.appearance.accentColor }}>
               {current && <div><h2 className="text-sm font-semibold">{template.settings.appearance.showSectionNumbers ? `${activeStep + 1}. ` : ''}{current.section.title}</h2>{template.settings.appearance.showSectionDescriptions && current.section.description && <p className="mt-1 text-xs text-slate-500">{current.section.description}</p>}</div>}
-              {current?.fields.map((field) => <FieldRenderer key={field.id} field={field} value={values[field.id]} requiredOverride={isFormFieldRequired(field, values)} onChange={(value) => { setValues((currentValues) => ({ ...currentValues, [field.id]: value })); setErrors((currentErrors) => ({ ...currentErrors, [field.id]: '' })); }} error={errors[field.id]} formToken={token} />)}
+              {current?.fields.map((field) => <FieldRenderer key={field.id} field={field} value={values[field.id]} requiredOverride={isFormFieldRequired(field, values)} onChange={(value) => { setValues((currentValues) => ({ ...currentValues, [field.id]: value })); setErrors((currentErrors) => ({ ...currentErrors, [field.id]: '' })); }} error={errors[field.id]} formToken={token} signatureType={remoteSchema.signatureType || 'click_sign'} />)}
             </div>
             {template.settings.appearance.showFooter && template.settings.appearance.footerText && (
               <footer className="border-t border-slate-200 px-6 py-4 text-xs text-slate-500" style={{ textAlign: template.settings.appearance.footerAlignment }}>
@@ -249,7 +293,7 @@ export default function FormResponsePage() {
           </div>
 
           <input type="text" value={honeypot} onChange={(event) => setHoneypot(event.target.value)} className="hidden" tabIndex={-1} autoComplete="off" />
-          {message && <p className="mt-3 rounded-md border border-[#E0E7FF] bg-[#F7F7FF] px-3 py-2 text-xs text-[#4338CA]">{message}</p>}
+          {message && <BottomNotice message={message} onClose={() => setMessage('')} />}
           <div className="mt-5 flex flex-wrap items-center gap-2">
             {activeStep > 0 && <button type="button" onClick={() => setCurrentStep(activeStep - 1)} className="flex h-10 items-center gap-2 rounded-md border border-[#EBEBF0] bg-white px-4 text-sm font-medium text-[#3F3F46]"><ChevronLeft size={15} /> Anterior</button>}
             {template.settings.allowSaveProgress && <button type="button" onClick={saveDraft} className="flex h-10 items-center gap-2 rounded-md border border-[#EBEBF0] bg-white px-4 text-sm font-medium text-[#3F3F46]"><Save size={14} /> Guardar avance</button>}
@@ -262,25 +306,56 @@ export default function FormResponsePage() {
   );
 }
 
-function PublicHeader({ schema, progress, label, accentColor, showProgressBar }: { schema: RemoteFormSchema; progress: number; label: string; accentColor: string; showProgressBar: boolean }) {
+function PublicHeader() {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const syncFullscreen = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    syncFullscreen();
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {
+      // The browser may block fullscreen; keep the form usable.
+    }
+  };
+
   return <header className="sticky top-0 z-40 border-b border-[#EBEBF0] bg-white/95 backdrop-blur">
-    {showProgressBar && <div className="h-1 bg-[#E4E4E7]"><div className="h-full transition-all" style={{ width: `${progress}%`, backgroundColor: accentColor }} /></div>}
-    <div className="mx-auto flex h-16 max-w-5xl items-center gap-3 px-4">
-      {schema.workspaceLogo ? <img src={schema.workspaceLogo} alt={schema.workspaceName} className="h-8 w-auto" /> : <span className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50" style={{ color: accentColor }}><FileCheck2 size={17} /></span>}
-      <div><p className="text-sm font-semibold text-[#18181B]">{schema.workspaceName}</p><p className="text-[11px] text-[#71717A]">Documento seguro</p></div>
-      <span className="ml-auto text-xs font-medium text-[#52525B]">{label}</span>
+    <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-3 px-4">
+      <AppLogo variant="dark" imageClassName="h-7 w-auto sm:h-8" />
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Maximizar pantalla'} title={isFullscreen ? 'Salir de pantalla completa' : 'Maximizar pantalla'} className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#64748B] transition-colors hover:bg-[#F3F6FB] hover:text-[#1E6BFF] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1E6BFF]">
+          {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+        </button>
+        <a href="/inicio" className="inline-flex h-10 items-center gap-2 rounded-md border border-[#DCE4F0] bg-white px-3 text-sm font-medium text-[#334155] transition-colors hover:bg-[#F3F6FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1E6BFF]"><X size={16} /> Salir</a>
+      </div>
     </div>
   </header>;
 }
+
+function FormProgress({ progress, label, accentColor }: { progress: number; label: string; accentColor: string }) {
+  return <div className="mb-5" aria-label="Progreso del formulario">
+    <div className="mb-2 flex items-center justify-end text-xs font-medium text-[#64748B]">{label}</div>
+    <div role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label="Progreso del formulario" className="h-1.5 overflow-hidden rounded-full bg-[#E4E9F2]">
+      <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: accentColor }} />
+    </div>
+  </div>;
+}
 function StatusLayout({ children }: { children: React.ReactNode }) { return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#F8F8FB] text-sm text-[#71717A]">{children}</div>; }
 function StatusCard({ icon: Icon, title, message, success }: { icon: React.ElementType; title: string; message: string; success?: boolean }) { return <StatusLayout><div className="w-full max-w-sm rounded-md border border-[#EBEBF0] bg-white p-8 text-center shadow-sm"><span className={`mx-auto flex h-12 w-12 items-center justify-center rounded-full ${success ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}><Icon size={24} /></span><h1 className="mt-4 text-lg font-semibold text-[#18181B]">{title}</h1><p className="mt-2 text-sm leading-6 text-[#71717A]">{message}</p></div></StatusLayout>; }
-function SuccessScreen({ signatureRequired, responseId, documentId, confirmationMessage, documentNotice }: { signatureRequired: boolean; responseId: string; documentId: string; confirmationMessage?: string; documentNotice?: string }) {
+function SuccessScreen({ signatureRequired, responseId, documentId, confirmationMessage, documentNotice, onRetrySignature, preparingSignature }: { signatureRequired: boolean; responseId: string; documentId: string; confirmationMessage?: string; documentNotice?: string; onRetrySignature: () => void; preparingSignature: boolean }) {
   return <StatusLayout><div className="w-full max-w-md rounded-md border border-[#EBEBF0] bg-white p-8 text-center shadow-sm">
     <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><CheckCircle2 size={28} /></span>
     <h1 className="mt-5 text-xl font-semibold text-[#18181B]">Respuesta registrada</h1>
     {confirmationMessage && <p className="mt-2 text-sm leading-6 text-[#52525B]">{confirmationMessage}</p>}
     <p className="mt-2 text-sm leading-6 text-[#71717A]">{signatureRequired ? 'Tus respuestas quedaron registradas. Este documento aún está pendiente de firma; el PDF generado es preliminar.' : 'La información y su evidencia de envío quedaron registradas correctamente.'}</p>
     {signatureRequired && documentId && <a href={`/firmar-documento/${documentId}`} className="mt-5 inline-flex rounded-md bg-[#1E6BFF] px-5 py-2.5 text-sm font-semibold text-white">Continuar a la firma</a>}
+    {signatureRequired && !documentId && responseId && <button type="button" onClick={onRetrySignature} disabled={preparingSignature} className="mt-5 inline-flex items-center gap-2 rounded-md bg-[#1E6BFF] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{preparingSignature && <Loader2 size={15} className="animate-spin" />} Preparar firma</button>}
     {documentNotice && <p role="status" className="mt-3 rounded-md bg-amber-50 p-3 text-xs text-amber-800">{documentNotice}</p>}
     {responseId && <p className="mt-4 rounded-md bg-[#F8F8FB] px-3 py-2 font-mono text-[10px] text-[#71717A]">ID {responseId}</p>}
     <div className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-emerald-700"><ShieldCheck size={14} /> Huella de respuestas registrada</div>

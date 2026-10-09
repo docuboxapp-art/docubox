@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
 import {
   Upload,
@@ -807,7 +807,6 @@ function CrearDocumentoPageInner() {
 
   return (
     <div ref={containerRef} className="flex h-screen flex-col bg-slate-50 text-slate-950">
-      <Toaster position="bottom-right" richColors />
       {showExitModal && (
         <ExitConfirmModal
           canSave={canSaveDraft}

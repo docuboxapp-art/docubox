@@ -5,8 +5,6 @@ import Link from 'next/link';
 import {
   Archive,
   ArrowRight,
-  Check,
-  CircleAlert,
   Copy,
   FileKey2,
   FileText,
@@ -21,6 +19,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import OrganizationWorkflowBuilder from '@/components/organization/OrganizationWorkflowBuilder';
 import type { WorkflowBuilderCapabilities } from '@/components/organization/OrganizationWorkflowBuilder';
 import { OrganizationCustodyInbox } from '@/components/organization/OrganizationCustodyInbox';
@@ -116,22 +115,7 @@ function Header({ section, action }: { section: GovernanceSection; action?: Reac
 }
 
 function Notices({ error, success }: { error: string; success: string }) {
-  return (
-    <>
-      {error && (
-        <div className="border border-red-200 bg-red-50 text-red-700 rounded-md px-4 py-3 text-sm flex gap-2">
-          <CircleAlert size={17} className="shrink-0" />
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="border border-emerald-200 bg-emerald-50 text-emerald-700 rounded-md px-4 py-3 text-sm flex gap-2">
-          <Check size={17} className="shrink-0" />
-          {success}
-        </div>
-      )}
-    </>
-  );
+  return error ? <BottomNotice message={error} tone="critical" /> : success ? <BottomNotice message={success} tone="success" /> : null;
 }
 
 function Empty({ title, text }: { title: string; text: string }) {

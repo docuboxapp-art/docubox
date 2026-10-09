@@ -39,6 +39,7 @@ import {
   LayoutTemplate,
 } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -11009,11 +11010,7 @@ function MisDocumentosContent() {
       )}
 
       {/* Toast */}
-      {toastMsg && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[600] bg-foreground text-background text-sm font-medium px-5 py-3 rounded-xl shadow-xl animate-fade-in">
-          {toastMsg}
-        </div>
-      )}
+      {toastMsg && <BottomNotice message={toastMsg} onClose={() => setToastMsg(null)} />}
     </AppLayout>
   );
 }

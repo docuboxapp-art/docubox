@@ -100,7 +100,7 @@ export async function POST(
 
     const { data: responseToken, error: tokenError } = await service
       .from('form_tokens')
-      .select('recipient_email,recipient_name,recipient_user_id,signature_type,require_liveness,access_mode')
+      .select('recipient_email,recipient_name,recipient_user_id,signature_type,require_liveness,access_mode,liveness_verified_at,liveness_reference')
       .eq('id', response.token_id)
       .single();
     if (tokenError || !responseToken) throw new Error('Participante del formulario no disponible.');
@@ -108,24 +108,80 @@ export async function POST(
       ? { data: { id: responseToken.recipient_user_id } }
       : await service.from('user_profiles').select('id')
           .eq('email', responseToken.recipient_email.trim().toLowerCase()).maybeSingle();
+    const layoutPath = response.pdf_output_path.replace(/\.pdf$/i, '.signature-layout.json');
+    const layoutDownload = await service.storage.from('form-artifacts').download(layoutPath);
+    let signatureFields: Array<Record<string, unknown>> = [];
+    if (layoutDownload.data) {
+      const layout = JSON.parse(await layoutDownload.data.text()) as {
+        pdfSha256?: string;
+        placements?: Array<Record<string, unknown>>;
+      };
+      if (layout.pdfSha256?.toLowerCase() !== response.pdf_output_hash.toLowerCase())
+        return NextResponse.json({ error: 'La posición de firma no coincide con el PDF.' }, { status: 422 });
+      const placements = Array.isArray(layout.placements) ? layout.placements : [];
+      signatureFields = placements.filter((placement) =>
+        typeof placement.id === 'string' && typeof placement.label === 'string' &&
+        typeof placement.page === 'number' && Number.isInteger(placement.page) && placement.page > 0 &&
+        ['x', 'y', 'width', 'height'].every((key) =>
+          typeof placement[key] === 'number' && Number.isFinite(Number(placement[key])) &&
+          Number(placement[key]) >= 0 && Number(placement[key]) <= 100
+        ) && Number(placement.x) + Number(placement.width) <= 100 &&
+        Number(placement.y) + Number(placement.height) <= 100
+      ).map((placement) => ({
+        id: placement.id,
+        label: placement.label,
+        tipo: 'firma',
+        placementKind: 'participant',
+        participantId: registeredRecipient?.id || responseToken.recipient_email,
+        participantName: responseToken.recipient_name || responseToken.recipient_email,
+        page: placement.page,
+        x: placement.x,
+        y: placement.y,
+        width: placement.width,
+        height: placement.height,
+      }));
+    } else if (layoutDownload.error && !/not found|does not exist/i.test(layoutDownload.error.message)) {
+      throw layoutDownload.error;
+    }
     const participant = {
       ...(registeredRecipient?.id ? { id: registeredRecipient.id, user_id: registeredRecipient.id } : {}),
       nombre: responseToken.recipient_name || responseToken.recipient_email,
       email: responseToken.recipient_email,
       acto: 'firmar',
       rol: 'Firmante',
-      tipo_firma: responseToken.signature_type || 'autografa_digital',
-      require_liveness: responseToken.access_mode === 'public' || responseToken.require_liveness === true,
+      tipo_firma: responseToken.signature_type || 'click_sign',
+      require_liveness: responseToken.require_liveness === true && !responseToken.liveness_verified_at,
+      ...(responseToken.liveness_verified_at ? { form_access_liveness_verified_at: responseToken.liveness_verified_at, form_access_liveness_reference: responseToken.liveness_reference } : {}),
+      sub_estado: 'en_revision',
       current_access: true,
     };
 
     const { data: prior, error: priorError } = await service
       .from('documentos')
-      .select('id,storage_path')
+      .select('id,storage_path,estado,campos_solicitados,participantes')
       .eq('source_form_response_id', responseId)
       .maybeSingle();
     if (priorError) throw priorError;
     if (prior?.storage_path) {
+      if (prior.estado === 'en_proceso') {
+        const updates: Record<string, unknown> = {};
+        if (signatureFields.length && (!Array.isArray(prior.campos_solicitados) ||
+            !prior.campos_solicitados.some((field: { tipo?: string }) => field.tipo === 'firma'))) {
+          updates.campos_solicitados = signatureFields;
+        }
+        if (Array.isArray(prior.participantes)) {
+          const patched = prior.participantes.map((entry: Record<string, unknown>) =>
+            String(entry.email || '').trim().toLowerCase() === responseToken.recipient_email.trim().toLowerCase() && !entry.sub_estado
+              ? { ...entry, sub_estado: 'en_revision' } : entry
+          );
+          if (patched.some((entry: Record<string, unknown>, index: number) => entry !== prior.participantes[index]))
+            updates.participantes = patched;
+        }
+        if (Object.keys(updates).length) {
+          const repaired = await service.from('documentos').update(updates).eq('id', prior.id);
+          if (repaired.error) throw repaired.error;
+        }
+      }
       if (response.document_id !== prior.id)
         await service.from('form_responses').update({ document_id: prior.id }).eq('id', responseId);
       return NextResponse.json({ document_id: prior.id, created: false });
@@ -157,6 +213,7 @@ export async function POST(
       nombre: `${form.name} · ${new Date(response.submitted_at).toLocaleDateString('es-MX')}`,
       descripcion: form.description || 'Respuesta de formulario',
       participantes: [participant],
+      campos_solicitados: signatureFields,
       ruta_guardado: 'raiz',
       estado: 'en_proceso',
       fecha_completado: null,
@@ -245,7 +302,7 @@ export async function POST(
     const [docUpdate, versionUpdate, responseUpdate] = await Promise.all([
       service
         .from('documentos')
-        .update({ storage_path: storagePath, file_url: fileUrl })
+        .update({ storage_path: storagePath, file_url: fileUrl, campos_solicitados: signatureFields, participantes: [participant] })
         .eq('id', documentId),
       service
         .from('document_versions')

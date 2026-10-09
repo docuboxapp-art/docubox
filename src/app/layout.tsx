@@ -8,6 +8,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { SidebarProvider } from '@/contexts/SidebarContext';
 import { AppModulesProvider } from '@/contexts/AppModulesContext';
 import { LuciaAssistantProvider } from '@/contexts/LuciaAssistantContext';
+import AppToaster from '@/components/ui/AppToaster';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -50,6 +51,7 @@ export default function RootLayout({
               <SidebarProvider>
                 <AppModulesProvider>
                   <LuciaAssistantProvider>{children}</LuciaAssistantProvider>
+                  <AppToaster />
                 </AppModulesProvider>
               </SidebarProvider>
             </ThemeProvider>

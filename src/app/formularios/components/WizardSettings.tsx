@@ -114,7 +114,7 @@ export function GeneralSettings() {
             <div className="grid gap-2 sm:grid-cols-2">
               {([
                 { value: 'private', title: 'Invitación privada', description: 'Se envía a una persona. Accede por el portal de invitaciones y crea su cuenta si es su primera vez.' },
-                { value: 'public', title: 'Enlace público', description: 'Cualquier persona con una cuenta de Docubox puede responder. Se solicitará prueba de vida al firmar.' },
+                { value: 'public', title: 'Formulario público con código', description: 'Se genera un código de acceso. Cada persona deberá iniciar sesión y aprobar una prueba de vida antes de abrir el formulario.' },
               ] as const).map((option) => (
                 <label key={option.value} className={`flex cursor-pointer gap-3 rounded-lg border p-3 ${settings.accessMode === option.value ? 'border-primary bg-blue-50/60' : 'border-slate-200 bg-white dark:border-border dark:bg-card'}`}>
                   <input type="radio" name="form-access-mode" value={option.value} checked={settings.accessMode === option.value} onChange={() => dispatch({ type: 'SET_SETTINGS', payload: { accessMode: option.value, allowedSignatureTypes: option.value === 'public' ? ['autografa_digital'] : [] } })} className="mt-1 accent-primary" />
@@ -310,7 +310,7 @@ export function GeneralSettings() {
           <div className="border-t border-slate-100 pt-1 dark:border-border">
             <ExperienceOption
               title="Establecer vigencia del enlace"
-              description="Define la vigencia sugerida al compartirlo. Si se omite, se usan 72 horas."
+              description="Define cuándo vence el enlace. Si se omite, permanecerá vigente hasta responderlo o cancelarlo."
               checked={settings.configureLinkExpiration}
               onChange={(value) =>
                 dispatch({ type: 'SET_SETTINGS', payload: { configureLinkExpiration: value } })
@@ -496,6 +496,13 @@ export function FormAppearanceSettings({ onSaveForm }: { onSaveForm: () => Promi
                 <span className="flex h-10 items-center gap-3 rounded-lg border border-slate-200 px-3 dark:border-border">
                   <input type="color" aria-label="Color principal del formulario" value={appearance.accentColor} onChange={(event) => update({ accentColor: event.target.value })} className="h-6 w-8 cursor-pointer border-0 bg-transparent p-0" />
                   <span className="font-mono text-sm text-slate-600">{appearance.accentColor}</span>
+                </span>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium">Color de fondo</span>
+                <span className="flex h-10 items-center gap-3 rounded-lg border border-slate-200 px-3 dark:border-border">
+                  <input type="color" aria-label="Color de fondo del formulario" value={appearance.backgroundColor} onChange={(event) => update({ backgroundColor: event.target.value })} className="h-6 w-8 cursor-pointer border-0 bg-transparent p-0" />
+                  <span className="font-mono text-sm text-slate-600">{appearance.backgroundColor}</span>
                 </span>
               </label>
             </div>

@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  ArrowLeft, BadgeCheck, Check, CircleAlert, Clock3, Download, FileCheck2,
+  ArrowLeft, BadgeCheck, Clock3, Download, FileCheck2,
   FileKey2, FileText, Fingerprint, History, IdCard, Loader2, Plus,
   ShieldCheck, Upload, UserRound,
 } from 'lucide-react';
@@ -11,6 +11,7 @@ import type { LucideIcon } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 
 type Row = Record<string, any>;
 const panel = 'bg-background border border-border rounded-lg overflow-hidden';
@@ -156,7 +157,7 @@ export default function OrganizationDirectoryPerson({ personId }: { personId: st
 
   return <div className="max-w-[1400px] mx-auto space-y-5">
     <div className="flex items-start gap-3"><Link href="/organizacion/directorio" aria-label="Volver al directorio" className="w-10 h-10 grid place-items-center rounded-md border border-border bg-background"><ArrowLeft size={17} /></Link><div className="flex-1 min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-medium truncate">{person.full_name}</h2><Status value={person.status} /></div><p className="mt-1 text-sm text-muted-foreground">{person.job_title || 'Sin cargo'}{person.area_name ? ` · ${person.area_name}` : ''}</p></div></div>
-    {error && <div className="border border-red-200 bg-red-50 text-red-700 rounded-md px-4 py-3 text-sm flex gap-2"><CircleAlert size={17} />{error}</div>}{success && <div className="border border-emerald-200 bg-emerald-50 text-emerald-700 rounded-md px-4 py-3 text-sm flex gap-2"><Check size={17} />{success}</div>}
+    {error ? <BottomNotice message={error} tone="critical" /> : success ? <BottomNotice message={success} tone="success" /> : null}
     <section className={panel}><div className="px-3 border-b border-border overflow-x-auto flex">{tabs.map(([value, label, Icon]) => <button key={value} onClick={() => setTab(value)} className={`h-12 px-3 inline-flex items-center gap-2 whitespace-nowrap text-sm border-b-2 ${tab === value ? 'border-primary text-primary font-medium' : 'border-transparent text-muted-foreground'}`}><Icon size={15} />{label}</button>)}</div>
       {tab === 'general' && <div className="p-5 grid sm:grid-cols-2 xl:grid-cols-3 gap-5">{[['Nombre completo', person.full_name], ['Correo', person.email || 'No registrado'], ['Teléfono', person.phone || 'No registrado'], ['Tipo de persona', person.person_type === 'legal_entity' ? 'Persona moral' : 'Persona física'], ['Versión de datos', `v${person.data_version}`], ['Última actualización', date(person.updated_at)]].map(([label, value]) => <div key={label}><p className="text-xs uppercase text-muted-foreground">{label}</p><p className="mt-1 text-sm font-medium">{value}</p></div>)}<div><p className="text-xs uppercase text-muted-foreground">RFC</p><p className="mt-1 text-sm font-medium">{canReadSensitive ? person.rfc || 'No registrado' : '•••••••••••••'}</p></div></div>}
       {tab === 'organization' && <div className="p-5 grid sm:grid-cols-2 xl:grid-cols-3 gap-5">{[['Relación', String(person.relationship_type || 'No definida').replaceAll('_', ' ')], ['Cargo', person.job_title || 'No registrado'], ['Área', person.area_name || 'No registrada'], ['Acceso Docubox', person.member_id ? 'Miembro vinculado' : 'Sin cuenta vinculada'], ['Vigente desde', date(person.valid_from)], ['Vigente hasta', date(person.valid_until)]].map(([label, value]) => <div key={label}><p className="text-xs uppercase text-muted-foreground">{label}</p><p className="mt-1 text-sm font-medium capitalize">{value}</p></div>)}</div>}

@@ -3,13 +3,14 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  Activity, BadgeCheck, Building2, Check, CircleAlert, FileKey2, Fingerprint,
+  Activity, BadgeCheck, Building2, FileKey2, Fingerprint,
   IdCard, Link2, Loader2, MailCheck, Network, Palette, Plus, ReceiptText, RefreshCw, Save,
   ScrollText, ShieldCheck, UserPlus, Users, UsersRound, Workflow, XCircle,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 
 export type SectionKey = 'perfil' | 'miembros' | 'equipos' | 'roles' | 'directorio' |
   'facultades' | 'flujos' | 'politicas-firma' | 'seguridad' | 'certificados' |
@@ -203,7 +204,7 @@ export default function OrganizationSections({ section }: { section: SectionKey 
     await supabase.from('organization_audit_events').insert({ workspace_id: activeWorkspace.id, actor_user_id: user.id, event_type: eventType, resource_type: resourceType, resource_id: resourceId, summary });
   };
 
-  const notices = <>{error && <div className="border border-red-200 bg-red-50 text-red-700 rounded-md px-4 py-3 text-sm flex gap-2"><CircleAlert size={17} />{error}</div>}{success && <div className="border border-emerald-200 bg-emerald-50 text-emerald-700 rounded-md px-4 py-3 text-sm flex gap-2"><Check size={17} />{success}</div>}</>;
+  const notices = error ? <BottomNotice message={error} tone="critical" /> : success ? <BottomNotice message={success} tone="success" /> : null;
 
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault(); if (!activeWorkspace?.id || !canManage) return;

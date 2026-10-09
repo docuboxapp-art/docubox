@@ -8,6 +8,7 @@ import {
   Save, ShieldCheck, Trash2, UsersRound, Video,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
@@ -76,7 +77,7 @@ export default function IdentityPolicyBuilder({ policyId }: { policyId?: string 
         <div className="flex items-center gap-2"><button onClick={() => setTestOpen(true)} className="hidden h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 md:inline-flex"><PlayCircle size={14} /> Probar</button><button onClick={() => persist('draft')} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 disabled:opacity-60"><Save size={14} /> Guardar</button><button onClick={() => persist('active')} disabled={saving || summary.blockers.length > 0} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-600 text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Publicar</button></div>
       </header>
 
-      {message && <div className="border-b border-blue-200 bg-blue-50 px-4 py-2.5 text-center text-xs text-blue-700">{message}</div>}
+      {message && <BottomNotice message={message} onClose={() => setMessage('')} />}
 
       <div className="mx-auto grid max-w-[1680px] md:grid-cols-[228px_minmax(0,1fr)] xl:grid-cols-[228px_minmax(0,1fr)_286px]">
         <aside className="hidden min-h-[calc(100vh-72px)] border-r border-slate-200 bg-white p-3 dark:border-border dark:bg-card md:block">

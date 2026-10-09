@@ -19,7 +19,16 @@ await build({
 });
 const require = createRequire(import.meta.url);
 const { resolveFormWebHeader } = require(join(cache, 'web-header.js'));
-const { reusableFormAppearance } = require(join(cache, 'appearance-defaults.js'));
+const { normalizeFormAppearanceDefaults, reusableFormAppearance } = require(join(cache, 'appearance-defaults.js'));
+
+test('background color defaults safely and remains part of reusable appearance', () => {
+  const defaultColor = createDefaultFormTemplate().settings.appearance.backgroundColor;
+  assert.equal(defaultColor, '#F8F8FB');
+  assert.equal(normalizeFormTemplate({ settings: { appearance: { backgroundColor: 'red' } } }).settings.appearance.backgroundColor, defaultColor);
+  assert.equal(normalizeFormAppearanceDefaults({ backgroundColor: '#abc123' }).backgroundColor, '#abc123');
+  assert.equal(normalizeFormAppearanceDefaults({ backgroundColor: 'red' }).backgroundColor, defaultColor);
+  assert.equal(reusableFormAppearance({ ...createDefaultFormTemplate().settings.appearance, backgroundColor: '#ABC123' }).backgroundColor, '#ABC123');
+});
 
 test('the web header inherits General metadata until its text is customized', () => {
   const form = createDefaultFormTemplate();

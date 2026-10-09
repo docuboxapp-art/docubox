@@ -2,6 +2,7 @@
 
 import { Loader2, Save } from 'lucide-react';
 import FormPreview from './FormPreview';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useFormBuilder } from '@/contexts/FormBuilderContext';
 
 export function WizardDesignPreview({
@@ -33,7 +34,7 @@ export function WizardDesignPreview({
             Se actualiza al cambiar el diseño. Las respuestas son ejemplos.
           </p>
         </div>
-        <div className="max-h-[calc(100dvh-420px)] min-h-[220px] overflow-auto bg-slate-100 p-3 sm:p-5">
+        <div className="max-h-[calc(100dvh-420px)] min-h-[220px] overflow-auto bg-slate-100 p-3 sm:p-5" style={!isPdf ? { backgroundColor: state.template.settings.appearance.backgroundColor } : undefined}>
           <div style={{ zoom: isPdf ? 0.7 : 0.78 }}>
             <FormPreview template={state.template} mode={mode} designPreview documentTypeName={documentTypeName} />
           </div>
@@ -52,7 +53,7 @@ export function WizardDesignPreview({
             {isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
             {isSaving ? 'Guardando...' : 'Guardar cambios'}
           </button>
-          {saveError && <p role="alert" className="mt-2 text-sm text-red-600">{saveError}</p>}
+          {saveError && <BottomNotice message={saveError} tone="critical" />}
         </div>
       </div>
     </aside>

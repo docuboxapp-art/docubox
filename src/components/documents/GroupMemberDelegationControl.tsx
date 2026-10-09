@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Check, ChevronDown, Loader2, RotateCcw, UserRoundCog, X } from 'lucide-react';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 
 type Candidate = {
   member_id: string;
@@ -233,19 +234,7 @@ export function GroupMemberDelegationControl({
         </div>
       )}
 
-      {error && (
-        <div
-          role="alert"
-          className="border-t border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"
-        >
-          {error}
-        </div>
-      )}
-      {message && (
-        <div className="border-t border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700">
-          {message}
-        </div>
-      )}
+      {error ? <BottomNotice message={error} tone="critical" /> : message ? <BottomNotice message={message} tone="success" /> : null}
     </section>
   );
 }

@@ -47,7 +47,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
 import { SignatureQrCode } from '@/components/signatures/SignatureQrCode';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
@@ -9542,7 +9542,6 @@ export default function FirmarDocumentoPage() {
     <div
       className={`flex h-screen flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-slate-50 text-slate-950'}`}
     >
-      <Toaster position="bottom-right" richColors />
 
       {stampSelectorOpen && (
         <div

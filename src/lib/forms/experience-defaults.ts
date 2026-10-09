@@ -65,7 +65,7 @@ export function normalizeFormExperienceDefaults(
       ? candidate.configureFormDetails : defaults.configureFormDetails,
     requiresSignature: true,
     configureLinkExpiration: typeof candidate.configureLinkExpiration === 'boolean'
-      ? candidate.configureLinkExpiration : typeof candidate.expirationHours === 'number',
+      ? candidate.configureLinkExpiration : false,
     expirationHours: Number.isFinite(expirationHours) && expirationHours >= 1 / 60 && expirationHours <= 720
       ? expirationHours : defaults.expirationHours,
   };

@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  Activity, ArrowLeft, BadgeCheck, BriefcaseBusiness, CalendarClock, Check,
+  Activity, ArrowLeft, BadgeCheck, BriefcaseBusiness, CalendarClock,
   CircleAlert, Eye, EyeOff, FileText, Fingerprint, KeyRound, Laptop, Loader2, LockKeyhole,
   Save, ShieldAlert, ShieldCheck, UserRound, UsersRound,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 
 type Row = Record<string, any>;
 type TabKey = 'resumen' | 'roles' | 'equipos' | 'seguridad' | 'facultades' | 'trabajo' | 'auditoria';
@@ -209,7 +210,7 @@ export default function OrganizationMemberDetail({ memberId }: { memberId: strin
   if (!data || !member) return <div className="max-w-3xl mx-auto"><Link href="/organizacion/miembros" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={16} /> Volver a miembros</Link><div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-5 text-sm text-red-700">{error || 'No se encontró el miembro.'}</div></div>;
 
   const initials = String(person.full_name || person.email || 'U').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
-  const notices = <>{error && <div role="alert" className="flex gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"><CircleAlert size={17} className="mt-0.5 shrink-0" />{error}</div>}{success && <div className="flex gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"><Check size={17} className="mt-0.5 shrink-0" />{success}</div>}</>;
+  const notices = error ? <BottomNotice message={error} tone="critical" /> : success ? <BottomNotice message={success} tone="success" /> : null;
 
   const actionCopy = pendingAction ? sensitiveActionLabels[pendingAction.action] : null;
 

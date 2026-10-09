@@ -30,6 +30,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import AppLayout from '@/components/AppLayout';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import AppImage from '@/components/ui/AppImage';
 import { createClient } from '@/lib/supabase/client';
 import { templateApiFetch } from '@/lib/templates/client';
@@ -1199,22 +1200,7 @@ export default function PlantillasGalleryPage() {
       )}
 
       {/* Toast */}
-      {toast && (
-        <div
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg"
-          style={{
-            backgroundColor: toast.type === 'success' ? '#ECFDF5' : '#FEF2F2',
-            color: toast.type === 'success' ? '#065F46' : '#991B1B',
-            border: `1px solid ${toast.type === 'success' ? '#A7F3D0' : '#FECACA'}`,
-          }}
-        >
-          {toast.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-          {toast.message}
-          <button onClick={() => setToast(null)} className="ml-2 opacity-60 hover:opacity-100">
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      {toast && <BottomNotice message={toast.message} tone={toast.type === 'error' ? 'critical' : 'success'} onClose={() => setToast(null)} />}
     </AppLayout>
   );
 }

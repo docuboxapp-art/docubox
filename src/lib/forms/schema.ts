@@ -171,6 +171,7 @@ export interface FormSettings {
 
 export interface FormAppearance {
   accentColor: string;
+  backgroundColor: string;
   headerText: string;
   headerDescription: string;
   headerDocumentNumber: string;
@@ -197,6 +198,7 @@ export interface FormAppearance {
 export function createDefaultFormAppearance(): FormAppearance {
   return {
     accentColor: '#1E6BFF',
+    backgroundColor: '#F8F8FB',
     headerText: '',
     headerDescription: '',
     headerDocumentNumber: '',
@@ -364,7 +366,7 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
       configureLinkExpiration:
         typeof input.settings?.configureLinkExpiration === 'boolean'
           ? input.settings.configureLinkExpiration
-          : typeof input.settings?.expirationHours === 'number',
+          : false,
       appearance: {
         ...defaults.settings.appearance,
         ...(input.settings?.appearance || {}),
@@ -378,6 +380,9 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
         accentColor: /^#[0-9a-fA-F]{6}$/.test(input.settings?.appearance?.accentColor || '')
           ? (input.settings!.appearance!.accentColor!.toUpperCase() === '#4F46E5' ? '#1E6BFF' : input.settings!.appearance!.accentColor!)
           : defaults.settings.appearance.accentColor,
+        backgroundColor: /^#[0-9a-fA-F]{6}$/.test(input.settings?.appearance?.backgroundColor || '')
+          ? input.settings!.appearance!.backgroundColor!
+          : defaults.settings.appearance.backgroundColor,
       },
       tagIds: Array.isArray(input.settings?.tagIds) ? input.settings.tagIds : [],
       pdfSchema: {

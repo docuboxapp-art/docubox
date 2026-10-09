@@ -104,6 +104,7 @@ export function useFormAutoSave(enabled = true, autoSave = true) {
   return {
     save,
     error,
+    clearError: () => setError(''),
     templateId: state.template.id,
     isSaving: state.isSaving,
     lastSaved: state.lastSaved,

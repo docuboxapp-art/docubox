@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import type {
   OrganizationDelegationPolicy as DelegationPolicy,
   OrganizationDelegationPolicyMode,
@@ -168,19 +169,7 @@ export function OrganizationDelegationPolicy({
           </div>
         </div>
       )}
-      {error && (
-        <div
-          role="alert"
-          className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-        >
-          {error}
-        </div>
-      )}
-      {message && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          {message}
-        </div>
-      )}
+      {error ? <BottomNotice message={error} tone="critical" /> : message ? <BottomNotice message={message} tone="success" /> : null}
       <div className="flex justify-end">
         <button
           type="button"

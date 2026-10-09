@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import {
   Activity,
   AreaChart as AreaChartIcon,
@@ -822,5 +823,5 @@ function KpiTile({ label, value, detail, accent }: { label: string; value: strin
 }
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
-  return <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-lg border border-emerald-200 bg-white px-4 py-3 text-sm font-600 text-slate-700 shadow-xl"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check size={12} /></span>{message}<button onClick={onClose} className="ml-1 text-slate-400 hover:text-slate-700"><X size={14} /></button></div>;
+  return <BottomNotice message={message} onClose={onClose} />;
 }

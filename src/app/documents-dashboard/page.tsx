@@ -5,6 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import AppLayout from '@/components/AppLayout';
+import { NoticeCard } from '@/components/ui/BottomNotice';
 import {
   Gift,
   Plus,
@@ -822,10 +823,7 @@ export default function DocumentsDashboardPage() {
 
       {/* Saving indicator */}
       {savingLayout && (
-        <div className="fixed bottom-4 right-4 bg-gray-800 text-white text-xs px-3 py-2 rounded-lg shadow-lg flex items-center gap-2 z-50">
-          <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          Guardando diseño...
-        </div>
+        <div className="app-feedback-position"><NoticeCard message="Guardando diseño..." tone="followup" /></div>
       )}
     </AppLayout>
   );

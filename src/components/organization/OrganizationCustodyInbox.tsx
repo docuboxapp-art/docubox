@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRightLeft, Check, Clock3, FileText, Loader2, X } from 'lucide-react';
+import { ArrowRightLeft, Clock3, FileText, Loader2, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 
 type CustodyTransferRow = {
   id: string;
@@ -155,14 +156,7 @@ export function OrganizationCustodyInbox({ workspaceId }: { workspaceId: string 
           </p>
         </div>
       </div>
-      {error && (
-        <div className="m-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-      )}
-      {message && (
-        <div className="m-4 flex gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          <Check size={16} /> {message}
-        </div>
-      )}
+      {error ? <BottomNotice message={error} tone="critical" /> : message ? <BottomNotice message={message} tone="success" /> : null}
       {pending.length ? (
         <div className="divide-y divide-border">
           {pending.map((row) => (

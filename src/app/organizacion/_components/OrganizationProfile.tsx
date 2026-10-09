@@ -3,8 +3,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Building2,
-  Check,
-  CircleAlert,
   Download,
   FileCheck2,
   FileText,
@@ -19,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 
@@ -299,25 +298,7 @@ export default function OrganizationProfile() {
     next: string
   ) =>
     setProfile((current) => ({ ...current, [group]: { ...(current[group] || {}), [key]: next } }));
-  const notices = (
-    <>
-      {error && (
-        <div
-          role="alert"
-          className="flex gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-        >
-          <CircleAlert size={17} />
-          {error}
-        </div>
-      )}
-      {message && (
-        <div className="flex gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          <Check size={17} />
-          {message}
-        </div>
-      )}
-    </>
-  );
+  const notices = error ? <BottomNotice message={error} tone="critical" /> : message ? <BottomNotice message={message} tone="success" /> : null;
 
   return (
     <div className="mx-auto max-w-[1280px] space-y-5">

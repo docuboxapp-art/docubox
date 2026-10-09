@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  Clock,
   Edit3,
   FileText,
   Loader2,
@@ -24,16 +25,21 @@ import {
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import AppLogo from '@/components/ui/AppLogo';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { createClient } from '@/lib/supabase/client';
+import { dateInTimeZone, getEffectiveTimeZone, getTimeZoneOffsetLabel, zonedDateTimeToUtcIso } from '@/lib/datetime';
 
 type SignatureType = 'click_sign' | 'autografa_digital' | 'efirma_sat';
 type FormChoice = {
   id: string;
   name: string;
   description: string | null;
+  created_by: string;
+  version_number: number | null;
+  published_at: string | null;
   settings: Record<string, unknown> | null;
   allowed_signature_types: SignatureType[] | null;
 };
@@ -76,6 +82,7 @@ function LaunchContent() {
   const { isModuleActive, loading: modulesLoading } = useAppModules();
   const supabase = useMemo(() => createClient(), []);
   const [forms, setForms] = useState<FormChoice[]>([]);
+  const [creatorNames, setCreatorNames] = useState<Record<string, string>>({});
   const [contacts, setContacts] = useState<Participant[]>([]);
   const [selectedId, setSelectedId] = useState(initialId || '');
   const [participant, setParticipant] = useState<Participant | null>(null);
@@ -96,6 +103,11 @@ function LaunchContent() {
   const [signatureType, setSignatureType] = useState<SignatureType | ''>('');
   const [requireLiveness, setRequireLiveness] = useState(false);
   const [expirationHours, setExpirationHours] = useState<number | null>(null);
+  const [deliveryMode, setDeliveryMode] = useState<'now' | 'scheduled'>('now');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [scheduleTimezone] = useState(getEffectiveTimeZone);
+  const [scheduledResult, setScheduledResult] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -117,7 +129,7 @@ function LaunchContent() {
       const [formResult, contactResult] = await Promise.all([
         supabase
           .from('form_templates')
-          .select('id,name,description,settings,allowed_signature_types')
+          .select('id,name,description,created_by,version_number,published_at,settings,allowed_signature_types')
           .eq('workspace_id', activeWorkspace.id)
           .eq('status', 'published')
           .order('name'),
@@ -128,11 +140,20 @@ function LaunchContent() {
           .order('nombre'),
       ]);
       if (!active) return;
-      setForms(
-        ((formResult.data || []) as FormChoice[]).filter(
-          (item) => item.settings?.accessMode !== 'public'
-        )
+      const availableForms = ((formResult.data || []) as FormChoice[]).filter(
+        (item) => item.settings?.accessMode !== 'public'
       );
+      const creatorIds = [...new Set(availableForms.map((item) => item.created_by).filter(Boolean))];
+      const creatorResult = creatorIds.length
+        ? await supabase.from('user_profiles').select('id,full_name').in('id', creatorIds)
+        : null;
+      if (!active) return;
+      setCreatorNames(Object.fromEntries(
+        (creatorResult?.data || []).map((profile: { id: string; full_name: string | null }) =>
+          [profile.id, profile.full_name?.trim() || '']
+        )
+      ));
+      setForms(availableForms);
       setContacts(
         (contactResult.data || [])
           .filter((item) => item.email)
@@ -302,6 +323,12 @@ function LaunchContent() {
       setError('La vigencia debe estar entre 1 minuto y 720 horas.');
       return;
     }
+    const scheduledAt = deliveryMode === 'scheduled'
+      ? zonedDateTimeToUtcIso(scheduleDate, scheduleTime, scheduleTimezone) : null;
+    if (deliveryMode === 'scheduled' && (!scheduledAt || new Date(scheduledAt).getTime() <= Date.now() + 60_000 || new Date(scheduledAt).getTime() > Date.now() + 365 * 24 * 60 * 60 * 1000)) {
+      setError('Selecciona una fecha y hora futura válida, dentro del próximo año.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -309,7 +336,9 @@ function LaunchContent() {
       const accessToken = sessionData.session?.access_token;
       if (!accessToken) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-form-token`,
+        deliveryMode === 'scheduled'
+          ? '/api/formularios/lanzamientos/programar'
+          : `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-form-token`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
@@ -321,12 +350,14 @@ function LaunchContent() {
             require_liveness: requireLiveness,
             notification_method: 'email',
             ...(hasConfiguredExpiration ? { expiration_hours: effectiveExpirationHours } : {}),
+            ...(scheduledAt ? { scheduled_at: scheduledAt, timezone: scheduleTimezone } : {}),
           }),
         }
       );
       const result = await response.json();
-      if (!response.ok || result.email_sent !== true)
-        throw new Error(result.error || 'No se pudo enviar el correo.');
+      if (!response.ok || (deliveryMode === 'scheduled' ? result.status !== 'scheduled' : result.email_sent !== true))
+        throw new Error(result.error || (deliveryMode === 'scheduled' ? 'No se pudo programar el envío.' : 'No se pudo enviar el correo.'));
+      setScheduledResult(deliveryMode === 'scheduled');
       setSent(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo lanzar el formulario.');
@@ -355,9 +386,11 @@ function LaunchContent() {
           <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
             <Check size={32} strokeWidth={2.5} className="text-emerald-600" />
           </div>
-          <h1 className="text-2xl font-600 text-slate-950">Formulario enviado</h1>
+          <h1 className="text-2xl font-600 text-slate-950">{scheduledResult ? 'Envío programado' : 'Formulario enviado'}</h1>
           <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
-            El enlace personal se envió por correo a {selectedParticipant?.name}.
+            {scheduledResult
+              ? `El enlace personal se enviará a ${selectedParticipant?.name} el ${new Date(zonedDateTimeToUtcIso(scheduleDate, scheduleTime, scheduleTimezone) || '').toLocaleString('es-MX', { timeZone: scheduleTimezone })} (${scheduleTimezone}).`
+              : `El enlace personal se envió por correo a ${selectedParticipant?.name}.`}
           </p>
           <div className="mt-7 flex w-full items-center justify-between border-t border-slate-200 pt-5">
             <p className="text-xs text-slate-500">
@@ -498,8 +531,11 @@ function LaunchContent() {
                   aria-label="Seleccionar formulario publicado"
                   className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-border dark:bg-card"
                 >
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-base font-semibold">Selecciona un formulario publicado</h2>
+                  <div className="mb-4 flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-base font-semibold">Selecciona un formulario publicado</h2>
+                      <p className="mt-1 text-sm text-slate-500">Elige el formulario que enviarás mediante un enlace personal.</p>
+                    </div>
                     <button
                       type="button"
                       onClick={() => router.push('/formularios')}
@@ -524,17 +560,30 @@ function LaunchContent() {
                             setRequireLiveness(false);
                             setError('');
                           }}
-                          className="flex w-full items-center justify-between rounded-lg border border-slate-200 p-4 text-left hover:border-primary hover:bg-blue-50/40"
+                          className="group flex w-full items-center justify-between gap-4 rounded-lg border border-slate-200 p-4 text-left transition-colors hover:border-primary hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
-                          <span>
-                            <span className="block font-medium">{item.name}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium text-slate-950">{item.name}</span>
                             {item.description && (
-                              <span className="mt-1 block text-xs text-slate-500">
+                              <span className="mt-1 block text-sm text-slate-600">
                                 {item.description}
                               </span>
                             )}
+                            <span className="mt-2 block text-xs text-slate-500">
+                              {typeof item.settings?.documentTypeName === 'string' && item.settings.documentTypeName.trim()
+                                ? `${item.settings.documentTypeName.trim()} · `
+                                : ''}Versión {item.version_number || 1}.0
+                              {item.published_at ? ` · Publicado el ${new Date(item.published_at).toLocaleDateString('es-MX')}` : ''}
+                            </span>
+                            <span className="mt-1 block text-xs text-slate-500">
+                              Creado por: {creatorNames[item.created_by]
+                                || (item.created_by === user?.id
+                                  ? (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) || user.email
+                                  : '')
+                                || 'Nombre no disponible'}
+                            </span>
                           </span>
-                          <ArrowRight size={17} />
+                          <ArrowRight size={17} className="shrink-0 text-slate-500 transition-colors group-hover:text-primary" />
                         </button>
                       ))}
                     </div>
@@ -836,13 +885,19 @@ function LaunchContent() {
                               Momento del envío
                             </h2>
                             <p className="mt-0.5 text-xs text-slate-500">
-                              El enlace personal se enviará por correo electrónico.
+                              Elige si deseas enviar el enlace ahora o en una fecha posterior.
                             </p>
                           </div>
                           <div className="p-5">
-                            <div className="inline-flex items-center gap-2 rounded-md border border-primary bg-blue-50 px-4 py-2.5 text-sm font-semibold text-primary">
-                              <Mail size={16} /> Enviar ahora
+                            <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1" role="radiogroup" aria-label="Momento del envío">
+                              <button type="button" role="radio" aria-checked={deliveryMode === 'now'} onClick={() => setDeliveryMode('now')} className={`flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold transition-colors ${deliveryMode === 'now' ? 'bg-white text-primary shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}><Mail size={15} /> Enviar ahora</button>
+                              <button type="button" role="radio" aria-checked={deliveryMode === 'scheduled'} onClick={() => setDeliveryMode('scheduled')} className={`flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold transition-colors ${deliveryMode === 'scheduled' ? 'bg-white text-primary shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}><Clock size={15} /> Programar envío</button>
                             </div>
+                            {deliveryMode === 'scheduled' && <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_1.4fr]">
+                              <label className="text-xs font-semibold text-slate-700">Fecha<input type="date" min={dateInTimeZone(scheduleTimezone)} value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary" /></label>
+                              <label className="text-xs font-semibold text-slate-700">Hora<input type="time" value={scheduleTime} onChange={(event) => setScheduleTime(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary" /></label>
+                              <div className="text-xs font-semibold text-slate-700">Zona horaria<div className="mt-1 flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-normal text-slate-700">{scheduleTimezone} ({getTimeZoneOffsetLabel(scheduleTimezone)})</div></div>
+                            </div>}
                             {hasConfiguredExpiration && (
                               <label className="mt-4 block text-sm font-medium text-slate-700">
                                 Vigencia del enlace (horas)
@@ -860,27 +915,18 @@ function LaunchContent() {
                               </label>
                             )}
                             <p className="mt-4 text-xs text-slate-500">
-                              El participante podrá responder una sola vez mediante el enlace
-                              enviado a su correo.
+                              El participante podrá responder una sola vez mediante el enlace enviado a su correo. {deliveryMode === 'scheduled' && 'La vigencia del enlace comenzará cuando se envíe.'}
                             </p>
                           </div>
                         </section>
                       </div>
                     )}
-                    {error && (
-                      <p role="alert" className="text-sm text-red-600">
-                        {error}
-                      </p>
-                    )}
+                    {error && !participantPickerOpen && <BottomNotice message={error} tone="critical" onClose={() => setError('')} />}
                   </>
                 </div>
               </>
             )}
-            {error && !form && (
-              <p role="alert" className="px-6 pb-5 text-sm text-red-600">
-                {error}
-              </p>
-            )}
+            {error && !form && <BottomNotice message={error} tone="critical" onClose={() => setError('')} />}
           </div>
         </div>
       </main>
@@ -900,8 +946,7 @@ function LaunchContent() {
             onClick={() => void send()}
             className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
           >
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} Confirmar y
-            enviar
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {deliveryMode === 'scheduled' ? 'Programar envío' : 'Confirmar y enviar'}
           </button>
         ) : (
           <button

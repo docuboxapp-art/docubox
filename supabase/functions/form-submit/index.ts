@@ -64,6 +64,9 @@ serve(async (req) => {
     ) {
       return new Response(JSON.stringify({ error: 'Este enlace pertenece a otra cuenta.', code: 'FORBIDDEN' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
+    if (tokenRow.access_mode === 'public' && !tokenRow.liveness_verified_at) {
+      return new Response(JSON.stringify({ error: 'La prueba de vida es obligatoria antes de responder.', code: 'LIVENESS_REQUIRED' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
     if (tokenRow.form_templates?.status !== 'published') {
       return new Response(
@@ -73,7 +76,7 @@ serve(async (req) => {
     }
 
     // Check expiration
-    if (new Date(tokenRow.expires_at) < new Date()) {
+    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
       return new Response(
         JSON.stringify({ error: 'Token expirado', code: 'TOKEN_EXPIRED' }),
         { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -231,7 +234,7 @@ serve(async (req) => {
         response_id: responseRow.id,
         document_id: documentId || responseRow.document_id || null,
         signature_required: requiresSignature,
-        redirect_to_sign: false,
+        redirect_to_sign: requiresSignature,
         generated_pdf: generatedPdf,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

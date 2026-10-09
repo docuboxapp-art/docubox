@@ -1,14 +1,12 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { NoticeCard } from '@/components/ui/BottomNotice';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Eye,
   Save,
-  CheckCircle,
-  AlertCircle,
-  Info,
   ArrowLeft,
   ArrowRight,
   X,
@@ -5489,32 +5487,14 @@ function NuevaPlantillaPage() {
       )}
 
       {/* Toast notifications */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
+      <div className="app-feedback-position flex flex-col gap-2">
         {toasts.map((toast) => (
-          <div
+          <NoticeCard
             key={toast.id}
-            className="flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium pointer-events-auto"
-            style={{
-              backgroundColor:
-                toast.type === 'success'
-                  ? '#ECFDF5'
-                  : toast.type === 'error'
-                    ? '#FEF2F2'
-                    : '#EFF6FF',
-              color:
-                toast.type === 'success'
-                  ? '#065F46'
-                  : toast.type === 'error'
-                    ? '#991B1B'
-                    : '#1E40AF',
-              border: `1px solid ${toast.type === 'success' ? '#A7F3D0' : toast.type === 'error' ? '#FECACA' : '#BFDBFE'}`,
-            }}
-          >
-            {toast.type === 'success' && <CheckCircle size={16} />}
-            {toast.type === 'error' && <AlertCircle size={16} />}
-            {toast.type === 'info' && <Info size={16} />}
-            {toast.message}
-          </div>
+            message={toast.message}
+            tone={toast.type === 'error' ? 'critical' : toast.type === 'success' ? 'success' : 'neutral'}
+            onClose={() => setToasts((current) => current.filter((item) => item.id !== toast.id))}
+          />
         ))}
       </div>
       {completionTitle && (

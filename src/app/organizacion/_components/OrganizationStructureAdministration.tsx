@@ -2,11 +2,12 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Archive, Building2, Check, ChevronRight, CircleAlert, Eye, EyeOff, KeyRound,
+  Archive, Building2, ChevronRight, Eye, EyeOff, KeyRound,
   Loader2, LockKeyhole, Plus, Save, ShieldCheck, UsersRound, X,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 
 type Row = Record<string, any>;
 type Section = 'equipos' | 'roles';
@@ -47,7 +48,7 @@ function orderUnits(rows: Row[]) {
 }
 
 function Notice({ error, success }: { error: string; success: string }) {
-  return <>{error && <div role="alert" className="flex gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"><CircleAlert size={17} className="mt-0.5 shrink-0" />{error}</div>}{success && <div className="flex gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"><Check size={17} className="mt-0.5 shrink-0" />{success}</div>}</>;
+  return error ? <BottomNotice message={error} tone="critical" /> : success ? <BottomNotice message={success} tone="success" /> : null;
 }
 
 export default function OrganizationStructureAdministration({ section }: { section: Section }) {

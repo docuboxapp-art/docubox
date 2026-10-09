@@ -9,6 +9,7 @@ import {
   ListFilter, RotateCcw, Search, Send, Star, Trash2, Users, X,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
@@ -38,8 +39,20 @@ interface FormLaunch {
   recipient_name: string | null;
   recipient_email: string;
   created_at: string;
-  expires_at: string;
+  expires_at: string | null;
   used_at: string | null;
+}
+
+interface ScheduledFormLaunch {
+  id: string;
+  template_id: string;
+  recipient_name: string;
+  recipient_email: string;
+  scheduled_at: string;
+  timezone: string;
+  status: 'scheduled' | 'retrying' | 'processing' | 'failed';
+  token_id: string | null;
+  last_error: string | null;
 }
 
 type FormSort = '' | 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc';
@@ -65,11 +78,13 @@ export default function FormulariosPage() {
   const supabase = createClient();
   const [forms, setForms] = useState<FormRow[]>([]);
   const [launches, setLaunches] = useState<FormLaunch[]>([]);
+  const [scheduledLaunches, setScheduledLaunches] = useState<ScheduledFormLaunch[]>([]);
   const [launchesError, setLaunchesError] = useState(false);
   const [clockTime, setClockTime] = useState(() => Date.now());
   const [formsSummaryOpen, setFormsSummaryOpen] = useState(false);
   const [responsesSummaryOpen, setResponsesSummaryOpen] = useState(true);
   const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
+  const [scheduledDialogOpen, setScheduledDialogOpen] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [pendingDialogError, setPendingDialogError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -87,31 +102,71 @@ export default function FormulariosPage() {
   const [removeBusy, setRemoveBusy] = useState(false);
   const [removeError, setRemoveError] = useState('');
   const [notice, setNotice] = useState('');
+  const [publicAccessInfo, setPublicAccessInfo] = useState<{ name: string; url: string; code: string } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const favoriteRequestPending = useRef(false);
   const removeRequestId = useRef(0);
+  const loadRequestId = useRef(0);
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem('docubox_recent_public_form_access');
+    if (!saved) return;
+    sessionStorage.removeItem('docubox_recent_public_form_access');
+    try {
+      const value = JSON.parse(saved) as { name: string; url: string; code: string };
+      if (value.name && value.url && value.code) setPublicAccessInfo(value);
+    } catch { /* Ignore obsolete data from another session. */ }
+  }, []);
 
   const loadForms = async () => {
     if (!activeWorkspace) return;
+    const requestId = ++loadRequestId.current;
+    const workspaceId = activeWorkspace.id;
     setLoading(true);
     setLaunches([]);
+    setScheduledLaunches([]);
     setLaunchesError(false);
     const [{ data: templateData, error }, { data: responseData }, { data: typeData, error: typeError }] = await Promise.all([
-      supabase.from('form_templates').select('*').eq('workspace_id', activeWorkspace.id).order('updated_at', { ascending: false }),
-      supabase.from('form_responses').select('template_id').eq('workspace_id', activeWorkspace.id),
+      supabase.from('form_templates').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }),
+      supabase.from('form_responses').select('template_id').eq('workspace_id', workspaceId),
       supabase.from('tipo_documento').select('id, nombre'),
     ]);
+    if (requestId !== loadRequestId.current) return;
     if (!error) {
       const templateIds = (templateData || []).map((item: { id: string }) => item.id);
       if (templateIds.length) {
-        const { data: launchData, error: launchError } = await supabase.from('form_tokens')
-          .select('id,template_id,recipient_name,recipient_email,created_at,expires_at,used_at')
-          .in('template_id', templateIds)
-          .order('created_at', { ascending: false });
-        setLaunches(launchError ? [] : (launchData || []) as FormLaunch[]);
-        setLaunchesError(Boolean(launchError));
+        let launchResult;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          launchResult = await supabase.from('form_tokens')
+            .select('id,template_id,recipient_name,recipient_email,created_at,expires_at,used_at')
+            .in('template_id', templateIds)
+            .order('created_at', { ascending: false });
+          if (requestId !== loadRequestId.current) return;
+          if (!launchResult.error || (launchResult.status > 0 && launchResult.status < 500) || attempt === 2) break;
+          await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
+          if (requestId !== loadRequestId.current) return;
+        }
+        setLaunches(launchResult?.error ? [] : (launchResult?.data || []) as FormLaunch[]);
+        setLaunchesError(Boolean(launchResult?.error));
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (requestId !== loadRequestId.current) return;
+          if (sessionData.session?.access_token) {
+            const scheduledResponse = await fetch(`/api/formularios/lanzamientos/programar?workspace_id=${encodeURIComponent(workspaceId)}`, {
+              headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+            });
+            if (requestId !== loadRequestId.current) return;
+            if (!scheduledResponse.ok) throw new Error('No se pudieron consultar los envíos programados.');
+            const scheduled = await scheduledResponse.json();
+            if (requestId !== loadRequestId.current) return;
+            setScheduledLaunches(scheduled.schedules || []);
+          }
+        } catch {
+          if (requestId === loadRequestId.current) setNotice('No se pudieron cargar los envíos programados.');
+        }
       }
+      if (requestId !== loadRequestId.current) return;
       const counts = (responseData || []).reduce<Record<string, number>>((acc, row: any) => {
         acc[row.template_id] = (acc[row.template_id] || 0) + 1;
         return acc;
@@ -131,7 +186,10 @@ export default function FormulariosPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadForms(); }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRequestId.current++;
+    };
   }, [activeWorkspace?.id]);
   useEffect(() => {
     const timer = window.setInterval(() => setClockTime(Date.now()), 60_000);
@@ -262,9 +320,13 @@ export default function FormulariosPage() {
     responses: forms.reduce((sum, form) => sum + form.responseCount, 0),
     launched: launches.length,
   }), [forms, filterCounts, launches]);
-  const pendingLaunches = useMemo(() => launches.filter((launch) =>
-    !launch.used_at && new Date(launch.expires_at).getTime() > clockTime
-  ), [launches, clockTime]);
+  const pendingLaunches = useMemo(() => {
+    const unsentTokenIds = new Set(scheduledLaunches.map((schedule) => schedule.token_id).filter(Boolean));
+    return launches.filter((launch) =>
+      !unsentTokenIds.has(launch.id) && !launch.used_at &&
+      (!launch.expires_at || new Date(launch.expires_at).getTime() > clockTime)
+    );
+  }, [launches, scheduledLaunches, clockTime]);
   const formNames = useMemo(() => new Map(forms.map((form) => [form.id, form.name])), [forms]);
 
   const managePendingLaunch = async (launch: FormLaunch, action: 'resend' | 'cancel') => {
@@ -289,6 +351,31 @@ export default function FormulariosPage() {
       setNotice(action === 'resend' ? `Recordatorio enviado a ${launch.recipient_email}.` : 'Enlace cancelado.');
     } catch (cause) {
       setPendingDialogError(cause instanceof Error ? cause.message : 'No fue posible gestionar este enlace.');
+    } finally {
+      setPendingActionId(null);
+    }
+  };
+
+  const cancelScheduledLaunch = async (launch: ScheduledFormLaunch) => {
+    if (pendingActionId) return;
+    setPendingActionId(launch.id);
+    setPendingDialogError('');
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+      const response = await fetch(`/api/formularios/lanzamientos/programar/${encodeURIComponent(launch.id)}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'No se pudo cancelar el envío.');
+      setScheduledLaunches((current) => current.filter((item) => item.id !== launch.id));
+      if (launch.token_id) setLaunches((current) => current.map((item) =>
+        item.id === launch.token_id ? { ...item, expires_at: new Date(0).toISOString() } : item
+      ));
+      setNotice('Envío programado cancelado.');
+    } catch (cause) {
+      setPendingDialogError(cause instanceof Error ? cause.message : 'No se pudo cancelar el envío.');
     } finally {
       setPendingActionId(null);
     }
@@ -384,10 +471,16 @@ export default function FormulariosPage() {
 
   const copyPublicLink = async (form: FormRow) => {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/formulario-publico/${form.id}`);
-      setNotice('Enlace público copiado. Solo podrán responder usuarios registrados.');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Inicia sesión para consultar el código.');
+      const response = await fetch(`/api/formularios/publico/${encodeURIComponent(form.id)}/codigo`, {
+        headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
+      });
+      const result = await response.json();
+      if (!response.ok || !result.code) throw new Error(result.error || 'No se pudo consultar el código.');
+      setPublicAccessInfo({ name: form.name, url: `${window.location.origin}/formulario-publico/${form.id}`, code: result.code });
     } catch {
-      setNotice('No se pudo copiar el enlace. Inténtalo de nuevo.');
+      setNotice('No se pudo obtener el código de acceso. Revisa la migración y tus permisos.');
     }
   };
 
@@ -433,29 +526,33 @@ export default function FormulariosPage() {
               <div><h2 className="text-sm font-600 text-slate-950 dark:text-foreground">Resumen de respuestas</h2><p className="mt-0.5 text-xs text-slate-500 dark:text-muted-foreground">Lanzamientos y respuestas del espacio de trabajo actual.</p></div>
               <ChevronDown size={18} className={`shrink-0 text-slate-500 transition-transform ${responsesSummaryOpen ? 'rotate-180' : ''}`} />
             </button>
-            {responsesSummaryOpen && <div id="response-summary-metrics" className="grid grid-cols-1 divide-y divide-slate-200 dark:divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            {responsesSummaryOpen && <div id="response-summary-metrics" className="grid grid-cols-1 divide-y divide-slate-200 dark:divide-border sm:grid-cols-2 sm:divide-x lg:grid-cols-4 lg:divide-y-0">
               <MetricCard icon={Send} label="Total formularios lanzados" value={metrics.launched} tone="blue" />
               <MetricCard icon={BarChart3} label="Respuestas" value={metrics.responses} tone="emerald" />
+              <button type="button" onClick={() => { setPendingDialogError(''); setScheduledDialogOpen(true); }} disabled={scheduledLaunches.length === 0} className="metric-action-card group flex min-h-24 items-center gap-3 px-5 py-4 text-left enabled:hover:bg-blue-50/50" aria-label={scheduledLaunches.length ? `Consultar ${scheduledLaunches.length} envíos programados` : 'Sin envíos programados'}>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600"><ClipboardClock size={17} /></span>
+                <span><span className="metric-action-value block text-xl font-600 tabular-nums text-slate-950 dark:text-foreground">{scheduledLaunches.length}</span><span className="metric-action-label flex items-center gap-1 text-xs text-slate-500 dark:text-muted-foreground">Envíos programados {scheduledLaunches.length > 0 && <ChevronRight size={11} className="text-primary" />}</span></span>
+              </button>
               <button
                 type="button"
                 onClick={() => { setPendingDialogError(''); setPendingDialogOpen(true); }}
                 disabled={pendingLaunches.length === 0}
-                className="group flex min-h-24 items-center gap-3 px-5 py-4 text-left transition-colors enabled:hover:bg-blue-50/50 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-inset enabled:focus-visible:ring-primary/40 enabled:dark:hover:bg-muted/40"
-                aria-label={pendingLaunches.length > 0 ? `Gestionar ${pendingLaunches.length} ${pendingLaunches.length === 1 ? 'respuesta pendiente' : 'respuestas pendientes'}` : 'Sin respuestas pendientes'}
+                className="metric-action-card group flex min-h-24 items-center gap-3 px-5 py-4 text-left transition-colors enabled:hover:bg-blue-50/50 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-inset enabled:focus-visible:ring-primary/40 enabled:dark:hover:bg-muted/40"
+                aria-label={pendingLaunches.length > 0 ? `Ver ${pendingLaunches.length} ${pendingLaunches.length === 1 ? 'respuesta pendiente' : 'respuestas pendientes'}` : 'Sin respuestas pendientes'}
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600">
                   <ClipboardClock size={17} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-xl font-600 tabular-nums text-slate-950 dark:text-foreground">{pendingLaunches.length}</span>
+                  <span className="metric-action-value block text-xl font-600 tabular-nums text-slate-950 dark:text-foreground">{pendingLaunches.length}</span>
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="text-xs text-slate-500 dark:text-muted-foreground">Respuestas pendientes</span>
-                    {pendingLaunches.length > 0 && <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary group-hover:underline">Gestionar <ChevronRight size={12} aria-hidden="true" /></span>}
+                    <span className="metric-action-label text-xs text-slate-500 dark:text-muted-foreground">Respuestas pendientes</span>
+                    {pendingLaunches.length > 0 && <span className="metric-action-link inline-flex items-center gap-0.5 text-xs font-medium text-primary group-hover:underline">Ver <ChevronRight size={12} aria-hidden="true" /></span>}
                   </span>
                 </span>
               </button>
             </div>}
-            {responsesSummaryOpen && launchesError && <p role="alert" className="border-t border-slate-200 px-5 py-3 text-xs text-red-600">No se pudieron cargar los lanzamientos. Actualiza la página para ver las cifras correctas.</p>}
+            {responsesSummaryOpen && launchesError && <BottomNotice message="No se pudieron cargar los lanzamientos. Actualiza la página para ver las cifras correctas." tone="critical" />}
           </section>
 
           <div className="mb-3 mt-5 flex items-center gap-2">
@@ -543,7 +640,7 @@ export default function FormulariosPage() {
                         <td className="relative px-3 py-3 text-right">
                           <div className="inline-flex items-center gap-1">
                             <button type="button" onClick={() => router.push(`/formularios/preview?id=${form.id}`)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Vista previa" aria-label={`Vista previa de ${form.name}`}><Eye size={13} /></button>
-                            {form.status === 'published' && (form.settings?.accessMode === 'public' ? <button type="button" onClick={() => void copyPublicLink(form)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Copiar enlace público" aria-label={`Copiar enlace público de ${form.name}`}><Link2 size={13} /></button> : <button type="button" onClick={() => { router.push(`/formularios/lanzar?id=${encodeURIComponent(form.id)}`); setActiveMenu(null); }} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Lanzar formulario" aria-label={`Lanzar formulario ${form.name}`}><Send size={13} /></button>)}
+                            {form.status === 'published' && (form.settings?.accessMode === 'public' ? <button type="button" onClick={() => void copyPublicLink(form)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Ver enlace y código de acceso" aria-label={`Ver enlace y código de ${form.name}`}><Link2 size={13} /></button> : <button type="button" onClick={() => { router.push(`/formularios/lanzar?id=${encodeURIComponent(form.id)}`); setActiveMenu(null); }} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Lanzar formulario" aria-label={`Lanzar formulario ${form.name}`}><Send size={13} /></button>)}
                             <button
                               type="button"
                               onClick={() => void toggleFavorite(form)}
@@ -616,8 +713,18 @@ export default function FormulariosPage() {
         document.body
       )}
       {removeTarget && <RemoveDialog form={removeTarget} mode={removeMode} busy={removeBusy} error={removeError} onCancel={closeRemove} onConfirm={() => void removeForm()} />}
+      {publicAccessInfo && <div role="dialog" aria-modal="true" aria-label="Enlace y código de acceso" className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/40 p-4">
+        <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+          <div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold text-slate-950">Acceso público</h2><p className="mt-1 text-sm text-slate-500">{publicAccessInfo.name}</p></div><button type="button" onClick={() => setPublicAccessInfo(null)} aria-label="Cerrar"><X size={18} /></button></div>
+          <p className="mt-5 text-sm text-slate-600">Comparte el enlace y el código. La persona deberá entrar con su cuenta y aprobar la prueba de vida.</p>
+          <label className="mt-5 block text-xs font-medium text-slate-500">Enlace<input readOnly value={publicAccessInfo.url} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700" /></label>
+          <label className="mt-4 block text-xs font-medium text-slate-500">Código de acceso<input readOnly value={publicAccessInfo.code} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-sm font-semibold tracking-wide text-slate-900" /></label>
+          <button type="button" onClick={() => void navigator.clipboard.writeText(`${publicAccessInfo.url}\nCódigo: ${publicAccessInfo.code}`).then(() => setNotice('Enlace y código copiados.'))} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white"><Copy size={15} /> Copiar enlace y código</button>
+        </div>
+      </div>}
       {pendingDialogOpen && <PendingResponsesDialog launches={pendingLaunches} formNames={formNames} busyId={pendingActionId} error={pendingDialogError} onClose={() => { if (!pendingActionId) setPendingDialogOpen(false); }} onResend={(launch) => void managePendingLaunch(launch, 'resend')} onCancelLink={(launch) => void managePendingLaunch(launch, 'cancel')} />}
-      {notice && <div className="fixed bottom-5 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-md bg-slate-950 px-4 py-3 text-xs font-500 text-white shadow-xl">{notice}<button type="button" onClick={() => setNotice('')} className="text-white/60 hover:text-white" aria-label="Cerrar aviso"><X size={14} /></button></div>}
+      {scheduledDialogOpen && <ScheduledLaunchesDialog launches={scheduledLaunches} formNames={formNames} busyId={pendingActionId} error={pendingDialogError} onClose={() => { if (!pendingActionId) setScheduledDialogOpen(false); }} onCancel={(launch) => void cancelScheduledLaunch(launch)} />}
+      {notice && <BottomNotice message={notice} onClose={() => setNotice('')} />}
     </AppLayout>
   );
 }
@@ -628,7 +735,7 @@ const ActionMenu = React.forwardRef<HTMLDivElement, { form: FormRow; position: {
     <div id="form-actions-menu" ref={ref} style={position} role="group" aria-label={`Acciones de ${form.name}`} className="fixed z-[80] max-h-[calc(100vh-24px)] w-52 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1.5 text-left shadow-[0_18px_45px_-16px_rgba(15,23,42,0.3)] dark:border-border dark:bg-card">
       <MenuAction icon={Eye} label="Vista previa" onClick={closeAfter(onPreview)} />
       {canViewFormResponses(form.status) && <MenuAction icon={BarChart3} label="Ver respuestas" onClick={closeAfter(onResponses)} />}
-      {form.status === 'published' && (form.settings?.accessMode === 'public' ? <MenuAction icon={Link2} label="Copiar enlace público" onClick={closeAfter(onCopyPublic)} /> : <MenuAction icon={Send} label="Lanzar formulario" onClick={closeAfter(onLaunch)} />)}
+      {form.status === 'published' && (form.settings?.accessMode === 'public' ? <MenuAction icon={Link2} label="Ver enlace y código" onClick={closeAfter(onCopyPublic)} /> : <MenuAction icon={Send} label="Lanzar formulario" onClick={closeAfter(onLaunch)} />)}
       <MenuAction icon={Copy} label="Duplicar" onClick={closeAfter(onDuplicate)} />
       {form.status === 'published' && <MenuAction icon={CirclePause} label="Pausar formulario" onClick={closeAfter(onPause)} />}
       {form.status === 'paused' && <MenuAction icon={Play} label="Reanudar formulario" onClick={closeAfter(onResume)} />}
@@ -688,8 +795,24 @@ function PendingResponsesDialog({ launches, formNames, busyId, error, onClose, o
   return <div role="dialog" aria-modal="true" aria-labelledby="pending-responses-title" className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} onKeyDown={(event) => { if (event.key === 'Escape') onClose(); }}>
     <div className="flex max-h-[min(85vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-border dark:bg-card">
       <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-border"><div><h2 id="pending-responses-title" className="text-base font-semibold text-slate-950 dark:text-foreground">Respuestas pendientes</h2><p className="mt-1 text-xs text-slate-500">Participantes con un enlace vigente que todavía no responden.</p></div><button type="button" onClick={onClose} disabled={Boolean(busyId)} aria-label="Cerrar pendientes" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={18} /></button></div>
-      <div className="overflow-y-auto p-5">{launches.length === 0 ? <p className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No hay respuestas pendientes con enlaces vigentes.</p> : <div className="space-y-3">{launches.map((launch) => <div key={launch.id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-border"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">{launch.recipient_name || launch.recipient_email}</p><p className="truncate text-xs text-slate-500">{launch.recipient_email} · {formNames.get(launch.template_id) || 'Formulario'}</p><p className="mt-1 text-[11px] text-slate-500">Enviado: {new Date(launch.created_at).toLocaleDateString('es-MX')} · Vence: {new Date(launch.expires_at).toLocaleString('es-MX')}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => onResend(launch)} disabled={Boolean(busyId)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary px-2.5 text-xs font-semibold text-primary hover:bg-blue-50 disabled:opacity-50">{busyId === launch.id ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Reenviar</button><button type="button" onClick={() => onCancelLink(launch)} disabled={Boolean(busyId)} className="h-8 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-border">Cancelar enlace</button></div></div>)}</div>}
+<div className="overflow-y-auto p-5">{launches.length === 0 ? <p className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No hay respuestas pendientes con enlaces vigentes.</p> : <div className="space-y-3">{launches.map((launch) => <div key={launch.id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-border"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">{launch.recipient_name || launch.recipient_email}</p><p className="mt-1 truncate text-xs font-medium text-slate-700 dark:text-foreground">Formulario: {formNames.get(launch.template_id) || 'Formulario'}</p><p className="truncate text-xs text-slate-500">{launch.recipient_email}</p><p className="mt-1 text-[11px] text-slate-500">Enviado: {new Date(launch.created_at).toLocaleDateString('es-MX')}{launch.expires_at ? ` · Vence: ${new Date(launch.expires_at).toLocaleString('es-MX')}` : ' · Sin vencimiento'}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => onResend(launch)} disabled={Boolean(busyId)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary px-2.5 text-xs font-semibold text-primary hover:bg-blue-50 disabled:opacity-50">{busyId === launch.id ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Reenviar</button><button type="button" onClick={() => onCancelLink(launch)} disabled={Boolean(busyId)} className="h-8 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-border">Cancelar enlace</button></div></div>)}</div>}
       {error && <p role="alert" className="mt-4 text-xs text-red-600">{error}</p>}</div>
+    </div>
+  </div>;
+}
+
+function ScheduledLaunchesDialog({ launches, formNames, busyId, error, onClose, onCancel }: {
+  launches: ScheduledFormLaunch[];
+  formNames: Map<string, string>;
+  busyId: string | null;
+  error: string;
+  onClose: () => void;
+  onCancel: (launch: ScheduledFormLaunch) => void;
+}) {
+  return <div role="dialog" aria-modal="true" aria-labelledby="scheduled-launches-title" className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="flex max-h-[min(85vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4"><div><h2 id="scheduled-launches-title" className="text-base font-semibold">Envíos programados</h2><p className="mt-1 text-xs text-slate-500">Invitaciones que se enviarán en la fecha indicada.</p></div><button type="button" onClick={onClose} disabled={Boolean(busyId)} aria-label="Cerrar envíos programados" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X size={18} /></button></div>
+      <div className="space-y-3 overflow-y-auto p-5">{launches.length === 0 ? <p className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No hay envíos programados.</p> : launches.map((launch) => <div key={launch.id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate text-sm font-semibold">{launch.recipient_name}</p><p className="mt-1 truncate text-xs text-slate-700">Formulario: {formNames.get(launch.template_id) || 'Formulario'}</p><p className="truncate text-xs text-slate-500">{launch.recipient_email}</p><p className={`mt-1 text-[11px] ${launch.status === 'failed' ? 'text-red-600' : 'text-slate-500'}`}>Programado: {new Date(launch.scheduled_at).toLocaleString('es-MX', { timeZone: launch.timezone })} · {launch.timezone}{launch.status === 'retrying' ? ' · Reintentando' : launch.status === 'processing' ? ' · En proceso' : launch.status === 'failed' ? ' · No se pudo enviar' : ''}</p></div><button type="button" onClick={() => onCancel(launch)} disabled={Boolean(busyId) || launch.status === 'processing'} className="h-8 shrink-0 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{busyId === launch.id ? 'Cancelando...' : 'Cancelar envío'}</button></div>)}{error && <p role="alert" className="text-xs text-red-600">{error}</p>}</div>
     </div>
   </div>;
 }

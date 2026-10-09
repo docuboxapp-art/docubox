@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Eye, EyeOff, CheckCircle2, AlertTriangle, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import { Toaster } from 'sonner';
 
 interface SignupFormData {
   nombreCompleto: string;
@@ -113,7 +112,6 @@ export default function SignupForm({ onSwitchToLogin }: Props) {
 
   return (
     <div>
-      <Toaster position="bottom-right" richColors />
       <div className="mb-5">
         <h2 className="text-2xl font-600 text-foreground">Crea tu cuenta</h2>
         <p className="text-sm text-muted-foreground mt-1">

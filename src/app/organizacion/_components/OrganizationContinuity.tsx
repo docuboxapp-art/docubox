@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, ArrowRight, CalendarClock, Check, CheckCircle2, CircleAlert,
+  ArrowLeft, ArrowRight, CalendarClock, Check, CheckCircle2,
   FileCheck2, History, KeyRound, Loader2, LockKeyhole, RefreshCw, ShieldAlert,
   ShieldCheck, UserRoundCheck, Users, X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import {
   isExecutableOffboarding,
   offboardingAssetLabels,
@@ -60,7 +61,7 @@ function Status({ value }: { value?: string }) {
 }
 
 function Notice({ error, success }: { error: string; success: string }) {
-  return <>{error && <div role="alert" className="flex gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"><CircleAlert size={17} className="mt-0.5 shrink-0" />{error}</div>}{success && <div className="flex gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"><Check size={17} className="mt-0.5 shrink-0" />{success}</div>}</>;
+  return error ? <BottomNotice message={error} tone="critical" /> : success ? <BottomNotice message={success} tone="success" /> : null;
 }
 
 export default function OrganizationContinuity() {

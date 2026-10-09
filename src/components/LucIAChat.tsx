@@ -21,7 +21,7 @@ import { useSpeechToText } from '@/lib/hooks/useSpeechToText';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-import toast from 'react-hot-toast';
+import { toast } from 'sonner';
 import { redactSensitiveText } from '@/lib/ai/redaction';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 

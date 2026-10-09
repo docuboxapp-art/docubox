@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       { error: 'La invitación no está disponible.' },
       { status: 404, headers: noStore }
     );
-  if (invitation.used_at || new Date(invitation.expires_at).getTime() <= Date.now())
+  if (invitation.used_at || (invitation.expires_at && new Date(invitation.expires_at).getTime() <= Date.now()))
     return NextResponse.json(
       { error: 'Esta invitación ya fue utilizada o venció.' },
       { status: 410, headers: noStore }

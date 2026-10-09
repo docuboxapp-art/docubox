@@ -116,6 +116,35 @@ async function finalizeAfterVerifiedPadesBt(
       certified_pdf_persisted: true,
     },
   });
+  const linkedForm = await service.from('form_responses')
+    .select('id,generated_pdf_id')
+    .eq('document_id', input.documentId)
+    .maybeSingle();
+  if (linkedForm.data) {
+    const signedAt = new Date().toISOString();
+    const [responseUpdate, pdfUpdate, requestUpdate] = await Promise.all([
+      service.from('form_responses').update({ status: 'signed' }).eq('id', linkedForm.data.id),
+      linkedForm.data.generated_pdf_id
+        ? service.from('generated_pdfs').update({
+            status: 'signed', signed_sha256_hash: input.sha256, signed_at: signedAt,
+          }).eq('id', linkedForm.data.generated_pdf_id)
+        : Promise.resolve({ error: null }),
+      linkedForm.data.generated_pdf_id
+        ? service.from('signature_requests').update({ status: 'signed', signed_at: signedAt })
+            .eq('generated_pdf_id', linkedForm.data.generated_pdf_id).in('status', ['pending', 'in_review'])
+        : Promise.resolve({ error: null }),
+    ]);
+    if (responseUpdate.error || pdfUpdate.error || requestUpdate.error) {
+      console.error('[seal-signatures] El estado de la respuesta del formulario quedó pendiente de sincronizar.', {
+        responseId: linkedForm.data.id,
+        responseError: responseUpdate.error?.code,
+        pdfError: pdfUpdate.error?.code,
+        requestError: requestUpdate.error?.code,
+      });
+    }
+  } else if (linkedForm.error) {
+    console.error('[seal-signatures] No se pudo consultar la respuesta vinculada.', linkedForm.error.code);
+  }
   if (!isEvidenceV2Enabled()) {
     await recordCertificationStage(service, {
       documentId: input.documentId,
