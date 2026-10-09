@@ -439,17 +439,18 @@ export default function FormulariosPage() {
               <button
                 type="button"
                 onClick={() => { setPendingDialogError(''); setPendingDialogOpen(true); }}
-                className="group flex min-h-24 items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-blue-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40 dark:hover:bg-muted/40"
-                aria-label={`Gestionar ${pendingLaunches.length} ${pendingLaunches.length === 1 ? 'respuesta pendiente' : 'respuestas pendientes'}`}
+                disabled={pendingLaunches.length === 0}
+                className="group flex min-h-24 items-center gap-3 px-5 py-4 text-left transition-colors enabled:hover:bg-blue-50/50 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-inset enabled:focus-visible:ring-primary/40 enabled:dark:hover:bg-muted/40"
+                aria-label={pendingLaunches.length > 0 ? `Gestionar ${pendingLaunches.length} ${pendingLaunches.length === 1 ? 'respuesta pendiente' : 'respuestas pendientes'}` : 'Sin respuestas pendientes'}
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600">
                   <ClipboardClock size={17} />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-xl font-600 tabular-nums text-slate-950 dark:text-foreground">{pendingLaunches.length}</span>
-                  <span className="block text-xs text-slate-500 dark:text-muted-foreground">Respuestas pendientes</span>
-                  <span className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary group-hover:underline">
-                    Gestionar <ChevronRight size={13} aria-hidden="true" />
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="text-xs text-slate-500 dark:text-muted-foreground">Respuestas pendientes</span>
+                    {pendingLaunches.length > 0 && <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary group-hover:underline">Gestionar <ChevronRight size={12} aria-hidden="true" /></span>}
                   </span>
                 </span>
               </button>
