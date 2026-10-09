@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import AppLayout from '@/components/AppLayout';
 import {
   Gift,
@@ -17,6 +18,7 @@ import {
   PlusSquare,
   Check,
   ChevronRight,
+  Send,
 } from 'lucide-react';
 import VerificationProgressBar from './components/VerificationProgressBar';
 import EstadoDocumentosWidget from './components/EstadoDocumentosWidget';
@@ -25,6 +27,8 @@ import SugeridosParaTiWidget from './components/SugeridosParaTiWidget';
 import DocumentosSinRevisionWidget from './components/DocumentosSinRevisionWidget';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAppModules } from '@/contexts/AppModulesContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useDocumentRealtime } from '@/hooks/useDocumentRealtime';
 import {
   fetchDashboardOwnedDocuments,
@@ -116,8 +120,49 @@ function DonutChart({ used, total }: { used: number; total: number }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function DocumentsDashboardPage() {
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const { user, loading: authLoading } = useAuth();
+  const { isModuleActive } = useAppModules();
+  const { activeWorkspace } = useWorkspace();
+  const formsEnabled = isModuleActive('formularios');
+  const [launchAvailability, setLaunchAvailability] = useState<{
+    workspaceId: string;
+    hasPublished: boolean;
+  } | null>(null);
+  const canLaunchForm = Boolean(
+    formsEnabled && !authLoading && user?.id && activeWorkspace?.id &&
+    launchAvailability?.workspaceId === activeWorkspace.id &&
+    launchAvailability.hasPublished
+  );
+
+  useEffect(() => {
+    const workspaceId = activeWorkspace?.id;
+    if (authLoading || !user?.id || !formsEnabled || !workspaceId) return;
+    let active = true;
+    let requestId = 0;
+    const loadPublishedForm = async () => {
+      const currentRequest = ++requestId;
+      const { data, error } = await supabase
+        .from('form_templates')
+        .select('id,settings')
+        .eq('workspace_id', workspaceId)
+        .eq('status', 'published');
+      if (active && currentRequest === requestId) {
+        setLaunchAvailability({
+          workspaceId,
+          hasPublished: !error && Boolean(data?.some((form) => form.settings?.accessMode !== 'public')),
+        });
+      }
+    };
+    void loadPublishedForm();
+    const refreshOnFocus = () => void loadPublishedForm();
+    window.addEventListener('focus', refreshOnFocus);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refreshOnFocus);
+    };
+  }, [activeWorkspace?.id, authLoading, formsEnabled, supabase, user?.id]);
 
   const [greeting] = useState(getGreeting);
   const [userId, setUserId] = useState<string | null>(null);
@@ -707,6 +752,7 @@ export default function DocumentsDashboardPage() {
                   <Plus size={15} />
                   Crear Documento
                 </Link>
+                {formsEnabled && <button type="button" disabled={!canLaunchForm} onClick={() => router.push('/formularios/lanzar')} className="flex h-9 items-center gap-1.5 rounded-lg border border-primary bg-white px-4 text-sm font-600 text-primary hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"><Send size={15} /> Lanzar formulario</button>}
                 <button className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-all duration-150 hover:border-primary/30 hover:bg-primary/5 hover:text-primary">
                   <LayoutGrid size={14} />
                   Apps

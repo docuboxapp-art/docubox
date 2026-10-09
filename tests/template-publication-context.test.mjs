@@ -130,10 +130,18 @@ test('selecting publish on a draft does not misclassify it as an existing publis
   assert.match(page, /!text-xs !font-normal/);
 });
 
-test('version numbers are assigned automatically and cannot be edited in the UI', () => {
+test('version numbers are assigned automatically and shown read-only in the template summary', () => {
   assert.match(server, /nextTemplateVersion/);
-  assert.match(page, /La versión se asigna automáticamente/);
-  assert.match(page, /value=\{versionValue\}[\s\S]*?readOnly[\s\S]*?disabled/);
+  const publicationStep = page.slice(
+    page.indexOf('function StepPublicacion('),
+    page.indexOf('// ─── Wizard Shell', page.indexOf('function StepPublicacion('))
+  );
+  assert.match(publicationStep, /\['Versión', versionValue\]/);
+  assert.match(publicationStep, /context\?\.template\?\.nextVersion/);
+  assert.match(publicationStep, /context\?\.template\?\.currentVersion/);
+  assert.doesNotMatch(publicationStep, /onChange[^\n]*versionPublicada/);
+  assert.match(publicationStep, /Resumen de la plantilla/);
+  assert.match(publicationStep, /\['Contenido',/);
 });
 
 test('template API requests are bound to the selected workspace', () => {

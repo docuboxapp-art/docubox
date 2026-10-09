@@ -173,7 +173,6 @@ interface LoginActivity {
   created_at: string;
   // access_logs specific fields
   auth_method: string | null;
-  operating_system: string | null;
   city: string | null;
   country: string | null;
   login_success: boolean | null;
@@ -3245,7 +3244,7 @@ export default function MiPerfilPage() {
       const { data: activityData } = await supabase
         .from('access_logs')
         .select(
-          'id, user_id, email, ip_address, accessed_at, browser, browser_version, operating_system, os_version, device_type, user_agent, login_success, auth_method, city, country, created_at'
+          'id, user_id, email, ip_address, accessed_at, browser, browser_version, device_type, user_agent, login_success, auth_method, city, country, created_at'
         )
         .eq('user_id', user.id)
         .order('accessed_at', { ascending: false })
@@ -3256,8 +3255,9 @@ export default function MiPerfilPage() {
           ...row,
           event_type: row.auth_method || 'login',
           device_name: null,
-          os: row.operating_system || null,
-          location: [row.city, row.country].filter(Boolean).join(', ') || null,
+          location: [row.city, row.country]
+            .filter((value: string | null) => value && !['unknown', 'desconocida', 'desconocido', 'red local', 'local', 'local/private network'].includes(value.toLowerCase()))
+            .join(', ') || null,
           status: row.login_success === false ? 'failed' : 'success',
           created_at: row.accessed_at || row.created_at,
         }));
@@ -5818,7 +5818,7 @@ export default function MiPerfilPage() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {[session.browser, session.os].filter(Boolean).join(' · ')}
+                    {session.browser || 'Navegador no disponible'}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Última actividad: {formatDate(session.last_active_at)}
@@ -5895,10 +5895,10 @@ export default function MiPerfilPage() {
                       Navegador
                     </th>
                     <th className="text-left px-3 py-2.5 text-xs font-600 text-muted-foreground whitespace-nowrap">
-                      Sistema Operativo
+                      Ubicación aprox. por IP
                     </th>
                     <th className="text-left px-3 py-2.5 text-xs font-600 text-muted-foreground whitespace-nowrap">
-                      Ubicación
+                      Dirección IP
                     </th>
                     <th className="text-left px-3 py-2.5 text-xs font-600 text-muted-foreground whitespace-nowrap">
                       Estado
@@ -5945,19 +5945,17 @@ export default function MiPerfilPage() {
                           {activity.browser || '—'}
                         </td>
                         <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                          {activity.os || '—'}
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                           {activity.location ? (
                             <span className="flex items-center gap-1">
                               <Globe size={10} />
                               {activity.location}
                             </span>
-                          ) : activity.ip_address ? (
-                            activity.ip_address
                           ) : (
                             '—'
                           )}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                          {activity.ip_address || '—'}
                         </td>
                         <td className="px-3 py-2.5 whitespace-nowrap">
                           <span

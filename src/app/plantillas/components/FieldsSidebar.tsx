@@ -13,7 +13,6 @@ import {
   Clock,
   DollarSign,
   FileText,
-  GripVertical,
   Hash,
   Image as ImageIcon,
   List,
@@ -21,6 +20,7 @@ import {
   MapPin,
   PenLine,
   Phone,
+  Plus,
   UserRound,
 } from 'lucide-react';
 
@@ -158,7 +158,7 @@ function FieldRow({
           {required && <span className="ml-0.5 text-red-500">*</span>}
         </span>
       </div>
-      <GripVertical size={13} className="shrink-0 text-slate-300 group-hover:text-slate-400" />
+      <Plus size={14} className="shrink-0 text-slate-300 group-hover:text-primary" />
     </div>
   );
 }

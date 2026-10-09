@@ -1629,19 +1629,6 @@ function AñadirParticipantesModal({
                   </div>
                   {!platformSearched ? (
                     <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
-                      <svg
-                        className="w-4 h-4 flex-shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M13 16h-1v-4h-1m1-4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 5.133a4 4 0 00-1.732-3z"
-                        />
-                      </svg>
                       <span>
                         Realiza una búsqueda para encontrar participantes en la plataforma.
                       </span>

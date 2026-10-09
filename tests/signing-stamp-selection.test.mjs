@@ -19,7 +19,7 @@ const [signingSource, autographSource, efirmaSource, clickSignSource, migrationS
     ),
     readFile(
       new URL(
-        '../supabase/migrations/20260922174500_signature_save_prompt_preference.sql',
+        '../supabase/migrations/20260922183400_signature_save_prompt_preference.sql',
         import.meta.url
       ),
       'utf8'

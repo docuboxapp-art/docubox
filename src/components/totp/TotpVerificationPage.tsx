@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import TotpCodeInput from '@/components/totp/TotpCodeInput';
 import { createClient } from '@/lib/supabase/client';
+import { reportLoginDevice } from '@/lib/security/report-login-device';
 
 interface TotpVerificationPageProps {
   onSuccess: () => void;
@@ -65,7 +66,10 @@ export default function TotpVerificationPage({
       try {
         await fetch('/api/security/log-access', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
           body: JSON.stringify({
             userId: session.user.id,
             loginSuccess: true,
@@ -89,6 +93,7 @@ export default function TotpVerificationPage({
         /* non-blocking */
       }
 
+      reportLoginDevice(session.user.id, session.access_token);
       onSuccess();
     } catch {
       setError('Error de conexión. Intenta nuevamente.');

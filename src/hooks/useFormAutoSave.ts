@@ -1,86 +1,110 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useFormBuilder } from '@/contexts/FormBuilderContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
-import type { FormTemplate } from '@/contexts/FormBuilderContext';
+import {
+  formSaveError,
+  persistFormDraft,
+  publicationError,
+  publishFormDraft,
+} from '@/lib/forms/lifecycle';
 
-export function useFormAutoSave(templateId?: string) {
+export function useFormAutoSave(enabled = true, autoSave = true) {
   const { state, dispatch } = useFormBuilder();
   const { activeWorkspace } = useWorkspace();
   const { user } = useAuth();
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [persistedId, setPersistedId] = useState<string | undefined>(templateId);
+  const [error, setError] = useState('');
+  const latest = useRef({ state, activeWorkspace, user, enabled });
+  useLayoutEffect(() => {
+    latest.current = { state, activeWorkspace, user, enabled };
+  });
+  const inFlight = useRef<Promise<string | undefined> | null>(null);
   const supabase = createClient();
 
-  const save = useCallback(async (overrides?: Partial<FormTemplate>) => {
-    if ((!state.isDirty && !overrides) || !activeWorkspace || !user) return persistedId;
-
-    dispatch({ type: 'SET_SAVING', payload: true });
-
-    try {
-      const template = { ...state.template, ...(overrides || {}) };
-      const payload = {
-        name: template.name,
-        description: template.description,
-        status: template.status,
-        schema: template.schema,
-        settings: {
-          ...template.settings,
-          sections: template.sections,
-        },
-        pdf_base_path: template.pdfBasePath || null,
-        workspace_id: activeWorkspace.id,
-        created_by: user.id,
-        updated_at: new Date().toISOString(),
-      };
-
-      const currentId = templateId || persistedId || template.id;
-      let savedId = currentId;
-      if (currentId) {
-        const { error } = await supabase
-          .from('form_templates')
-          .update(payload)
-          .eq('id', currentId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from('form_templates')
-          .insert(payload)
-          .select('id')
-          .single();
-        if (error) throw error;
-        if (data?.id) {
-          savedId = data.id;
-          setPersistedId(data.id);
-          dispatch({ type: 'SET_TEMPLATE_META', payload: { id: data.id } });
-        }
+  const save = useCallback(
+    function saveOperation(publish = false): Promise<string | undefined> {
+      if (inFlight.current) return inFlight.current.then(() => saveOperation(publish));
+      const current = latest.current;
+      if (!current.enabled || !current.activeWorkspace || !current.user)
+        return Promise.reject(new Error('No hay un espacio de trabajo o una sesión disponible.'));
+      const snapshot = current.state.template;
+      if (snapshot.status !== 'draft')
+        return Promise.reject(new Error('Crea una nueva versión para editar este formulario.'));
+      const invalid = publish ? publicationError(snapshot) : null;
+      if (invalid) return Promise.reject(new Error(invalid));
+      if (!current.state.isDirty && snapshot.id && !publish) {
+        setError('');
+        return Promise.resolve(snapshot.id);
       }
 
-      dispatch({ type: 'SET_LAST_SAVED', payload: new Date() });
-      return savedId;
-    } catch (err) {
-      console.error('Auto-save error:', err);
-    } finally {
-      dispatch({ type: 'SET_SAVING', payload: false });
-    }
-  }, [state.isDirty, state.template, activeWorkspace, user, templateId, persistedId, dispatch, supabase]);
+      dispatch({ type: 'SET_SAVING', payload: true });
+      setError('');
+      const operation = (async () => {
+        try {
+          let saved = await persistFormDraft(
+            supabase,
+            snapshot,
+            current.activeWorkspace!.id,
+            current.user!.id
+          );
+          // Keep the row identity if publication fails; retries must update this draft.
+          latest.current = {
+            ...latest.current,
+            state: {
+              ...latest.current.state,
+              template: {
+                ...latest.current.state.template,
+                id: saved.id,
+                updatedAt: saved.updatedAt,
+                workspaceId: saved.workspaceId,
+              },
+            },
+          };
+          dispatch({ type: 'ACK_SAVE', payload: { snapshot, saved } });
+          if (publish) {
+            const published = await publishFormDraft(supabase, saved);
+            dispatch({ type: 'ACK_SAVE', payload: { snapshot: saved, saved: published } });
+            saved = published;
+          }
+          return saved.id;
+        } catch (cause) {
+          setError(formSaveError(cause));
+          throw cause;
+        } finally {
+          inFlight.current = null;
+          dispatch({ type: 'SET_SAVING', payload: false });
+        }
+      })();
+      inFlight.current = operation;
+      return operation;
+    },
+    [dispatch, supabase]
+  );
 
-  // Debounce auto-save: 3 seconds after last change
   useEffect(() => {
-    if (!state.isDirty) return;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      save();
+    if (!enabled || !autoSave || !state.isDirty || state.isSaving || state.template.status !== 'draft' || error)
+      return;
+    const timer = setTimeout(() => {
+      void save().catch(() => undefined);
     }, 3000);
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+    return () => clearTimeout(timer);
+  }, [enabled, autoSave, state.isDirty, state.isSaving, state.template, save, error]);
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!latest.current.state.isDirty && !inFlight.current) return;
+      event.preventDefault();
+      event.returnValue = '';
     };
-  }, [state.isDirty, state.template, save]);
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
 
   return {
     save,
-    templateId: templateId || persistedId || state.template.id,
+    error,
+    templateId: state.template.id,
     isSaving: state.isSaving,
     lastSaved: state.lastSaved,
     isDirty: state.isDirty,

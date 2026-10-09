@@ -10,7 +10,7 @@ const sidebar = read('src/components/Sidebar.tsx');
 const profile = read('src/app/mi-perfil/page.tsx');
 const avatar = read('src/components/ui/UserAvatar.tsx');
 const avatarStorageMigration = read(
-  'supabase/migrations/20260921201507_avatar_storage_owner_read.sql'
+  'supabase/migrations/20260921201536_avatar_storage_owner_read.sql'
 );
 const avatarDeleteMigration = read(
   'supabase/migrations/20260921202951_avatar_storage_owner_delete.sql'

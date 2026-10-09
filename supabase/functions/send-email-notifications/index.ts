@@ -935,16 +935,16 @@ function buildNewDeviceLoginHtml(payload: EmailPayload): string {
       const d = new Date(loginTime);
       formattedTime = d.toLocaleString("es-MX", {
         day: "2-digit", month: "long", year: "numeric",
-        hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City"
-      });
+        hour: "2-digit", minute: "2-digit", timeZone: "UTC"
+      }) + " UTC";
     } catch { /* keep default */ }
   }
 
-  const location = [city, country].filter(Boolean).join(", ") || "Desconocida";
+  const location = [city, country].filter(Boolean).join(", ") || "No disponible";
 
   const infoRows =
     buildInfoRow("Dispositivo", deviceName || "Desconocido") +
-    buildInfoRow("Ubicación", location) +
+    buildInfoRow("Ubicación aproximada por IP", location) +
     buildInfoRow("Dirección IP", ipAddress || "Desconocida") +
     buildInfoRow("Fecha y hora", formattedTime, true);
 
@@ -956,13 +956,13 @@ function buildNewDeviceLoginHtml(payload: EmailPayload): string {
           <span style="font-family:'Inter',Arial,sans-serif;font-size:12px;font-weight:600;color:#92400e;letter-spacing:0.5px;text-transform:uppercase;">⚠️ Alerta de Seguridad</span>
         </div>
         <h2 class="email-title" style="font-family:'Inter',Arial,sans-serif;color:#111827;font-size:24px;margin:0 0 12px;font-weight:700;line-height:1.3;">
-          Nuevo dispositivo detectado
+          Acceso desde una ubicación inusual
         </h2>
         <p style="font-family:'Inter',Arial,sans-serif;font-size:15px;color:#374151;margin:0 0 8px;line-height:1.6;">
           Hola${recipientName ? `, <strong>${recipientName}</strong>` : ""},
         </p>
         <p style="font-family:'Inter',Arial,sans-serif;font-size:15px;color:#374151;margin:0 0 24px;line-height:1.6;">
-          Detectamos un inicio de sesión en tu cuenta de Docubox desde un <strong>dispositivo que no habíamos visto antes</strong>. Si fuiste tú, no necesitas hacer nada.
+          Detectamos un inicio de sesión en tu cuenta de Docubox desde una ubicación inusual. La ubicación se estima a partir de la IP y puede no coincidir con tu ciudad real. Si fuiste tú, no necesitas hacer nada.
         </p>
         ${buildInfoTable(infoRows)}
         ${buildNoteBanner(
@@ -978,7 +978,7 @@ function buildNewDeviceLoginHtml(payload: EmailPayload): string {
     </tr>
     ${buildFooter(year)}`;
 
-  return wrapEmail("Alerta de seguridad — Nuevo dispositivo detectado", bodyRows);
+  return wrapEmail("Alerta de seguridad - Ubicación inusual", bodyRows);
 }
 
 // ─── Login OTP Template ───────────────────────────────────────────────────────
@@ -1159,7 +1159,7 @@ function getSubject(type: EmailType, documentName?: string, participationStatus?
     case "owner_participant_rejected":
       return `${actor} rechazó el documento: ${name}`;
     case "new_device_login":
-      return `Alerta de seguridad: inicio de sesión desde un nuevo dispositivo`;
+      return `Alerta de seguridad: acceso desde una ubicación inusual`;
     case "login_otp":
       return `Tu código de acceso a Docubox`;
   }

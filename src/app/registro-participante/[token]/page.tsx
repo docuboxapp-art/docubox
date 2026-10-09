@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import PublicTokenLayout from '@/components/PublicTokenLayout';
 import { QRCodeSVG } from 'qrcode.react';
@@ -314,6 +314,8 @@ export default function RegistroParticipantePage() {
   const router = useRouter();
   const params = useParams();
   const token = params?.token as string;
+  const isFormInvitation = useSearchParams().get('source') === 'form';
+  const formLoginPath = `/login?redirect=${encodeURIComponent(`/form/${token}`)}`;
 
   const [currentPage, setCurrentPage] = useState(1);
   const [participantData, setParticipantData] = useState<ParticipantData | null>(null);
@@ -367,20 +369,20 @@ export default function RegistroParticipantePage() {
     async function loadData() {
       if (!token) { setLoadingParticipant(false); return; }
       try {
-        const res = await fetch(`/api/portal-participante/participant-data?token=${encodeURIComponent(token)}`);
+        const res = await fetch(`${isFormInvitation ? '/api/portal-formulario/info' : '/api/portal-participante/participant-data'}?token=${encodeURIComponent(token)}`);
         if (res.ok) {
           const d = await res.json();
           const email = d.email || '';
           setParticipantData({
             email,
-            nombre: d.nombre || null,
+            nombre: d.nombre || (isFormInvitation ? d.recipientName : null) || null,
             apellidoPaterno: d.apellidoPaterno || null,
             apellidoMaterno: d.apellidoMaterno || null,
             telefono: d.telefono || null,
             tipoPersona: d.tipoPersona || 'fisica',
             documentId: d.documentId || null,
-            documentName: d.documentName || null,
-            acto: d.acto || 'firmar',
+            documentName: d.documentName || (isFormInvitation ? d.formName : null) || null,
+            acto: d.acto || (isFormInvitation ? 'responder' : 'firmar'),
           });
           if (d.telefono) {
             setData(prev => ({ ...prev, phone: d.telefono || '' }));
@@ -406,7 +408,7 @@ export default function RegistroParticipantePage() {
       setLoadingParticipant(false);
     }
     loadData();
-  }, [token]);
+  }, [token, isFormInvitation]);
 
   // QR countdown timer
   useEffect(() => {
@@ -698,7 +700,7 @@ export default function RegistroParticipantePage() {
       }
 
       // Mark unregistered participant as registered
-      if (participantData?.email) {
+      if (participantData?.email && !isFormInvitation) {
         try {
           await fetch('/api/portal-participante/mark-registered', {
             method: 'POST',
@@ -755,7 +757,7 @@ export default function RegistroParticipantePage() {
           </div>
           <h1 className="text-3xl font-semibold">¡Registro exitoso!</h1>
           <p className="text-emerald-100 text-lg">
-            Tu cuenta ha sido creada y verificada correctamente.
+            {isFormInvitation ? 'Tu cuenta fue creada. Verifica tu correo para acceder al formulario.' : 'Tu cuenta ha sido creada y verificada correctamente.'}
           </p>
           <div className="bg-white/15 rounded-2xl p-5 w-full text-left space-y-3 mt-2">
             <div className="flex items-center gap-3">
@@ -788,7 +790,9 @@ export default function RegistroParticipantePage() {
           </div>
           <button
             onClick={() => {
-              if (participantData?.documentId) {
+              if (isFormInvitation) {
+                router.push(formLoginPath);
+              } else if (participantData?.documentId) {
                 router.push(`/visor-documento/${participantData.documentId}`);
               } else {
                 router.push('/login');
@@ -796,7 +800,7 @@ export default function RegistroParticipantePage() {
             }}
             className="mt-2 bg-white text-emerald-600 font-semibold px-8 py-3 rounded-xl hover:bg-emerald-50 transition-colors duration-200 text-sm"
           >
-            {participantData?.documentId ? 'Ver documento' : 'Ir al inicio de sesión'}
+            {isFormInvitation ? 'Acceder al formulario' : participantData?.documentId ? 'Ver documento' : 'Ir al inicio de sesión'}
           </button>
         </div>
       </div>
@@ -812,6 +816,10 @@ export default function RegistroParticipantePage() {
         </div>
       </div>
     );
+  }
+
+  if (isFormInvitation && !participantData) {
+    return <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4"><div className="max-w-md rounded-lg border border-slate-200 bg-white p-7 text-center"><h1 className="text-lg font-semibold">Invitación no disponible</h1><p className="mt-2 text-sm text-slate-600">El enlace puede haber vencido o ya fue utilizado.</p><button type="button" onClick={() => router.push(`/portal-formulario/${token}`)} className="mt-5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white">Volver a la invitación</button></div></div>;
   }
 
   // ─── Email already registered screen ─────────────────────────────────────────
@@ -851,7 +859,7 @@ export default function RegistroParticipantePage() {
 
               <div className="space-y-2 pt-1">
                 <button
-                  onClick={() => router.push('/login')}
+                  onClick={() => router.push(isFormInvitation ? formLoginPath : '/login')}
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
                 >
                   <UserCheck size={16} />
@@ -1334,7 +1342,7 @@ export default function RegistroParticipantePage() {
         <AppLogo size={32} />
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">¿Ya tienes cuenta?</span>
-          <button onClick={() => router.push('/login')} className="text-sm font-semibold text-primary hover:text-primary/80 transition-colors">
+          <button onClick={() => router.push(isFormInvitation ? formLoginPath : '/login')} className="text-sm font-semibold text-primary hover:text-primary/80 transition-colors">
             Iniciar sesión
           </button>
         </div>
@@ -1367,7 +1375,7 @@ export default function RegistroParticipantePage() {
           {/* Document info banner */}
           {participantData?.documentName && (
             <div className="mb-4 bg-primary/5 border border-primary/20 rounded-xl px-4 py-3">
-              <p className="text-xs text-muted-foreground">Documento al que fuiste invitado a <span className="font-semibold text-primary">{participantData.acto}</span>:</p>
+              <p className="text-xs text-muted-foreground">{isFormInvitation ? 'Formulario al que fuiste invitado a responder:' : <>Documento al que fuiste invitado a <span className="font-semibold text-primary">{participantData.acto}</span>:</>}</p>
               <p className="text-sm font-semibold text-foreground mt-0.5 truncate">{participantData.documentName}</p>
             </div>
           )}
@@ -1391,7 +1399,7 @@ export default function RegistroParticipantePage() {
             {currentPage < 3 && (
               <div className="px-7 pb-7 flex items-center justify-between gap-3">
                 <button
-                  onClick={currentPage === 1 ? () => router.push(`/portal-participante/${token}`) : handleBack}
+                  onClick={currentPage === 1 ? () => router.push(isFormInvitation ? `/portal-formulario/${token}` : `/portal-participante/${token}`) : handleBack}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150"
                 >
                   <ArrowLeft size={15} />

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { reportLoginDevice } from '@/lib/security/report-login-device';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 interface Props {
@@ -21,6 +22,25 @@ interface Props {
 }
 
 type AuthTab = 'password' | 'otp' | 'biometric';
+
+const LOGIN_MESSAGES = [
+  {
+    title: 'Todo listo para continuar.',
+    subtitle: 'Inicia sesión en tu espacio de Docubox.',
+  },
+  {
+    title: 'Qué bueno verte de nuevo.',
+    subtitle: 'Tu espacio de Docubox te espera.',
+  },
+  {
+    title: 'Sigue donde lo dejaste.',
+    subtitle: 'Ingresa a tu espacio de Docubox.',
+  },
+  {
+    title: 'Continuemos.',
+    subtitle: 'Inicia sesión para volver a tu espacio.',
+  },
+] as const;
 
 const formatDisplayName = (name: string) =>
   name
@@ -76,7 +96,7 @@ function OtpInput({ value, onChange }: { value: string; onChange: (v: string) =>
   };
 
   return (
-    <div className="flex gap-2 justify-center" onPaste={handlePaste}>
+    <div className="grid grid-cols-6 gap-2" onPaste={handlePaste}>
       {Array.from({ length: 6 }).map((_, i) => (
         <input
           key={i}
@@ -89,7 +109,7 @@ function OtpInput({ value, onChange }: { value: string; onChange: (v: string) =>
           value={digits[i]?.trim() || ''}
           onChange={(e) => handleChange(i, e.target.value)}
           onKeyDown={(e) => handleKey(i, e)}
-          className="h-12 w-11 rounded-md border border-border bg-white text-center text-lg font-600 transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="h-12 min-w-0 w-full rounded-md border border-border bg-white text-center text-lg font-600 transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
       ))}
     </div>
@@ -207,6 +227,14 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const searchParams = useSearchParams();
   const router = useRouter();
   const emailFromQuery = searchParams?.get('email')?.trim() || '';
+  const [messageIndex, setMessageIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setMessageIndex(Math.floor(Math.random() * LOGIN_MESSAGES.length));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // ── Step 1: email ──────────────────────────────────────────────────────
   const [emailValue, setEmailValue] = useState(() =>
@@ -215,7 +243,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const [emailError, setEmailError] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
-  const [isRegisteredUser, setIsRegisteredUser] = useState(false);
   const [alternativeOptionsRequested, setAlternativeOptionsRequested] = useState(false);
   const loginOptionsRequestRef = useRef<AbortController | null>(null);
   const loginOptionsRequestIdRef = useRef(0);
@@ -226,10 +253,10 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
   // Password tab state
   const [password, setPassword] = useState('');
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const passwordInputRef = useRef<HTMLInputElement>(null);
 
   // OTP tab state
   const [otpCode, setOtpCode] = useState('');
@@ -245,7 +272,8 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const [biometricLabel, setBiometricLabel] = useState('Biométrico');
   const [webAuthnDevices, setWebAuthnDevices] = useState<WebAuthnDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
-  const passwordEnabled = emailValue.trim().length > 0;
+  const hasValidEmail = /^\S+@\S+\.\S+$/.test(emailValue.trim());
+  const canSubmitPassword = hasValidEmail && password.length > 0;
   const isOtpMode = activeTab === 'otp';
 
   const currentDeviceCategory = useMemo(() => {
@@ -280,7 +308,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
   const resetAuthReveal = () => {
     setUserName(null);
-    setIsRegisteredUser(false);
     setAlternativeOptionsRequested(false);
     setAvailableTabs(['password']);
     setActiveTab('password');
@@ -322,7 +349,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     setEmailLoading(true);
     setAlternativeOptionsRequested(true);
     setUserName(null);
-    setIsRegisteredUser(false);
     setAvailableTabs(['password']);
     setActiveTab('password');
     setPasswordError(null);
@@ -348,7 +374,6 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       setUserName(data.nombre || null);
       setWebAuthnDevices(data.webAuthnDevices || []);
       setSelectedDeviceId(null);
-      setIsRegisteredUser(!!data.found);
 
       if (data.found) {
         if (data.emailVerified) {
@@ -399,11 +424,15 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const recordLoginAttempt = (
     loginSuccess: boolean,
     authMethod: 'password' | 'otp' | 'biometric',
-    userId: string | null = null
+    userId: string | null = null,
+    accessToken?: string
   ) => {
     void fetch('/api/security/log-access', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
       body: JSON.stringify({
         userId,
         email: emailValue.trim(),
@@ -506,22 +535,14 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         return;
       }
 
-      recordLoginAttempt(true, 'password', authData.user?.id || null);
-
       if (await enforcePostLoginSecurity('other', authData.session?.access_token)) return;
-
-      // Device recognition can send alerts and record the device, but must not delay access.
-      if (authData.user?.id) {
-        void fetch('/api/security/check-device', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${authData.session?.access_token || ''}`,
-          },
-          body: JSON.stringify({ userId: authData.user.id }),
-          keepalive: true,
-        }).catch(() => undefined);
-      }
+      recordLoginAttempt(
+        true,
+        'password',
+        authData.user?.id || null,
+        authData.session?.access_token
+      );
+      reportLoginDevice(authData.user?.id, authData.session?.access_token);
 
       markLoginTiming('password-total', loginStartedAt);
       router.replace(requestedRedirect());
@@ -607,8 +628,9 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         sessionAccessToken = verifiedSession.session?.access_token;
       }
 
-      recordLoginAttempt(true, 'otp', data.userId || null);
       if (await enforcePostLoginSecurity('other', sessionAccessToken)) return;
+      recordLoginAttempt(true, 'otp', data.userId || null, sessionAccessToken);
+      reportLoginDevice(data.userId, sessionAccessToken);
       router.replace(requestedRedirect());
     } catch (error) {
       setOtpError(
@@ -711,8 +733,14 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
         return;
       }
 
-      recordLoginAttempt(true, 'biometric', verifyData?.userId || null);
       if (await enforcePostLoginSecurity('passkey', verifiedSession?.session?.access_token)) return;
+      recordLoginAttempt(
+        true,
+        'biometric',
+        verifyData?.userId || null,
+        verifiedSession?.session?.access_token
+      );
+      reportLoginDevice(verifyData?.userId, verifiedSession?.session?.access_token);
       router.replace(requestedRedirect());
     } catch (err: unknown) {
       const name = err instanceof Error ? err.name : '';
@@ -737,456 +765,475 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     setOtpError(null);
   };
 
+  const handleUsePassword = () => {
+    loginOptionsRequestIdRef.current += 1;
+    loginOptionsRequestRef.current?.abort();
+    loginOptionsRequestRef.current = null;
+    setEmailLoading(false);
+    setAlternativeOptionsRequested(false);
+    setActiveTab('password');
+    setOtpError(null);
+  };
+
   // ── RENDER ─────────────────────────────────────────────────────────────
   return (
     <div>
       <div className="w-full">
-        <div className="mb-7">
+        <div className="mb-8">
           {userName ? (
-            <h2 className="text-2xl font-400 text-muted-foreground">
+            <h1 className="break-words text-[28px] font-400 leading-tight text-muted-foreground">
               Hola, <span className="font-600 text-foreground">{formatDisplayName(userName)}</span>
-            </h2>
+            </h1>
           ) : (
-            <h2 className="text-2xl font-600 text-foreground">Bienvenido de vuelta</h2>
+            <h1 className="text-[28px] font-500 leading-tight text-foreground">
+              {LOGIN_MESSAGES[messageIndex].title}
+            </h1>
           )}
-          <p className="text-sm text-muted-foreground mt-1">
-            Ingresa tu correo electrónico y contraseña para continuar.
+          <p className="mt-2 text-sm text-muted-foreground">
+            {userName ? 'Ingresa tus datos para continuar.' : LOGIN_MESSAGES[messageIndex].subtitle}
           </p>
         </div>
-
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-600 text-foreground mb-1">
+            <label htmlFor="login-email" className="mb-2 block text-sm font-600 text-foreground">
               Correo electrónico <span className="text-red-500">*</span>
             </label>
             <input
+              id="login-email"
               type="email"
               value={emailValue}
               onChange={(e) => handleEmailChange(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Tab' && !e.shiftKey && passwordEnabled) {
+                if (e.key === 'Enter' && !alternativeOptionsRequested) {
                   e.preventDefault();
-                  window.requestAnimationFrame(() => passwordInputRef.current?.focus());
-                  return;
-                }
-                if (e.key === 'Enter') {
-                  handlePasswordLogin();
+                  if (hasValidEmail) {
+                    setEmailError('');
+                    passwordInputRef.current?.focus();
+                  } else {
+                    setEmailError('Ingresa un correo electrónico válido.');
+                  }
                 }
               }}
               placeholder="tu@empresa.com"
               autoComplete="email"
               autoFocus
-              className={`h-11 w-full rounded-lg border px-3 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${emailError ? 'border-red-400 bg-red-50' : 'border-border bg-white'}`}
+              className={`h-12 w-full rounded-md border px-4 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${emailError ? 'border-red-400 bg-red-50' : 'border-border bg-white dark:bg-background'}`}
             />
             {emailError && <p className="text-[11px] text-red-600 mt-1">{emailError}</p>}
           </div>
 
-          {passwordEnabled && (
-            <>
-              {!isOtpMode && (
-                <div className="space-y-3">
-                  {passwordError && (
-                    <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
-                      <AlertTriangle size={13} className="text-red-600 flex-shrink-0 mt-0.5" />
-                      <p className="text-xs text-red-700">{passwordError}</p>
-                    </div>
-                  )}
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-600 text-foreground">
-                        Contraseña <span className="text-red-500">*</span>
-                      </label>
-                      <Link
-                        href={
-                          /^\S+@\S+\.\S+$/.test(emailValue.trim())
-                            ? `/olvide-contrasena?email=${encodeURIComponent(emailValue.trim())}`
-                            : '/olvide-contrasena'
-                        }
-                        onClick={() => {
-                          const recoveryEmail = emailValue.trim();
-                          if (/^\S+@\S+\.\S+$/.test(recoveryEmail)) {
-                            window.sessionStorage.setItem(
-                              'docubox:password-recovery-email',
-                              recoveryEmail
-                            );
-                          } else {
-                            window.sessionStorage.removeItem('docubox:password-recovery-email');
-                          }
-                        }}
-                        tabIndex={-1}
-                        className="text-xs text-primary hover:underline font-500"
-                      >
-                        ¿Olvidaste tu contraseña?
-                      </Link>
-                    </div>
-                    <div className="relative">
-                      <input
-                        ref={passwordInputRef}
-                        type={showPassword ? 'text' : 'password'}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handlePasswordLogin();
-                        }}
-                        placeholder="Tu contraseña"
-                        autoComplete="current-password"
-                        disabled={!passwordEnabled}
-                        className={`h-11 w-full rounded-lg border px-3 pr-10 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${passwordError ? 'border-red-400 bg-red-50' : 'border-border bg-white'} disabled:bg-muted/60 disabled:text-muted-foreground`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        disabled={!passwordEnabled}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
-                    </div>
+          <>
+            {!alternativeOptionsRequested && (
+              <div className="space-y-3">
+                {passwordError && (
+                  <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
+                    <AlertTriangle size={13} className="text-red-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-700">{passwordError}</p>
                   </div>
+                )}
 
-                  <button
-                    onClick={handlePasswordLogin}
-                    disabled={passwordLoading || !passwordEnabled}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
-                    style={{ minHeight: '44px' }}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label
+                    htmlFor="login-password"
+                    className="order-1 text-sm font-600 text-foreground"
                   >
-                    {passwordLoading ? (
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      'Iniciar sesión'
-                    )}
-                  </button>
-                  {!alternativeOptionsRequested && (
+                    Contraseña <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative order-3 w-full">
+                    <input
+                      id="login-password"
+                      ref={passwordInputRef}
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handlePasswordLogin();
+                      }}
+                      placeholder="Tu contraseña"
+                      autoComplete="current-password"
+                      className={`h-12 w-full rounded-md border px-4 pr-10 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${passwordError ? 'border-red-400 bg-red-50' : 'border-border bg-white dark:bg-background'}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                  {hasValidEmail && (
+                    <Link
+                      href={
+                        hasValidEmail
+                          ? `/olvide-contrasena?email=${encodeURIComponent(emailValue.trim())}`
+                          : '/olvide-contrasena'
+                      }
+                      onClick={() => {
+                        const recoveryEmail = emailValue.trim();
+                        if (/^\S+@\S+\.\S+$/.test(recoveryEmail)) {
+                          window.sessionStorage.setItem(
+                            'docubox:password-recovery-email',
+                            recoveryEmail
+                          );
+                        } else {
+                          window.sessionStorage.removeItem('docubox:password-recovery-email');
+                        }
+                      }}
+                      className="order-2 ml-auto text-xs font-500 text-primary hover:underline"
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </Link>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handlePasswordLogin}
+                  disabled={passwordLoading || !canSubmitPassword}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {passwordLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    'Iniciar sesión'
+                  )}
+                </button>
+                {hasValidEmail && (
+                  <>
+                    <div className="flex items-center gap-3 py-1" aria-hidden="true">
+                      <span className="h-px flex-1 bg-border" />
+                      <span className="text-xs text-muted-foreground">o</span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
                     <button
                       type="button"
                       onClick={loadAlternativeLoginOptions}
                       disabled={emailLoading}
-                      className="w-full text-xs font-600 text-primary transition-colors hover:text-primary/80 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                      className="flex min-h-12 w-full items-center justify-center rounded-md border border-border bg-white px-4 py-3 text-sm font-500 text-foreground transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card"
                     >
-                      Usar otro método de acceso
+                      Usar otro método
                     </button>
-                  )}
-                </div>
-              )}
+                  </>
+                )}
+              </div>
+            )}
 
-              {!isOtpMode && emailLoading && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                  Buscando opciones adicionales...
-                </div>
-              )}
+            {alternativeOptionsRequested && emailLoading && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                Buscando opciones adicionales...
+              </div>
+            )}
 
-              {availableTabs.some((tab) => tab !== 'password') && (
-                <div className="space-y-3">
-                  {!isOtpMode && (
-                    <div>
-                      <p className="text-sm font-600 text-foreground">Opciones adicionales</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        También puedes iniciar sesión con otro método disponible.
-                      </p>
-                    </div>
-                  )}
+            {alternativeOptionsRequested && !emailLoading && (
+              <div className="space-y-3">
+                {!isOtpMode && (
+                  <div>
+                    <p className="text-sm font-600 text-foreground">Opciones adicionales</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      También puedes iniciar sesión con otro método disponible.
+                    </p>
+                  </div>
+                )}
 
-                  {/* ── OTP ── */}
-                  {availableTabs.includes('otp') && (
-                    <>
-                      <AccordionItem
-                        id="otp"
-                        icon={<Mail size={17} />}
-                        label="Ingresa con código OTP a tu correo"
-                        sublabel="Recibirás un código de 6 dígitos"
-                        isOpen={activeTab === 'otp'}
-                        onToggle={() => handleAccordionToggle('otp')}
-                      >
-                        <div className="space-y-4 pt-2">
-                          {otpError && (
-                            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
-                              <AlertTriangle
-                                size={13}
-                                className="text-red-600 flex-shrink-0 mt-0.5"
-                              />
-                              <p className="text-xs text-red-700">{otpError}</p>
-                            </div>
-                          )}
-                          {otpLoading && !otpSent ? (
-                            <div className="flex flex-col items-center gap-2 py-4">
-                              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                              <p className="text-xs text-muted-foreground">Enviando código...</p>
-                            </div>
-                          ) : otpSent ? (
-                            <>
-                              <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
-                                <CheckCircle2
-                                  size={13}
-                                  className="text-blue-600 flex-shrink-0 mt-0.5"
-                                />
-                                <p className="text-xs text-blue-700">
-                                  Se envió un código de 6 dígitos a <strong>{emailValue}</strong>.
-                                  Revisa tu bandeja de entrada.
-                                </p>
-                              </div>
-                              <div className="flex justify-center">
-                                {!otpExpired ? (
-                                  <CountdownTimer
-                                    key={otpTimerKey}
-                                    seconds={300}
-                                    onExpire={() => setOtpExpired(true)}
-                                  />
-                                ) : (
-                                  <div className="flex flex-col items-center gap-2">
-                                    <p className="text-xs text-red-600 font-600">
-                                      El código expiró.
-                                    </p>
-                                    <button
-                                      onClick={sendOtp}
-                                      className="flex items-center gap-1.5 text-xs text-primary hover:underline font-600"
-                                    >
-                                      <RefreshCw size={12} /> Reenviar código
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                              {!otpExpired && (
-                                <>
-                                  <OtpInput value={otpCode} onChange={setOtpCode} />
-                                  <button
-                                    onClick={handleOtpVerify}
-                                    disabled={otpLoading || otpCode.length < 6}
-                                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
-                                    style={{ minHeight: '44px' }}
-                                  >
-                                    {otpLoading ? (
-                                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                      'Verificar código'
-                                    )}
-                                  </button>
-                                  <button
-                                    onClick={sendOtp}
-                                    disabled={otpLoading}
-                                    className="w-full text-xs text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1"
-                                  >
-                                    <RefreshCw size={11} /> Reenviar código
-                                  </button>
-                                </>
-                              )}
-                            </>
-                          ) : null}
-                        </div>
-                      </AccordionItem>
-                      {isOtpMode && (
-                        <button
-                          type="button"
-                          onClick={handleChangeAuthMethod}
-                          className="mx-auto block text-xs font-600 text-primary transition-colors hover:text-primary/80 hover:underline"
-                        >
-                          Cambiar método
-                        </button>
-                      )}
-                    </>
-                  )}
+                {availableTabs.every((tab) => tab === 'password') && (
+                  <p className="text-sm text-muted-foreground">
+                    No hay otros métodos disponibles para este correo.
+                  </p>
+                )}
 
-                  {/* ── Biométrico ── */}
-                  {!isOtpMode && availableTabs.includes('biometric') && (
+                {/* ── OTP ── */}
+                {availableTabs.includes('otp') && (
+                  <>
                     <AccordionItem
-                      id="biometric"
-                      icon={<Fingerprint size={17} />}
-                      label="Ingresa con tu biométrico"
-                      sublabel={`Autenticación sin contraseña con ${biometricDisplayLabel}`}
-                      isOpen={activeTab === 'biometric'}
-                      onToggle={() => handleAccordionToggle('biometric')}
+                      id="otp"
+                      icon={<Mail size={17} />}
+                      label="Ingresa con código OTP a tu correo"
+                      sublabel="Recibirás un código de 6 dígitos"
+                      isOpen={activeTab === 'otp'}
+                      onToggle={() => handleAccordionToggle('otp')}
                     >
                       <div className="space-y-4 pt-2">
-                        {biometricError && (
+                        {otpError && (
                           <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
                             <AlertTriangle
                               size={13}
                               className="text-red-600 flex-shrink-0 mt-0.5"
                             />
-                            <p className="text-xs text-red-700">{biometricError}</p>
+                            <p className="text-xs text-red-700">{otpError}</p>
                           </div>
                         )}
-
-                        {mobileCredentialOnDesktop && (
-                          <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-3.5">
-                            <div className="flex items-start gap-3">
-                              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-white text-primary">
-                                <Fingerprint size={16} />
-                              </div>
-                              <div>
-                                <p className="text-sm font-600 text-foreground">
-                                  Tu biométrico está registrado en el móvil
-                                </p>
-                                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                  Continúa para mostrar un código QR seguro. Escanéalo con la cámara
-                                  del iPhone y confirma con Face ID, Touch ID o el código del
-                                  dispositivo. No necesitas abrir Docubox manualmente en el móvil.
-                                </p>
-                              </div>
-                            </div>
+                        {otpLoading && !otpSent ? (
+                          <div className="flex flex-col items-center gap-2 py-4">
+                            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            <p className="text-xs text-muted-foreground">Enviando código...</p>
                           </div>
-                        )}
-
-                        {/* Device selector — shown only when 2+ devices registered */}
-                        {webAuthnDevices.length > 1 && (
-                          <div className="space-y-2">
-                            <p className="text-xs font-600 text-foreground">
-                              Selecciona el dispositivo con el que deseas autenticarte:
-                            </p>
-                            <div className="space-y-2">
-                              {webAuthnDevices.map((device) => {
-                                const isSelected = selectedDeviceId === device.id;
-                                const label =
-                                  device.device_name ||
-                                  [device.browser, device.os].filter(Boolean).join(' en ') ||
-                                  'Dispositivo';
-                                const regDate = device.registered_at
-                                  ? new Date(device.registered_at).toLocaleDateString('es-MX', {
-                                      day: '2-digit',
-                                      month: 'short',
-                                      year: 'numeric',
-                                    })
-                                  : null;
-                                const methodLabel: Record<string, string> = {
-                                  direct: 'Registro directo',
-                                  qr: 'Registro QR',
-                                  stepup: 'Step-up',
-                                };
-                                return (
-                                  <button
-                                    key={device.id}
-                                    type="button"
-                                    onClick={() =>
-                                      setSelectedDeviceId(isSelected ? null : device.id)
-                                    }
-                                    className={`flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-all duration-150 ${
-                                      isSelected
-                                        ? 'border-primary bg-primary/5 shadow-sm shadow-primary/10'
-                                        : 'border-border bg-white hover:border-primary/40'
-                                    }`}
-                                  >
-                                    <div
-                                      className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${isSelected ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}
-                                    >
-                                      <Fingerprint size={18} />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p
-                                        className={`text-sm font-600 truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}
-                                      >
-                                        {label}
-                                      </p>
-                                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                        {device.os && (
-                                          <span className="text-[10px] text-muted-foreground">
-                                            {device.os}
-                                          </span>
-                                        )}
-                                        {device.browser && (
-                                          <span className="text-[10px] text-muted-foreground">
-                                            · {device.browser}
-                                          </span>
-                                        )}
-                                        {device.registration_method && (
-                                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-                                            {methodLabel[device.registration_method] ||
-                                              device.registration_method}
-                                          </span>
-                                        )}
-                                        {regDate && (
-                                          <span className="text-[10px] text-muted-foreground">
-                                            · {regDate}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                    {isSelected && (
-                                      <div className="w-4 h-4 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                                        <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                                          <path
-                                            d="M1 4l2 2 4-4"
-                                            stroke="white"
-                                            strokeWidth="1.5"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                          />
-                                        </svg>
-                                      </div>
-                                    )}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            {selectedDeviceId === null && (
-                              <p className="text-[11px] text-muted-foreground text-center">
-                                Selecciona un dispositivo o usa cualquiera disponible
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Single device or no selection — show fingerprint icon */}
-                        {webAuthnDevices.length <= 1 && (
-                          <div className="flex flex-col items-center gap-3 py-2">
-                            <div
-                              className={`w-16 h-16 rounded-full flex items-center justify-center ${biometricLoading ? 'bg-primary/10 animate-pulse' : 'bg-primary/5'}`}
-                            >
-                              <Fingerprint
-                                size={32}
-                                className={
-                                  biometricLoading
-                                    ? 'text-primary animate-pulse'
-                                    : 'text-primary/60'
-                                }
+                        ) : otpSent ? (
+                          <>
+                            <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                              <CheckCircle2
+                                size={13}
+                                className="text-blue-600 flex-shrink-0 mt-0.5"
                               />
+                              <p className="text-xs text-blue-700">
+                                Se envió un código de 6 dígitos a <strong>{emailValue}</strong>.
+                                Revisa tu bandeja de entrada.
+                              </p>
                             </div>
-                            <p className="text-xs text-center text-muted-foreground">
-                              Usa <strong>{biometricDisplayLabel}</strong> para autenticarte sin
-                              contraseña.
-                            </p>
-                            <p className="text-[10px] text-center text-muted-foreground/70">
-                              FIDO2 Certified · Tu biométrico nunca sale del dispositivo
-                            </p>
-                          </div>
-                        )}
-
-                        <button
-                          onClick={handleBiometricLogin}
-                          disabled={biometricLoading}
-                          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
-                          style={{ minHeight: '44px' }}
-                        >
-                          {biometricLoading ? (
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <>
-                              <Fingerprint size={15} />
-                              {useCrossDeviceAuthentication
-                                ? 'Usar dispositivo móvil con QR'
-                                : webAuthnDevices.length > 1 && selectedDeviceId
-                                  ? `Entrar con dispositivo seleccionado`
-                                  : `Entrar con ${biometricLabel}`}
-                            </>
-                          )}
-                        </button>
+                            <div className="flex justify-center">
+                              {!otpExpired ? (
+                                <CountdownTimer
+                                  key={otpTimerKey}
+                                  seconds={300}
+                                  onExpire={() => setOtpExpired(true)}
+                                />
+                              ) : (
+                                <div className="flex flex-col items-center gap-2">
+                                  <p className="text-xs text-red-600 font-600">El código expiró.</p>
+                                  <button
+                                    onClick={sendOtp}
+                                    className="flex items-center gap-1.5 text-xs text-primary hover:underline font-600"
+                                  >
+                                    <RefreshCw size={12} /> Reenviar código
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            {!otpExpired && (
+                              <>
+                                <OtpInput value={otpCode} onChange={setOtpCode} />
+                                <button
+                                  onClick={handleOtpVerify}
+                                  disabled={otpLoading || otpCode.length < 6}
+                                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                                  style={{ minHeight: '44px' }}
+                                >
+                                  {otpLoading ? (
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                  ) : (
+                                    'Verificar código'
+                                  )}
+                                </button>
+                                <button
+                                  onClick={sendOtp}
+                                  disabled={otpLoading}
+                                  className="w-full text-xs text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1"
+                                >
+                                  <RefreshCw size={11} /> Reenviar código
+                                </button>
+                              </>
+                            )}
+                          </>
+                        ) : null}
                       </div>
                     </AccordionItem>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+                    {isOtpMode && (
+                      <button
+                        type="button"
+                        onClick={handleChangeAuthMethod}
+                        className="mx-auto block text-xs font-600 text-primary transition-colors hover:text-primary/80 hover:underline"
+                      >
+                        Cambiar método
+                      </button>
+                    )}
+                  </>
+                )}
 
-        {!isRegisteredUser && (
-          <p className="mt-5 text-center text-sm text-muted-foreground">
-            ¿No tienes cuenta?{' '}
-            <Link href="/registro" className="text-primary font-600 hover:underline">
-              Crear cuenta
-            </Link>
-          </p>
-        )}
+                {/* ── Biométrico ── */}
+                {!isOtpMode && availableTabs.includes('biometric') && (
+                  <AccordionItem
+                    id="biometric"
+                    icon={<Fingerprint size={17} />}
+                    label="Ingresa con tu biométrico"
+                    sublabel={`Autenticación sin contraseña con ${biometricDisplayLabel}`}
+                    isOpen={activeTab === 'biometric'}
+                    onToggle={() => handleAccordionToggle('biometric')}
+                  >
+                    <div className="space-y-4 pt-2">
+                      {biometricError && (
+                        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
+                          <AlertTriangle size={13} className="text-red-600 flex-shrink-0 mt-0.5" />
+                          <p className="text-xs text-red-700">{biometricError}</p>
+                        </div>
+                      )}
+
+                      {mobileCredentialOnDesktop && (
+                        <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-3.5">
+                          <div className="flex items-start gap-3">
+                            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-white text-primary">
+                              <Fingerprint size={16} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-600 text-foreground">
+                                Tu biométrico está registrado en el móvil
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                Continúa para mostrar un código QR seguro. Escanéalo con la cámara
+                                del iPhone y confirma con Face ID, Touch ID o el código del
+                                dispositivo. No necesitas abrir Docubox manualmente en el móvil.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Device selector — shown only when 2+ devices registered */}
+                      {webAuthnDevices.length > 1 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-600 text-foreground">
+                            Selecciona el dispositivo con el que deseas autenticarte:
+                          </p>
+                          <div className="space-y-2">
+                            {webAuthnDevices.map((device) => {
+                              const isSelected = selectedDeviceId === device.id;
+                              const label =
+                                device.device_name ||
+                                [device.browser, device.os].filter(Boolean).join(' en ') ||
+                                'Dispositivo';
+                              const regDate = device.registered_at
+                                ? new Date(device.registered_at).toLocaleDateString('es-MX', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })
+                                : null;
+                              const methodLabel: Record<string, string> = {
+                                direct: 'Registro directo',
+                                qr: 'Registro QR',
+                                stepup: 'Step-up',
+                              };
+                              return (
+                                <button
+                                  key={device.id}
+                                  type="button"
+                                  onClick={() => setSelectedDeviceId(isSelected ? null : device.id)}
+                                  className={`flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-all duration-150 ${
+                                    isSelected
+                                      ? 'border-primary bg-primary/5 shadow-sm shadow-primary/10'
+                                      : 'border-border bg-white hover:border-primary/40'
+                                  }`}
+                                >
+                                  <div
+                                    className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${isSelected ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}
+                                  >
+                                    <Fingerprint size={18} />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p
+                                      className={`text-sm font-600 truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}
+                                    >
+                                      {label}
+                                    </p>
+                                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                      {device.os && (
+                                        <span className="text-[10px] text-muted-foreground">
+                                          {device.os}
+                                        </span>
+                                      )}
+                                      {device.browser && (
+                                        <span className="text-[10px] text-muted-foreground">
+                                          · {device.browser}
+                                        </span>
+                                      )}
+                                      {device.registration_method && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                                          {methodLabel[device.registration_method] ||
+                                            device.registration_method}
+                                        </span>
+                                      )}
+                                      {regDate && (
+                                        <span className="text-[10px] text-muted-foreground">
+                                          · {regDate}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {isSelected && (
+                                    <div className="w-4 h-4 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                                        <path
+                                          d="M1 4l2 2 4-4"
+                                          stroke="white"
+                                          strokeWidth="1.5"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        />
+                                      </svg>
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {selectedDeviceId === null && (
+                            <p className="text-[11px] text-muted-foreground text-center">
+                              Selecciona un dispositivo o usa cualquiera disponible
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Single device or no selection — show fingerprint icon */}
+                      {webAuthnDevices.length <= 1 && (
+                        <div className="flex flex-col items-center gap-3 py-2">
+                          <div
+                            className={`w-16 h-16 rounded-full flex items-center justify-center ${biometricLoading ? 'bg-primary/10 animate-pulse' : 'bg-primary/5'}`}
+                          >
+                            <Fingerprint
+                              size={32}
+                              className={
+                                biometricLoading ? 'text-primary animate-pulse' : 'text-primary/60'
+                              }
+                            />
+                          </div>
+                          <p className="text-xs text-center text-muted-foreground">
+                            Usa <strong>{biometricDisplayLabel}</strong> para autenticarte sin
+                            contraseña.
+                          </p>
+                          <p className="text-[10px] text-center text-muted-foreground/70">
+                            FIDO2 Certified · Tu biométrico nunca sale del dispositivo
+                          </p>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleBiometricLogin}
+                        disabled={biometricLoading}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                        style={{ minHeight: '44px' }}
+                      >
+                        {biometricLoading ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <>
+                            <Fingerprint size={15} />
+                            {useCrossDeviceAuthentication
+                              ? 'Usar dispositivo móvil con QR'
+                              : webAuthnDevices.length > 1 && selectedDeviceId
+                                ? `Entrar con dispositivo seleccionado`
+                                : `Entrar con ${biometricLabel}`}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </AccordionItem>
+                )}
+              </div>
+            )}
+
+            {alternativeOptionsRequested && (
+              <button
+                type="button"
+                onClick={handleUsePassword}
+                className="w-full py-2 text-sm font-600 text-primary transition-colors hover:text-primary/80 hover:underline"
+              >
+                Usar contraseña
+              </button>
+            )}
+          </>
+        </div>
       </div>
     </div>
   );

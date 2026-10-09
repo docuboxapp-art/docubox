@@ -1651,7 +1651,7 @@ function SpaceManagement({
     const resourceId = String(resource.resource_id || '');
     if (resource.resource_type === 'document') return `/visor-documento/${resourceId}`;
     if (resource.resource_type === 'case_file') return `/expedientes/${resourceId}`;
-    if (resource.resource_type === 'form') return `/formularios/builder?id=${resourceId}`;
+    if (resource.resource_type === 'form') return `/formularios/nuevo?id=${resourceId}`;
     if (resource.resource_type === 'template') return `/plantillas/nueva?id=${resourceId}`;
     return '';
   };

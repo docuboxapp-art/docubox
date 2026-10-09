@@ -12,7 +12,7 @@ import {
   AlertCircle,
   MoreHorizontal,
   Eye,
-  Edit,
+  SquarePen,
   Copy,
   Archive,
   ArchiveRestore,
@@ -404,7 +404,7 @@ function TemplateCard({
             className="flex h-9 items-center gap-1.5 rounded-md bg-[#1E6BFF] px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#1557d6] disabled:cursor-wait disabled:opacity-60"
             aria-label={isArchived ? 'Reactivar plantilla' : 'Editar plantilla'}
           >
-            {isArchived ? <ArchiveRestore size={12} /> : <Edit size={12} />}
+            {isArchived ? <ArchiveRestore size={12} /> : <SquarePen size={14} />}
             {isArchived ? 'Reactivar' : 'Editar'}
           </button>
         </div>
@@ -445,7 +445,7 @@ function TemplateCard({
                       }}
                       className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-950"
                     >
-                      <Edit size={14} className="text-slate-400" /> Editar
+                      <SquarePen size={14} className="text-slate-400" /> Editar
                     </button>
                   )}
                   <button
@@ -538,13 +538,13 @@ export default function PlantillasGalleryPage() {
   const { activeWorkspace } = useWorkspace();
   const activeWorkspaceId = activeWorkspace?.id;
   const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<TemplateFilter>('published');
   const [sortMode, setSortMode] = useState<TemplateSort>('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [favorites, setFavorites] = useState<string[]>([]);
-  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   const [favoritePendingId, setFavoritePendingId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [archiveTarget, setArchiveTarget] = useState<Plantilla | null>(null);
@@ -799,30 +799,6 @@ export default function PlantillasGalleryPage() {
     (safeCurrentPage - 1) * TABLE_PAGE_SIZE,
     safeCurrentPage * TABLE_PAGE_SIZE
   );
-  const selectedTemplateSet = new Set(selectedTemplateIds);
-  const allPageTemplatesSelected =
-    paginatedTemplates.length > 0 &&
-    paginatedTemplates.every((template) => selectedTemplateSet.has(template.id));
-
-  const toggleTemplateSelection = (templateId: string) => {
-    setSelectedTemplateIds((current) =>
-      current.includes(templateId)
-        ? current.filter((id) => id !== templateId)
-        : [...current, templateId]
-    );
-  };
-
-  const togglePageSelection = () => {
-    setSelectedTemplateIds((current) => {
-      const next = new Set(current);
-      if (allPageTemplatesSelected) {
-        paginatedTemplates.forEach((template) => next.delete(template.id));
-      } else {
-        paginatedTemplates.forEach((template) => next.add(template.id));
-      }
-      return Array.from(next);
-    });
-  };
 
   return (
     <AppLayout noPadding>
@@ -845,6 +821,19 @@ export default function PlantillasGalleryPage() {
               </Link>
             </div>
           </header>
+
+          <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <button type="button" aria-expanded={summaryOpen} aria-controls="template-summary-metrics" onClick={() => setSummaryOpen((open) => !open)} className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 ${summaryOpen ? 'border-b border-slate-200' : ''}`}>
+              <span><span className="block text-sm font-semibold text-slate-950">Resumen de plantillas</span><span className="mt-0.5 block text-xs text-slate-500">Actividad del espacio de trabajo actual.</span></span>
+              <span className="flex shrink-0 items-center gap-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{visibleTemplates.length} {visibleTemplates.length === 1 ? 'plantilla' : 'plantillas'}</span><ChevronDown size={18} className={`text-slate-500 transition-transform ${summaryOpen ? 'rotate-180' : ''}`} /></span>
+            </button>
+            {summaryOpen && <div id="template-summary-metrics" className="grid grid-cols-2 divide-x divide-y divide-slate-200 lg:grid-cols-4 lg:divide-y-0">
+              <TemplateMetric icon={FileText} label="Total" value={visibleTemplates.length} tone="slate" />
+              <TemplateMetric icon={CheckCircle} label="Publicados" value={filterCounts.published} tone="emerald" />
+              <TemplateMetric icon={Clock} label="Borrador" value={filterCounts.draft} tone="blue" />
+              <TemplateMetric icon={Archive} label="Archivados" value={filterCounts.archived} tone="indigo" />
+            </div>}
+          </section>
 
           <section className="mb-3 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="flex flex-wrap items-center gap-2 p-3">
@@ -1017,15 +1006,6 @@ export default function PlantillasGalleryPage() {
                   <table className="w-full min-w-[980px] table-fixed text-sm">
                     <thead className="border-b border-slate-200 bg-slate-50/80">
                       <tr>
-                        <th className="w-12 px-3 py-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={allPageTemplatesSelected}
-                            onChange={togglePageSelection}
-                            aria-label="Seleccionar todas las plantillas de esta página"
-                            className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-[#1E6BFF]"
-                          />
-                        </th>
                         <th className="w-[36%] px-3 py-3 text-left text-xs font-medium text-slate-500">
                           Plantilla
                         </th>
@@ -1052,20 +1032,10 @@ export default function PlantillasGalleryPage() {
                         const statusCfg = STATUS_CONFIG[statusKey] || STATUS_CONFIG.draft;
                         const StatusIcon = statusCfg.icon;
                         const isFavorite = favoriteSet.has(template.id);
-                        const isSelected = selectedTemplateSet.has(template.id);
                         const isArchived = statusKey === 'archived';
                         const description = getPlantillaDesc(template).trim();
                         return (
                           <tr key={template.id} className="transition-colors hover:bg-slate-50/70">
-                            <td className="px-3 py-3 text-center">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleTemplateSelection(template.id)}
-                                aria-label={`Seleccionar ${getPlantillaName(template)}`}
-                                className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-[#1E6BFF]"
-                              />
-                            </td>
                             <td className="px-3 py-3">
                               <div className="flex min-w-0 items-center gap-3">
                                 <TemplateDocumentPreview plantilla={template} compact />
@@ -1142,7 +1112,7 @@ export default function PlantillasGalleryPage() {
                                     title="Editar plantilla"
                                     aria-label="Editar plantilla"
                                   >
-                                    <Edit size={13} />
+                                    <SquarePen size={15} />
                                   </button>
                                 )}
                                 <button
@@ -1247,4 +1217,9 @@ export default function PlantillasGalleryPage() {
       )}
     </AppLayout>
   );
+}
+
+function TemplateMetric({ icon: Icon, label, value, tone }: { icon: React.ElementType; label: string; value: number; tone: 'slate' | 'emerald' | 'blue' | 'indigo' }) {
+  const tones = { slate: 'bg-slate-100 text-slate-600', emerald: 'bg-emerald-50 text-emerald-700', blue: 'bg-blue-50 text-blue-700', indigo: 'bg-indigo-50 text-indigo-700' };
+  return <div className="flex min-h-24 items-center gap-3 px-5 py-4"><span className={`flex h-9 w-9 items-center justify-center rounded-md ${tones[tone]}`}><Icon size={17} /></span><span><span className="block text-xl font-semibold tabular-nums text-slate-950">{value}</span><span className="block text-xs text-slate-500">{label}</span></span></div>;
 }

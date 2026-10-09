@@ -439,6 +439,7 @@ interface Props {
   userEmail?: string;
   userName?: string;
   documentName?: string;
+  requireBiometric?: boolean;
   isDark: boolean;
   initialGeolocation: BrowserGeolocation | null;
   onComplete: (
@@ -1581,11 +1582,13 @@ function BiometricCheckModal({
   userId,
   onSkip,
   onProceedWithBiometric,
+  required = false,
 }: {
   isDark: boolean;
   userId: string;
   onSkip: () => void;
   onProceedWithBiometric: (mode: 'same_device' | 'mobile', hasIne: boolean) => void;
+  required?: boolean;
 }) {
   const [checkState, setCheckState] = useState<'checking' | 'found' | 'not_found'>('checking');
   const [enrollment, setEnrollment] = useState<BiometricEnrollment | null>(null);
@@ -1735,13 +1738,13 @@ function BiometricCheckModal({
             </div>
           )}
 
-          <button
+          {!required && <button
             type="button"
             onClick={onSkip}
             className={`w-full text-xs py-2 transition-colors ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-slate-400 hover:text-slate-600'}`}
           >
             Omitir prueba de vida
-          </button>
+          </button>}
         </div>
       </div>
     );
@@ -1753,13 +1756,12 @@ function BiometricCheckModal({
     >
       <div className={`px-4 py-3 border-b ${isDark ? 'border-gray-700' : 'border-slate-200'}`}>
         <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
-          ¿Deseas agregar prueba de vida?
+          {required ? 'Prueba de vida obligatoria' : '¿Deseas agregar prueba de vida?'}
         </p>
       </div>
       <div className="p-4 space-y-3">
         <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
-          Vincular tu identidad visual al documento agrega valor probatorio adicional. ¿Deseas
-          generar una prueba de vida al firmar?
+          {required ? 'Para firmar este formulario debes acreditar tu identidad con una selfie en tiempo real.' : 'Vincular tu identidad visual al documento agrega valor probatorio adicional. ¿Deseas generar una prueba de vida al firmar?'}
         </p>
 
         {/* Enrollment / stored ID status */}
@@ -1822,8 +1824,7 @@ function BiometricCheckModal({
               <p
                 className={`text-[11px] mt-0.5 ${isDark ? 'text-amber-500/80' : 'text-amber-600'}`}
               >
-                No se encontró una identificación registrada. Puedes agregarla junto con la prueba
-                de vida o continuar sin prueba de vida.
+                {required ? 'No se encontró una identificación registrada. Puedes agregarla junto con la prueba de vida.' : 'No se encontró una identificación registrada. Puedes agregarla junto con la prueba de vida o continuar sin prueba de vida.'}
               </p>
             </div>
           </div>
@@ -1838,17 +1839,17 @@ function BiometricCheckModal({
             <Camera size={15} />
             Generar prueba de vida
           </button>
-          <button
+          {!required && <button
             type="button"
             onClick={onSkip}
             className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
           >
             <ChevronRight size={15} />
             Continuar sin prueba de vida
-          </button>
+          </button>}
         </div>
         <p className={`text-xs text-center ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
-          La verificación biométrica es opcional. Tu documento tendrá plena validez sin ella.
+          {required ? 'La firma continuará cuando la prueba de vida quede registrada.' : 'La verificación biométrica es opcional. Tu documento tendrá plena validez sin ella.'}
         </p>
       </div>
     </div>
@@ -1863,6 +1864,7 @@ function QRMobileBiometricModal({
   hasEnrollment,
   onComplete,
   onSkip,
+  required = false,
 }: {
   isDark: boolean;
   documentId: string;
@@ -1870,6 +1872,7 @@ function QRMobileBiometricModal({
   hasEnrollment: boolean;
   onComplete: (selfieB64: string, method: string, metadata?: any) => void;
   onSkip: () => void;
+  required?: boolean;
 }) {
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
@@ -2477,17 +2480,17 @@ function QRMobileBiometricModal({
           <div className="flex flex-col items-center gap-2 py-4">
             <AlertTriangle size={22} className="text-amber-500" />
             <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
-              No se pudo generar el QR. Continúa sin prueba de vida.
+              {required ? 'No se pudo generar el QR. Elige otro dispositivo para continuar.' : 'No se pudo generar el QR. Continúa sin prueba de vida.'}
             </p>
           </div>
         )}
-        {status !== 'result' && (
+        {(required ? status === 'error' : status !== 'result') && (
           <button
             type="button"
             onClick={onSkip}
             className={`w-full text-xs py-2 transition-colors ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-slate-400 hover:text-slate-600'}`}
           >
-            Omitir prueba de vida
+            {required ? 'Elegir otro dispositivo' : 'Omitir prueba de vida'}
           </button>
         )}
       </div>
@@ -2502,12 +2505,14 @@ function CameraBiometricModal({
   onCapture,
   hasStoredId = false,
   userId,
+  required = false,
 }: {
   isDark: boolean;
   onSkip: () => void;
   onCapture: (selfieB64: string, ineB64: string | null, method: string) => void;
   hasStoredId?: boolean;
   userId?: string;
+  required?: boolean;
 }) {
   const [step, setStep] = useState<'selfie' | 'ine' | 'comparing' | 'result'>('selfie');
   const [selfieDataUrl, setSelfieDataUrl] = useState<string | null>(null);
@@ -2710,7 +2715,7 @@ function CameraBiometricModal({
           onClick={onSkip}
           className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90"
         >
-          Continuar sin prueba de vida
+          {required ? 'Elegir otro dispositivo' : 'Continuar sin prueba de vida'}
         </button>
       </div>
     );
@@ -2887,13 +2892,13 @@ function CameraBiometricModal({
               Continuar
             </button>
           </div>
-          <button
+          {!required && <button
             type="button"
             onClick={onSkip}
             className={`w-full text-xs py-1.5 transition-colors ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-slate-400 hover:text-slate-600'}`}
           >
             Omitir prueba de vida
-          </button>
+          </button>}
         </div>
       </div>
     );
@@ -2999,7 +3004,7 @@ function CameraBiometricModal({
                   <Camera size={14} />
                   Capturar selfie
                 </button>
-                <button
+                {!required && <button
                   type="button"
                   onClick={() => {
                     stopStream();
@@ -3008,7 +3013,7 @@ function CameraBiometricModal({
                   className={`px-3 py-2.5 text-sm border rounded-xl transition-colors ${isDark ? 'border-gray-600 text-gray-400 hover:bg-gray-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}
                 >
                   Omitir
-                </button>
+                </button>}
               </div>
             </div>
           )}
@@ -3063,7 +3068,7 @@ function CameraBiometricModal({
             <Camera size={14} />
             {step === 'selfie' ? 'Capturar selfie' : 'Capturar INE'}
           </button>
-          <button
+          {!required && <button
             type="button"
             onClick={() => {
               stopStream();
@@ -3072,7 +3077,7 @@ function CameraBiometricModal({
             className={`px-3 py-2.5 text-sm border rounded-xl transition-colors ${isDark ? 'border-gray-600 text-gray-400 hover:bg-gray-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}
           >
             Omitir
-          </button>
+          </button>}
         </div>
       </div>
     </div>
@@ -3318,6 +3323,7 @@ export default function AutographSignatureFlow({
   initialGeolocation,
   onComplete,
   onNoticeAccepted,
+  requireBiometric = false,
 }: Props) {
   // Flow steps: notice → pad → biometric → biometric_device → otp → sending → constancia
   const [flowStep, setFlowStep] = useState<
@@ -3544,9 +3550,9 @@ export default function AutographSignatureFlow({
   }, []);
 
   const captureConfirmationFrame = useCallback(async () => {
-    if (!autographSignatureCapabilities.identityVerification) return;
+    if (!autographSignatureCapabilities.identityVerification && !requireBiometric) return;
     framesRef.current.frame3 = await captureFrame('confirmation');
-  }, [captureFrame]);
+  }, [captureFrame, requireBiometric]);
 
   // ── Init signature_pad ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -3658,7 +3664,7 @@ export default function AutographSignatureFlow({
   // signature policy. The standard autograph flow persists the signature
   // evidence without proof of life or OTP.
   const continueAfterSignature = async () => {
-    if (autographSignatureCapabilities.identityVerification) {
+    if (autographSignatureCapabilities.identityVerification || requireBiometric) {
       setFlowStep('biometric');
       return;
     }
@@ -3708,6 +3714,7 @@ export default function AutographSignatureFlow({
   };
 
   const handleBiometricSkip = () => {
+    if (requireBiometric) return;
     setBiometricData(null);
     sendOtp();
     setFlowStep('otp');
@@ -3936,6 +3943,8 @@ export default function AutographSignatureFlow({
       // 3. capture-biometric (optional)
       let biometricResult: ConstanciaData['biometric'] | undefined;
       const activeBiometric = biometricOverride !== undefined ? biometricOverride : biometricData;
+      if (requireBiometric && !activeBiometric)
+        throw new Error('La selfie de prueba de vida es obligatoria para firmar este formulario.');
       if (activeBiometric) {
         const bioRes = await fetch(`${supabaseUrl}/functions/v1/capture-biometric`, {
           method: 'POST',
@@ -3957,6 +3966,8 @@ export default function AutographSignatureFlow({
           };
         }
       }
+      if (requireBiometric && !biometricResult?.selfie_sha256)
+        throw new Error('No se pudo acreditar la prueba de vida. Repite la captura.');
 
       const capturedAtVal = sigData.captured_at || new Date().toISOString();
       const evidenceIdVal = sigData.evidence_id || '';
@@ -4050,7 +4061,7 @@ export default function AutographSignatureFlow({
       });
     } catch (err: any) {
       setSendError(err.message || 'Error al enviar la firma');
-      setFlowStep(autographSignatureCapabilities.identityVerification ? 'otp' : 'pad');
+      setFlowStep(requireBiometric ? 'biometric' : autographSignatureCapabilities.identityVerification ? 'otp' : 'pad');
     }
   };
 
@@ -4372,6 +4383,7 @@ export default function AutographSignatureFlow({
         isDark={isDark}
         userId={userId}
         onSkip={handleBiometricSkip}
+        required={requireBiometric}
         onProceedWithBiometric={handleBiometricDeviceChoice}
       />
     );
@@ -4382,7 +4394,8 @@ export default function AutographSignatureFlow({
     return (
       <CameraBiometricModal
         isDark={isDark}
-        onSkip={handleBiometricSkip}
+        onSkip={requireBiometric ? () => setFlowStep('biometric') : handleBiometricSkip}
+        required={requireBiometric}
         onCapture={handleBiometricCapture}
         hasStoredId={enrollmentHasIne}
         userId={userId}
@@ -4401,7 +4414,8 @@ export default function AutographSignatureFlow({
         onComplete={(selfieB64, method, metadata) =>
           handleBiometricCapture(selfieB64, null, method, metadata)
         }
-        onSkip={handleBiometricSkip}
+        onSkip={requireBiometric ? () => setFlowStep('biometric') : handleBiometricSkip}
+        required={requireBiometric}
       />
     );
   }

@@ -13,10 +13,14 @@ import {
   type FormSection,
   type FormTemplate,
   type PdfSchema,
+  type FormAppearance,
   type SignatureType,
   type ConditionalRule,
   type PdfMapping,
 } from '@/lib/forms/schema';
+import type { FormPdfDefaults } from '@/lib/forms/pdf-defaults';
+import { reusableFormAppearance } from '@/lib/forms/appearance-defaults';
+import { snapshotFormExperience, type FormExperienceDefaults } from '@/lib/forms/experience-defaults';
 
 export type {
   FieldOption,
@@ -32,6 +36,10 @@ export type {
 
 interface FormBuilderState {
   template: FormTemplate;
+  savedExperience: FormExperienceDefaults;
+  savedAppearance: FormAppearance;
+  savedPdfSchema: PdfSchema;
+  savedPdfSections: ReturnType<typeof snapshotPdfSectionLayout>;
   selectedFieldId: string | null;
   selectedSectionId: string | null;
   canvasMode: 'list' | 'preview' | 'pdf';
@@ -42,9 +50,16 @@ interface FormBuilderState {
 
 type FormBuilderAction =
   | { type: 'SET_TEMPLATE'; payload: FormTemplate }
+  | { type: 'APPLY_PDF_DEFAULTS'; payload: FormPdfDefaults }
+  | { type: 'APPLY_APPEARANCE_DEFAULTS'; payload: FormAppearance }
+  | { type: 'APPLY_EXPERIENCE_DEFAULTS'; payload: FormExperienceDefaults }
+  | { type: 'SAVE_EXPERIENCE_DEFAULTS'; payload: FormExperienceDefaults }
+  | { type: 'SAVE_APPEARANCE_DESIGN'; payload: FormAppearance }
+  | { type: 'SAVE_PDF_DESIGN'; payload: { pdfSchema: PdfSchema; sections: FormSection[] } }
   | { type: 'SET_TEMPLATE_META'; payload: Partial<FormTemplate> }
   | { type: 'SET_SETTINGS'; payload: Partial<FormTemplate['settings']> }
   | { type: 'SET_PDF_SCHEMA'; payload: Partial<PdfSchema> }
+  | { type: 'SET_APPEARANCE'; payload: Partial<FormAppearance> }
   | { type: 'ADD_FIELD'; payload: { field: FormField; afterId?: string } }
   | { type: 'UPDATE_FIELD'; payload: { id: string; updates: Partial<FormField> } }
   | { type: 'DELETE_FIELD'; payload: string }
@@ -56,14 +71,23 @@ type FormBuilderAction =
   | { type: 'SET_DIRTY'; payload: boolean }
   | { type: 'SET_SAVING'; payload: boolean }
   | { type: 'SET_LAST_SAVED'; payload: Date }
+  | { type: 'ACK_SAVE'; payload: { snapshot: FormTemplate; saved: FormTemplate } }
   | { type: 'ADD_SECTION'; payload: FormSection }
   | { type: 'UPDATE_SECTION'; payload: { id: string; updates: Partial<FormSection> } }
   | { type: 'DELETE_SECTION'; payload: string };
 
 const defaultTemplate = createDefaultFormTemplate();
 
+export function snapshotPdfSectionLayout(sections: FormSection[]) {
+  return sections.map(({ id, showInPdf, pageBreakBefore }) => ({ id, showInPdf, pageBreakBefore }));
+}
+
 const initialState: FormBuilderState = {
   template: defaultTemplate,
+  savedExperience: snapshotFormExperience(defaultTemplate.settings),
+  savedAppearance: defaultTemplate.settings.appearance,
+  savedPdfSchema: defaultTemplate.settings.pdfSchema,
+  savedPdfSections: snapshotPdfSectionLayout(defaultTemplate.sections),
   selectedFieldId: null,
   selectedSectionId: defaultTemplate.sections[0].id,
   canvasMode: 'list',
@@ -72,31 +96,104 @@ const initialState: FormBuilderState = {
   lastSaved: null,
 };
 
-function reducer(state: FormBuilderState, action: FormBuilderAction): FormBuilderState {
+export function formBuilderReducer(state: FormBuilderState, action: FormBuilderAction): FormBuilderState {
   switch (action.type) {
     case 'SET_TEMPLATE': {
       const template = normalizeFormTemplate(action.payload);
       return {
         ...state,
         template,
+        savedExperience: snapshotFormExperience(template.settings),
+        savedAppearance: template.settings.appearance,
+        savedPdfSchema: template.settings.pdfSchema,
+        savedPdfSections: snapshotPdfSectionLayout(template.sections),
         selectedFieldId: null,
         selectedSectionId: template.sections[0]?.id || null,
         isDirty: false,
       };
     }
 
+    case 'APPLY_PDF_DEFAULTS':
+      if (state.template.id || state.isDirty) return state;
+      return {
+        ...state,
+        savedPdfSchema: action.payload.pdfSchema,
+        savedExperience: {
+          ...state.savedExperience,
+          configurePdfDetails: action.payload.configurePdfDetails,
+        },
+        template: {
+          ...state.template,
+          settings: {
+            ...state.template.settings,
+            configurePdfDetails: action.payload.configurePdfDetails,
+            pdfSchema: { ...action.payload.pdfSchema },
+          },
+        },
+      };
+
+    case 'APPLY_APPEARANCE_DEFAULTS': {
+      if (state.template.id || state.isDirty) return state;
+      const reusableAppearance = reusableFormAppearance(action.payload);
+      return {
+        ...state,
+        savedAppearance: reusableAppearance,
+        template: {
+          ...state.template,
+          settings: { ...state.template.settings, appearance: reusableAppearance },
+        },
+      };
+    }
+
+    case 'APPLY_EXPERIENCE_DEFAULTS': {
+      if (state.template.id || state.isDirty) return state;
+      return {
+        ...state,
+        savedExperience: { ...action.payload },
+        template: {
+          ...state.template,
+          settings: { ...state.template.settings, ...action.payload, requiresSignature: true },
+        },
+      };
+    }
+
+    case 'SAVE_EXPERIENCE_DEFAULTS':
+      return {
+        ...state,
+        savedExperience: { ...action.payload },
+      };
+
+    case 'SAVE_APPEARANCE_DESIGN':
+      return { ...state, savedAppearance: { ...action.payload } };
+
+    case 'SAVE_PDF_DESIGN':
+      return {
+        ...state,
+        savedPdfSchema: { ...action.payload.pdfSchema },
+        savedPdfSections: snapshotPdfSectionLayout(action.payload.sections),
+      };
+
     case 'SET_TEMPLATE_META':
       return { ...state, template: { ...state.template, ...action.payload }, isDirty: true };
 
-    case 'SET_SETTINGS':
+    case 'SET_SETTINGS': {
+      const settings = { ...state.template.settings, ...action.payload, requiresSignature: true };
+      if ('documentNumber' in action.payload || 'documentTypeName' in action.payload) {
+        settings.appearance = {
+          ...settings.appearance,
+          headerDocumentNumber: settings.documentNumber,
+          headerDocumentTypeName: settings.documentTypeName,
+        };
+      }
       return {
         ...state,
         template: {
           ...state.template,
-          settings: { ...state.template.settings, ...action.payload },
+          settings,
         },
         isDirty: true,
       };
+    }
 
     case 'SET_PDF_SCHEMA':
       return {
@@ -111,11 +208,29 @@ function reducer(state: FormBuilderState, action: FormBuilderAction): FormBuilde
         isDirty: true,
       };
 
+    case 'SET_APPEARANCE':
+      return {
+        ...state,
+        template: {
+          ...state.template,
+          settings: {
+            ...state.template.settings,
+            appearance: { ...state.template.settings.appearance, ...action.payload },
+          },
+        },
+        isDirty: true,
+      };
+
     case 'ADD_FIELD': {
+      if (action.payload.field.type === 'signature_block' &&
+          (!state.template.settings.requiresSignature || state.template.schema.some((field) => field.type === 'signature_block'))) return state;
       const sectionId =
         state.selectedSectionId || state.template.sections.at(-1)?.id || DEFAULT_SECTION_ID;
       const field = {
         ...action.payload.field,
+        required: action.payload.field.type === 'signature_block' ? true : action.payload.field.required,
+        conditionalVisible: action.payload.field.type === 'signature_block' ? false : action.payload.field.conditionalVisible,
+        conditionalRule: action.payload.field.type === 'signature_block' ? undefined : action.payload.field.conditionalRule,
         sectionId,
         pdf: {
           ...action.payload.field.pdf,
@@ -148,7 +263,15 @@ function reducer(state: FormBuilderState, action: FormBuilderAction): FormBuilde
     case 'UPDATE_FIELD': {
       const previous = state.template.schema.find((field) => field.id === action.payload.id);
       const schema = state.template.schema.map((field) =>
-        field.id === action.payload.id ? { ...field, ...action.payload.updates } : field
+        field.id === action.payload.id
+          ? {
+              ...field,
+              ...action.payload.updates,
+              required: field.type === 'signature_block' ? true : (action.payload.updates.required ?? field.required),
+              conditionalVisible: field.type === 'signature_block' ? false : (action.payload.updates.conditionalVisible ?? field.conditionalVisible),
+              conditionalRule: field.type === 'signature_block' ? undefined : (action.payload.updates.conditionalRule ?? field.conditionalRule),
+            }
+          : field
       );
       let sections = state.template.sections;
       const nextSectionId = action.payload.updates.sectionId;
@@ -183,6 +306,7 @@ function reducer(state: FormBuilderState, action: FormBuilderAction): FormBuilde
       const index = state.template.schema.findIndex((field) => field.id === action.payload);
       if (index < 0) return state;
       const original = state.template.schema[index];
+      if (original.type === 'signature_block') return state;
       const copyId = crypto.randomUUID();
       const copy: FormField = {
         ...original,
@@ -243,7 +367,31 @@ function reducer(state: FormBuilderState, action: FormBuilderAction): FormBuilde
       return { ...state, isSaving: action.payload };
 
     case 'SET_LAST_SAVED':
-      return { ...state, lastSaved: action.payload, isDirty: false };
+      return {
+        ...state,
+        lastSaved: action.payload,
+        savedExperience: snapshotFormExperience(state.template.settings),
+        isDirty: false,
+      };
+
+    case 'ACK_SAVE': {
+      const { saved, snapshot } = action.payload;
+      if (state.template.id && state.template.id !== snapshot.id && state.template.id !== saved.id) return state;
+      const unchanged = state.template === snapshot;
+      return {
+        ...state,
+        template: unchanged ? saved : {
+          ...state.template, id: saved.id, workspaceId: saved.workspaceId,
+          updatedAt: saved.updatedAt, versionNumber: saved.versionNumber,
+          revisionNumber: saved.revisionNumber, sourceTemplateId: saved.sourceTemplateId,
+          rootTemplateId: saved.rootTemplateId,
+          publishedAt: saved.publishedAt, status: saved.status,
+        },
+        lastSaved: new Date(),
+        savedExperience: snapshotFormExperience(saved.settings),
+        isDirty: !unchanged,
+      };
+    }
 
     case 'ADD_SECTION':
       return {
@@ -330,7 +478,6 @@ function createDefaultField(type: FieldType): FormField {
     firma_efirma: ['efirma_sat'],
     firma_autografa: ['autografa_digital'],
     firma_click: ['click_sign'],
-    signature_block: ['efirma_sat', 'autografa_digital', 'click_sign'],
   };
 
   return {
@@ -356,7 +503,7 @@ function createDefaultField(type: FieldType): FormField {
 }
 
 export function FormBuilderProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(formBuilderReducer, initialState);
 
   const addField = useCallback((type: FieldType, afterId?: string) => {
     dispatch({ type: 'ADD_FIELD', payload: { field: createDefaultField(type), afterId } });

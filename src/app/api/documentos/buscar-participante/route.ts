@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { createAnonClient } from '@/lib/supabase/server';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,6 +10,34 @@ const supabaseAdmin = createClient(
 );
 
 export async function GET(req: NextRequest) {
+  const bearer = req.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+  let authenticated = false;
+  if (bearer) {
+    const {
+      data: { user },
+    } = await createAnonClient(bearer).auth.getUser(bearer);
+    authenticated = Boolean(user);
+  }
+  if (!authenticated) {
+    const cookieStore = await cookies();
+    const client = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll() {},
+        },
+      }
+    );
+    const {
+      data: { user },
+    } = await client.auth.getUser();
+    authenticated = Boolean(user);
+  }
+  if (!authenticated) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const query = searchParams.get('q')?.trim() ?? '';
   const criteria = searchParams.get('criteria') ?? 'correo';

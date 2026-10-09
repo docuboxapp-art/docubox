@@ -539,7 +539,7 @@ const forms = defineModule(
   },
   [
     '/formularios',
-    { routePattern: '/formularios/builder', assistantPlacement: 'floating' },
+    { routePattern: '/formularios/nuevo', assistantPlacement: 'floating' },
     '/formularios/preview',
     '/formularios/respuestas',
   ]

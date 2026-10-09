@@ -27,10 +27,19 @@ serve(async (req) => {
       (globalThis.Deno?.env.get('SUPABASE_SERVICE_ROLE_KEY')) ?? ''
     );
 
+    const accessToken = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim();
+    if (!accessToken) {
+      return new Response(JSON.stringify({ error: 'Inicia sesión para responder el formulario.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    if (authError || !user || user.is_anonymous || !user.email_confirmed_at) {
+      return new Response(JSON.stringify({ error: 'Necesitas una cuenta con correo verificado para responder.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     // Validate token
     const { data: tokenRow, error: tokenError } = await supabase
       .from('form_tokens')
-      .select('*, form_templates(id, name, description, schema, settings, workspace_id, workspaces(name, logo_url))')
+      .select('*, form_templates(id, name, description, status, schema, settings, workspace_id, workspaces(name, logo_url))')
       .eq('token', token)
       .single();
 
@@ -61,11 +70,37 @@ serve(async (req) => {
       id: string;
       name: string;
       description: string;
+      status: string;
       schema: unknown[];
       settings: Record<string, unknown>;
       workspace_id: string;
       workspaces: { name: string; logo_url?: string };
     };
+
+    if (!template || template.status !== 'published') {
+      return new Response(
+        JSON.stringify({ error: 'Este formulario no está disponible.', code: 'FORM_UNAVAILABLE' }),
+        { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (
+      tokenRow.recipient_email?.trim().toLowerCase() !== user.email?.trim().toLowerCase() ||
+      (tokenRow.recipient_user_id && tokenRow.recipient_user_id !== user.id) ||
+      (tokenRow.access_mode === 'public' && tokenRow.recipient_user_id !== user.id)
+    ) {
+      return new Response(JSON.stringify({ error: 'Este enlace pertenece a otra cuenta.', code: 'FORBIDDEN' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    let documentTypeName = typeof template.settings?.documentTypeName === 'string'
+      ? template.settings.documentTypeName : '';
+    const documentTypeId = typeof template.settings?.documentTypeId === 'string'
+      ? template.settings.documentTypeId : '';
+    if (!documentTypeName && documentTypeId) {
+      const { data: documentType } = await supabase.from('tipo_documento')
+        .select('nombre').eq('id', documentTypeId).maybeSingle();
+      documentTypeName = documentType?.nombre || '';
+    }
 
     // Return schema without sensitive workspace data
     return new Response(
@@ -80,15 +115,20 @@ serve(async (req) => {
           language: template.settings?.language || 'es',
           sections: template.settings?.sections || [],
           allowSaveProgress: template.settings?.allowSaveProgress ?? false,
-          requiresSignature: template.settings?.requiresSignature ?? false,
+          requiresSignature: true,
           allowedSignatureTypes: template.settings?.allowedSignatureTypes || [],
           requireOtp: template.settings?.requireOtp ?? false,
           pdfSchema: template.settings?.pdfSchema || {},
+          appearance: template.settings?.appearance || {},
+          documentNumber: template.settings?.documentNumber || '',
+          documentTypeId,
+          documentTypeName,
         },
         workspaceName: template.workspaces?.name || 'DOCUBOX',
         workspaceLogo: template.workspaces?.logo_url || null,
         expiresAt: tokenRow.expires_at,
         recipientName: tokenRow.recipient_name || null,
+        requireLiveness: tokenRow.require_liveness === true,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

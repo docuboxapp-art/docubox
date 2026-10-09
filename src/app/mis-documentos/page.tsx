@@ -446,6 +446,7 @@ interface Document {
   accessProtectionActive?: boolean;
   lifecycleBlockingCode?: string | null;
   sourceTemplateId?: string | null;
+  sourceFormResponseId?: string | null;
 }
 
 interface DeletedDocument {
@@ -655,10 +656,11 @@ function DocumentSourceIcon({
   size,
   className,
 }: {
-  document: Pick<Document, 'sourceTemplateId'>;
+  document: Pick<Document, 'sourceTemplateId' | 'sourceFormResponseId'>;
   size: number;
   className?: string;
 }) {
+  if (document.sourceFormResponseId) return <FileText size={size} className={className} aria-label="Creado desde un formulario" />;
   if (document.sourceTemplateId) {
     return (
       <span
@@ -826,6 +828,7 @@ function mapDocRow(d: any): Document {
     accessProtectionActive: d.tiene_codigo_acceso === true,
     lifecycleBlockingCode: d.lifecycle_blocking_code || null,
     sourceTemplateId: d.source_template_id || null,
+    sourceFormResponseId: d.source_form_response_id || null,
   };
 }
 
@@ -3703,6 +3706,7 @@ function MisDocumentosContent() {
           legalHoldActive: d.legal_hold_active === true,
           purgeState: d.purge_state === 'FINAL_DELETE_CHECK' ? 'FINAL_DELETE_CHECK' : null,
           sourceTemplateId: d.source_template_id || null,
+          sourceFormResponseId: d.source_form_response_id || null,
         }))
       );
       setTrashedFolders(
@@ -3969,8 +3973,10 @@ function MisDocumentosContent() {
     // origen: distinguishes direct documents from documents created from a template
     if (activeFilters['origen'] && activeFilters['origen'] !== '') {
       const isFromTemplate = Boolean(doc.sourceTemplateId);
-      if (activeFilters['origen'] === 'plantilla' && !isFromTemplate) return false;
-      if (activeFilters['origen'] === 'documento' && isFromTemplate) return false;
+      const isFromForm = Boolean(doc.sourceFormResponseId);
+      if (activeFilters['origen'] === 'formulario' && !isFromForm) return false;
+      if (activeFilters['origen'] === 'plantilla' && (!isFromTemplate || isFromForm)) return false;
+      if (activeFilters['origen'] === 'documento' && (isFromTemplate || isFromForm)) return false;
     }
 
     // tipoDocumento: array of selected IDs
@@ -5759,7 +5765,7 @@ function MisDocumentosContent() {
         case 'estructura':
           return value === 'carpeta' ? 'Carpetas' : value === 'archivo' ? 'Archivos' : '';
         case 'origen':
-          return value === 'plantilla' ? 'Plantilla' : value === 'documento' ? 'Documento' : '';
+          return value === 'formulario' ? 'Formulario' : value === 'plantilla' ? 'Plantilla' : value === 'documento' ? 'Documento' : '';
         case 'estado':
           return value;
         case 'propietario':
@@ -5850,6 +5856,7 @@ function MisDocumentosContent() {
                 { value: '', label: 'Todos los orígenes' },
                 { value: 'documento', label: 'Documento' },
                 { value: 'plantilla', label: 'Plantilla' },
+                { value: 'formulario', label: 'Formulario' },
               ].map((option) => (
                 <button
                   key={option.value}

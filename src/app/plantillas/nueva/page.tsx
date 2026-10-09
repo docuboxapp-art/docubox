@@ -35,7 +35,6 @@ import {
   Highlighter,
   Minus,
   Plus,
-  Star,
   Layers,
   Image as ImageIcon,
   Table as TableIcon,
@@ -66,7 +65,9 @@ import {
   getPageDimensions,
 } from '../components/DocumentPaginator';
 import AppLogo from '@/components/ui/AppLogo';
+import WizardSuccessScreen from '@/components/ui/WizardSuccessScreen';
 import { TemplateDocumentSettingsPanel } from '@/components/templates/TemplateDocumentSettingsPanel';
+import { DocumentTypeModal, TagsModal } from '@/components/catalog/CatalogSelectionModals';
 import {
   DEFAULT_TEMPLATE_DOCUMENT_SETTINGS,
   readTemplateDocumentSettings,
@@ -2616,455 +2617,6 @@ function ExitConfirmModal({
   );
 }
 
-// ─── Tipo de documento Modal (tabbed) ─────────────────────────────────────────
-
-function TipoDocumentoModal({
-  tiposDocumento,
-  grupos,
-  selectedId,
-  onSelect,
-  onClose,
-}: {
-  tiposDocumento: TipoDocumento[];
-  grupos: GrupoTipoDocumento[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-  onClose: () => void;
-}) {
-  const [tab, setTab] = useState<'tipo' | 'favoritos' | 'grupo'>('tipo');
-  const [search, setSearch] = useState('');
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem('tipo_doc_favorites');
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
-  // For "Por grupo" tab: null = show group list, string = show types of that group
-  const [drillGroupId, setDrillGroupId] = useState<string | null>(null);
-
-  const toggleFavorite = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      try {
-        localStorage.setItem('tipo_doc_favorites', JSON.stringify([...next]));
-      } catch {}
-      return next;
-    });
-  };
-
-  const favCount = tiposDocumento.filter((t) => favorites.has(t.id)).length;
-
-  // Reset drill when switching tabs or searching
-  const handleTabChange = (newTab: 'tipo' | 'favoritos' | 'grupo') => {
-    setTab(newTab);
-    setDrillGroupId(null);
-  };
-
-  // Filtered list for "Por tipo" and "Favoritos" tabs
-  const filteredTipos = tiposDocumento.filter((t) => {
-    const matchSearch =
-      t.nombre.toLowerCase().includes(search.toLowerCase()) ||
-      (grupos
-        .find((g) => g.id === t.grupo_id)
-        ?.nombre.toLowerCase()
-        .includes(search.toLowerCase()) ??
-        false);
-    if (tab === 'tipo') return matchSearch;
-    if (tab === 'favoritos') return favorites.has(t.id) && matchSearch;
-    return false;
-  });
-
-  // For "Por grupo" tab — groups filtered by search
-  const filteredGrupos = grupos.filter((g) => {
-    if (!search) return true;
-    const matchGroupName = g.nombre.toLowerCase().includes(search.toLowerCase());
-    const hasMatchingTipo = tiposDocumento.some(
-      (t) => t.grupo_id === g.id && t.nombre.toLowerCase().includes(search.toLowerCase())
-    );
-    return matchGroupName || hasMatchingTipo;
-  });
-
-  // Types inside a drilled group, filtered by search
-  const drillTipos = drillGroupId
-    ? tiposDocumento.filter(
-        (t) =>
-          t.grupo_id === drillGroupId &&
-          (search === '' || t.nombre.toLowerCase().includes(search.toLowerCase()))
-      )
-    : [];
-
-  const drillGroup = grupos.find((g) => g.id === drillGroupId);
-
-  // Count of types per group
-  const countByGroup = (gid: string) => tiposDocumento.filter((t) => t.grupo_id === gid).length;
-
-  // Render a tipo row (shared between tabs)
-  const renderTipoRow = (t: TipoDocumento) => {
-    const grupo = grupos.find((g) => g.id === t.grupo_id);
-    const isFav = favorites.has(t.id);
-    return (
-      <div
-        key={t.id}
-        className={`flex w-full items-center border-b border-gray-100 transition-colors last:border-0 hover:bg-gray-50 ${selectedId === t.id ? 'bg-blue-50' : ''}`}
-      >
-        <button
-          type="button"
-          onClick={() => onSelect(t.id)}
-          className="min-w-0 flex-1 px-5 py-3.5 text-left"
-        >
-          <span
-            className={`block text-sm font-semibold leading-snug ${selectedId === t.id ? 'text-blue-700' : 'text-gray-900'}`}
-          >
-            {t.nombre}
-          </span>
-          {grupo && <span className="mt-0.5 block text-xs text-gray-500">{grupo.nombre}</span>}
-        </button>
-        <button
-          type="button"
-          onClick={(e) => toggleFavorite(t.id, e)}
-          className="mr-4 shrink-0 rounded-md p-2 transition-colors hover:bg-amber-50"
-          title={isFav ? 'Quitar de favoritos' : 'Agregar a favoritos'}
-          aria-label={isFav ? `Quitar ${t.nombre} de favoritos` : `Agregar ${t.nombre} a favoritos`}
-        >
-          <Star
-            size={16}
-            className={
-              isFav ? 'text-amber-400 fill-amber-400' : 'text-gray-300 hover:text-amber-300'
-            }
-          />
-        </button>
-      </div>
-    );
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden flex flex-col"
-        style={{ maxHeight: '85vh' }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <Layers size={18} className="text-blue-600" />
-            <h3 className="text-base font-semibold text-gray-900">Tipo de documento</h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Search */}
-        <div className="px-5 pt-4 pb-3">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setDrillGroupId(null);
-              }}
-              placeholder="Buscar tipo o documento..."
-              autoFocus
-              className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 bg-gray-50"
-            />
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="px-5 pb-3 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleTabChange('tipo')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${tab === 'tipo' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-          >
-            Por tipo
-            <span
-            className={`px-1.5 py-0.5 rounded-full text-xs font-semibold ${tab === 'tipo' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}
-            >
-              {tiposDocumento.length}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleTabChange('favoritos')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${tab === 'favoritos' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-          >
-            <Star size={11} className={tab === 'favoritos' ? 'fill-white' : ''} />
-            Favoritos
-            <span
-            className={`px-1.5 py-0.5 rounded-full text-xs font-semibold ${tab === 'favoritos' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}
-            >
-              {favCount}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleTabChange('grupo')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${tab === 'grupo' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-          >
-            Por grupo
-          </button>
-        </div>
-
-        {/* List area */}
-        <div className="flex-1 overflow-y-auto border-t border-gray-100">
-          {/* ── Por tipo tab ── */}
-          {tab === 'tipo' &&
-            (filteredTipos.length === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-gray-400">
-                No se encontraron tipos
-              </div>
-            ) : (
-              filteredTipos.map((t) => renderTipoRow(t))
-            ))}
-
-          {/* ── Favoritos tab ── */}
-          {tab === 'favoritos' &&
-            (filteredTipos.length === 0 ? (
-              <div className="px-5 py-10 text-center">
-                <Star size={32} className="mx-auto mb-3 text-gray-200" />
-                <p className="text-sm text-gray-400 font-medium">No tienes favoritos aún</p>
-                <p className="text-xs text-gray-300 mt-1">
-                  Marca documentos con ★ para verlos aquí
-                </p>
-              </div>
-            ) : (
-              filteredTipos.map((t) => renderTipoRow(t))
-            ))}
-
-          {/* ── Por grupo tab ── */}
-          {tab === 'grupo' &&
-            (drillGroupId === null ? (
-              /* Group list view */
-              filteredGrupos.length === 0 ? (
-                <div className="px-5 py-10 text-center text-sm text-gray-400">
-                  No se encontraron grupos
-                </div>
-              ) : (
-                filteredGrupos.map((g) => {
-                  const count = countByGroup(g.id);
-                  return (
-                    <button
-                      key={g.id}
-                      type="button"
-                      onClick={() => setDrillGroupId(g.id)}
-                      className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors flex items-center justify-between border border-gray-100 rounded-xl mx-3 mb-2 mt-2"
-                      style={{ width: 'calc(100% - 24px)' }}
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{g.nombre}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {count} documento{count !== 1 ? 's' : ''}
-                        </p>
-                      </div>
-                      <ArrowRight size={16} className="text-gray-400 shrink-0" />
-                    </button>
-                  );
-                })
-              )
-            ) : (
-              /* Drilled into a group — show its types */
-              <div className="flex flex-col h-full">
-                {/* Back header */}
-                <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50">
-                  <button
-                    type="button"
-                    onClick={() => setDrillGroupId(null)}
-                    className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium"
-                  >
-                    <ArrowRight size={13} className="rotate-180" />
-                    Grupos
-                  </button>
-                  <span className="text-gray-300 text-xs">/</span>
-                  <span className="text-xs text-gray-700 font-semibold truncate">
-                    {drillGroup?.nombre}
-                  </span>
-                </div>
-                {drillTipos.length === 0 ? (
-                  <div className="px-5 py-10 text-center text-sm text-gray-400">
-                    No se encontraron tipos en este grupo
-                  </div>
-                ) : (
-                  drillTipos.map((t) => renderTipoRow(t))
-                )}
-              </div>
-            ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Etiquetas Modal (tabbed) ─────────────────────────────────────────────────
-
-function EtiquetasModal({
-  etiquetas,
-  selectedIds,
-  onConfirm,
-  onClose,
-}: {
-  etiquetas: Etiqueta[];
-  selectedIds: string[];
-  onConfirm: (ids: string[]) => void;
-  onClose: () => void;
-}) {
-  const [tab, setTab] = useState<'todos' | 'favoritos'>('todos');
-  const [search, setSearch] = useState('');
-  const [localSelected, setLocalSelected] = useState<string[]>(selectedIds);
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem('etiqueta_favorites');
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
-
-  const toggleFavorite = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      try {
-        localStorage.setItem('etiqueta_favorites', JSON.stringify([...next]));
-      } catch {}
-      return next;
-    });
-  };
-
-  const toggleSelect = (id: string) => {
-    setLocalSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
-  const filtered = etiquetas.filter((e) => {
-    const matchSearch = e.nombre.toLowerCase().includes(search.toLowerCase());
-    if (tab === 'favoritos') return favorites.has(e.id) && matchSearch;
-    return matchSearch;
-  });
-
-  const favCount = etiquetas.filter((e) => favorites.has(e.id)).length;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden flex flex-col"
-        style={{ maxHeight: '85vh' }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold text-gray-900">Etiquetas</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Search */}
-        <div className="px-5 pt-4 pb-3">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar etiqueta..."
-              autoFocus
-              className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 bg-gray-50"
-            />
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="px-5 pb-3 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setTab('todos')}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${tab === 'todos' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-          >
-            Todos
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('favoritos')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-semibold transition-colors ${tab === 'favoritos' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-          >
-            <Star size={13} />
-            Favoritos ({favCount})
-          </button>
-        </div>
-
-        {/* List */}
-        <div className="flex-1 overflow-y-auto border-t border-gray-100">
-          {filtered.length === 0 ? (
-            <div className="px-5 py-10 text-center text-sm text-gray-400">
-              {tab === 'favoritos' ? 'No tienes favoritos aún' : 'No se encontraron etiquetas'}
-            </div>
-          ) : (
-            filtered.map((e) => {
-              const isSelected = localSelected.includes(e.id);
-              return (
-                <button
-                  key={e.id}
-                  type="button"
-                  onClick={() => toggleSelect(e.id)}
-                  className={`w-full text-left px-5 py-3 hover:bg-gray-50 transition-colors flex items-center justify-between group border-b border-gray-50 last:border-0 ${isSelected ? 'bg-blue-50/50' : ''}`}
-                >
-                  <span
-                    className={`text-sm ${isSelected ? 'text-blue-700 font-medium' : 'text-gray-700'}`}
-                  >
-                    {e.nombre}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={(ev) => toggleFavorite(e.id, ev)}
-                    className="ml-3 shrink-0"
-                    title={favorites.has(e.id) ? 'Quitar de favoritos' : 'Agregar a favoritos'}
-                  >
-                    <Star
-                      size={15}
-                      className={
-                        favorites.has(e.id)
-                          ? 'text-amber-400 fill-amber-400'
-                          : 'text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity'
-                      }
-                    />
-                  </button>
-                </button>
-              );
-            })
-          )}
-        </div>
-
-        {/* Footer: Confirmar */}
-        <div className="px-5 py-4 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={() => onConfirm(localSelected)}
-            className="w-full py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors"
-          >
-            Confirmar ({localSelected.length} seleccionada{localSelected.length !== 1 ? 's' : ''})
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Step 1: Información General ─────────────────────────────────────────────
 
 function StepInfoGeneral({
@@ -3493,9 +3045,9 @@ function StepInfoGeneral({
 
       {/* Tipo de documento modal */}
       {showTipoModal && (
-        <TipoDocumentoModal
-          tiposDocumento={tiposDocumento}
-          grupos={grupos}
+        <DocumentTypeModal
+          types={tiposDocumento}
+          groups={grupos}
           selectedId={data.tipoDocumentoId}
           onSelect={handleTipoSelect}
           onClose={() => setShowTipoModal(false)}
@@ -3504,8 +3056,8 @@ function StepInfoGeneral({
 
       {/* Etiquetas modal */}
       {showEtiquetasModal && (
-        <EtiquetasModal
-          etiquetas={etiquetas}
+        <TagsModal
+          tags={etiquetas}
           selectedIds={data.etiquetasIds}
           onConfirm={(ids) => {
             onChange({ etiquetasIds: ids });
@@ -3522,12 +3074,18 @@ function StepInfoGeneral({
 
 function StepPublicacion({
   data,
+  info,
+  pageCount,
+  fieldCount,
   onChange,
   context,
   loadingContext,
   contextError,
 }: {
   data: PublicacionData;
+  info: InfoGeneralData;
+  pageCount: number;
+  fieldCount: number;
   onChange: (updates: Partial<PublicacionData>) => void;
   context: TemplatePublicationContext | null;
   loadingContext: boolean;
@@ -3608,10 +3166,18 @@ function StepPublicacion({
     data.publicacionOpcion === 'version'
       ? context?.template?.nextVersion || data.versionPublicada
       : context?.template?.currentVersion || data.versionPublicada;
+  const summaryRows: Array<[string, string]> = [
+    ['Nombre', info.nombre.trim() || 'Plantilla sin título'],
+    ['Versión', versionValue],
+    ['Estado', data.estadoPlantilla],
+    ['Contenido', `${pageCount} ${pageCount === 1 ? 'página' : 'páginas'} · ${fieldCount} ${fieldCount === 1 ? 'campo' : 'campos'}`],
+    ['Hoja', `${info.hojaTamano} · ${info.hojaOrientacion === 'horizontal' ? 'Horizontal' : 'Vertical'}`],
+  ];
+  if (info.numeroOficio.trim()) summaryRows.push(['N.º de oficio', info.numeroOficio.trim()]);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
-      <div className="mx-auto w-full max-w-6xl space-y-5">
+    <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-5 lg:px-6">
+      <div className="mx-auto w-full max-w-[1480px] space-y-5">
         {loadingContext && (
           <div className="rounded-md border border-slate-200 bg-white px-5 py-4 text-sm text-slate-500">
             Cargando opciones de publicación...
@@ -3623,16 +3189,14 @@ function StepPublicacion({
           </div>
         )}
 
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="text-sm font-medium text-slate-800">Publicación</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Revisa los últimos detalles y decide cómo guardar la plantilla.
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-stretch">
+          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <h2 className="text-base font-medium text-slate-950">Publicación</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Revisa cómo guardar esta versión de la plantilla.
             </p>
-          </div>
-          <div className="p-6">
             {context?.approvalWorkflow && (
-              <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3">
+              <div className="mt-5 rounded-md border border-blue-200 bg-blue-50 px-4 py-3">
                 <p className="text-xs font-medium text-blue-800">Aprobación requerida</p>
                 <p className="mt-0.5 text-xs text-blue-700">
                   Se utilizará {context.approvalWorkflow.name}, versión{' '}
@@ -3641,11 +3205,12 @@ function StepPublicacion({
               </div>
             )}
 
-            <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {publicationOptions.map((opt) => (
                 <button
                   key={opt.id}
                   type="button"
+                  aria-pressed={data.publicacionOpcion === opt.id}
                   onClick={() => handleOptionChange(opt.id)}
                   className={`min-h-[92px] rounded-md border p-4 text-left transition-all ${
                     data.publicacionOpcion === opt.id
@@ -3675,61 +3240,44 @@ function StepPublicacion({
             </div>
 
             {!loadingContext && context && publicationOptions.length === 0 && (
-              <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+              <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
                 No tienes una acción de publicación disponible para el estado y los permisos
                 actuales.
               </div>
             )}
 
-            <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
-              <div className="lg:col-span-2">
-                <label className="mb-1 block text-xs font-medium text-gray-700">
-                  {isPersonal ? 'Comentario (opcional)' : 'Comentario de publicación (opcional)'}
-                </label>
-                <textarea
-                  value={data.comentarioPublicacion}
-                  onChange={(e) => onChange({ comentarioPublicacion: e.target.value })}
-                  placeholder="Agregar comentario (opcional)..."
-                  rows={3}
-                  maxLength={500}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
-                />
-                <p className="text-xs text-gray-400 text-right mt-0.5">
-                  {data.comentarioPublicacion.length} / 500
-                </p>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Estado de la plantilla
-                  </label>
-                  <input
-                    type="text"
-                    value={data.estadoPlantilla}
-                    readOnly
-                    disabled
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed"
-                    placeholder="Se asigna automáticamente"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Versión publicada
-                  </label>
-                  <input
-                    type="text"
-                    value={versionValue}
-                    readOnly
-                    disabled
-                    className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600"
-                  />
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    La versión se asigna automáticamente.
-                  </p>
-                </div>
-              </div>
+            <div className="mt-5">
+              <label htmlFor="template-publication-comment" className="block text-sm font-medium text-slate-800">
+                {isPersonal ? 'Comentario (opcional)' : 'Comentario de publicación (opcional)'}
+              </label>
+              <textarea
+                id="template-publication-comment"
+                value={data.comentarioPublicacion}
+                onChange={(e) => onChange({ comentarioPublicacion: e.target.value })}
+                placeholder="Agrega un comentario (opcional)..."
+                rows={3}
+                maxLength={500}
+                className="mt-2 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+              />
+              <p className="mt-1 text-right text-xs text-slate-400">
+                {data.comentarioPublicacion.length} / 500
+              </p>
             </div>
-          </div>
+          </section>
+          <aside className="xl:self-stretch">
+            <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] xl:h-full">
+              <h2 className="text-base font-medium text-slate-950">Resumen de la plantilla</h2>
+              <p className="mt-1 text-sm text-slate-500">Comprueba el contenido antes de continuar.</p>
+              <dl className="mt-4 divide-y divide-slate-100 text-sm">
+                {summaryRows.map(([label, value]) => (
+                  <div key={label} className="flex flex-wrap justify-between gap-2 py-3">
+                    <dt className="text-slate-500">{label}</dt>
+                    <dd className="max-w-full break-words text-right text-slate-800">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          </aside>
         </div>
       </div>
     </div>
@@ -3773,6 +3321,7 @@ function NuevaPlantillaPage() {
   const [toasts, setToasts] = useState<
     { id: string; type: 'success' | 'error' | 'info'; message: string }[]
   >([]);
+  const [completionTitle, setCompletionTitle] = useState<string | null>(null);
   const [pageCount, setPageCount] = useState(1);
   const [activePage, setActivePage] = useState(1);
   const [zoom, setZoom] = useState(100);
@@ -5064,8 +4613,7 @@ function NuevaPlantillaPage() {
               ? 'Nueva versión enviada a aprobación'
               : 'Nueva versión creada como borrador',
       };
-      addToast('success', publishLabels[publicationAction] || 'Plantilla guardada correctamente');
-      setTimeout(() => router.push('/plantillas'), 1500);
+      setCompletionTitle(publishLabels[publicationAction] || 'Plantilla guardada correctamente');
     } catch (err: any) {
       addToast('error', err.message || 'Error al publicar la plantilla');
     } finally {
@@ -5078,13 +4626,12 @@ function NuevaPlantillaPage() {
     addToast,
     publicationContext,
     publicationContextError,
-    router,
     isExistingPublishedTemplate,
   ]);
 
   const handleSaveAndExit = async () => {
     const saved = await handleSaveDraft();
-    if (saved) router.push('/plantillas');
+    if (saved) setCompletionTitle('Borrador de plantilla guardado');
   };
 
   const handleNext = () => {
@@ -5144,19 +4691,9 @@ function NuevaPlantillaPage() {
       )}
 
       {/* ── Top header ── */}
-      <header className="flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
-        <div className="flex min-w-0 flex-1 items-center gap-4">
-          <AppLogo size={34} />
-          <div className="hidden h-8 w-px bg-slate-200 lg:block" />
-          <div className="hidden min-w-0 lg:block">
-            <p className="truncate text-sm font-600 text-slate-950">Nueva plantilla</p>
-            <p className="truncate text-xs text-slate-500">
-              {activeWorkspace?.name || 'Espacio personal'}
-            </p>
-          </div>
-        </div>
-
-        <nav className="hidden items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 xl:flex">
+      <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
+        <AppLogo size={34} imageClassName="max-sm:w-24" />
+        <nav aria-label="Pasos de creación de plantilla" className="mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100/80 p-1 sm:gap-1">
           {WIZARD_STEPS.map((step, idx) => {
             const StepIcon = step.icon;
             const isActive = step.id === wizardStep;
@@ -5164,10 +4701,13 @@ function NuevaPlantillaPage() {
             return (
               <React.Fragment key={step.id}>
                 <button
+                  type="button"
                   onClick={() => (isCompleted || isActive) && setWizardStep(step.id as 1 | 2 | 3)}
+                  disabled={!isCompleted}
+                  aria-current={isActive ? 'step' : undefined}
                   aria-label={step.label}
                   title={step.label}
-                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-xs font-600 transition-colors ${
+                  className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-normal transition-colors sm:px-2.5 ${
                     isActive
                       ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
                       : isCompleted
@@ -5186,11 +4726,11 @@ function NuevaPlantillaPage() {
                   >
                     {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                   </span>
-                  <span>{step.label}</span>
+                  <span className="hidden md:inline">{step.label}</span>
                 </button>
                 {idx < WIZARD_STEPS.length - 1 && (
                   <div
-                    className={`h-px w-3 ${step.id < wizardStep ? 'bg-primary/50' : 'bg-slate-200'}`}
+                    className={`h-px w-1.5 shrink-0 sm:w-3 ${step.id < wizardStep ? 'bg-primary/50' : 'bg-slate-200'}`}
                   />
                 )}
               </React.Fragment>
@@ -5198,7 +4738,7 @@ function NuevaPlantillaPage() {
           })}
         </nav>
 
-        <div className="flex flex-1 items-center justify-end gap-1.5">
+        <div className="flex items-center justify-end gap-1 sm:gap-1.5">
           {wizardStep === 2 && (
             <button
               type="button"
@@ -5213,6 +4753,7 @@ function NuevaPlantillaPage() {
             type="button"
             onClick={handleToggleFullscreen}
             title={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'}
+            aria-label={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-slate-500 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950"
           >
             <Maximize2 size={17} />
@@ -5221,7 +4762,7 @@ function NuevaPlantillaPage() {
             type="button"
             onClick={handleExitClick}
             title="Salir"
-            className="ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            className="ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 sm:px-3"
           >
             <X size={16} />
             <span className="hidden sm:inline">Salir</span>
@@ -5229,57 +4770,28 @@ function NuevaPlantillaPage() {
         </div>
       </header>
 
-      <div className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-4 py-2 xl:hidden">
-        <nav className="mx-auto flex min-w-max items-center gap-1">
-          {WIZARD_STEPS.map((step) => {
-            const StepIcon = step.icon;
-            const isActive = step.id === wizardStep;
-            const isCompleted = step.id < wizardStep;
-            return (
-              <button
-                key={step.id}
-                type="button"
-                onClick={() => (isCompleted || isActive) && setWizardStep(step.id as 1 | 2 | 3)}
-                className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-600 transition-colors ${isActive ? 'bg-primary/10 text-primary' : isCompleted ? 'text-slate-700' : 'text-slate-400'}`}
-              >
-                {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
-                {step.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
       {/* ── Body ── */}
       <div className="flex flex-1 flex-col overflow-hidden bg-slate-50">
-        <section className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-4 lg:px-6">
-          <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <ActiveWizardIcon size={19} />
+        <section className="shrink-0 border-b border-slate-200 bg-[#edf3f8] px-4 py-2 lg:px-6">
+          <div className="mx-auto flex w-full max-w-[1480px] flex-wrap items-center gap-x-4 gap-y-1.5">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <ActiveWizardIcon size={16} />
               </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-xl font-600 text-slate-950">{activeWizardStep.label}</h1>
-                  <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">
-                    Paso {wizardStep} de {WIZARD_STEPS.length}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-slate-500">{stepDescriptions[wizardStep]}</p>
-              </div>
+              <h1 className="min-w-0 break-words text-[20px] font-normal text-slate-950">{activeWizardStep.label}</h1>
+              <span className="shrink-0 rounded-md bg-slate-200/70 px-1.5 py-0.5 text-sm font-normal text-slate-600">
+                Paso {wizardStep} de {WIZARD_STEPS.length}
+              </span>
+              <p className="hidden min-w-0 truncate text-sm text-slate-500 lg:block">{stepDescriptions[wizardStep]}</p>
             </div>
-            <div className="w-full sm:w-60">
-              <div className="flex items-center justify-between text-xs font-600 text-slate-500">
-                <span>Progreso</span>
-                <span>{Math.round(wizardProgress)}%</span>
+            <div className="flex w-full items-center gap-2 text-sm font-normal text-slate-500 sm:w-44">
+              <span className="sr-only">Progreso</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="Progreso" aria-valuenow={Math.round(wizardProgress)} aria-valuemin={0} aria-valuemax={100}>
+                <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${wizardProgress}%` }} />
               </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-300"
-                  style={{ width: `${wizardProgress}%` }}
-                />
-              </div>
+              <span className="w-8 text-right tabular-nums">{Math.round(wizardProgress)}%</span>
             </div>
+            <p className="w-full truncate text-sm text-slate-500 lg:hidden">{stepDescriptions[wizardStep]}</p>
           </div>
         </section>
 
@@ -5608,6 +5120,9 @@ function NuevaPlantillaPage() {
           {wizardStep === 3 && (
             <StepPublicacion
               data={pubData}
+              info={infoData}
+              pageCount={pageCount}
+              fieldCount={insertedFields.length}
               onChange={(updates) => setPubData((prev) => ({ ...prev, ...updates }))}
               context={publicationContext}
               loadingContext={isLoadingPublicationContext}
@@ -6002,6 +5517,14 @@ function NuevaPlantillaPage() {
           </div>
         ))}
       </div>
+      {completionTitle && (
+        <WizardSuccessScreen
+          title={completionTitle}
+          description="Los cambios se guardaron correctamente en tu espacio de trabajo."
+          destination="/plantillas"
+          destinationLabel="Plantillas"
+        />
+      )}
     </div>
   );
 }

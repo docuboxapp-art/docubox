@@ -43,7 +43,7 @@ function PreviewContent() {
               <Tab active={mode === 'web'} icon={Eye} label="Formulario web" onClick={() => setMode('web')} />
               <Tab active={mode === 'pdf'} icon={FileText} label="PDF espejo" onClick={() => setMode('pdf')} />
             </div>
-            {formId && <button type="button" onClick={() => router.push(`/formularios/builder?id=${formId}`)} className="flex h-10 items-center gap-2 rounded-md bg-[#4F46E5] px-4 text-xs font-semibold text-white"><Pencil size={14} /> Editar</button>}
+            {formId && <button type="button" onClick={() => router.push(`/formularios/nuevo?id=${formId}`)} className="flex h-10 items-center gap-2 rounded-md bg-[#4F46E5] px-4 text-xs font-semibold text-white"><Pencil size={14} /> Editar</button>}
           </div>
         </header>
 

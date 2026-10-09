@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { approximateLoginLocation, clientIp } from '@/lib/security/login-location';
+import { createAnonClient } from '@/lib/supabase/server';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
 
 function parseUserAgent(ua: string): {
   browser: string;
@@ -90,104 +90,12 @@ function parseUserAgent(ua: string): {
   return { browser, browserVersion, os, osVersion, deviceType };
 }
 
-interface GeoResult {
-  country: string;
-  countryCode: string;
-  region: string;
-  city: string;
-  latitude: number | null;
-  longitude: number | null;
-  timezone: string;
-  isp: string;
-  // Mapbox reverse geocoding fields
-  neighborhood: string;
-  postcode: string;
-  place_name: string;
-}
-
-async function getGeoFromIP(ip: string): Promise<GeoResult> {
-  const defaultGeo: GeoResult = {
-    country: 'Unknown',
-    countryCode: '',
-    region: '',
-    city: 'Unknown',
-    latitude: null,
-    longitude: null,
-    timezone: '',
-    isp: '',
-    neighborhood: '',
-    postcode: '',
-    place_name: '',
-  };
-
-  // Skip geolocation for local/private IPs
-  if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
-    return { ...defaultGeo, city: 'Local/Private Network' };
-  }
-
-  try {
-    // Step 1: Get coordinates + basic geo from ip-api.com (free, no key required)
-    const ipRes = await fetch(
-      `http://ip-api.com/json/${ip}?fields=status,country,countryCode,regionName,city,lat,lon,timezone,isp`,
-      { signal: AbortSignal.timeout(5000) }
-    );
-    if (!ipRes.ok) return defaultGeo;
-    const ipData = await ipRes.json();
-    if (ipData.status !== 'success') return defaultGeo;
-
-    const baseGeo: GeoResult = {
-      country: ipData.country || 'Unknown',
-      countryCode: ipData.countryCode || '',
-      region: ipData.regionName || '',
-      city: ipData.city || 'Unknown',
-      latitude: ipData.lat ?? null,
-      longitude: ipData.lon ?? null,
-      timezone: ipData.timezone || '',
-      isp: ipData.isp || '',
-      neighborhood: '',
-      postcode: '',
-      place_name: '',
-    };
-
-    // Step 2: Enrich with Mapbox reverse geocoding if we have coordinates and token
-    if (MAPBOX_TOKEN && baseGeo.latitude !== null && baseGeo.longitude !== null) {
-      try {
-        const mapboxRes = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${baseGeo.longitude},${baseGeo.latitude}.json?types=neighborhood,postcode,place,region,country&language=es&access_token=${MAPBOX_TOKEN}`,
-          { signal: AbortSignal.timeout(5000) }
-        );
-        if (mapboxRes.ok) {
-          const mapboxData = await mapboxRes.json();
-          if (mapboxData.features && mapboxData.features.length > 0) {
-            for (const feature of mapboxData.features) {
-              if (feature.place_type?.includes('neighborhood') && !baseGeo.neighborhood) {
-                baseGeo.neighborhood = feature.text || '';
-              }
-              if (feature.place_type?.includes('postcode') && !baseGeo.postcode) {
-                baseGeo.postcode = feature.text || '';
-              }
-            }
-            baseGeo.place_name = mapboxData.features[0]?.place_name || '';
-          }
-        }
-      } catch {
-        // Mapbox enrichment failed — use base geo only
-      }
-    }
-
-    return baseGeo;
-  } catch {
-    return defaultGeo;
-  }
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
       userId,
       email,
-      userAgent,
       loginSuccess = true,
       // New fields
       authMethod,           // 'password' | 'otp' | 'biometric' | 'totp'
@@ -197,18 +105,29 @@ export async function POST(request: NextRequest) {
       deviceFingerprint,    // lightweight fingerprint from client
     } = body;
 
-    // Extract real IP from headers
-    const forwarded = request.headers.get('x-forwarded-for');
-    const realIp = request.headers.get('x-real-ip');
-    const cfIp = request.headers.get('cf-connecting-ip');
-    const ipAddress = cfIp || realIp || (forwarded ? forwarded.split(',')[0].trim() : null) || '127.0.0.1';
+    let verifiedUserId: string | null = null;
+    let verifiedEmail: string | null = null;
+    if (loginSuccess) {
+      const authorization = request.headers.get('authorization') || '';
+      const token = authorization.replace(/^Bearer\s+/i, '');
+      if (!token) {
+        return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
+      }
+      const { data: authData, error: authError } = await createAnonClient().auth.getUser(token);
+      if (authError || !authData.user || (userId && authData.user.id !== userId)) {
+        return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 403 });
+      }
+      verifiedUserId = authData.user.id;
+      verifiedEmail = authData.user.email || null;
+    }
+
+    const ipAddress = clientIp(request.headers);
 
     // Parse user agent
-    const ua = userAgent || request.headers.get('user-agent') || '';
+    const ua = request.headers.get('user-agent') || '';
     const { browser, browserVersion, os, osVersion, deviceType } = parseUserAgent(ua);
 
-    // Get geolocation from IP (enriched with Mapbox reverse geocoding if available)
-    const geo = await getGeoFromIP(ipAddress);
+    const geo = approximateLoginLocation(request.headers, ipAddress);
 
     const now = new Date();
     const accessDate = now.toISOString().split('T')[0];
@@ -218,8 +137,8 @@ export async function POST(request: NextRequest) {
     const { error } = await supabaseAdmin
       .from('access_logs')
       .insert({
-        user_id: userId || null,
-        email: email || null,
+        user_id: verifiedUserId,
+        email: verifiedEmail || (!loginSuccess ? email || null : null),
         ip_address: ipAddress,
         access_date: accessDate,
         access_time: accessTime,
@@ -232,11 +151,10 @@ export async function POST(request: NextRequest) {
         latitude: geo.latitude,
         longitude: geo.longitude,
         timezone: geo.timezone,
-        isp: geo.isp,
-        // Reverse geocoding (Mapbox) — now persisted
-        neighborhood: geo.neighborhood || null,
-        postcode: geo.postcode || null,
-        place_name: geo.place_name || null,
+        isp: null,
+        neighborhood: null,
+        postcode: null,
+        place_name: null,
         // Device info
         browser: browser,
         browser_version: browserVersion,
@@ -265,9 +183,7 @@ export async function POST(request: NextRequest) {
         city: geo.city,
         region: geo.region,
         country: geo.country,
-        neighborhood: geo.neighborhood,
-        postcode: geo.postcode,
-        place_name: geo.place_name,
+        locationType: 'approximate_ip',
         latitude: geo.latitude,
         longitude: geo.longitude,
       },

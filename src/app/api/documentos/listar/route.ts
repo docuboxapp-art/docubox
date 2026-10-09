@@ -8,8 +8,9 @@ import {
 import { getTrashCountdown } from '@/lib/documents/trash-countdown';
 
 const DOC_SELECT =
-  'id, nombre, descripcion, estado, etiquetas_ids, file_size, updated_at, ultimo_paso, is_favorite, fecha_vencimiento, scan_status, scan_threat, carpeta_id, created_at, fecha_completado, numero_oficio, folio_interno, ruta_guardado, priority, es_urgente, participantes, tipo_documento_id, tipo_documento:tipo_documento_id(nombre), source_template_id, deleted_at, owner_id, tiene_codigo_acceso, legal_hold, legal_hold_status, retention_status, retention_until, lifecycle_status, trashed_at, trashed_by, restore_until';
-const LEGACY_DOC_SELECT = DOC_SELECT.replace(', source_template_id', '');
+  'id, nombre, descripcion, estado, etiquetas_ids, file_size, updated_at, ultimo_paso, is_favorite, fecha_vencimiento, scan_status, scan_threat, carpeta_id, created_at, fecha_completado, numero_oficio, folio_interno, ruta_guardado, priority, es_urgente, participantes, tipo_documento_id, tipo_documento:tipo_documento_id(nombre), source_template_id, source_form_response_id, deleted_at, owner_id, tiene_codigo_acceso, legal_hold, legal_hold_status, retention_status, retention_until, lifecycle_status, trashed_at, trashed_by, restore_until';
+const WITHOUT_FORM_ORIGIN_SELECT = DOC_SELECT.replace(', source_form_response_id', '');
+const LEGACY_DOC_SELECT = WITHOUT_FORM_ORIGIN_SELECT.replace(', source_template_id', '');
 
 type ListedDocumentRow = DocumentLifecycleRecord & {
   id: string;
@@ -74,9 +75,8 @@ export async function GET(request: NextRequest) {
     };
 
     let result = await buildQuery(DOC_SELECT);
-    if (isTemplateOriginColumnMissing(result.error)) {
-      result = await buildQuery(LEGACY_DOC_SELECT);
-    }
+    if (result.error && /source_form_response_id/i.test(result.error.message || '')) result = await buildQuery(WITHOUT_FORM_ORIGIN_SELECT);
+    if (isTemplateOriginColumnMissing(result.error)) result = await buildQuery(LEGACY_DOC_SELECT);
     const data = result.data as ListedDocumentRow[] | null;
     const error = result.error;
 

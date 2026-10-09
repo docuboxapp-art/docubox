@@ -62,20 +62,9 @@ export default function BuilderCanvas() {
   return (
     <div className="h-full overflow-y-auto bg-[#F6F8FB] px-4 py-5 dark:bg-background md:px-6">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-5 rounded-lg border border-[#E2E8F0] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
-          <input
-            value={state.template.name}
-            onChange={(event) => dispatch({ type: 'SET_TEMPLATE_META', payload: { name: event.target.value } })}
-            className="w-full border-0 bg-transparent p-0 text-xl font-semibold text-[#0F172A] outline-none placeholder:text-[#94A3B8] dark:text-foreground"
-            placeholder="Nombre del formulario"
-          />
-          <textarea
-            value={state.template.description}
-            onChange={(event) => dispatch({ type: 'SET_TEMPLATE_META', payload: { description: event.target.value } })}
-            rows={2}
-            className="mt-2 w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-[#475569] outline-none placeholder:text-[#94A3B8] dark:text-muted-foreground"
-            placeholder="Describe el propósito y alcance legal de este formulario."
-          />
+        <div className="mb-5">
+          <h2 className="break-words text-lg font-medium">{state.template.name}</h2>
+          {state.template.description && <p className="mt-1 break-words text-sm text-muted-foreground">{state.template.description}</p>}
         </div>
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -111,6 +100,9 @@ export default function BuilderCanvas() {
                         />
                       </div>
                       <div className="flex items-center gap-1">
+                        {state.template.settings.multiStep && (
+                          <span className="mr-2 rounded bg-blue-50 px-2 py-1 text-[10px] font-medium text-primary">Página {sectionIndex + 1}</span>
+                        )}
                         {section.pageBreakBefore && sectionIndex > 0 && (
                           <span className="mr-2 rounded bg-[#F8FAFC] px-2 py-1 text-[10px] font-medium text-[#64748B]">Salto PDF</span>
                         )}
@@ -170,6 +162,11 @@ export default function BuilderCanvas() {
                           >
                             <Plus size={14} /> Agregar pregunta
                           </button>
+                        )}
+                        {state.template.settings.multiStep && sectionIndex < state.template.sections.length - 1 && (
+                          <p className="border-t border-dashed border-slate-200 pt-3 text-center text-xs text-slate-500">
+                            Al continuar, se mostrará la siguiente sección.
+                          </p>
                         )}
                       </div>
                     )}

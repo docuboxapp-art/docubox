@@ -818,18 +818,9 @@ function CrearDocumentoPageInner() {
         />
       )}
 
-      <header className="flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
-        <div className="flex min-w-0 flex-1 items-center gap-4">
-          <AppLogo size={34} />
-          <div className="hidden h-8 w-px bg-slate-200 lg:block" />
-          <div className="hidden min-w-0 lg:block">
-            <p className="truncate text-sm font-600 text-slate-950">Nuevo documento</p>
-            <p className="truncate text-xs text-slate-500">
-              {activeWorkspace?.name || 'Espacio personal'}
-            </p>
-          </div>
-        </div>
-        <nav className="hidden items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 xl:flex">
+      <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
+        <AppLogo size={34} imageClassName="max-sm:w-24" />
+        <nav aria-label="Pasos de creación" className="mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100/80 p-1 sm:gap-1">
           {STEPS.map((step, idx) => {
             const StepIcon = step.icon;
             const isActive = step.id === currentStep;
@@ -837,29 +828,35 @@ function CrearDocumentoPageInner() {
             return (
               <React.Fragment key={step.id}>
                 <button
+                  type="button"
                   onClick={() => step.id < currentStep && setCurrentStep(step.id)}
-                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-xs font-600 transition-colors ${isActive ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]' : isCompleted ? 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary' : 'cursor-default text-slate-400'}`}
+                  disabled={!isCompleted}
+                  aria-current={isActive ? 'step' : undefined}
+                  aria-label={step.label}
+                  title={step.label}
+                  className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-normal transition-colors sm:px-2.5 ${isActive ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]' : isCompleted ? 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary' : 'cursor-default text-slate-400'}`}
                 >
                   <span
                     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'}`}
                   >
                     {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                   </span>
-                  <span>{step.label}</span>
+                  <span className="hidden md:inline">{step.label}</span>
                 </button>
                 {idx < STEPS.length - 1 && (
                   <div
-                    className={`h-px w-3 ${step.id < currentStep ? 'bg-primary/50' : 'bg-slate-200'}`}
+                    className={`h-px w-1.5 shrink-0 sm:w-3 ${step.id < currentStep ? 'bg-primary/50' : 'bg-slate-200'}`}
                   />
                 )}
               </React.Fragment>
             );
           })}
         </nav>
-        <div className="flex flex-1 items-center justify-end gap-1.5">
+        <div className="flex items-center justify-end gap-1 sm:gap-1.5">
           <button
             onClick={handleToggleFullscreen}
             title={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'}
+            aria-label={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-slate-500 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950"
           >
             <Maximize2 size={17} />
@@ -867,7 +864,7 @@ function CrearDocumentoPageInner() {
           <button
             onClick={() => setShowExitModal(true)}
             title="Salir"
-            className="ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            className="ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 sm:px-3"
           >
             <X size={16} />
             <span className="hidden sm:inline">Salir</span>
@@ -875,54 +872,26 @@ function CrearDocumentoPageInner() {
         </div>
       </header>
 
-      <div className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-4 py-2 xl:hidden">
-        <nav className="mx-auto flex min-w-max items-center gap-1">
-          {STEPS.map((step) => {
-            const StepIcon = step.icon;
-            const isActive = step.id === currentStep;
-            const isCompleted = step.id < currentStep;
-            return (
-              <button
-                key={step.id}
-                onClick={() => step.id < currentStep && setCurrentStep(step.id)}
-                className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-600 transition-colors ${isActive ? 'bg-primary/10 text-primary' : isCompleted ? 'text-slate-700' : 'text-slate-400'}`}
-              >
-                {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
-                {step.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      <section className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-4 lg:px-6">
-        <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <CurrentStepIcon size={19} />
+      <section className="shrink-0 border-b border-slate-200 bg-[#edf3f8] px-4 py-2 lg:px-6">
+        <div className="mx-auto flex w-full max-w-[1480px] flex-wrap items-center gap-x-4 gap-y-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <CurrentStepIcon size={16} />
             </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-600 text-slate-950">{currentStepLabel}</h1>
-                <span className="rounded-md bg-slate-200/70 px-2 py-0.5 text-xs font-600 text-slate-600">
-                  Paso {currentStep} de {STEPS.length}
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-slate-500">{currentStepDescription}</p>
-            </div>
+            <h1 className="shrink-0 text-[20px] font-normal text-slate-950">{currentStepLabel}</h1>
+            <span className="shrink-0 rounded-md bg-slate-200/70 px-1.5 py-0.5 text-sm font-normal text-slate-600">
+              Paso {currentStep} de {STEPS.length}
+            </span>
+            <p className="hidden min-w-0 truncate text-sm text-slate-500 lg:block">{currentStepDescription}</p>
           </div>
-          <div className="w-full sm:w-60">
-            <div className="flex items-center justify-between text-xs font-600 text-slate-500">
-              <span>Progreso</span>
-              <span>{completionPercent}%</span>
+          <div className="flex w-full items-center gap-2 text-sm font-normal text-slate-500 sm:w-44">
+            <span className="sr-only">Progreso</span>
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="Progreso" aria-valuenow={completionPercent} aria-valuemin={0} aria-valuemax={100}>
+              <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${completionPercent}%` }} />
             </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
-                style={{ width: `${completionPercent}%` }}
-              />
-            </div>
+            <span className="w-8 text-right tabular-nums">{completionPercent}%</span>
           </div>
+          <p className="w-full truncate text-sm text-slate-500 lg:hidden">{currentStepDescription}</p>
         </div>
       </section>
 

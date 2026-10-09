@@ -46,7 +46,6 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Toaster, toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
@@ -4786,7 +4785,6 @@ export default function FirmarDocumentoPage() {
   const params = useParams();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { activeWorkspace } = useWorkspace();
   const docId = params?.id as string;
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [kioskSessionId, setKioskSessionId] = useState<string | null>(null);
@@ -7031,6 +7029,7 @@ export default function FirmarDocumentoPage() {
     configuredSignatureMethods.some(
       (method) => method === 'autografa' || method === 'autografa digital'
     );
+  const formRequiresLiveness = myParticipantData?.require_liveness === true;
 
   const isClickSign = configuredSignatureMethods.some(
     (method) => method === 'click sign' || method === 'click & sign'
@@ -9601,25 +9600,12 @@ export default function FirmarDocumentoPage() {
 
       {/* ── Top Bar ─────────────────────────────────────────────────────────── */}
       <header
-        className={`z-10 flex h-16 shrink-0 items-center border-b px-4 transition-colors duration-300 lg:px-6 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
+        className={`z-10 grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-3 py-2.5 transition-colors duration-300 sm:gap-4 sm:px-4 lg:px-6 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-slate-50'}`}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-4">
-          <AppLogo size={34} />
-          <div className={`hidden h-8 w-px lg:block ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`} />
-          <div className="hidden min-w-0 lg:block">
-            <p
-              className={`truncate text-sm font-600 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}
-            >
-              {myRole === 'firmante' ? 'Firmar documento' : 'Revisar documento'}
-            </p>
-            <p className={`truncate text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
-              {activeWorkspace?.name || 'Espacio personal'}
-            </p>
-          </div>
-        </div>
-
+        <AppLogo size={34} imageClassName="max-sm:w-24" />
         <nav
-          className={`hidden items-center gap-1 rounded-lg border p-1 xl:flex ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-slate-200 bg-slate-50'}`}
+          aria-label="Pasos de firma"
+          className={`mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border p-1 sm:gap-1 ${isDark ? 'border-gray-700 bg-gray-900/70' : 'border-slate-200 bg-slate-100/80'}`}
         >
           {steps.map((s, idx) => {
             const isActive = idx === currentStepIndex;
@@ -9628,10 +9614,15 @@ export default function FirmarDocumentoPage() {
             return (
               <React.Fragment key={s.id}>
                 <button
+                  type="button"
                   onClick={() =>
                     isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')
                   }
-                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-xs font-600 transition-colors ${
+                  disabled={!isCompleted}
+                  aria-current={isActive ? 'step' : undefined}
+                  aria-label={s.label}
+                  title={s.label}
+                  className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-normal transition-colors sm:px-2.5 ${
                     isActive
                       ? isDark
                         ? 'bg-gray-700 text-blue-300 shadow-[0_1px_3px_rgba(0,0,0,0.25)]'
@@ -9658,11 +9649,11 @@ export default function FirmarDocumentoPage() {
                   >
                     {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
                   </span>
-                  <span>{s.label}</span>
+                  <span className="hidden md:inline">{s.label}</span>
                 </button>
                 {idx < steps.length - 1 && (
                   <div
-                    className={`h-px w-3 ${isCompleted ? 'bg-primary/50' : isDark ? 'bg-gray-700' : 'bg-slate-200'}`}
+                    className={`h-px w-1.5 shrink-0 sm:w-3 ${isCompleted ? 'bg-primary/50' : isDark ? 'bg-gray-700' : 'bg-slate-200'}`}
                   />
                 )}
               </React.Fragment>
@@ -9670,10 +9661,11 @@ export default function FirmarDocumentoPage() {
           })}
         </nav>
 
-        <div className="flex flex-1 items-center justify-end gap-1.5">
+        <div className="flex items-center justify-end gap-1 sm:gap-1.5">
           <button
             onClick={handleToggleFullscreen}
             title={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'}
+            aria-label={isFullscreen ? 'Restaurar pantalla' : 'Maximizar pantalla'}
             className={`flex h-9 w-9 items-center justify-center rounded-lg border border-transparent transition-colors ${isDark ? 'text-gray-400 hover:border-gray-600 hover:bg-gray-700 hover:text-gray-200' : 'text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950'}`}
           >
             {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
@@ -9681,47 +9673,13 @@ export default function FirmarDocumentoPage() {
           <button
             onClick={() => setShowExitModal(true)}
             title="Salir"
-            className={`ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-600 transition-colors ${isDark ? 'border-gray-600 bg-gray-800 text-gray-300 hover:border-red-800 hover:bg-red-900/20 hover:text-red-400' : 'border-slate-200 bg-white text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600'}`}
+            className={`ml-0.5 flex h-9 items-center gap-1.5 rounded-lg border px-2 text-sm font-600 transition-colors sm:px-3 ${isDark ? 'border-gray-600 bg-gray-800 text-gray-300 hover:border-red-800 hover:bg-red-900/20 hover:text-red-400' : 'border-slate-200 bg-white text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600'}`}
           >
             <X size={16} />
             <span className="hidden sm:inline">Salir</span>
           </button>
         </div>
       </header>
-
-      <div
-        className={`shrink-0 overflow-x-auto border-b px-4 py-2 xl:hidden ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
-      >
-        <nav className="mx-auto flex min-w-max items-center gap-1">
-          {steps.map((s, idx) => {
-            const isActive = idx === currentStepIndex;
-            const isCompleted = idx < currentStepIndex;
-            const StepIcon = signingStepIcons[s.id] || FileText;
-            return (
-              <button
-                key={s.id}
-                onClick={() =>
-                  isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')
-                }
-                className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-600 transition-colors ${
-                  isActive
-                    ? 'bg-primary/10 text-primary'
-                    : isCompleted
-                      ? isDark
-                        ? 'text-gray-200'
-                        : 'text-slate-700'
-                      : isDark
-                        ? 'text-gray-500'
-                        : 'text-slate-400'
-                }`}
-              >
-                {isCompleted ? <CheckCircle2 size={14} /> : <StepIcon size={14} />}
-                {s.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
 
       {/* Exit confirmation modal */}
       {showExitModal && (
@@ -9948,45 +9906,33 @@ export default function FirmarDocumentoPage() {
 
       {/* ── Body ─────────────────────────────────────────────────────────────── */}
       <section
-        className={`shrink-0 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-slate-50'}`}
+        className={`shrink-0 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-[#edf3f8]'}`}
       >
-        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:flex-row sm:items-end sm:justify-between lg:px-6">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <CurrentSigningStepIcon size={19} />
+        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2 lg:px-6">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <CurrentSigningStepIcon size={16} />
             </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className={`text-xl font-600 ${isDark ? 'text-gray-100' : 'text-slate-950'}`}>
-                  {currentStepData?.label}
-                </h1>
-                <span
-                  className={`rounded-md px-2 py-0.5 text-xs font-600 ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-200/70 text-slate-600'}`}
-                >
-                  Paso {currentStepIndex + 1} de {steps.length}
-                </span>
-              </div>
-              <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
-                {currentStepDescription}
-              </p>
-            </div>
+            <h1 className={`shrink-0 text-[20px] font-normal ${isDark ? 'text-gray-100' : 'text-slate-950'}`}>
+              {currentStepData?.label}
+            </h1>
+            <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-sm font-normal ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-200/70 text-slate-600'}`}>
+              Paso {currentStepIndex + 1} de {steps.length}
+            </span>
+            <p className={`hidden min-w-0 truncate text-sm lg:block ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+              {currentStepDescription}
+            </p>
           </div>
-          <div className="w-full sm:w-60">
-            <div
-              className={`flex items-center justify-between text-xs font-600 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
-            >
-              <span>Progreso</span>
-              <span>{completionPercent}%</span>
+          <div className={`flex w-full items-center gap-2 text-sm font-normal sm:w-44 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+            <span className="sr-only">Progreso</span>
+            <div className={`h-1.5 flex-1 overflow-hidden rounded-full ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`} role="progressbar" aria-label="Progreso" aria-valuenow={completionPercent} aria-valuemin={0} aria-valuemax={100}>
+              <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${completionPercent}%` }} />
             </div>
-            <div
-              className={`mt-2 h-1.5 overflow-hidden rounded-full ${isDark ? 'bg-gray-700' : 'bg-slate-200'}`}
-            >
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
-                style={{ width: `${completionPercent}%` }}
-              />
-            </div>
+            <span className="w-8 text-right tabular-nums">{completionPercent}%</span>
           </div>
+          <p className={`w-full truncate text-sm lg:hidden ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+            {currentStepDescription}
+          </p>
         </div>
       </section>
 
@@ -12202,6 +12148,7 @@ export default function FirmarDocumentoPage() {
                       {/* Check for pre-recorded autograph signature — new UX */}
                       {savedSignature &&
                         savedSignatureType === 'autografa' &&
+                        !formRequiresLiveness &&
                         usePreloadedSignature === null &&
                         !autographFlowDone && (
                           <div
@@ -12256,6 +12203,7 @@ export default function FirmarDocumentoPage() {
                       {/* Using pre-recorded signature */}
                       {savedSignature &&
                         savedSignatureType === 'autografa' &&
+                        !formRequiresLiveness &&
                         usePreloadedSignature === true && (
                           <div
                             className={`border rounded-xl overflow-hidden ${isDark ? 'border-green-700' : 'border-green-200'}`}
@@ -12295,7 +12243,7 @@ export default function FirmarDocumentoPage() {
                         )}
 
                       {/* Full autograph flow — when no pre-recorded or user chose to draw new */}
-                      {(!savedSignature ||
+                      {(formRequiresLiveness || !savedSignature ||
                         savedSignatureType !== 'autografa' ||
                         usePreloadedSignature === false) &&
                         !autographFlowDone && (
@@ -12309,6 +12257,7 @@ export default function FirmarDocumentoPage() {
                             onNoticeAccepted={() => setHideNoSignatureWarning(true)}
                             userName={userProfile.nombre_completo || user.email || ''}
                             documentName={document.nombre}
+                            requireBiometric={formRequiresLiveness}
                             isDark={isDark}
                             initialGeolocation={browserGeolocation}
                             onComplete={(dataUrl, evidenceId, stampContext) => {

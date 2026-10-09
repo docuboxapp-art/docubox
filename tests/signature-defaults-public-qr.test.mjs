@@ -23,15 +23,15 @@ const selectorPaths = [
   '../src/app/mi-perfil/components/ClickSignStampSelector.tsx',
 ].map((path) => new URL(path, import.meta.url));
 const migrationPath = new URL(
-  '../supabase/migrations/20260922161610_default_signature_stamps_and_public_qr.sql',
+  '../supabase/migrations/20260922163031_default_signature_stamps_and_public_qr.sql',
   import.meta.url
 );
 const autographMigrationPath = new URL(
-  '../supabase/migrations/20260922213514_default_autograph_ac0.sql',
+  '../supabase/migrations/20260922214826_default_autograph_ac0.sql',
   import.meta.url
 );
 const currentAutographMigrationPath = new URL(
-  '../supabase/migrations/20260924073852_default_autograph_ac1_after_layout_shift.sql',
+  '../supabase/migrations/20260924075503_default_autograph_ac1_after_layout_shift.sql',
   import.meta.url
 );
 

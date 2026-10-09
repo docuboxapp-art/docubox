@@ -3,11 +3,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
-import { Bell, Globe, Users, ShieldCheck, Key, Palette, Check, Mail, Smartphone, Loader2, Plus, Trash2, Copy, Webhook, Eye, EyeOff, AlertCircle, CheckCircle, Clock, Filter, Download, Building2, Lock, Edit3, X, Save, Activity, Image, Upload, Search, Info, Zap, Globe2, Link2, Fingerprint, FileText } from 'lucide-react';
+import { Bell, Globe, Users, ShieldCheck, Key, Palette, Check, Mail, Smartphone, Loader2, Plus, Trash2, Copy, Webhook, Eye, EyeOff, AlertCircle, CheckCircle, Clock, Filter, Download, Building2, Lock, Edit3, X, Save, Activity, Image, Upload, Search, Info, Zap, Globe2, Link2, Fingerprint, FileText, FileCog } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
 import { TemplateDocumentSettingsPanel } from '@/components/templates/TemplateDocumentSettingsPanel';
+import { FormPdfDefaultsPanel } from '@/components/forms/FormPdfDefaultsPanel';
+import { FormExperienceDefaultsPanel } from '@/components/forms/FormExperienceDefaultsPanel';
+import { FormAppearanceDefaultsPanel } from '@/components/forms/FormAppearanceDefaultsPanel';
 import { WorkspaceManagementSection } from '@/components/workspaces/WorkspaceManagementSection';
 import {
   DEFAULT_TEMPLATE_DOCUMENT_SETTINGS,
@@ -15,10 +18,20 @@ import {
   type TemplateDocumentSettings,
   writeTemplateDocumentSettings,
 } from '@/lib/templates/document-settings';
+import {
+  createDefaultFormPdfDefaults,
+  type FormPdfDefaults,
+} from '@/lib/forms/pdf-defaults';
+import {
+  createDefaultFormExperienceDefaults,
+  type FormExperienceDefaults,
+} from '@/lib/forms/experience-defaults';
+import { formDefaultsErrorMessage, loadFormDefaults, saveFormDefault } from '@/lib/forms/remote-defaults';
+import { createDefaultFormAppearance, type FormAppearance } from '@/lib/forms/schema';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Section = 'espacios-trabajo' | 'delegacion' | 'auditoria' | 'integraciones' | 'regional' | 'notificaciones' | 'almacenamiento' | 'plantillas';
+type Section = 'espacios-trabajo' | 'delegacion' | 'auditoria' | 'integraciones' | 'regional' | 'notificaciones' | 'almacenamiento' | 'plantillas' | 'formularios';
 
 interface ToggleProps {
   enabled: boolean;
@@ -167,6 +180,7 @@ const sidebarSections: { label: string; items: SidebarItem[] }[] = [
     label: 'Configuración del espacio',
     items: [
       { type: 'section', id: 'plantillas', label: 'Plantillas', icon: FileText },
+      { type: 'section', id: 'formularios', label: 'Formularios', icon: FileCog },
       { type: 'section', id: 'regional', label: 'Regional y marca', icon: Globe },
       { type: 'section', id: 'almacenamiento', label: 'Almacenamiento', icon: Globe2 },
     ],
@@ -261,6 +275,17 @@ export default function ConfiguracionPage() {
   const [templateDocumentSettings, setTemplateDocumentSettings] =
     useState<TemplateDocumentSettings>(DEFAULT_TEMPLATE_DOCUMENT_SETTINGS);
   const [templateSettingsSaved, setTemplateSettingsSaved] = useState(false);
+  const [formPdfDefaults, setFormPdfDefaults] =
+    useState<FormPdfDefaults>(createDefaultFormPdfDefaults);
+  const [formExperienceDefaults, setFormExperienceDefaults] =
+    useState<FormExperienceDefaults>(createDefaultFormExperienceDefaults);
+  const [formAppearanceDefaults, setFormAppearanceDefaults] =
+    useState<FormAppearance>(createDefaultFormAppearance);
+  const [formConfigTab, setFormConfigTab] = useState<'general' | 'web' | 'pdf'>('general');
+  const [formExperienceSaved, setFormExperienceSaved] = useState(false);
+  const [formDefaultsSaved, setFormDefaultsSaved] = useState(false);
+  const [formDefaultsError, setFormDefaultsError] = useState('');
+  const [formDefaultsLoadedWorkspaceId, setFormDefaultsLoadedWorkspaceId] = useState<string | null>(null);
 
   const currentWsId = activeWorkspace?.id || workspaces[0]?.id || null;
 
@@ -325,13 +350,37 @@ export default function ConfiguracionPage() {
     window.requestAnimationFrame(() => setTemplateDocumentSettings(settings));
   }, [currentWsId]);
 
+  const loadFormPdfDefaults = useCallback(async (isCurrent: () => boolean) => {
+    if (!currentWsId) return;
+    setFormDefaultsLoadedWorkspaceId(null);
+    try {
+      const defaults = await loadFormDefaults(currentWsId);
+      if (!isCurrent()) return;
+      setFormPdfDefaults(defaults.pdf);
+      setFormExperienceDefaults(defaults.experience);
+      setFormAppearanceDefaults(defaults.appearance);
+      setFormExperienceSaved(true);
+      setFormDefaultsError('');
+      setFormDefaultsLoadedWorkspaceId(currentWsId);
+    } catch (error) {
+      if (!isCurrent()) return;
+      setFormDefaultsError(formDefaultsErrorMessage(error));
+      setFormDefaultsLoadedWorkspaceId(currentWsId);
+    }
+  }, [currentWsId]);
+
   useEffect(() => {
-    if (activeSection === 'auditoria') loadAuditEvents();
-    if (activeSection === 'integraciones') loadApiKeys();
-    if (activeSection === 'delegacion') loadPermProfiles();
-    if (activeSection === 'regional') loadRegional();
-    if (activeSection === 'plantillas') loadTemplateDocumentSettings();
-  }, [activeSection, loadAuditEvents, loadApiKeys, loadPermProfiles, loadRegional, loadTemplateDocumentSettings]);
+    let active = true;
+    const frame = window.requestAnimationFrame(() => {
+      if (activeSection === 'auditoria') loadAuditEvents();
+      if (activeSection === 'integraciones') loadApiKeys();
+      if (activeSection === 'delegacion') loadPermProfiles();
+      if (activeSection === 'regional') loadRegional();
+      if (activeSection === 'plantillas') loadTemplateDocumentSettings();
+      if (activeSection === 'formularios') void loadFormPdfDefaults(() => active);
+    });
+    return () => { active = false; window.cancelAnimationFrame(frame); };
+  }, [activeSection, loadAuditEvents, loadApiKeys, loadPermProfiles, loadRegional, loadTemplateDocumentSettings, loadFormPdfDefaults]);
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -481,6 +530,43 @@ export default function ConfiguracionPage() {
     setTemplateDocumentSettings(normalized);
     setTemplateSettingsSaved(true);
     setTimeout(() => setTemplateSettingsSaved(false), 3000);
+  };
+
+  const handleSaveFormPdfDefaults = async (settings: FormPdfDefaults) => {
+    try {
+      if (!currentWsId) throw new Error('Selecciona un espacio de trabajo.');
+      setFormPdfDefaults(await saveFormDefault(currentWsId, 'pdf', settings));
+      setFormDefaultsError('');
+      setFormDefaultsSaved(true);
+      setTimeout(() => setFormDefaultsSaved(false), 3000);
+    } catch (error) {
+      setFormDefaultsError(formDefaultsErrorMessage(error));
+    }
+  };
+
+  const handleSaveFormExperienceDefaults = async (settings: FormExperienceDefaults) => {
+    try {
+      if (!currentWsId) throw new Error('Selecciona un espacio de trabajo.');
+      setFormExperienceDefaults(await saveFormDefault(currentWsId, 'experience', settings));
+      setFormExperienceSaved(true);
+      setFormDefaultsError('');
+      setFormDefaultsSaved(true);
+      setTimeout(() => setFormDefaultsSaved(false), 3000);
+    } catch (error) {
+      setFormDefaultsError(formDefaultsErrorMessage(error));
+    }
+  };
+
+  const handleSaveFormAppearanceDefaults = async (appearance: FormAppearance) => {
+    try {
+      if (!currentWsId) throw new Error('Selecciona un espacio de trabajo.');
+      setFormAppearanceDefaults(await saveFormDefault(currentWsId, 'appearance', appearance));
+      setFormDefaultsError('');
+      setFormDefaultsSaved(true);
+      setTimeout(() => setFormDefaultsSaved(false), 3000);
+    } catch (error) {
+      setFormDefaultsError(formDefaultsErrorMessage(error));
+    }
   };
 
   const handleSaveNotifications = () => {
@@ -1514,6 +1600,62 @@ export default function ConfiguracionPage() {
     </div>
   );
 
+  const renderFormularios = () => (
+    <div className="flex flex-col gap-6">
+      <SettingsSectionHeader
+        title="Configuración de formularios"
+        description="Define la experiencia, el diseño web y el PDF de los formularios nuevos."
+      />
+      {formDefaultsSaved && formDefaultsLoadedWorkspaceId === currentWsId && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+          <CheckCircle size={15} /> Configuración de formularios guardada correctamente.
+        </div>
+      )}
+      {formDefaultsError && formDefaultsLoadedWorkspaceId === currentWsId && (
+        <p role="alert" className="text-sm text-red-600">{formDefaultsError}</p>
+      )}
+      {currentWsId && formDefaultsLoadedWorkspaceId !== currentWsId ? (
+        <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Cargando configuración guardada...</div>
+      ) : <>
+      <div role="tablist" aria-label="Valores predeterminados de formularios" className="flex gap-1 overflow-x-auto border-b border-slate-200">
+        {([
+          ['general', 'General'],
+          ['web', 'Diseño del formulario'],
+          ['pdf', 'Diseño del PDF'],
+        ] as const).map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={formConfigTab === id} onClick={() => setFormConfigTab(id)} className={'shrink-0 border-b-2 px-4 py-3 text-sm font-medium ' + (formConfigTab === id ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-800')}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {formConfigTab === 'general' && <div className="w-full max-w-4xl min-w-0" role="tabpanel">
+        <FormExperienceDefaultsPanel
+          key={`experience:${currentWsId || 'personal'}:${JSON.stringify(formExperienceDefaults)}`}
+          initialSettings={formExperienceDefaults}
+          saved={formExperienceSaved}
+          onSave={handleSaveFormExperienceDefaults}
+        />
+      </div>}
+      {formConfigTab === 'web' && <div className="w-full min-w-0" role="tabpanel">
+        <FormAppearanceDefaultsPanel
+          key={`appearance:${currentWsId || 'personal'}:${JSON.stringify(formAppearanceDefaults)}`}
+          initialSettings={formAppearanceDefaults}
+          saved={!formDefaultsError}
+          onSave={handleSaveFormAppearanceDefaults}
+        />
+      </div>}
+      {formConfigTab === 'pdf' && <div className="w-full min-w-0" role="tabpanel">
+        <FormPdfDefaultsPanel
+          key={`${currentWsId || 'personal'}:${JSON.stringify(formPdfDefaults)}`}
+          initialSettings={formPdfDefaults}
+          saved={!formDefaultsError}
+          onSave={handleSaveFormPdfDefaults}
+        />
+      </div>}
+      </>}
+    </div>
+  );
+
   const renderContent = () => {
     switch (activeSection) {
       case 'espacios-trabajo': return <WorkspaceManagementSection />;
@@ -1523,6 +1665,7 @@ export default function ConfiguracionPage() {
       case 'integraciones': return renderIntegraciones();
       case 'almacenamiento': return renderAlmacenamiento();
       case 'plantillas': return renderPlantillas();
+      case 'formularios': return renderFormularios();
       case 'regional': return renderRegional();
       default: return null;
     }

@@ -10,7 +10,6 @@ import {
   Trash2,
   ShieldCheck,
   Folder,
-  Tag,
   Monitor,
   Smartphone,
   Clock,
@@ -25,6 +24,7 @@ import {
   Lock,
   Loader2,
   LayoutTemplate,
+  Pencil,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -39,6 +39,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { templateApiFetch } from '@/lib/templates/client';
 import { SearchableSelect, InfoTooltip } from './SharedComponents';
+import { DocumentTypeSelectorModal, EtiquetasSearchFieldWithModal } from './CatalogFields';
 import { DocuboxSourceSelector } from './DocuboxSourceSelector';
 import { TemplateSourceSelector, type PublishedTemplateSummary } from './TemplateSourceSelector';
 import { getTemplateFamilyId } from '@/lib/templates/versioning';
@@ -563,777 +564,6 @@ function SearchFieldWithModal({
                     );
                   })}
                 </div>
-              )}
-            </div>
-            <div className="flex justify-end border-t border-gray-100 px-5 py-3">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-// --- Etiquetas Search Field + Modal -------------------------------------------
-
-function EtiquetasSearchFieldWithModal({
-  etiquetas,
-  selectedIds,
-  onChange,
-  userId,
-  loading,
-}: {
-  etiquetas: Etiqueta[];
-  selectedIds: string[];
-  onChange: (ids: string[]) => void;
-  userId?: string;
-  loading?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [favorites, setFavorites] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'todos' | 'favoritos'>('todos');
-  const storageKey = 'fav_etiquetas';
-
-  useEffect(() => {
-    if (!userId) return;
-    const supabase = createClient();
-    supabase
-      .from('user_favorites')
-      .select('item_id')
-      .eq('user_id', userId)
-      .eq('storage_key', storageKey)
-      .then(({ data }) => {
-        if (data) setFavorites(data.map((r: { item_id: string }) => r.item_id));
-      });
-  }, [userId]);
-
-  const toggleFavorite = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!userId) return;
-    const isFav = favorites.includes(id);
-    setFavorites((prev) => (isFav ? prev.filter((f) => f !== id) : [...prev, id]));
-    const supabase = createClient();
-    if (isFav) {
-      await supabase
-        .from('user_favorites')
-        .delete()
-        .eq('user_id', userId)
-        .eq('storage_key', storageKey)
-        .eq('item_id', id);
-    } else {
-      await supabase
-        .from('user_favorites')
-        .upsert(
-          { user_id: userId, storage_key: storageKey, item_id: id },
-          { onConflict: 'user_id,storage_key,item_id' }
-        );
-    }
-  };
-
-  const toggleSelect = (id: string) => {
-    if (selectedIds.includes(id)) {
-      onChange(selectedIds.filter((s) => s !== id));
-    } else {
-      onChange([...selectedIds, id]);
-    }
-  };
-
-  const filtered = etiquetas.filter((e) => {
-    const matchSearch = e.nombre.toLowerCase().includes(search.toLowerCase());
-    if (activeTab === 'favoritos') return matchSearch && favorites.includes(e.id);
-    return matchSearch;
-  });
-
-  const selectedLabels = etiquetas
-    .filter((e) => selectedIds.includes(e.id))
-    .map((e) => e.nombre)
-    .join(', ');
-  const selectedEtiquetas = etiquetas.filter((e) => selectedIds.includes(e.id));
-
-  return (
-    <>
-      <div className="flex gap-2">
-        <div
-          className={`flex-1 relative flex flex-wrap items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 min-h-[42px] bg-white ${loading ? 'bg-gray-50' : ''}`}
-        >
-          {selectedEtiquetas.length === 0 ? (
-            <span className={`text-sm ${loading ? 'text-gray-400' : 'text-gray-400'}`}>
-              {loading ? 'Cargando...' : 'Seleccionar etiquetas...'}
-            </span>
-          ) : (
-            <>
-              {selectedEtiquetas.map((e) => (
-                <span
-                  key={e.id}
-                  className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full"
-                  style={{
-                    backgroundColor: e.color ? `${e.color}22` : '#6366f122',
-                    color: e.color || '#6366f1',
-                    border: `1px solid ${e.color ? `${e.color}55` : '#6366f155'}`,
-                  }}
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: e.color || '#6366f1' }}
-                  />
-                  {e.nombre}
-                  <button
-                    type="button"
-                    onClick={() => toggleSelect(e.id)}
-                    className="ml-0.5 hover:opacity-70 transition-opacity"
-                    style={{ color: e.color || '#6366f1' }}
-                  >
-                    <X size={10} />
-                  </button>
-                </span>
-              ))}
-            </>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (!loading) {
-              setOpen(true);
-              setSearch('');
-              setActiveTab('todos');
-            }
-          }}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-white"
-        >
-          <Search size={14} />
-          Buscar
-        </button>
-      </div>
-
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 overflow-hidden flex flex-col"
-            style={{ maxHeight: '85vh' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold text-gray-900">Etiquetas</h3>
-            </div>
-            <div className="px-5 pt-4 pb-2">
-              <div className="relative">
-                <Search
-                  size={15}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                />
-                <input
-                  type="text"
-                  autoFocus
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar etiqueta..."
-                  className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-              <div className="flex gap-1 mt-3">
-                <button
-                  onClick={() => setActiveTab('todos')}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors ${activeTab === 'todos' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                >
-                  Todos
-                </button>
-                <button
-                  onClick={() => setActiveTab('favoritos')}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${activeTab === 'favoritos' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                >
-                  <Star size={11} />
-                  Favoritos {favorites.length > 0 && `(${favorites.length})`}
-                </button>
-              </div>
-              {selectedIds.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {etiquetas
-                    .filter((e) => selectedIds.includes(e.id))
-                    .map((e) => (
-                      <span
-                        key={e.id}
-                        className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border"
-                        style={{
-                          backgroundColor: `${e.color || '#1E6BFF'}18`,
-                          borderColor: `${e.color || '#1E6BFF'}55`,
-                          color: e.color || '#1E6BFF',
-                        }}
-                      >
-                        {e.nombre}
-                        <button onClick={() => toggleSelect(e.id)} className="hover:opacity-70">
-                          <X size={10} />
-                        </button>
-                      </span>
-                    ))}
-                </div>
-              )}
-            </div>
-            <div className="px-5 pb-4 max-h-56 overflow-y-auto">
-              {filtered.length === 0 ? (
-                <div className="py-8 text-center text-sm text-gray-400">
-                  {activeTab === 'favoritos' ? 'No tienes favoritos aún' : 'Sin resultados'}
-                </div>
-              ) : (
-                <div className="space-y-0.5">
-                  {filtered.map((etq) => {
-                    const isFav = favorites.includes(etq.id);
-                    const isSelected = selectedIds.includes(etq.id);
-                    const tagColor = etq.color || '#1E6BFF';
-                    return (
-                      <div
-                        key={etq.id}
-                        onClick={() => toggleSelect(etq.id)}
-                        className={`flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${isSelected ? '' : 'hover:bg-gray-50 text-gray-700'}`}
-                        style={
-                          isSelected
-                            ? { backgroundColor: `${tagColor}18`, color: tagColor }
-                            : undefined
-                        }
-                      >
-                        <span className="flex-1 text-sm">{etq.nombre}</span>
-                        {isSelected && (
-                          <CheckCircle2
-                            size={14}
-                            className="shrink-0"
-                            style={{ color: tagColor }}
-                          />
-                        )}
-                        <button
-                          type="button"
-                          onClick={(e) => toggleFavorite(e, etq.id)}
-                          className={`shrink-0 transition-colors ${isFav ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'}`}
-                        >
-                          <Star size={14} fill={isFav ? 'currentColor' : 'none'} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              >
-                Cerrar
-              </button>
-              <button
-                onClick={() => setOpen(false)}
-                className="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90"
-              >
-                Confirmar ({selectedIds.length} seleccionadas)
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-// --- Merged Document Type Selector Modal --------------------------------------
-
-interface DocTypeOption {
-  grupoId: string;
-  grupoNombre: string;
-  tipoId: string;
-  tipoNombre: string;
-  tipoDescripcion?: string | null;
-}
-
-function DocumentTypeSelectorModal({
-  grupos,
-  tiposDocumento,
-  selectedGrupoId,
-  selectedTipoId,
-  onSelect,
-  userId,
-  loading,
-  disabled,
-}: {
-  grupos: GrupoTipoDocumento[];
-  tiposDocumento: Record<string, TipoDocumento[]>;
-  selectedGrupoId: string;
-  selectedTipoId: string;
-  onSelect: (grupoId: string, tipoId: string) => void;
-  userId?: string;
-  loading?: boolean;
-  disabled?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'favoritos' | 'por_grupo' | 'libre'>('libre');
-  const [favorites, setFavorites] = useState<string[]>([]);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-
-  // Build flat list of all options - sorted A-Z by tipo name
-  const allOptions: DocTypeOption[] = grupos
-    .flatMap((g) =>
-      (tiposDocumento[g.id] || []).map((t) => ({
-        grupoId: g.id,
-        grupoNombre: g.nombre,
-        tipoId: t.id,
-        tipoNombre: t.nombre,
-        tipoDescripcion: t.descripcion,
-      }))
-    )
-    .sort((a, b) => a.tipoNombre.localeCompare(b.tipoNombre, 'es'));
-
-  // Derive selected label - show only tipo name in the field
-  const selectedGrupo = grupos.find((g) => g.id === selectedGrupoId);
-  const selectedTipoLabel = (() => {
-    if (!selectedGrupoId || !selectedTipoId) return '';
-    if (selectedTipoId === '__otros__') return `Otro`;
-    const tipos = tiposDocumento[selectedGrupoId] || [];
-    const tipo = tipos.find((t) => t.id === selectedTipoId);
-    if (!tipo) return '';
-    return tipo.nombre;
-  })();
-
-  // Load favorites from Supabase
-  useEffect(() => {
-    if (!userId) return;
-    const supabase = createClient();
-    supabase
-      .from('user_favorites')
-      .select('item_id')
-      .eq('user_id', userId)
-      .eq('storage_key', 'fav_doctype_merged')
-      .order('created_at', { ascending: true })
-      .then(({ data }) => {
-        if (data) setFavorites(data.map((r: { item_id: string }) => r.item_id));
-      });
-  }, [userId]);
-
-  const toggleFavorite = async (e: React.MouseEvent, compositeId: string) => {
-    e.stopPropagation();
-    if (!userId) return;
-    const isFav = favorites.includes(compositeId);
-    setFavorites((prev) =>
-      isFav ? prev.filter((f) => f !== compositeId) : [...prev, compositeId]
-    );
-    const supabase = createClient();
-    if (isFav) {
-      await supabase
-        .from('user_favorites')
-        .delete()
-        .eq('user_id', userId)
-        .eq('storage_key', 'fav_doctype_merged')
-        .eq('item_id', compositeId);
-    } else {
-      await supabase
-        .from('user_favorites')
-        .upsert(
-          { user_id: userId, storage_key: 'fav_doctype_merged', item_id: compositeId },
-          { onConflict: 'user_id,storage_key,item_id' }
-        );
-    }
-  };
-
-  const handleSelect = (grupoId: string, tipoId: string) => {
-    onSelect(grupoId, tipoId);
-    setOpen(false);
-    setSearch('');
-  };
-
-  const handleClear = () => {
-    onSelect('', '');
-  };
-
-  const toggleGroup = (grupoId: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(grupoId)) next.delete(grupoId);
-      else next.add(grupoId);
-      return next;
-    });
-  };
-
-  // Tab: Favoritos
-  const favOptions = allOptions.filter((o) => favorites.includes(`${o.grupoId}::${o.tipoId}`));
-  const filteredFavs = favOptions.filter(
-    (o) =>
-      o.tipoNombre.toLowerCase().includes(search.toLowerCase()) ||
-      o.grupoNombre.toLowerCase().includes(search.toLowerCase())
-  );
-
-  // Tab: Libre (free search across all)
-  const filteredLibre = allOptions.filter(
-    (o) =>
-      o.tipoNombre.toLowerCase().includes(search.toLowerCase()) ||
-      o.grupoNombre.toLowerCase().includes(search.toLowerCase()) ||
-      (o.tipoDescripcion || '').toLowerCase().includes(search.toLowerCase())
-  );
-
-  // Tab: Por grupo
-  const filteredGrupos = grupos.filter((g) => {
-    const tipos = tiposDocumento[g.id] || [];
-    if (search.trim() === '') return tipos.length > 0;
-    return tipos.some(
-      (t) =>
-        t.nombre.toLowerCase().includes(search.toLowerCase()) ||
-        g.nombre.toLowerCase().includes(search.toLowerCase()) ||
-        (t.descripcion || '').toLowerCase().includes(search.toLowerCase())
-    );
-  });
-
-  const isSelected = (grupoId: string, tipoId: string) =>
-    selectedGrupoId === grupoId && selectedTipoId === tipoId;
-
-  const tabCount = {
-    favoritos: favOptions.length,
-    libre: allOptions.length,
-  };
-
-  return (
-    <>
-      {/* Trigger field */}
-      <div className="flex gap-2">
-        <div className="flex-1 relative">
-          <input
-            type="text"
-            readOnly
-            value={selectedTipoLabel}
-            placeholder={loading ? 'Cargando...' : 'Seleccionar tipo de documento...'}
-            disabled={disabled || loading}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white cursor-default disabled:bg-gray-50 disabled:text-gray-400 pr-8"
-          />
-          {(selectedGrupoId || selectedTipoId) && (
-            <button
-              type="button"
-              onClick={handleClear}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (!disabled && !loading) {
-              setOpen(true);
-              setSearch('');
-              setActiveTab('libre');
-            }
-          }}
-          disabled={disabled || loading}
-          className="flex items-center gap-1.5 px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-white"
-        >
-          <Search size={14} />
-          Buscar
-        </button>
-      </div>
-
-      {/* Modal */}
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 overflow-hidden flex flex-col"
-            style={{ maxHeight: '85vh' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold text-gray-900">Tipo de documento</h3>
-            </div>
-
-            {/* Search bar */}
-            <div className="px-5 pt-4 pb-3 border-b border-gray-100">
-              <div className="relative">
-                <Search
-                  size={15}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                />
-                <input
-                  type="text"
-                  autoFocus
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar tipo o documento..."
-                  className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-2 px-5 pt-3 pb-3">
-              {(
-                [
-                  { id: 'libre', label: 'Por tipo', count: tabCount.libre },
-                  { id: 'favoritos', label: 'Favoritos', count: tabCount.favoritos },
-                  { id: 'por_grupo', label: 'Por grupo', count: null },
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
-                    activeTab === tab.id
-                      ? 'bg-primary text-white'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                  }`}
-                >
-                  {tab.id === 'favoritos' && <Star size={13} />}
-                  {tab.label}
-                  {tab.count !== null && tab.count > 0 && (
-                    <span
-                      className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none ${activeTab === tab.id ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}
-                    >
-                      {tab.count}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {/* Tab content */}
-            <div className="flex-1 overflow-y-auto px-5 py-3" style={{ minHeight: 0 }}>
-              {/* -- Favoritos tab -- */}
-              {activeTab === 'favoritos' && (
-                <>
-                  {filteredFavs.length === 0 ? (
-                    <div className="py-10 text-center">
-                      <Star size={28} className="text-gray-200 mx-auto mb-2" />
-                      <p className="text-sm text-gray-400">
-                        {search
-                          ? 'Sin resultados en favoritos'
-                          : 'Aún no tienes favoritos. Márcalos con ★ en las otras pestañas.'}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-0.5">
-                      {filteredFavs.map((opt) => {
-                        const compositeId = `${opt.grupoId}::${opt.tipoId}`;
-                        const isFav = favorites.includes(compositeId);
-                        const sel = isSelected(opt.grupoId, opt.tipoId);
-                        return (
-                          <div
-                            key={compositeId}
-                            onClick={() => handleSelect(opt.grupoId, opt.tipoId)}
-                            className={`flex items-start gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${sel ? 'bg-primary/10 text-primary' : 'hover:bg-gray-50 text-gray-700'}`}
-                          >
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{opt.tipoNombre}</p>
-                              <p className="text-xs text-gray-400 truncate">{opt.grupoNombre}</p>
-                              {opt.tipoDescripcion && (
-                                <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
-                                  {opt.tipoDescripcion}
-                                </p>
-                              )}
-                            </div>
-                            {sel && (
-                              <CheckCircle2 size={14} className="text-primary shrink-0 mt-0.5" />
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => toggleFavorite(e, compositeId)}
-                              className={`shrink-0 transition-colors mt-0.5 ${isFav ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'}`}
-                            >
-                              <Star size={14} fill={isFav ? 'currentColor' : 'none'} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* -- Por grupo tab -- */}
-              {activeTab === 'por_grupo' && (
-                <>
-                  {filteredGrupos.length === 0 ? (
-                    <div className="py-10 text-center text-sm text-gray-400">Sin resultados</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {filteredGrupos.map((grupo) => {
-                        const tipos = (tiposDocumento[grupo.id] || []).filter(
-                          (t) =>
-                            search.trim() === '' ||
-                            t.nombre.toLowerCase().includes(search.toLowerCase()) ||
-                            grupo.nombre.toLowerCase().includes(search.toLowerCase()) ||
-                            (t.descripcion || '').toLowerCase().includes(search.toLowerCase())
-                        );
-                        const isExpanded = expandedGroups.has(grupo.id) || search.trim() !== '';
-                        return (
-                          <div
-                            key={grupo.id}
-                            className="border border-gray-100 rounded-xl overflow-hidden"
-                          >
-                            {/* Group header */}
-                            <button
-                              type="button"
-                              onClick={() => toggleGroup(grupo.id)}
-                              className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-gray-800">
-                                  {grupo.nombre}
-                                </p>
-                                <p className="text-xs text-gray-400">
-                                  {tipos.length} documento{tipos.length !== 1 ? 's' : ''}
-                                </p>
-                              </div>
-                              <ChevronRight
-                                size={15}
-                                className={`text-gray-400 transition-transform shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-                              />
-                            </button>
-                            {/* Group items */}
-                            {isExpanded && (
-                              <div className="divide-y divide-gray-50">
-                                {tipos.length === 0 ? (
-                                  <p className="px-4 py-3 text-xs text-gray-400">
-                                    Sin documentos en este grupo
-                                  </p>
-                                ) : (
-                                  tipos.map((tipo) => {
-                                    const compositeId = `${grupo.id}::${tipo.id}`;
-                                    const isFav = favorites.includes(compositeId);
-                                    const sel = isSelected(grupo.id, tipo.id);
-                                    return (
-                                      <div
-                                        key={tipo.id}
-                                        onClick={() => handleSelect(grupo.id, tipo.id)}
-                                        className={`flex items-start gap-2 px-4 py-3 cursor-pointer transition-colors ${sel ? 'bg-primary/10' : 'hover:bg-gray-50'}`}
-                                      >
-                                        <div className="flex-1 min-w-0">
-                                          <p
-                                            className={`text-sm font-medium ${sel ? 'text-primary' : 'text-gray-800'}`}
-                                          >
-                                            {tipo.nombre}
-                                          </p>
-                                          {tipo.descripcion && (
-                                            <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">
-                                              {tipo.descripcion}
-                                            </p>
-                                          )}
-                                        </div>
-                                        {sel && (
-                                          <CheckCircle2
-                                            size={14}
-                                            className="text-primary shrink-0 mt-0.5"
-                                          />
-                                        )}
-                                        <button
-                                          type="button"
-                                          onClick={(e) => toggleFavorite(e, compositeId)}
-                                          className={`shrink-0 transition-colors mt-0.5 ${isFav ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'}`}
-                                        >
-                                          <Star size={14} fill={isFav ? 'currentColor' : 'none'} />
-                                        </button>
-                                      </div>
-                                    );
-                                  })
-                                )}
-                                {/* "Otro" option per group */}
-                                {search.trim() === '' &&
-                                  (() => {
-                                    const compositeId = `${grupo.id}::__otros__`;
-                                    const isFav = favorites.includes(compositeId);
-                                    const sel = isSelected(grupo.id, '__otros__');
-                                    return (
-                                      <div
-                                        onClick={() => handleSelect(grupo.id, '__otros__')}
-                                        className={`flex items-start gap-2 px-4 py-3 cursor-pointer transition-colors ${sel ? 'bg-primary/10' : 'hover:bg-gray-50'}`}
-                                      >
-                                        <div className="flex-1 min-w-0">
-                                          <p
-                                            className={`text-sm font-medium italic ${sel ? 'text-primary' : 'text-gray-500'}`}
-                                          >
-                                            Otro
-                                          </p>
-                                          <p className="text-xs text-gray-400 mt-0.5">
-                                            Especificar manualmente
-                                          </p>
-                                        </div>
-                                        {sel && (
-                                          <CheckCircle2
-                                            size={14}
-                                            className="text-primary shrink-0 mt-0.5"
-                                          />
-                                        )}
-                                        <button
-                                          type="button"
-                                          onClick={(e) => toggleFavorite(e, compositeId)}
-                                          className={`shrink-0 transition-colors mt-0.5 ${isFav ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'}`}
-                                        >
-                                          <Star size={14} fill={isFav ? 'currentColor' : 'none'} />
-                                        </button>
-                                      </div>
-                                    );
-                                  })()}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* -- Libre tab -- */}
-              {activeTab === 'libre' && (
-                <>
-                  {filteredLibre.length === 0 ? (
-                    <div className="py-10 text-center text-sm text-gray-400">Sin resultados</div>
-                  ) : (
-                    <div className="space-y-0.5">
-                      {filteredLibre.map((opt) => {
-                        const compositeId = `${opt.grupoId}::${opt.tipoId}`;
-                        const isFav = favorites.includes(compositeId);
-                        const sel = isSelected(opt.grupoId, opt.tipoId);
-                        return (
-                          <div
-                            key={compositeId}
-                            onClick={() => handleSelect(opt.grupoId, opt.tipoId)}
-                            className={`flex items-start gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${sel ? 'bg-primary/10 text-primary' : 'hover:bg-gray-50 text-gray-700'}`}
-                          >
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{opt.tipoNombre}</p>
-                              <p className="text-xs text-gray-400 truncate">{opt.grupoNombre}</p>
-                              {opt.tipoDescripcion && (
-                                <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
-                                  {opt.tipoDescripcion}
-                                </p>
-                              )}
-                            </div>
-                            {sel && (
-                              <CheckCircle2 size={14} className="text-primary shrink-0 mt-0.5" />
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => toggleFavorite(e, compositeId)}
-                              className={`shrink-0 transition-colors mt-0.5 ${isFav ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'}`}
-                            >
-                              <Star size={14} fill={isFav ? 'currentColor' : 'none'} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
               )}
             </div>
             <div className="flex justify-end border-t border-gray-100 px-5 py-3">
@@ -4461,6 +3691,8 @@ export function StepSubir({
   >('computadora');
   const [showDocuboxSelector, setShowDocuboxSelector] = useState(false);
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+  const [showOriginPicker, setShowOriginPicker] = useState(false);
+  const [fileOrigin, setFileOrigin] = useState<'computadora' | 'telefono'>('computadora');
   const { isModuleActive } = useAppModules();
   const { user } = useAuth();
   const { activeWorkspace } = useWorkspace();
@@ -4600,6 +3832,7 @@ export function StepSubir({
       onSourceSelectionChange?.(null);
       onTemplateSourceChange?.(selectedTemplate);
       setShowTemplateSelector(false);
+      setShowOriginPicker(false);
     } catch (selectionError) {
       setPlantillasError(
         selectionError instanceof Error
@@ -4617,9 +3850,11 @@ export function StepSubir({
       setDragging(false);
       const dropped = e.dataTransfer.files[0];
       if (dropped) {
+        setFileOrigin('computadora');
         onSourceSelectionChange?.(null);
         onTemplateSourceChange?.(null);
         onFileChange(dropped);
+        setShowOriginPicker(false);
       }
     },
     [onFileChange, onSourceSelectionChange, onTemplateSourceChange]
@@ -4634,63 +3869,64 @@ export function StepSubir({
     const selected = e.target.files?.[0] ?? null;
     // Clear it immediately so selecting the same file is a real retry after a failed preparation.
     e.target.value = '';
+    if (!selected) return;
+    setFileOrigin('computadora');
     onSourceSelectionChange?.(null);
     onTemplateSourceChange?.(null);
     onFileChange(selected);
+    setShowOriginPicker(false);
   };
 
-  if (file || templateSource) {
-    return (
-      <div className="space-y-3">
-        {sourceSelection && (
-          <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/50 px-4 py-3 sm:flex-row sm:items-center">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-primary shadow-sm">
-              <Layers size={18} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-600 uppercase text-primary">Origen Docubox</p>
-              <p className="truncate text-sm font-600 text-slate-900">
-                {sourceSelection.sourceDocumentName}
+  const hasOrigin = Boolean(file || templateSource);
+  const originName = templateSource
+    ? 'Plantilla publicada'
+    : sourceSelection
+      ? 'Docubox'
+      : fileOrigin === 'telefono'
+        ? 'Teléfono'
+        : 'Equipo de cómputo';
+  const originDetail = templateSource?.nombre || sourceSelection?.sourceDocumentName || file?.name;
+  const originBar = hasOrigin && (
+    <section className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            {templateSource ? (
+              <LayoutTemplate size={19} />
+            ) : sourceSelection ? (
+              <Layers size={19} />
+            ) : (
+              <Upload size={19} />
+            )}
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs text-slate-400">Origen seleccionado</p>
+            <p className="text-sm font-600 text-slate-900">{originName}</p>
+            {originDetail && (
+              <p className="truncate text-xs text-slate-500" title={originDetail}>
+                {originDetail}
               </p>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {sourceSelection.sourceDocumentoId} · {sourceSelection.sourceVersionLabel} · SHA-256{' '}
+            )}
+            {sourceSelection && (
+              <p className="truncate text-xs text-slate-500">
+                Copia derivada · {sourceSelection.sourceVersionLabel} · SHA-256{' '}
                 {sourceSelection.sourceSha256.slice(0, 12)}...
               </p>
-            </div>
-            <span className="rounded-md bg-white px-2.5 py-1 text-xs font-600 text-slate-600 shadow-sm">
-              Copia derivada
-            </span>
+            )}
           </div>
-        )}
-        <FileUploadedLayout
-          file={file}
-          templateSource={templateSource}
-          onRemove={() => {
-            onSourceSelectionChange?.(null);
-            onTemplateSourceChange?.(null);
-            onFileChange(null);
-          }}
-          config={config}
-          onConfigChange={onConfigChange}
-          viewMode={viewMode}
-          onGuardarAvance={onGuardarAvance}
-          savingDraft={savingDraft}
-          onSecurityChange={onSecurityChange}
-          securitySettings={securitySettings}
-          databaseDocumentId={databaseDocumentId}
-          onPdfMetadata={onPdfMetadata}
-          supplementalResources={supplementalResources}
-          onSupplementalResourcesChange={onSupplementalResourcesChange}
-          participants={participants}
-          onParticipantsChange={onParticipantsChange}
-          inPersonSigningEnabled={inPersonSigningEnabled}
-          onInPersonSigningEnabledChange={onInPersonSigningEnabledChange}
-          documentRequirements={documentRequirements}
-          onDocumentRequirementsChange={onDocumentRequirementsChange}
-        />
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowOriginPicker(!showOriginPicker)}
+          disabled={isPreparingDocument}
+          className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary disabled:cursor-wait disabled:opacity-60"
+        >
+          {showOriginPicker ? <X size={14} /> : <Pencil size={14} />}
+          {showOriginPicker ? 'Conservar origen' : 'Cambiar origen'}
+        </button>
       </div>
-    );
-  }
+    </section>
+  );
 
   const favoriteTemplateIds = new Set(templateFavorites);
   const favoriteTemplates = plantillas.filter((template) =>
@@ -4725,270 +3961,312 @@ export function StepSubir({
   ];
 
   return (
-    <div className="w-full">
-      <div className={`grid grid-cols-1 ${plantillasEnabled ? 'xl:grid-cols-2' : ''} gap-5`}>
-        <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="mb-0.5 text-base font-600 text-slate-950">Subir documento</h2>
-            <p className="text-sm text-gray-500">Selecciona el origen de tu archivo.</p>
-          </div>
-          <div className="flex min-h-[320px]">
-            <div className="w-44 shrink-0 border-r border-slate-100 bg-slate-50/70 py-2 sm:w-52">
-              {tabs.map((tab) => {
-                const IconComp = tab.icon;
-                const isActive = activeTab === tab.id;
-                const isDisabled = !tab.active;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      if (!isDisabled) setActiveTab(tab.id);
-                    }}
-                    disabled={isDisabled}
-                    title={isDisabled ? 'Próximamente' : undefined}
-                    className={`group relative flex w-full items-center gap-2.5 px-3 py-3 text-left transition-colors ${isDisabled ? 'cursor-not-allowed opacity-40' : isActive ? 'border-r-2 border-primary bg-white text-primary' : 'text-slate-600 hover:bg-white/70 hover:text-slate-950'}`}
-                  >
-                    <span
-                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isActive ? 'bg-primary text-white' : isDisabled ? 'bg-gray-200 text-gray-500' : 'bg-gray-200 text-gray-600'}`}
-                    >
-                      {tabs.indexOf(tab) + 1}
-                    </span>
-                    <span className="text-[15px] font-medium leading-tight">{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex-1 overflow-hidden">
-              {activeTab === 'computadora' && (
-                <div className="p-4 flex flex-col h-full">
-                  <div
-                    onDrop={handleDrop}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    className={`mb-3 flex flex-col items-center justify-center rounded-lg border border-dashed px-4 py-10 transition-colors ${isPreparingDocument ? 'cursor-wait border-slate-200 bg-slate-50/70' : dragging ? 'cursor-pointer border-primary bg-primary/5' : 'cursor-pointer border-slate-300 bg-slate-50/40 hover:border-primary/60 hover:bg-primary/[0.02]'}`}
-                    onClick={() => !isPreparingDocument && inputRef.current?.click()}
-                  >
-                    <Upload size={32} className="text-gray-400 mb-3" />
-                    <p className="text-sm text-primary font-medium text-center">
-                      Arrastra un archivo para subir
-                    </p>
-                    <p className="mt-1 text-center text-xs text-gray-400">
-                      PDF recomendado. También Word (.doc, .docx), Excel (.xls, .xlsx) y PowerPoint
-                      (.ppt, .pptx), hasta 25 MB.
-                    </p>
-                    {showPreparationMessage && (
-                      <p className="mt-3 text-sm font-medium text-slate-600">
-                        Preparando documento…
+    <div className="w-full space-y-3">
+      {originBar}
+      {hasOrigin && (
+        <div className={showOriginPicker ? 'hidden' : ''}>
+          <FileUploadedLayout
+            file={file}
+            templateSource={templateSource}
+            onRemove={() => {
+              onSourceSelectionChange?.(null);
+              onTemplateSourceChange?.(null);
+              onFileChange(null);
+            }}
+            config={config}
+            onConfigChange={onConfigChange}
+            viewMode={viewMode}
+            onGuardarAvance={onGuardarAvance}
+            savingDraft={savingDraft}
+            onSecurityChange={onSecurityChange}
+            securitySettings={securitySettings}
+            databaseDocumentId={databaseDocumentId}
+            onPdfMetadata={onPdfMetadata}
+            supplementalResources={supplementalResources}
+            onSupplementalResourcesChange={onSupplementalResourcesChange}
+            participants={participants}
+            onParticipantsChange={onParticipantsChange}
+            inPersonSigningEnabled={inPersonSigningEnabled}
+            onInPersonSigningEnabledChange={onInPersonSigningEnabledChange}
+            documentRequirements={documentRequirements}
+            onDocumentRequirementsChange={onDocumentRequirementsChange}
+          />
+        </div>
+      )}
+      {(!hasOrigin || showOriginPicker) && (
+        <>
+          <div className={`grid grid-cols-1 ${plantillasEnabled ? 'xl:grid-cols-2' : ''} gap-5`}>
+            <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div className="border-b border-slate-100 px-5 py-4">
+                <h2 className="mb-0.5 text-base font-600 text-slate-950">Subir documento</h2>
+                <p className="text-sm text-gray-500">Selecciona el origen de tu archivo.</p>
+              </div>
+              <div className="flex min-h-[320px]">
+                <div className="w-44 shrink-0 border-r border-slate-100 bg-slate-50/70 py-2 sm:w-52">
+                  {tabs.map((tab) => {
+                    const IconComp = tab.icon;
+                    const isActive = activeTab === tab.id;
+                    const isDisabled = !tab.active;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => {
+                          if (!isDisabled) setActiveTab(tab.id);
+                        }}
+                        disabled={isDisabled}
+                        title={isDisabled ? 'Próximamente' : undefined}
+                        className={`group relative flex w-full items-center gap-2.5 px-3 py-3 text-left transition-colors ${isDisabled ? 'cursor-not-allowed opacity-40' : isActive ? 'border-r-2 border-primary bg-white text-primary' : 'text-slate-600 hover:bg-white/70 hover:text-slate-950'}`}
+                      >
+                        <span
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isActive ? 'bg-primary text-white' : isDisabled ? 'bg-gray-200 text-gray-500' : 'bg-gray-200 text-gray-600'}`}
+                        >
+                          {tabs.indexOf(tab) + 1}
+                        </span>
+                        <span className="text-[15px] font-medium leading-tight">{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  {activeTab === 'computadora' && (
+                    <div className="p-4 flex flex-col h-full">
+                      <div
+                        onDrop={handleDrop}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        className={`mb-3 flex flex-col items-center justify-center rounded-lg border border-dashed px-4 py-10 transition-colors ${isPreparingDocument ? 'cursor-wait border-slate-200 bg-slate-50/70' : dragging ? 'cursor-pointer border-primary bg-primary/5' : 'cursor-pointer border-slate-300 bg-slate-50/40 hover:border-primary/60 hover:bg-primary/[0.02]'}`}
+                        onClick={() => !isPreparingDocument && inputRef.current?.click()}
+                      >
+                        <Upload size={32} className="text-gray-400 mb-3" />
+                        <p className="text-sm text-primary font-medium text-center">
+                          Arrastra un archivo para subir
+                        </p>
+                        <p className="mt-1 text-center text-xs text-gray-400">
+                          PDF recomendado. También Word (.doc, .docx), Excel (.xls, .xlsx) y
+                          PowerPoint (.ppt, .pptx), hasta 25 MB.
+                        </p>
+                        {showPreparationMessage && (
+                          <p className="mt-3 text-sm font-medium text-slate-600">
+                            Preparando documento…
+                          </p>
+                        )}
+                      </div>
+                      <input
+                        ref={inputRef}
+                        type="file"
+                        accept="application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                        aria-label="Seleccionar PDF, Word, Excel o PowerPoint"
+                        className="hidden"
+                        onChange={handleInputChange}
+                      />
+                      <button
+                        disabled={isPreparingDocument}
+                        className="w-full border border-gray-200 rounded-lg py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60 flex items-center justify-center gap-2 transition-colors"
+                        onClick={() => inputRef.current?.click()}
+                      >
+                        <Upload size={15} />
+                        Elegir archivo
+                      </button>
+                      {documentPreparationError && (
+                        <p role="alert" className="mt-3 text-sm text-red-600">
+                          {documentPreparationError}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {activeTab === 'telefono' && (
+                    <PhoneUploadTab
+                      onFileReceived={(receivedFile) => {
+                        setFileOrigin('telefono');
+                        onSourceSelectionChange?.(null);
+                        onTemplateSourceChange?.(null);
+                        onFileChange(receivedFile);
+                        setShowOriginPicker(false);
+                      }}
+                    />
+                  )}
+                  {activeTab === 'docubox' && (
+                    <div className="flex h-full flex-col items-center justify-center px-6 py-10 text-center">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <Layers size={28} />
+                      </div>
+                      <h3 className="mb-1 mt-4 text-sm font-semibold text-gray-800">
+                        Reutilizar desde Docubox
+                      </h3>
+                      <p className="w-full text-xs text-gray-500">
+                        Selecciona un documento del repositorio. Docubox utilizará siempre el
+                        archivo original cargado.
                       </p>
-                    )}
-                  </div>
-                  <input
-                    ref={inputRef}
-                    type="file"
-                    accept="application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
-                    aria-label="Seleccionar PDF, Word, Excel o PowerPoint"
-                    className="hidden"
-                    onChange={handleInputChange}
-                  />
-                  <button
-                    disabled={isPreparingDocument}
-                    className="w-full border border-gray-200 rounded-lg py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60 flex items-center justify-center gap-2 transition-colors"
-                    onClick={() => inputRef.current?.click()}
-                  >
-                    <Upload size={15} />
-                    Elegir archivo
-                  </button>
-                  {documentPreparationError && (
-                    <p role="alert" className="mt-3 text-sm text-red-600">
-                      {documentPreparationError}
+                      <button
+                        type="button"
+                        onClick={() => setShowDocuboxSelector(true)}
+                        className="mt-4 flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+                      >
+                        <Search size={15} />
+                        Explorar documentos
+                      </button>
+                    </div>
+                  )}
+                  {(activeTab === 'gdrive' ||
+                    activeTab === 'onedrive' ||
+                    activeTab === 'dropbox') && (
+                    <div className="flex flex-col items-center justify-center h-full py-10 px-6 gap-3">
+                      <div className="w-14 h-14 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center shadow-sm">
+                        {activeTab === 'gdrive' && <GoogleDriveIcon size={32} />}
+                        {activeTab === 'onedrive' && <OneDriveIcon size={32} />}
+                        {activeTab === 'dropbox' && <DropboxIcon size={32} />}
+                      </div>
+                      <p className="text-sm font-semibold text-gray-500 text-center">
+                        Próximamente disponible
+                      </p>
+                      <p className="text-xs text-gray-400 text-center">
+                        Esta integración estará disponible en una próxima actualización.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            {plantillasEnabled && (
+              <section className="flex min-h-[392px] flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                <div className="border-b border-slate-100 px-5 py-4">
+                  <h2 className="text-base font-600 text-slate-950">Añade una plantilla</h2>
+                  <p className="mt-0.5 text-sm text-slate-500">
+                    Inicia tu documento con una plantilla publicada de este espacio.
+                  </p>
+                </div>
+
+                <div className="flex min-h-0 flex-1 flex-col p-4">
+                  {plantillasLoading ? (
+                    <div className="flex flex-1 items-center justify-center gap-2 py-10 text-sm text-slate-500">
+                      <Loader2 size={17} className="animate-spin text-primary" />
+                      Cargando plantillas guardadas...
+                    </div>
+                  ) : plantillasError && plantillas.length === 0 ? (
+                    <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+                      <AlertTriangle size={21} className="text-amber-500" />
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        No pudimos cargar las plantillas
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Vuelve a intentarlo en unos momentos.
+                      </p>
+                    </div>
+                  ) : plantillas.length === 0 ? (
+                    <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+                      <FileText size={22} className="text-slate-400" />
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        No hay plantillas publicadas
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Publica una plantilla para encontrarla aquí.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                      <div>
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                          <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                            <Star size={13} className="text-amber-500" />
+                            Mis favoritas
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {favoriteTemplates.length}
+                          </span>
+                        </div>
+                        {favoriteTemplates.length > 0 ? (
+                          <div className="divide-y divide-slate-100">
+                            {favoriteTemplates.map((template) => (
+                              <SavedTemplateRow
+                                key={template.id}
+                                template={template}
+                                isFavorite
+                                pending={favoritePendingId === getTemplateFamilyId(template)}
+                                selecting={selectingTemplateId === template.id}
+                                onToggleFavorite={toggleTemplateFavorite}
+                                onSelect={selectPublishedTemplate}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="py-3 text-xs leading-5 text-slate-400">
+                            Marca una plantilla con la estrella para verla en esta sección.
+                          </p>
+                        )}
+                      </div>
+
+                      {recentPublishedTemplates.length > 0 && (
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                            <span className="text-xs font-medium text-slate-600">
+                              Últimas plantillas publicadas
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {recentPublishedTemplates.length}
+                            </span>
+                          </div>
+                          <div className="divide-y divide-slate-100">
+                            {recentPublishedTemplates.map((template) => (
+                              <SavedTemplateRow
+                                key={template.id}
+                                template={template}
+                                isFavorite={false}
+                                pending={favoritePendingId === getTemplateFamilyId(template)}
+                                selecting={selectingTemplateId === template.id}
+                                onToggleFavorite={toggleTemplateFavorite}
+                                onSelect={selectPublishedTemplate}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {plantillasError && plantillas.length > 0 && (
+                    <p role="status" className="mt-2 text-xs text-amber-600">
+                      {plantillasError}
                     </p>
                   )}
                 </div>
-              )}
-              {activeTab === 'telefono' && (
-                <PhoneUploadTab
-                  onFileReceived={(receivedFile) => {
-                    onSourceSelectionChange?.(null);
-                    onTemplateSourceChange?.(null);
-                    onFileChange(receivedFile);
-                  }}
-                />
-              )}
-              {activeTab === 'docubox' && (
-                <div className="flex h-full flex-col items-center justify-center px-6 py-10 text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    <Layers size={28} />
-                  </div>
-                  <h3 className="mb-1 mt-4 text-sm font-semibold text-gray-800">
-                    Reutilizar desde Docubox
-                  </h3>
-                  <p className="w-full text-xs text-gray-500">
-                    Selecciona un documento del repositorio. Docubox utilizará siempre el archivo
-                    original cargado.
-                  </p>
+
+                <div className="border-t border-slate-100 p-3">
                   <button
                     type="button"
-                    onClick={() => setShowDocuboxSelector(true)}
-                    className="mt-4 flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+                    onClick={() => setShowTemplateSelector(true)}
+                    className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
                   >
-                    <Search size={15} />
-                    Explorar documentos
+                    Explorar plantillas
+                    <ChevronRight size={14} />
                   </button>
                 </div>
-              )}
-              {(activeTab === 'gdrive' || activeTab === 'onedrive' || activeTab === 'dropbox') && (
-                <div className="flex flex-col items-center justify-center h-full py-10 px-6 gap-3">
-                  <div className="w-14 h-14 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center shadow-sm">
-                    {activeTab === 'gdrive' && <GoogleDriveIcon size={32} />}
-                    {activeTab === 'onedrive' && <OneDriveIcon size={32} />}
-                    {activeTab === 'dropbox' && <DropboxIcon size={32} />}
-                  </div>
-                  <p className="text-sm font-semibold text-gray-500 text-center">
-                    Próximamente disponible
-                  </p>
-                  <p className="text-xs text-gray-400 text-center">
-                    Esta integración estará disponible en una próxima actualización.
-                  </p>
-                </div>
-              )}
-            </div>
+              </section>
+            )}
           </div>
-        </div>
-        {plantillasEnabled && (
-          <section className="flex min-h-[392px] flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <div className="border-b border-slate-100 px-5 py-4">
-              <h2 className="text-base font-600 text-slate-950">Añade una plantilla</h2>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Inicia tu documento con una plantilla publicada de este espacio.
-              </p>
-            </div>
-
-            <div className="flex min-h-0 flex-1 flex-col p-4">
-              {plantillasLoading ? (
-                <div className="flex flex-1 items-center justify-center gap-2 py-10 text-sm text-slate-500">
-                  <Loader2 size={17} className="animate-spin text-primary" />
-                  Cargando plantillas guardadas...
-                </div>
-              ) : plantillasError && plantillas.length === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-                  <AlertTriangle size={21} className="text-amber-500" />
-                  <p className="mt-2 text-sm font-medium text-slate-700">
-                    No pudimos cargar las plantillas
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Vuelve a intentarlo en unos momentos.
-                  </p>
-                </div>
-              ) : plantillas.length === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-                  <FileText size={22} className="text-slate-400" />
-                  <p className="mt-2 text-sm font-medium text-slate-700">
-                    No hay plantillas publicadas
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Publica una plantilla para encontrarla aquí.
-                  </p>
-                </div>
-              ) : (
-                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div>
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                      <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                        <Star size={13} className="text-amber-500" />
-                        Mis favoritas
-                      </span>
-                      <span className="text-[11px] text-slate-400">{favoriteTemplates.length}</span>
-                    </div>
-                    {favoriteTemplates.length > 0 ? (
-                      <div className="divide-y divide-slate-100">
-                        {favoriteTemplates.map((template) => (
-                          <SavedTemplateRow
-                            key={template.id}
-                            template={template}
-                            isFavorite
-                            pending={favoritePendingId === getTemplateFamilyId(template)}
-                            selecting={selectingTemplateId === template.id}
-                            onToggleFavorite={toggleTemplateFavorite}
-                            onSelect={selectPublishedTemplate}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="py-3 text-xs leading-5 text-slate-400">
-                        Marca una plantilla con la estrella para verla en esta sección.
-                      </p>
-                    )}
-                  </div>
-
-                  {recentPublishedTemplates.length > 0 && (
-                    <div className="mt-3">
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                        <span className="text-xs font-medium text-slate-600">
-                          Últimas plantillas publicadas
-                        </span>
-                        <span className="text-[11px] text-slate-400">
-                          {recentPublishedTemplates.length}
-                        </span>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {recentPublishedTemplates.map((template) => (
-                          <SavedTemplateRow
-                            key={template.id}
-                            template={template}
-                            isFavorite={false}
-                            pending={favoritePendingId === getTemplateFamilyId(template)}
-                            selecting={selectingTemplateId === template.id}
-                            onToggleFavorite={toggleTemplateFavorite}
-                            onSelect={selectPublishedTemplate}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {plantillasError && plantillas.length > 0 && (
-                <p role="status" className="mt-2 text-xs text-amber-600">
-                  {plantillasError}
-                </p>
-              )}
-            </div>
-
-            <div className="border-t border-slate-100 p-3">
-              <button
-                type="button"
-                onClick={() => setShowTemplateSelector(true)}
-                className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
-              >
-                Explorar plantillas
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          </section>
-        )}
-      </div>
-      <DocuboxSourceSelector
-        open={showDocuboxSelector}
-        onClose={() => setShowDocuboxSelector(false)}
-        onSelect={(selectedFile, selection) => {
-          onTemplateSourceChange?.(null);
-          onSourceSelectionChange?.(selection);
-          onFileChange(selectedFile);
-        }}
-      />
-      <TemplateSourceSelector
-        open={showTemplateSelector}
-        templates={plantillas}
-        favoriteIds={templateFavorites}
-        loading={plantillasLoading}
-        error={plantillasError}
-        favoritePendingId={favoritePendingId}
-        selectingId={selectingTemplateId}
-        onClose={() => setShowTemplateSelector(false)}
-        onSelect={selectPublishedTemplate}
-        onToggleFavorite={toggleTemplateFavorite}
-      />
+          <DocuboxSourceSelector
+            open={showDocuboxSelector}
+            onClose={() => setShowDocuboxSelector(false)}
+            onSelect={(selectedFile, selection) => {
+              onTemplateSourceChange?.(null);
+              onSourceSelectionChange?.(selection);
+              onFileChange(selectedFile);
+              setShowOriginPicker(false);
+            }}
+          />
+          <TemplateSourceSelector
+            open={showTemplateSelector}
+            templates={plantillas}
+            favoriteIds={templateFavorites}
+            loading={plantillasLoading}
+            error={plantillasError}
+            favoritePendingId={favoritePendingId}
+            selectingId={selectingTemplateId}
+            onClose={() => setShowTemplateSelector(false)}
+            onSelect={selectPublishedTemplate}
+            onToggleFavorite={toggleTemplateFavorite}
+          />
+        </>
+      )}
     </div>
   );
 }

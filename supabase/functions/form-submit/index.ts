@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requiresFormSignature } from '../_shared/form-signature-policy.ts';
 
 declare const Deno: {
   env: {
@@ -23,6 +24,15 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    const accessToken = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim();
+    if (!accessToken) {
+      return new Response(JSON.stringify({ error: 'Inicia sesión para enviar el formulario.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    if (authError || !user || user.is_anonymous || !user.email_confirmed_at) {
+      return new Response(JSON.stringify({ error: 'Necesitas una cuenta con correo verificado para responder.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const { token, response_data } = await req.json();
 
     if (!token || !response_data) {
@@ -43,6 +53,21 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: 'Token inválido', code: 'INVALID_TOKEN' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (
+      tokenRow.recipient_email?.trim().toLowerCase() !== user.email?.trim().toLowerCase() ||
+      (tokenRow.recipient_user_id && tokenRow.recipient_user_id !== user.id) ||
+      (tokenRow.access_mode === 'public' && tokenRow.recipient_user_id !== user.id)
+    ) {
+      return new Response(JSON.stringify({ error: 'Este enlace pertenece a otra cuenta.', code: 'FORBIDDEN' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    if (tokenRow.form_templates?.status !== 'published') {
+      return new Response(
+        JSON.stringify({ error: 'Este formulario no está disponible.', code: 'FORM_UNAVAILABLE' }),
+        { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -80,7 +105,7 @@ serve(async (req) => {
     const fieldHashes: Record<string, string> = {};
     for (const [key, value] of Object.entries(response_data)) {
       const encoder = new TextEncoder();
-      const data = encoder.encode(String(value));
+      const data = encoder.encode(typeof value === 'string' ? value : JSON.stringify(value));
       const hashBuffer = await crypto.subtle.digest('SHA-256', data);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       fieldHashes[key] = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -89,7 +114,6 @@ serve(async (req) => {
     // 3. Get client info
     const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('cf-connecting-ip') || null;
     const userAgent = req.headers.get('user-agent') || null;
-
     // 4. Save response
     const { data: responseRow, error: insertError } = await supabase
       .from('form_responses')
@@ -97,9 +121,11 @@ serve(async (req) => {
         token_id: tokenRow.id,
         template_id: tokenRow.template_id,
         workspace_id: tokenRow.form_templates.workspace_id,
-        document_id: tokenRow.form_templates.document_id || null,
+        document_id: null,
         response_data,
         field_hashes: fieldHashes,
+        respondent_email: user.email.trim().toLowerCase(),
+        respondent_user_id: tokenRow.access_mode === 'public' ? user.id : null,
         ip_address: ipAddress,
         user_agent: userAgent,
         submitted_at: new Date().toISOString(),
@@ -109,8 +135,8 @@ serve(async (req) => {
 
     if (insertError) {
       return new Response(
-        JSON.stringify({ error: 'Error al guardar la respuesta' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: insertError.code === '23505' ? 'Este formulario ya fue respondido por tu cuenta.' : 'Error al guardar la respuesta', code: insertError.code === '23505' ? 'ALREADY_RESPONDED' : 'SAVE_FAILED' }),
+        { status: insertError.code === '23505' ? 409 : 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -137,9 +163,44 @@ serve(async (req) => {
       console.error('PDF generator error:', pdfError);
     }
 
-    // 7. Trigger the legacy VPS mapper when a PDF base exists.
+    // 7. Keep the chosen signing method with the generated PDF.
     const hasPdf = !!tokenRow.form_templates.pdf_base_path;
-    const requiresSignature = Boolean(tokenRow.form_templates.settings?.requiresSignature);
+    const requiresSignature = requiresFormSignature(
+      tokenRow.form_templates.settings,
+      tokenRow.form_templates.form_schema?.fields || tokenRow.form_templates.schema || []
+    );
+    if (requiresSignature && generatedPdf?.generated_pdf_id) {
+      const signatureRequest = await supabase.from('signature_requests').insert({
+        generated_pdf_id: generatedPdf.generated_pdf_id,
+        workspace_id: responseRow.workspace_id,
+        signer_name: tokenRow.recipient_name || tokenRow.recipient_email,
+        signer_email: tokenRow.recipient_email,
+        signer_role: tokenRow.signer_role || null,
+        signature_type: tokenRow.signature_type || 'click_sign',
+        require_liveness: tokenRow.require_liveness === true,
+        expires_at: tokenRow.expires_at,
+      });
+      if (signatureRequest.error) console.error('Signature request error:', signatureRequest.error);
+    }
+
+    // Save a copy of the generated PDF in Mi espacio. A failed promotion is
+    // retryable from the responses screen; the response itself remains saved.
+    let documentId: string | null = null;
+    if (generatedPdf?.generated_pdf_id) {
+      try {
+        const siteUrl = Deno.env.get('FORM_DOCUMENT_CALLBACK_URL') || Deno.env.get('NEXT_PUBLIC_SITE_URL');
+        if (siteUrl) {
+          const promotion = await fetch(`${siteUrl.replace(/\/$/, '')}/api/formularios/respuestas/${responseRow.id}/documento`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''}` },
+          });
+          if (promotion.ok) documentId = (await promotion.json()).document_id || null;
+          else console.error('Document promotion error:', await promotion.text());
+        }
+      } catch (promotionError) { console.error('Document promotion error:', promotionError); }
+    }
+
+    // 8. Trigger the legacy VPS mapper when a PDF base exists.
     if (hasPdf) {
       const vpsWebhookUrl = Deno.env.get('VPS_WEBHOOK_URL');
       if (vpsWebhookUrl) {
@@ -166,9 +227,9 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         response_id: responseRow.id,
-        document_id: responseRow.document_id || null,
+        document_id: documentId || responseRow.document_id || null,
         signature_required: requiresSignature,
-        redirect_to_sign: hasPdf || requiresSignature,
+        redirect_to_sign: false,
         generated_pdf: generatedPdf,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

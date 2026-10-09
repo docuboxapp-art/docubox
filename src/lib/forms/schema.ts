@@ -1,3 +1,5 @@
+import { isFormTypography, type FormTypography } from '../typography/font-families.ts';
+
 export type SignatureType = 'efirma_sat' | 'autografa_digital' | 'click_sign';
 
 export type FieldType =
@@ -21,6 +23,9 @@ export type FieldType =
   | 'clave_elector'
   | 'business_name'
   | 'fiscal_address'
+  | 'person_first_name'
+  | 'person_last_name'
+  | 'person_second_last_name'
   | 'consentimiento'
   | 'declaration'
   | 'firma_efirma'
@@ -119,7 +124,13 @@ export interface PdfSchema {
   header: string;
   footer: string;
   primaryColor: string;
-  typography: 'sans' | 'serif';
+  typography: FormTypography;
+  orientation: 'portrait' | 'landscape';
+  margins: 'normal' | 'narrow' | 'wide';
+  headerAlignment: 'left' | 'center' | 'right';
+  columns: 'one' | 'two';
+  showSectionNumbers: boolean;
+  showDescription: boolean;
   pageSize: 'letter' | 'a4';
   showPageNumbers: boolean;
   showFolio: boolean;
@@ -137,9 +148,18 @@ export interface PdfSchema {
 }
 
 export interface FormSettings {
+  accessMode: 'private' | 'public';
+  documentNumber: string;
+  documentTypeId: string;
+  documentTypeName: string;
+  tagIds: string[];
+  configurePdfDetails: boolean;
+  configureFormDetails: boolean;
+  appearance: FormAppearance;
   mode: 'scroll' | 'multistep';
   multiStep: boolean;
   language: string;
+  configureLinkExpiration: boolean;
   expirationHours: number;
   redirectAfterSubmit?: string;
   allowSaveProgress: boolean;
@@ -149,11 +169,70 @@ export interface FormSettings {
   pdfSchema: PdfSchema;
 }
 
+export interface FormAppearance {
+  accentColor: string;
+  headerText: string;
+  headerDescription: string;
+  headerDocumentNumber: string;
+  headerDocumentTypeName: string;
+  headerAlignment: 'left' | 'center' | 'right';
+  footerText: string;
+  footerAlignment: 'left' | 'center' | 'right';
+  confirmationMessage: string;
+  showHeader: boolean;
+  showTitle: boolean;
+  showFooter: boolean;
+  showProgressBar: boolean;
+  showAccentBar: boolean;
+  showDescription: boolean;
+  showDocumentNumber: boolean;
+  showDocumentType: boolean;
+  showSectionDescriptions: boolean;
+  width: 'standard' | 'wide';
+  typography: FormTypography;
+  showSectionNumbers: boolean;
+  compactSpacing: boolean;
+}
+
+export function createDefaultFormAppearance(): FormAppearance {
+  return {
+    accentColor: '#1E6BFF',
+    headerText: '',
+    headerDescription: '',
+    headerDocumentNumber: '',
+    headerDocumentTypeName: '',
+    headerAlignment: 'left',
+    footerText: 'Formulario creado con Docubox',
+    footerAlignment: 'center',
+    confirmationMessage: '',
+    showHeader: true,
+    showTitle: true,
+    showFooter: false,
+    showProgressBar: true,
+    showAccentBar: true,
+    showDescription: true,
+    showDocumentNumber: true,
+    showDocumentType: true,
+    showSectionDescriptions: true,
+    width: 'standard',
+    typography: 'sans',
+    showSectionNumbers: true,
+    compactSpacing: false,
+  };
+}
+
 export interface FormTemplate {
   id?: string;
+  rootTemplateId?: string;
+  sourceTemplateId?: string;
+  versionNumber?: number;
+  revisionNumber?: number;
+  publicationComment?: string;
+  publishedAt?: string;
+  updatedAt?: string;
   name: string;
   description: string;
-  status: 'draft' | 'published' | 'paused' | 'closed' | 'archived';
+  status: 'draft' | 'in_review' | 'published' | 'paused' | 'archived';
   schema: FormField[];
   sections: FormSection[];
   settings: FormSettings;
@@ -168,8 +247,14 @@ export function createDefaultPdfSchema(): PdfSchema {
     version: 1,
     header: 'DOCUBOX · FORMULARIO FIRMABLE',
     footer: 'Documento generado electrónicamente por Docubox',
-    primaryColor: '#4F46E5',
+    primaryColor: '#1E6BFF',
     typography: 'sans',
+    orientation: 'portrait',
+    margins: 'normal',
+    headerAlignment: 'left',
+    columns: 'two',
+    showSectionNumbers: true,
+    showDescription: true,
     pageSize: 'letter',
     showPageNumbers: true,
     showFolio: true,
@@ -202,26 +287,35 @@ export function createDefaultSection(order = 0, title = 'Datos generales'): Form
 
 export function createDefaultFormTemplate(): FormTemplate {
   return {
-    name: 'Formulario sin título',
-    description: 'Recaba información y genera un documento listo para firma.',
+    name: '',
+    description: '',
     status: 'draft',
     schema: [],
     sections: [createDefaultSection()],
     settings: {
+      accessMode: 'private',
+      documentNumber: '',
+      documentTypeId: '',
+      documentTypeName: '',
+      tagIds: [],
+      configurePdfDetails: false,
+      configureFormDetails: false,
+      appearance: createDefaultFormAppearance(),
       mode: 'multistep',
       multiStep: true,
       language: 'es',
+      configureLinkExpiration: false,
       expirationHours: 72,
       allowSaveProgress: true,
       requiresSignature: true,
-      allowedSignatureTypes: ['efirma_sat', 'autografa_digital', 'click_sign'],
-      requireOtp: true,
+      allowedSignatureTypes: [],
+      requireOtp: false,
       pdfSchema: createDefaultPdfSchema(),
     },
   };
 }
 
-export function normalizeFormTemplate(input: Partial<FormTemplate>): FormTemplate {
+export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'settings'>> & { settings?: Partial<Omit<FormSettings, 'pdfSchema' | 'appearance'>> & { pdfSchema?: Partial<PdfSchema>; appearance?: Partial<FormAppearance> } }): FormTemplate {
   const defaults = createDefaultFormTemplate();
   const sections = Array.isArray(input.sections) && input.sections.length
     ? input.sections.map((section, index) => ({
@@ -237,6 +331,14 @@ export function normalizeFormTemplate(input: Partial<FormTemplate>): FormTemplat
     schema: Array.isArray(input.schema)
       ? input.schema.map((field, index) => ({
           ...field,
+          required: field.type === 'signature_block' ? true : field.required,
+          conditionalVisible: field.type === 'signature_block' ? false : field.conditionalVisible,
+          conditionalRule: field.type === 'signature_block' ? undefined : field.conditionalRule,
+          label: field.type === 'business_name' && field.label === 'Razón social'
+            ? 'Nombre o denominación social'
+            : field.type === 'fiscal_address' && field.label === 'Domicilio fiscal'
+              ? 'Domicilio'
+              : field.label,
           sectionId: field.sectionId || sections[0].id,
           editableBeforeSign: field.editableBeforeSign ?? true,
           pdf: {
@@ -252,9 +354,39 @@ export function normalizeFormTemplate(input: Partial<FormTemplate>): FormTemplat
     settings: {
       ...defaults.settings,
       ...(input.settings || {}),
+      accessMode: input.settings?.accessMode === 'public' ? 'public' : 'private',
+      requiresSignature: true,
+      configurePdfDetails:
+        typeof input.settings?.configurePdfDetails === 'boolean'
+          ? input.settings.configurePdfDetails
+          : Boolean(input.id),
+      configureFormDetails: input.settings?.configureFormDetails === true,
+      configureLinkExpiration:
+        typeof input.settings?.configureLinkExpiration === 'boolean'
+          ? input.settings.configureLinkExpiration
+          : typeof input.settings?.expirationHours === 'number',
+      appearance: {
+        ...defaults.settings.appearance,
+        ...(input.settings?.appearance || {}),
+        headerText: input.settings?.appearance?.headerText === 'Formulario firmable'
+          ? '' : input.settings?.appearance?.headerText ?? defaults.settings.appearance.headerText,
+        headerDocumentNumber: input.settings?.appearance?.headerDocumentNumber || input.settings?.documentNumber || '',
+        headerDocumentTypeName: input.settings?.appearance?.headerDocumentTypeName || input.settings?.documentTypeName || '',
+        typography: isFormTypography(input.settings?.appearance?.typography)
+          ? input.settings!.appearance!.typography
+          : defaults.settings.appearance.typography,
+        accentColor: /^#[0-9a-fA-F]{6}$/.test(input.settings?.appearance?.accentColor || '')
+          ? (input.settings!.appearance!.accentColor!.toUpperCase() === '#4F46E5' ? '#1E6BFF' : input.settings!.appearance!.accentColor!)
+          : defaults.settings.appearance.accentColor,
+      },
+      tagIds: Array.isArray(input.settings?.tagIds) ? input.settings.tagIds : [],
       pdfSchema: {
         ...defaults.settings.pdfSchema,
         ...(input.settings?.pdfSchema || {}),
+        typography: isFormTypography(input.settings?.pdfSchema?.typography)
+          ? input.settings!.pdfSchema!.typography
+          : defaults.settings.pdfSchema.typography,
+        primaryColor: input.settings?.pdfSchema?.primaryColor?.toUpperCase() === '#4F46E5' ? '#1E6BFF' : input.settings?.pdfSchema?.primaryColor || defaults.settings.pdfSchema.primaryColor,
       },
       allowedSignatureTypes:
         input.settings?.allowedSignatureTypes || defaults.settings.allowedSignatureTypes,
@@ -268,11 +400,13 @@ export function getFieldTypeLabel(type: FieldType): string {
     number: 'Número', date: 'Fecha', time: 'Hora', currency: 'Moneda', checkbox: 'Checkbox',
     checkbox_group: 'Casillas', radio: 'Opción múltiple', select: 'Lista desplegable',
     yes_no: 'Sí / No', estado_mx: 'Estado', rfc: 'RFC', curp: 'CURP', nss: 'NSS',
-    clave_elector: 'Clave de elector', business_name: 'Razón social',
-    fiscal_address: 'Domicilio fiscal', consentimiento: 'Consentimiento',
+    clave_elector: 'Clave de elector', business_name: 'Nombre o denominación social',
+    fiscal_address: 'Domicilio', person_first_name: 'Nombre',
+    person_last_name: 'Apellido paterno', person_second_last_name: 'Apellido materno',
+    consentimiento: 'Consentimiento',
     declaration: 'Declaración bajo protesta', firma_efirma: 'e.firma SAT',
     firma_autografa: 'Firma autógrafa', firma_click: 'Click & Sign',
-    signature_block: 'Bloque de firma', iniciales: 'Iniciales', imagen: 'Carga de imagen',
+    signature_block: 'Firma', iniciales: 'Iniciales', imagen: 'Carga de imagen',
     documento: 'Carga de archivo', divider: 'Separador', texto_bloque: 'Texto informativo',
     imagen_estatica: 'Imagen estática', columnas: 'Columnas',
   };
@@ -292,13 +426,26 @@ export function sampleValueForField(field: FormField): unknown {
   const samples: Partial<Record<FieldType, unknown>> = {
     text: 'Juan Pérez López', textarea: 'Información proporcionada por el participante.',
     email: 'participante@ejemplo.com', phone: '55 1234 5678', number: '1250',
-    date: new Date().toISOString().slice(0, 10), time: '10:30', currency: '$ 12,500.00 MXN',
+    date: new Date().toISOString().slice(0, 10), time: '10:30', currency: '12500',
     rfc: 'PELJ900101XXX', curp: 'PELJ900101HDFRPN09', nss: '12345678901',
-    business_name: 'Empresa Ejemplo, S.A. de C.V.', fiscal_address: 'Av. Reforma 100, CDMX',
+    business_name: 'Empresa Ejemplo, S.A. de C.V.',
+    fiscal_address: { street: 'Av. Reforma', exteriorNumber: '100', interiorNumber: '', neighborhood: 'Centro', city: 'Ciudad de México', state: 'Ciudad de México' },
+    person_first_name: 'Juan', person_last_name: 'Pérez', person_second_last_name: 'López',
     yes_no: 'Sí', radio: field.options?.[0]?.label, select: field.options?.[0]?.label,
     checkbox: true, consentimiento: true, declaration: true, firma_click: true,
     firma_efirma: 'Certificado por validar', firma_autografa: 'Firma capturada',
     signature_block: 'Pendiente de firma', documento: 'documento-adjunto.pdf', imagen: 'imagen-adjunta.jpg',
   };
   return samples[field.type] ?? '—';
+}
+
+export function formatFormAddress(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return '';
+  const address = value as Record<string, unknown>;
+  const part = (key: string) => typeof address[key] === 'string' ? String(address[key]).trim() : '';
+  return [
+    [part('street'), part('exteriorNumber'), part('interiorNumber') && `Int. ${part('interiorNumber')}`].filter(Boolean).join(' '),
+    part('neighborhood'), part('city'), part('state'),
+  ].filter(Boolean).join(', ');
 }

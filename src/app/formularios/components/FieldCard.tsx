@@ -1,9 +1,10 @@
 'use client';
 
 import React from 'react';
-import { Copy, FileText, GripVertical, Pencil, Trash2 } from 'lucide-react';
+import { Copy, GripVertical, Pencil, Trash2 } from 'lucide-react';
 import { useFormBuilder, type FormField } from '@/contexts/FormBuilderContext';
 import { getFieldTypeLabel } from '@/lib/forms/schema';
+import { getFormFieldIcon } from '@/components/forms/field-icons';
 
 interface FieldCardProps {
   field: FormField;
@@ -37,14 +38,14 @@ export default function FieldCard({ field, isSelected, dragHandleProps }: FieldC
       </button>
 
       <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-[#F1F5F9] text-[#475569] dark:bg-muted dark:text-muted-foreground">
-        <FileText size={16} />
+        {React.createElement(getFormFieldIcon(field.type), { size: 16 })}
       </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <p className="truncate text-sm font-semibold text-[#0F172A] dark:text-foreground">{field.label}</p>
           {field.required && <Badge tone="red">Obligatorio</Badge>}
-          {field.conditionalVisible && <Badge tone="amber">Condicional</Badge>}
+          {field.type !== 'signature_block' && field.conditionalVisible && field.conditionalRule?.fieldId && <Badge tone="amber">Condicional</Badge>}
           {field.pdf?.show === false && <Badge tone="gray">No visible en PDF</Badge>}
         </div>
         <p className="mt-1 truncate text-xs text-[#64748B] dark:text-muted-foreground">
@@ -54,7 +55,9 @@ export default function FieldCard({ field, isSelected, dragHandleProps }: FieldC
 
       <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
         <IconButton label="Editar" onClick={() => selectField(field.id)}><Pencil size={14} /></IconButton>
-        <IconButton label="Duplicar" onClick={() => duplicateField(field.id)}><Copy size={14} /></IconButton>
+        {field.type !== 'signature_block' && (
+          <IconButton label="Duplicar" onClick={() => duplicateField(field.id)}><Copy size={14} /></IconButton>
+        )}
         <IconButton label="Eliminar" destructive onClick={() => deleteField(field.id)}><Trash2 size={14} /></IconButton>
       </div>
     </article>

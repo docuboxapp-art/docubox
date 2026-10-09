@@ -4,17 +4,25 @@ import React, { Suspense, useState, useRef, useCallback, useEffect } from 'react
 import { Controller, useForm } from 'react-hook-form';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Mail, Shield, Lock, Eye, EyeOff, CheckCircle2, AlertTriangle, X } from 'lucide-react';
+import {
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertTriangle,
+  X,
+  Mail,
+  ShieldCheck,
+  KeyRound,
+} from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
-import { NumberedWizardNav } from '@/components/ui/NumberedWizardNav';
 
 type Step = 'email' | 'otp' | 'new-password' | 'success';
 
 const PASSWORD_RECOVERY_STEPS = [
-  { key: 'email', id: 1, label: 'Correo' },
-  { key: 'otp', id: 2, label: 'Verificación' },
-  { key: 'new-password', id: 3, label: 'Nueva contraseña' },
+  { key: 'email', id: 1, label: 'Correo', icon: Mail },
+  { key: 'otp', id: 2, label: 'Verificación', icon: ShieldCheck },
+  { key: 'new-password', id: 3, label: 'Nueva contraseña', icon: KeyRound },
 ] as const;
 
 interface EmailFormData {
@@ -242,344 +250,352 @@ function OlvideContrasenaContent() {
   const wizardCurrentStep = Math.max(currentStepIndex + 1, 1);
 
   return (
-    <main className="flex h-screen overflow-hidden bg-[#f7f8fb]">
+    <main className="flex min-h-[100dvh] flex-col bg-[#f7f9fc] text-foreground">
       <Toaster position="bottom-right" richColors />
-
-      <aside className="relative hidden w-[43%] min-w-[520px] flex-col justify-center overflow-hidden border-r border-blue-700 bg-[#1E6BFF] px-12 py-14 lg:flex xl:px-16">
-        <div className="absolute inset-x-0 top-0 h-px bg-white/25" />
-        <div className="absolute inset-x-0 bottom-0 h-px bg-blue-800" />
-
-        <div className="relative mx-auto w-full max-w-[590px]">
-          <h1 className="mb-5 max-w-[560px] text-[23px] font-600 leading-tight text-white xl:text-[33px]">
-            Recupera el acceso a tu cuenta
-          </h1>
-          <p className="mb-11 max-w-[570px] text-base leading-7 text-blue-100">
-            Restablece tu contraseña con un código temporal enviado al correo asociado a tu cuenta.
-          </p>
-
-          <div className="border-y border-white/15">
-            {[
-              {
-                icon: <Mail size={18} className="text-white" />,
-                title: 'Confirma tu correo',
-                desc: 'Usaremos el correo capturado en el inicio de sesión.',
-              },
-              {
-                icon: <Shield size={18} className="text-white" />,
-                title: 'Verifica tu identidad',
-                desc: 'Ingresa el código temporal que recibirás por correo.',
-              },
-              {
-                icon: <Lock size={18} className="text-white" />,
-                title: 'Crea una contraseña nueva',
-                desc: 'Elige una contraseña segura para recuperar el acceso.',
-              },
-            ].map((item) => (
-              <div
-                key={item.title}
-                className="flex items-start gap-4 border-b border-white/15 py-4 last:border-b-0"
-              >
-                <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-white/20 bg-white/10">
-                  {item.icon}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-600 text-white">{item.title}</p>
-                  <p className="mt-1 max-w-[520px] text-xs leading-5 text-blue-100">{item.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </aside>
-
-      <section className="flex min-w-0 flex-1 flex-col bg-white">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-5 lg:px-8">
+      <header className="flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-4 lg:px-6">
+        <div className="flex min-w-0 flex-1 items-center">
           <AppLogo size={34} />
-          <Link
-            href={loginHref}
-            title="Salir de la recuperación de contraseña"
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
-          >
-            <X size={16} />
-            <span>Salir</span>
-          </Link>
-        </header>
-
-        {step !== 'success' && (
-          <div className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-4 py-2">
-            <NumberedWizardNav
-              steps={PASSWORD_RECOVERY_STEPS}
-              currentStep={wizardCurrentStep}
-              className="mx-auto w-max"
-            />
-          </div>
-        )}
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-8 sm:px-10 lg:px-14">
-          <div className="mx-auto flex min-h-full w-full max-w-[460px] flex-col justify-center">
-            {/* Error message */}
-            {errorMsg && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
-                <AlertTriangle size={14} className="text-red-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-700">{errorMsg}</p>
-              </div>
-            )}
-
-            {/* Step 1: Email */}
-            {step === 'email' && (
-              <div>
-                <div className="mb-6">
-                  <h2 className="text-2xl font-600 text-foreground">¿Olvidaste tu contraseña?</h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Ingresa tu correo electrónico y te enviaremos un código de verificación.
-                  </p>
-                </div>
-                <form onSubmit={emailForm.handleSubmit(onSendOtp)} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-600 text-foreground mb-1">
-                      Correo electrónico <span className="text-red-500">*</span>
-                    </label>
-                    <Controller
-                      control={emailForm.control}
-                      name="email"
-                      rules={{
-                        required: 'El correo es requerido',
-                        pattern: { value: /^\S+@\S+\.\S+$/, message: 'Formato de email inválido' },
-                      }}
-                      render={({ field }) => (
-                        <input
-                          {...field}
-                          type="email"
-                          placeholder="tu@empresa.com"
-                          autoComplete="email"
-                          className={`w-full px-3 py-2.5 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
-                            emailForm.formState.errors.email
-                              ? 'border-red-400 bg-red-50'
-                              : 'border-border bg-white'
-                          }`}
-                        />
-                      )}
-                    />
-                    {emailForm.formState.errors.email && (
-                      <p className="text-[11px] text-red-600 mt-1">
-                        {emailForm.formState.errors.email.message}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {loading ? (
-                      <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    ) : (
-                      'Enviar código de verificación'
-                    )}
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {/* Step 2: OTP — 6 individual digit boxes */}
-            {step === 'otp' && (
-              <div>
-                <div className="mb-6">
-                  <h2 className="text-2xl font-600 text-foreground">Verifica tu identidad</h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Ingresa el código de 6 dígitos enviado a{' '}
-                    <span className="font-600 text-foreground">{email}</span>
-                  </p>
-                </div>
-                <form onSubmit={onVerifyOtp} className="space-y-5">
-                  <div>
-                    <label className="block text-xs font-600 text-foreground mb-3">
-                      Código de verificación <span className="text-red-500">*</span>
-                    </label>
-                    {/* 6 individual digit boxes */}
-                    <div className="flex items-center justify-between gap-2">
-                      {otpDigits.map((digit, index) => (
-                        <input
-                          key={index}
-                          ref={(el) => {
-                            otpRefs.current[index] = el;
-                          }}
-                          type="text"
-                          inputMode="numeric"
-                          maxLength={1}
-                          value={digit}
-                          onChange={(e) => handleOtpChange(index, e.target.value)}
-                          onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                          onPaste={handleOtpPaste}
-                          onFocus={(e) => e.target.select()}
-                          className={`w-10 h-11 text-center text-lg font-600 font-mono border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
-                            digit
-                              ? 'border-primary bg-primary/5 text-primary'
-                              : 'border-border bg-white text-foreground'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loading || getOtpValue().length < 6}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {loading ? (
-                      <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    ) : (
-                      'Verificar código'
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setErrorMsg(null);
-                      resetOtpDigits();
-                      setStep('email');
-                    }}
-                    className="w-full text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    Cambiar correo electrónico
-                  </button>
-                </form>
-                <div className="mt-4 text-center">
-                  <button
-                    type="button"
-                    onClick={onResendOtp}
-                    disabled={loading}
-                    className="text-xs text-primary hover:underline font-500 disabled:opacity-50"
-                  >
-                    ¿No recibiste el código? Reenviar
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Step 3: New Password */}
-            {step === 'new-password' && (
-              <div>
-                <div className="mb-6">
-                  <h2 className="text-2xl font-600 text-foreground">Crea nueva contraseña</h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Elige una contraseña segura para proteger tu cuenta.
-                  </p>
-                </div>
-                <form onSubmit={passwordForm.handleSubmit(onUpdatePassword)} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-600 text-foreground mb-1">
-                      Nueva contraseña <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        {...passwordForm.register('password', {
-                          required: 'La contraseña es requerida',
-                          minLength: { value: 8, message: 'Mínimo 8 caracteres' },
-                          pattern: {
-                            value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-                            message: 'Debe incluir mayúsculas, minúsculas y números',
-                          },
-                        })}
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder="Mínimo 8 caracteres"
-                        autoComplete="new-password"
-                        className={`w-full px-3 py-2.5 pr-10 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
-                          passwordForm.formState.errors.password
-                            ? 'border-red-400 bg-red-50'
-                            : 'border-border bg-white'
-                        }`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
-                    </div>
-                    {passwordForm.formState.errors.password && (
-                      <p className="text-[11px] text-red-600 mt-1">
-                        {passwordForm.formState.errors.password.message}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-600 text-foreground mb-1">
-                      Confirmar contraseña <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        {...passwordForm.register('confirmPassword', {
-                          required: 'Confirma tu contraseña',
-                        })}
-                        type={showConfirmPassword ? 'text' : 'password'}
-                        placeholder="Repite tu contraseña"
-                        autoComplete="new-password"
-                        className={`w-full px-3 py-2.5 pr-10 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all ${
-                          passwordForm.formState.errors.confirmPassword
-                            ? 'border-red-400 bg-red-50'
-                            : 'border-border bg-white'
-                        }`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
-                    </div>
-                    {passwordForm.formState.errors.confirmPassword && (
-                      <p className="text-[11px] text-red-600 mt-1">
-                        {passwordForm.formState.errors.confirmPassword.message}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {loading ? (
-                      <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    ) : (
-                      'Actualizar contraseña'
-                    )}
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {/* Step 4: Success */}
-            {step === 'success' && (
-              <div className="text-center">
-                <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle2 size={32} className="text-green-600" />
-                </div>
-                <h2 className="text-2xl font-600 text-foreground mb-2">¡Contraseña actualizada!</h2>
-                <p className="text-sm text-muted-foreground mb-8">
-                  Tu contraseña ha sido restablecida exitosamente. Ya puedes iniciar sesión con tu
-                  nueva contraseña.
-                </p>
-                <Link
-                  href={loginHref}
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-primary py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90"
-                >
-                  Ir al inicio de sesión
-                </Link>
-              </div>
-            )}
-          </div>
         </div>
-      </section>
+        <Link
+          href={loginHref}
+          title="Salir de la recuperación de contraseña"
+          className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-primary transition-colors hover:bg-slate-50"
+        >
+          <X size={16} />
+          <span>Salir</span>
+        </Link>
+      </header>
+
+      {step !== 'success' && (
+        <div className="shrink-0 border-b border-slate-200 bg-[#edf3f8] px-4 py-2 lg:px-6">
+          <nav
+            aria-label="Pasos de recuperación"
+            className="mx-auto flex w-max max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100/80 p-1 sm:gap-1"
+          >
+            {PASSWORD_RECOVERY_STEPS.map((item, index) => {
+              const StepIcon = item.icon;
+              const isActive = item.id === wizardCurrentStep;
+              const isCompleted = item.id < wizardCurrentStep;
+              return (
+                <React.Fragment key={item.key}>
+                  <span
+                    aria-current={isActive ? 'step' : undefined}
+                    aria-label={item.label}
+                    className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-normal sm:px-2.5 ${isActive ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]' : isCompleted ? 'text-slate-700' : 'text-slate-600'}`}
+                  >
+                    <span
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : 'bg-slate-200 text-slate-700'}`}
+                    >
+                      {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
+                    </span>
+                    <span className="hidden sm:inline">{item.label}</span>
+                  </span>
+                  {index < PASSWORD_RECOVERY_STEPS.length - 1 && (
+                    <span
+                      className={`h-px w-1.5 shrink-0 sm:w-3 ${isCompleted ? 'bg-primary/50' : 'bg-slate-300'}`}
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </nav>
+        </div>
+      )}
+
+      <div className="mx-auto flex w-full max-w-[520px] flex-1 items-center px-4 py-10 sm:px-6">
+        <section
+          aria-label="Recuperar contraseña"
+          className="w-full rounded-lg border border-slate-200 bg-white px-6 py-8 shadow-[0_4px_20px_rgba(15,23,42,0.04)] sm:px-10 sm:py-10"
+        >
+          {/* Error message */}
+          {errorMsg && (
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3">
+              <AlertTriangle size={14} className="text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-red-700">{errorMsg}</p>
+            </div>
+          )}
+
+          {/* Step 1: Email */}
+          {step === 'email' && (
+            <div>
+              <div className="mb-8">
+                <h1 className="text-[28px] font-500 leading-tight text-foreground">
+                  ¿Olvidaste tu contraseña?
+                </h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Ingresa tu correo electrónico y te enviaremos un código de verificación.
+                </p>
+              </div>
+              <form onSubmit={emailForm.handleSubmit(onSendOtp)} className="space-y-4">
+                <div>
+                  <label
+                    htmlFor="recovery-email"
+                    className="mb-2 block text-sm font-600 text-foreground"
+                  >
+                    Correo electrónico <span className="text-red-500">*</span>
+                  </label>
+                  <Controller
+                    control={emailForm.control}
+                    name="email"
+                    rules={{
+                      required: 'El correo es requerido',
+                      pattern: { value: /^\S+@\S+\.\S+$/, message: 'Formato de email inválido' },
+                    }}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        id="recovery-email"
+                        type="email"
+                        placeholder="tu@empresa.com"
+                        autoComplete="email"
+                        autoFocus
+                        className={`h-12 w-full rounded-md border px-4 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                          emailForm.formState.errors.email
+                            ? 'border-red-400 bg-red-50'
+                            : 'border-border bg-white'
+                        }`}
+                      />
+                    )}
+                  />
+                  {emailForm.formState.errors.email && (
+                    <p className="text-[11px] text-red-600 mt-1">
+                      {emailForm.formState.errors.email.message}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? (
+                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  ) : (
+                    'Enviar código de verificación'
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Step 2: OTP — 6 individual digit boxes */}
+          {step === 'otp' && (
+            <div>
+              <div className="mb-8">
+                <h1 className="text-[28px] font-500 leading-tight text-foreground">
+                  Verifica tu identidad
+                </h1>
+                <p className="mt-2 break-words text-sm text-muted-foreground">
+                  Ingresa el código de 6 dígitos enviado a{' '}
+                  <span className="font-600 text-foreground">{email}</span>
+                </p>
+              </div>
+              <form onSubmit={onVerifyOtp} className="space-y-5">
+                <div>
+                  <label className="mb-3 block text-sm font-600 text-foreground">
+                    Código de verificación <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-6 gap-2">
+                    {otpDigits.map((digit, index) => (
+                      <input
+                        key={index}
+                        ref={(el) => {
+                          otpRefs.current[index] = el;
+                        }}
+                        type="text"
+                        aria-label={`Dígito ${index + 1} del código`}
+                        inputMode="numeric"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleOtpChange(index, e.target.value)}
+                        onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                        onPaste={handleOtpPaste}
+                        onFocus={(e) => e.target.select()}
+                        className={`h-12 min-w-0 w-full rounded-md border text-center font-mono text-lg font-600 transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                          digit
+                            ? 'border-primary bg-primary/5 text-primary'
+                            : 'border-border bg-white text-foreground'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading || getOtpValue().length < 6}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {loading ? (
+                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  ) : (
+                    'Verificar código'
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMsg(null);
+                    resetOtpDigits();
+                    setStep('email');
+                  }}
+                  className="w-full text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Cambiar correo electrónico
+                </button>
+              </form>
+              <div className="mt-4 text-center">
+                <button
+                  type="button"
+                  onClick={onResendOtp}
+                  disabled={loading}
+                  className="text-xs text-primary hover:underline font-500 disabled:opacity-50"
+                >
+                  ¿No recibiste el código? Reenviar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: New Password */}
+          {step === 'new-password' && (
+            <div>
+              <div className="mb-8">
+                <h1 className="text-[28px] font-500 leading-tight text-foreground">
+                  Crea nueva contraseña
+                </h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Elige una contraseña segura para proteger tu cuenta.
+                </p>
+              </div>
+              <form onSubmit={passwordForm.handleSubmit(onUpdatePassword)} className="space-y-4">
+                <div>
+                  <label
+                    htmlFor="recovery-password"
+                    className="mb-2 block text-sm font-600 text-foreground"
+                  >
+                    Nueva contraseña <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      {...passwordForm.register('password', {
+                        required: 'La contraseña es requerida',
+                        minLength: { value: 8, message: 'Mínimo 8 caracteres' },
+                        pattern: {
+                          value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+                          message: 'Debe incluir mayúsculas, minúsculas y números',
+                        },
+                      })}
+                      id="recovery-password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Mínimo 8 caracteres"
+                      autoComplete="new-password"
+                      className={`h-12 w-full rounded-md border px-4 pr-10 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                        passwordForm.formState.errors.password
+                          ? 'border-red-400 bg-red-50'
+                          : 'border-border bg-white'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                  {passwordForm.formState.errors.password && (
+                    <p className="text-[11px] text-red-600 mt-1">
+                      {passwordForm.formState.errors.password.message}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label
+                    htmlFor="recovery-confirm-password"
+                    className="mb-2 block text-sm font-600 text-foreground"
+                  >
+                    Confirmar contraseña <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      {...passwordForm.register('confirmPassword', {
+                        required: 'Confirma tu contraseña',
+                      })}
+                      id="recovery-confirm-password"
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      placeholder="Repite tu contraseña"
+                      autoComplete="new-password"
+                      className={`h-12 w-full rounded-md border px-4 pr-10 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                        passwordForm.formState.errors.confirmPassword
+                          ? 'border-red-400 bg-red-50'
+                          : 'border-border bg-white'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      aria-label={
+                        showConfirmPassword ? 'Ocultar confirmación' : 'Mostrar confirmación'
+                      }
+                      title={showConfirmPassword ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                  {passwordForm.formState.errors.confirmPassword && (
+                    <p className="text-[11px] text-red-600 mt-1">
+                      {passwordForm.formState.errors.confirmPassword.message}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? (
+                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  ) : (
+                    'Actualizar contraseña'
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Step 4: Success */}
+          {step === 'success' && (
+            <div className="text-center">
+              <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
+                <CheckCircle2 size={25} className="text-emerald-600" />
+              </div>
+              <h1 className="mb-2 text-[28px] font-500 leading-tight text-foreground">
+                ¡Contraseña actualizada!
+              </h1>
+              <p className="mb-8 text-sm text-muted-foreground">
+                Tu contraseña ha sido restablecida exitosamente. Ya puedes iniciar sesión con tu
+                nueva contraseña.
+              </p>
+              <Link
+                href={loginHref}
+                className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-primary px-4 py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90"
+              >
+                Ir al inicio de sesión
+              </Link>
+            </div>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
 
 export default function OlvideContrasenaPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-background" />}>
+    <Suspense fallback={<main className="min-h-[100dvh] bg-[#f7f9fc]" />}>
       <OlvideContrasenaContent />
     </Suspense>
   );

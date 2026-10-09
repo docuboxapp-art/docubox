@@ -5,6 +5,7 @@ import { FormField } from '@/contexts/FormBuilderContext';
 import { validateRFC, validateCURP, validatePhoneMX, formatPhoneMX } from '@/utils/mexicanValidators';
 import SignaturePad from './SignaturePad';
 import { Upload, X, CheckCircle, AlertCircle, FileKey2, Loader2, ShieldCheck } from 'lucide-react';
+import { getFormFieldIcon } from '@/components/forms/field-icons';
 
 const ESTADOS_MX = [
   'Aguascalientes','Baja California','Baja California Sur','Campeche','Chiapas',
@@ -20,9 +21,14 @@ interface FieldRendererProps {
   onChange: (value: unknown) => void;
   error?: string;
   formToken?: string;
+  requiredOverride?: boolean;
 }
 
-export default function FieldRenderer({ field, value, onChange, error, formToken }: FieldRendererProps) {
+export default function FieldRenderer({ field, value, onChange, error, formToken, requiredOverride }: FieldRendererProps) {
+  const required = requiredOverride ?? field.required;
+  const address: Record<string, string> = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, string>
+    : { street: typeof value === 'string' ? value : '' };
   const [rfcResult, setRfcResult] = useState<{ valid: boolean; type?: string | null; error?: string } | null>(null);
   const [curpResult, setCurpResult] = useState<{ valid: boolean; sex?: string | null; state?: string | null; error?: string } | null>(null);
   const [phoneFormatted, setPhoneFormatted] = useState('');
@@ -52,9 +58,10 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
     <div className="space-y-1.5">
       {/* Label */}
       {!['checkbox', 'firma_click', 'consentimiento', 'declaration', 'signature_block', 'firma_efirma'].includes(field.type) && (
-        <label className="block text-sm font-medium text-foreground">
+        <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+          {React.createElement(getFormFieldIcon(field.type), { size: 15, className: 'shrink-0 text-muted-foreground' })}
           {field.label}
-          {field.required && <span className="text-red-500 ml-1">*</span>}
+          {required && <span className="text-red-500 ml-1">*</span>}
         </label>
       )}
       {field.description && (
@@ -62,7 +69,7 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
       )}
 
       {/* Input by type */}
-      {['text', 'business_name'].includes(field.type) && (
+      {['text', 'business_name', 'person_first_name', 'person_last_name', 'person_second_last_name'].includes(field.type) && (
         <input
           type="text"
           value={(value as string) || ''}
@@ -73,7 +80,7 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
         />
       )}
 
-      {['textarea', 'fiscal_address'].includes(field.type) && (
+      {field.type === 'textarea' && (
         <textarea
           value={(value as string) || ''}
           onChange={(e) => onChange(e.target.value)}
@@ -95,6 +102,30 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
           max={field.maxValue}
           className={baseInputClass}
         />
+      )}
+
+      {field.type === 'fiscal_address' && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {([
+            ['street', 'Nombre de calle'],
+            ['exteriorNumber', 'Número exterior'],
+            ['interiorNumber', 'Número interior'],
+            ['neighborhood', 'Colonia'],
+            ['city', 'Ciudad'],
+            ['state', 'Estado'],
+          ] as const).map(([key, label]) => (
+            <label key={key} className={key === 'street' ? 'sm:col-span-2' : ''}>
+              <span className="mb-1 block text-xs text-muted-foreground">{label}</span>
+              <input
+                type="text"
+                value={address[key] || ''}
+                onChange={(event) => onChange({ ...address, [key]: event.target.value })}
+                readOnly={field.readOnly}
+                className={baseInputClass}
+              />
+            </label>
+          ))}
+        </div>
       )}
 
       {field.type === 'currency' && (
@@ -140,6 +171,7 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
               setPhoneFormatted(result.formatted);
             }}
             placeholder="(55) 1234-5678"
+            readOnly={field.readOnly}
             className={`${baseInputClass} pl-12`}
           />
         </div>
@@ -171,11 +203,12 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
             type="checkbox"
             checked={!!(value as boolean)}
             onChange={(e) => onChange(e.target.checked)}
+            disabled={field.readOnly}
             className="mt-0.5 w-4 h-4 rounded border-border text-primary focus:ring-primary/30"
           />
           <span className="text-sm text-foreground">
             {field.label}
-            {field.required && <span className="text-red-500 ml-1">*</span>}
+            {required && <span className="text-red-500 ml-1">*</span>}
           </span>
         </label>
       )}
@@ -191,6 +224,7 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
                   const current = (value as string[]) || [];
                   onChange(e.target.checked ? [...current, opt.value] : current.filter((v) => v !== opt.value));
                 }}
+                disabled={field.readOnly}
                 className="w-4 h-4 rounded border-border text-primary focus:ring-primary/30"
               />
               <span className="text-sm text-foreground">{opt.label}</span>
@@ -209,6 +243,7 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
                 value={opt.value}
                 checked={(value as string) === opt.value}
                 onChange={() => onChange(opt.value)}
+                disabled={field.readOnly}
                 className="w-4 h-4 border-border text-primary focus:ring-primary/30"
               />
               <span className="text-sm text-foreground">{opt.label}</span>
@@ -221,6 +256,7 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
         <select
           value={(value as string) || ''}
           onChange={(e) => onChange(e.target.value)}
+          disabled={field.readOnly}
           className={baseInputClass}
         >
           <option value="">{field.placeholder || 'Selecciona una opción'}</option>
@@ -234,6 +270,7 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
         <select
           value={(value as string) || ''}
           onChange={(e) => onChange(e.target.value)}
+          disabled={field.readOnly}
           className={baseInputClass}
         >
           <option value="">Selecciona un estado</option>
@@ -364,13 +401,13 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
               className="mt-0.5 w-4 h-4 rounded border-border text-primary focus:ring-primary/30"
             />
             <span className="text-sm font-medium text-foreground">
-              Acepto y firmo electrónicamente
-              {field.required && <span className="text-red-500 ml-1">*</span>}
+              Acepto utilizar este mecanismo de firma
+              {required && <span className="text-red-500 ml-1">*</span>}
             </span>
           </label>
           {Boolean(value) && (
             <p className="text-xs text-green-600 flex items-center gap-1">
-              <CheckCircle size={11} /> Firmado el {new Date().toLocaleString('es-MX')}
+              <CheckCircle size={11} /> Mecanismo aceptado; firma pendiente de finalizar.
             </p>
           )}
         </div>
@@ -390,31 +427,20 @@ export default function FieldRenderer({ field, value, onChange, error, formToken
             />
             <span className="text-sm font-medium text-foreground">
               {field.label}
-              {field.required && <span className="text-red-500 ml-1">*</span>}
+              {required && <span className="text-red-500 ml-1">*</span>}
             </span>
           </label>
         </div>
       )}
 
       {field.type === 'signature_block' && (
-        <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-indigo-900">
-            <ShieldCheck size={16} /> {field.label}
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
+            <ShieldCheck size={16} className="text-slate-500" /> {field.label}
+            {required && <span className="text-xs text-red-600">Obligatorio</span>}
           </div>
-          <p className="text-xs leading-5 text-indigo-700">
-            Selecciona el mecanismo que utilizarás para formalizar el documento después de revisar el PDF.
-          </p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {(field.signature?.allowedTypes || ['efirma_sat', 'autografa_digital', 'click_sign']).map((signatureType) => (
-              <button
-                key={signatureType}
-                type="button"
-                onClick={() => onChange(signatureType)}
-                className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${value === signatureType ? 'border-indigo-600 bg-white text-indigo-700 shadow-sm' : 'border-indigo-200 text-indigo-700 hover:bg-white/70'}`}
-              >
-                {signatureType === 'efirma_sat' ? 'e.firma SAT' : signatureType === 'autografa_digital' ? 'Autógrafa' : 'Click & Sign'}
-              </button>
-            ))}
+          <div className="flex h-16 items-center justify-center rounded-md border border-dashed border-slate-300 bg-white text-xs text-slate-500">
+            Espacio reservado para firma
           </div>
         </div>
       )}

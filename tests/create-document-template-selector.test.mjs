@@ -31,6 +31,18 @@ test('explore templates opens a searchable selector instead of leaving the wizar
   assert.match(selectorSource, /Usar plantilla/);
 });
 
+test('create document can change its source without discarding the current selection on cancel', () => {
+  assert.match(stepSource, /Origen seleccionado/);
+  assert.match(stepSource, /Cambiar origen/);
+  assert.match(stepSource, /Conservar origen/);
+  assert.match(
+    stepSource,
+    /hasOrigin && \(\s*<div className=\{showOriginPicker \? 'hidden' : ''\}>/
+  );
+  assert.match(stepSource, /\(!hasOrigin \|\| showOriginPicker\) && \(/);
+  assert.match(stepSource, /if \(!selected\) return;/);
+});
+
 test('selected published templates remain HTML sources throughout the wizard', () => {
   assert.match(stepSource, /templateApiFetch\(/);
   assert.match(stepSource, /onTemplateSourceChange\?\.\(selectedTemplate\)/);

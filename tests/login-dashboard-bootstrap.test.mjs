@@ -75,18 +75,26 @@ test('login keeps security validation blocking but does not wait for audit telem
   assert.match(passwordLogin, /recordLoginAttempt\(false, 'password'\)/);
   assert.match(
     passwordLogin,
-    /recordLoginAttempt\(true, 'password', authData\.user\?\.id \|\| null\)/
+    /recordLoginAttempt\(\s*true,\s*'password',\s*authData\.user\?\.id \|\| null,\s*authData\.session\?\.access_token\s*\)/
   );
+  assert.match(loginSource, /Authorization: `Bearer \$\{accessToken\}`/);
   assert.doesNotMatch(passwordLogin, /await fetch\('\/api\/security\/log-access'/);
-  assert.match(passwordLogin, /void fetch\('\/api\/security\/check-device'/);
-  assert.match(passwordLogin, /keepalive: true/);
+  assert.match(
+    passwordLogin,
+    /reportLoginDevice\(authData\.user\?\.id, authData\.session\?\.access_token\)/
+  );
+  assert.match(loginSource, /reportLoginDevice\(data\.userId, sessionAccessToken\)/);
+  assert.match(
+    loginSource,
+    /reportLoginDevice\(verifyData\?\.userId, verifiedSession\?\.session\?\.access_token\)/
+  );
   assert.match(
     passwordLogin,
     /await enforcePostLoginSecurity\('other', authData\.session\?\.access_token\)/
   );
   assert.ok(
     passwordLogin.indexOf("await enforcePostLoginSecurity('other'") <
-      passwordLogin.indexOf('router.replace(requestedRedirect())'),
+      passwordLogin.indexOf('reportLoginDevice('),
     'security validation must complete before redirecting'
   );
   assert.doesNotMatch(loginSource, /window\.location\.href = requestedRedirect\(\)/);

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { sendNewDeviceLoginEmail } from '@/lib/emailNotifications';
 import { createAnonClient } from '@/lib/supabase/server';
 import { createNotificationServer } from '@/lib/notificationsInApp.server';
+import { approximateLoginLocation, clientIp, shouldAlertForLocation } from '@/lib/security/login-location';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -87,29 +88,6 @@ function buildDeviceFingerprint(parsed: ReturnType<typeof parseUserAgent>): stri
   return `${parsed.browser}|${parsed.os}|${parsed.deviceType}`.toLowerCase().replace(/\s+/g, '_');
 }
 
-async function getGeoFromIP(ip: string): Promise<{ city: string; country: string }> {
-  if (
-    !ip ||
-    ip === '::1' ||
-    ip === '127.0.0.1' ||
-    ip.startsWith('192.168.') ||
-    ip.startsWith('10.')
-  ) {
-    return { city: 'Red local', country: 'Local' };
-  }
-  try {
-    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,city`, {
-      signal: AbortSignal.timeout(4000),
-    });
-    if (!res.ok) return { city: 'Desconocida', country: 'Desconocido' };
-    const data = await res.json();
-    if (data.status !== 'success') return { city: 'Desconocida', country: 'Desconocido' };
-    return { city: data.city || 'Desconocida', country: data.country || 'Desconocido' };
-  } catch {
-    return { city: 'Desconocida', country: 'Desconocido' };
-  }
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -136,28 +114,27 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     const ua = request.headers.get('user-agent') || '';
-    const forwarded = request.headers.get('x-forwarded-for');
-    const realIp = request.headers.get('x-real-ip');
-    const cfIp = request.headers.get('cf-connecting-ip');
-    const ipAddress =
-      cfIp || realIp || (forwarded ? forwarded.split(',')[0].trim() : null) || '127.0.0.1';
+    const ipAddress = clientIp(request.headers);
 
     const parsed = parseUserAgent(ua);
     const fingerprint = buildDeviceFingerprint(parsed);
 
-    // Check if this device fingerprint is known for this user
-    const { data: existingDevice, error: fetchError } = await supabaseAdmin
+    const { data: history, error: fetchError } = await supabaseAdmin
       .from('device_login_history')
-      .select('id, is_trusted, login_count, first_seen_at')
+      .select('id, device_fingerprint, login_count, first_seen_at, city, country')
       .eq('user_id', userId)
-      .eq('device_fingerprint', fingerprint)
-      .maybeSingle();
+      .order('last_seen_at', { ascending: false })
+      .limit(100);
+    if (fetchError) throw fetchError;
 
-    const geo = await getGeoFromIP(ipAddress);
+    const previous = history || [];
+    const existingDevice = previous.find((item) => item.device_fingerprint === fingerprint);
+    const geo = approximateLoginLocation(request.headers, ipAddress);
+    const isFirstDevice = previous.length === 0;
+    const shouldAlert = shouldAlertForLocation(previous, fingerprint, geo);
 
     if (!existingDevice) {
-      // Register new device
-      await supabaseAdmin.from('device_login_history').insert({
+      const { error: insertError } = await supabaseAdmin.from('device_login_history').insert({
         user_id: userId,
         device_fingerprint: fingerprint,
         device_type: parsed.deviceType,
@@ -172,111 +149,75 @@ export async function POST(request: NextRequest) {
         is_trusted: false,
         login_count: 1,
       });
-
-      // Count how many devices this user has (including the one just inserted)
-      const { count } = await supabaseAdmin
+      if (insertError) throw insertError;
+    } else {
+      const { error: updateError } = await supabaseAdmin
         .from('device_login_history')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId);
+        .update({
+          last_seen_at: new Date().toISOString(),
+          login_count: (existingDevice.login_count || 1) + 1,
+          ip_address: ipAddress,
+          city: geo.city ?? existingDevice.city,
+          country: geo.country ?? existingDevice.country,
+        })
+        .eq('id', existingDevice.id);
+      if (updateError) throw updateError;
+    }
 
-      const isFirstDevice = (count || 0) <= 1;
-
-      // Send alert email only if this is NOT the first device (first login is normal)
-      if (!isFirstDevice && (profile?.email || authData.user.email)) {
-        const deviceTypeLabel =
-          parsed.deviceType === 'mobile'
-            ? 'Móvil'
-            : parsed.deviceType === 'tablet'
-              ? 'Tablet'
-              : 'Escritorio';
-        const deviceLabel = `${parsed.browser} en ${parsed.os} (${deviceTypeLabel})`;
+    if (shouldAlert) {
+      const deviceTypeLabel = parsed.deviceType === 'mobile' ? 'Móvil' :
+        parsed.deviceType === 'tablet' ? 'Tablet' : 'Escritorio';
+      if (profile?.email || authData.user.email) {
         try {
           await sendNewDeviceLoginEmail({
             userEmail: profile?.email || authData.user.email || '',
             userName: profile?.full_name || undefined,
-            deviceName: deviceLabel,
-            ipAddress,
-            city: geo.city,
-            country: geo.country,
+            deviceName: `${parsed.browser} (${deviceTypeLabel})`,
+            ipAddress: ipAddress || undefined,
+            city: geo.city || undefined,
+            country: geo.country || undefined,
             loginTime: new Date().toISOString(),
           });
         } catch (emailErr) {
           console.error('[check-device] Email alert failed (non-blocking):', emailErr);
         }
       }
-
-      if (!isFirstDevice) {
-        const deviceTypeLabel =
-          parsed.deviceType === 'mobile'
-            ? 'móvil'
-            : parsed.deviceType === 'tablet'
-              ? 'tablet'
-              : 'escritorio';
-        createNotificationServer({
-          userId: authData.user.id,
-          type: 'alert',
-          category: 'SECURITY',
-          severity: 'critical',
-          eventType: 'security.new_device',
-          title: 'Nuevo acceso desde un dispositivo',
-          description: `Detectamos un acceso desde ${parsed.browser} en ${parsed.os} (${deviceTypeLabel})${geo.city ? `, ${geo.city}` : ''}.`,
-          priority: 'alta',
-          actionUrl: '/configuracion',
-          actionLabel: 'Revisar seguridad',
-          deduplicationKey: `security.new_device:${authData.user.id}:${fingerprint}`,
-          actorUserId: authData.user.id,
-          metadata: {
-            device_type: parsed.deviceType,
-            browser: parsed.browser,
-            os: parsed.os,
-            city: geo.city,
-            country: geo.country,
-          },
-        }).catch((notificationError) => {
-          console.error('[check-device] In-app alert failed (non-blocking):', notificationError);
-        });
-      }
-
-      return NextResponse.json({
-        success: true,
-        isNewDevice: !isFirstDevice,
-        isFirstDevice,
-        device: {
+      createNotificationServer({
+        userId: authData.user.id,
+        type: 'alert',
+        category: 'SECURITY',
+        severity: 'critical',
+        eventType: 'security.new_device',
+        title: 'Acceso desde una ubicación inusual',
+        description: `Detectamos un acceso desde ${parsed.browser} (${deviceTypeLabel}), ubicación aproximada por IP: ${[geo.city, geo.country].filter(Boolean).join(', ')}.`,
+        priority: 'alta',
+        actionUrl: '/configuracion',
+        actionLabel: 'Revisar seguridad',
+        deduplicationKey: `security.new_device:${authData.user.id}:${fingerprint}:${geo.country}:${geo.city}`,
+        actorUserId: authData.user.id,
+        metadata: {
+          device_type: parsed.deviceType,
           browser: parsed.browser,
-          os: parsed.os,
-          deviceType: parsed.deviceType,
           city: geo.city,
           country: geo.country,
         },
-      });
-    } else {
-      // Known device — update last_seen and increment count
-      await supabaseAdmin
-        .from('device_login_history')
-        .update({
-          last_seen_at: new Date().toISOString(),
-          login_count: (existingDevice.login_count || 1) + 1,
-          ip_address: ipAddress,
-          city: geo.city,
-          country: geo.country,
-        })
-        .eq('id', existingDevice.id);
-
-      return NextResponse.json({
-        success: true,
-        isNewDevice: false,
-        isFirstDevice: false,
-        device: {
-          browser: parsed.browser,
-          os: parsed.os,
-          deviceType: parsed.deviceType,
-          city: geo.city,
-          country: geo.country,
-          loginCount: (existingDevice.login_count || 1) + 1,
-          firstSeen: existingDevice.first_seen_at,
-        },
+      }).catch((notificationError) => {
+        console.error('[check-device] In-app alert failed (non-blocking):', notificationError);
       });
     }
+
+    return NextResponse.json({
+      success: true,
+      isNewDevice: !existingDevice && !isFirstDevice,
+      isFirstDevice,
+      alertSent: shouldAlert,
+      device: {
+        browser: parsed.browser,
+        deviceType: parsed.deviceType,
+        city: geo.city,
+        country: geo.country,
+      },
+    });
   } catch (err) {
     console.error('[check-device] Error:', err);
     return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });

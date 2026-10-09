@@ -140,6 +140,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (participantEntry?.require_liveness === true) {
+      const selfieHash = typeof biometric?.selfie_sha256 === 'string'
+        ? biometric.selfie_sha256.toLowerCase() : '';
+      if (!/^[a-f0-9]{64}$/.test(selfieHash))
+        return NextResponse.json({ error: 'La prueba de vida es obligatoria para firmar este formulario.' }, { status: 422 });
+      const { data: capturedSelfie, error: selfieError } = await supabaseAdmin
+        .from('signature_evidence')
+        .select('id')
+        .eq('document_id', documentId)
+        .eq('captured_by', user.id)
+        .eq('evidence_type', 'biometric_selfie')
+        .eq('image_sha256', selfieHash)
+        .gte('captured_at', new Date(Date.now() - 30 * 60 * 1000).toISOString())
+        .limit(1)
+        .maybeSingle();
+      if (selfieError || !capturedSelfie)
+        return NextResponse.json({ error: 'No se encontró una selfie reciente y válida para este firmante.' }, { status: 422 });
+    }
+
     // Fetch workspace name if workspace_id exists
     let workspaceName: string | null = null;
     if (documento.workspace_id) {
