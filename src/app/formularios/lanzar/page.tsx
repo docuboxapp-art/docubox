@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Copy,
   Edit3,
+  FileText,
   Loader2,
   Mail,
   Maximize2,
@@ -432,8 +433,16 @@ function LaunchContent() {
         </div>
       </section>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-        <div className="mx-auto w-full max-w-4xl">
-          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        <div
+          className={`mx-auto w-full ${form && step === 3 && !sentUrl ? 'max-w-[1180px]' : 'max-w-4xl'}`}
+        >
+          <div
+            className={
+              form && step === 3 && !sentUrl
+                ? 'pb-8'
+                : 'rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-7'
+            }
+          >
             {!form && (
               <div
                 className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/35 p-4"
@@ -498,9 +507,12 @@ function LaunchContent() {
             {form && (
               <>
                 <div className="space-y-5">
-                  <div className="rounded-lg bg-slate-50 p-3 text-sm">
-                    <span className="text-slate-500">Formulario:</span> <strong>{form.name}</strong>
-                  </div>
+                  {(step !== 3 || sentUrl) && (
+                    <div className="rounded-lg bg-slate-50 p-3 text-sm">
+                      <span className="text-slate-500">Formulario:</span>{' '}
+                      <strong>{form.name}</strong>
+                    </div>
+                  )}
                   {sentUrl ? (
                     <div className="space-y-4">
                       <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5 text-emerald-800">
@@ -670,53 +682,204 @@ function LaunchContent() {
                         </>
                       )}
                       {step === 3 && (
-                        <>
-                          <h2 className="font-semibold">Confirma el envío</h2>
-                          <dl className="grid gap-3 rounded-lg border border-slate-200 p-4 text-sm sm:grid-cols-2">
-                            <div>
-                              <dt className="text-slate-500">Participante</dt>
-                              <dd className="font-medium">{selectedParticipant?.name}</dd>
+                        <div className="space-y-4">
+                          <div className="flex flex-col gap-4 rounded-lg border border-emerald-200/80 bg-emerald-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+                                <CheckCircle2 size={20} />
+                              </span>
+                              <div className="min-w-0">
+                                <h2 className="text-lg font-semibold text-slate-950">
+                                  Formulario listo para enviar
+                                </h2>
+                                <p className="mt-0.5 text-sm text-slate-600">
+                                  Comprueba la información antes de enviar el enlace personal.
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <dt className="text-slate-500">Correo</dt>
-                              <dd className="font-medium">{selectedParticipant?.email}</dd>
+                            <div className="flex items-center divide-x divide-emerald-200 text-center">
+                              <div className="px-4 first:pl-0">
+                                <p className="text-base font-semibold tabular-nums text-slate-950">
+                                  1
+                                </p>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                  Formulario
+                                </p>
+                              </div>
+                              <div className="px-4 pr-0">
+                                <p className="text-base font-semibold tabular-nums text-slate-950">
+                                  1
+                                </p>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                  Participante
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <dt className="text-slate-500">Notificación</dt>
-                              <dd className="font-medium">Correo electrónico</dd>
+                          </div>
+
+                          <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm">
+                            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                              <div>
+                                <h2 className="text-base font-semibold text-slate-950">
+                                  Formulario
+                                </h2>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  Contenido que recibirá el participante
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedId('');
+                                  setStep(1);
+                                  setError('');
+                                }}
+                                aria-label="Cambiar formulario"
+                                title="Cambiar formulario"
+                                className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+                              >
+                                <Edit3 size={14} />
+                              </button>
                             </div>
-                            <div>
-                              <dt className="text-slate-500">Firma</dt>
-                              <dd className="font-medium">
-                                {signatureLabels[signatureType as SignatureType] || 'Pendiente'}
-                              </dd>
+                            <div className="flex min-w-0 items-center gap-3 px-5 py-5">
+                              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-primary">
+                                <FileText size={20} />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-slate-950">
+                                  {form.name}
+                                </p>
+                                {form.description && (
+                                  <p className="mt-1 truncate text-xs text-slate-500">
+                                    {form.description}
+                                  </p>
+                                )}
+                              </div>
+                              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                                <CheckCircle2 size={12} /> Publicado
+                              </span>
                             </div>
-                            <div>
-                              <dt className="text-slate-500">Prueba de vida</dt>
-                              <dd className="font-medium">
-                                {requireLiveness ? 'Solicitada' : 'No solicitada'}
-                              </dd>
+                          </section>
+
+                          <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm">
+                            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                              <div>
+                                <h2 className="text-base font-semibold text-slate-950">
+                                  Participante
+                                </h2>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  Persona que responderá y firmará el formulario
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setStep(1)}
+                                aria-label="Editar participante"
+                                title="Editar participante"
+                                className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+                              >
+                                <Edit3 size={14} />
+                              </button>
                             </div>
-                          </dl>
-                          {hasConfiguredExpiration && (
-                            <label className="block text-sm">
-                              Vigencia del enlace (horas)
-                              <input
-                                type="number"
-                                min={1 / 60}
-                                max={720}
-                                step="any"
-                                value={effectiveExpirationHours}
-                                onChange={(event) => setExpirationHours(Number(event.target.value))}
-                                className="mt-1 block w-36 rounded-md border border-slate-200 px-3 py-2"
-                              />
-                            </label>
-                          )}
-                          <p className="text-xs text-slate-500">
-                            Se enviará un enlace único al correo indicado. El participante podrá
-                            responder una sola vez.
-                          </p>
-                        </>
+                            <div className="flex items-start gap-3 px-5 py-4">
+                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-xs font-semibold text-blue-700">
+                                {selectedParticipant?.name.charAt(0).toUpperCase() || '?'}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-950">
+                                  {selectedParticipant?.name}
+                                </p>
+                                <p className="mt-0.5 break-all text-xs text-slate-500">
+                                  {selectedParticipant?.email}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="grid gap-4 border-t border-slate-100 px-5 py-4 sm:grid-cols-3">
+                              <div className="flex items-start gap-2.5">
+                                <Mail size={15} className="mt-0.5 shrink-0 text-slate-400" />
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                                    Notificación
+                                  </p>
+                                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                                    Correo electrónico
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-2.5">
+                                <ShieldCheck size={15} className="mt-0.5 shrink-0 text-slate-400" />
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                                    Prueba de vida
+                                  </p>
+                                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                                    {requireLiveness ? 'Solicitada' : 'No solicitada'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-2.5">
+                                {signatureType &&
+                                  React.createElement(signatureIcons[signatureType], {
+                                    size: 15,
+                                    className: 'mt-0.5 shrink-0 text-slate-400',
+                                  })}
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                                    Firma
+                                  </p>
+                                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                                    {signatureType ? signatureLabels[signatureType] : 'Pendiente'}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setStep(2)}
+                                  aria-label="Editar tipo de firma"
+                                  title="Editar tipo de firma"
+                                  className="ml-auto rounded-md p-1 text-slate-400 hover:bg-blue-50 hover:text-primary"
+                                >
+                                  <Edit3 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          </section>
+
+                          <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm">
+                            <div className="border-b border-slate-200 px-5 py-4">
+                              <h2 className="text-base font-semibold text-slate-950">
+                                Momento del envío
+                              </h2>
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                El enlace personal se enviará por correo electrónico.
+                              </p>
+                            </div>
+                            <div className="p-5">
+                              <div className="inline-flex items-center gap-2 rounded-md border border-primary bg-blue-50 px-4 py-2.5 text-sm font-semibold text-primary">
+                                <Mail size={16} /> Enviar ahora
+                              </div>
+                              {hasConfiguredExpiration && (
+                                <label className="mt-4 block text-sm font-medium text-slate-700">
+                                  Vigencia del enlace (horas)
+                                  <input
+                                    type="number"
+                                    min={1 / 60}
+                                    max={720}
+                                    step="any"
+                                    value={effectiveExpirationHours}
+                                    onChange={(event) =>
+                                      setExpirationHours(Number(event.target.value))
+                                    }
+                                    className="mt-1 block h-10 w-36 rounded-md border border-slate-200 px-3"
+                                  />
+                                </label>
+                              )}
+                              <p className="mt-4 text-xs text-slate-500">
+                                El participante podrá responder una sola vez mediante el enlace
+                                enviado a su correo.
+                              </p>
+                            </div>
+                          </section>
+                        </div>
                       )}
                       {error && (
                         <p role="alert" className="text-sm text-red-600">
