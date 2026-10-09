@@ -1,5 +1,5 @@
 const DEFAULT_PUBLIC_APP_URL = 'https://docubox-docubox.vercel.app';
-const OBSOLETE_HOSTS = ['firmamax4272.builtwithrocket.new'];
+const OBSOLETE_HOSTS = ['firmamax4272.builtwithrocket.new', 'app.docubox.mx'];
 
 export function getPublicAppUrl(): string {
   const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();

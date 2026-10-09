@@ -151,7 +151,15 @@ serve(async (req) => {
       );
     }
 
-    const siteUrl = Deno.env.get('NEXT_PUBLIC_SITE_URL') || 'https://app.docubox.mx';
+    let siteUrl = 'https://docubox-docubox.vercel.app';
+    try {
+      const configuredUrl = new URL(Deno.env.get('NEXT_PUBLIC_SITE_URL') || siteUrl);
+      if (configuredUrl.protocol === 'https:' && configuredUrl.hostname !== 'app.docubox.mx') {
+        siteUrl = configuredUrl.origin;
+      }
+    } catch {
+      // Keep the working production URL when the configured URL is invalid.
+    }
     const formUrl = `${siteUrl}/portal-formulario/${token}`;
 
     // Send email via Resend

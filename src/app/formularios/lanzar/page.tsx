@@ -7,7 +7,6 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
-  Copy,
   Edit3,
   FileText,
   Loader2,
@@ -100,7 +99,8 @@ function LaunchContent() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [sentUrl, setSentUrl] = useState('');
+  const [sent, setSent] = useState(false);
+  const [countdown, setCountdown] = useState(5);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -152,6 +152,16 @@ function LaunchContent() {
       active = false;
     };
   }, [activeWorkspace?.id, user?.id, supabase]);
+
+  useEffect(() => {
+    if (!sent) return;
+    if (countdown <= 0) {
+      router.replace('/formularios');
+      return;
+    }
+    const timer = window.setTimeout(() => setCountdown((seconds) => seconds - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [sent, countdown, router]);
 
   const form = forms.find((item) => item.id === selectedId);
   const settingTypes = form?.settings?.allowedSignatureTypes;
@@ -317,7 +327,7 @@ function LaunchContent() {
       const result = await response.json();
       if (!response.ok || result.email_sent !== true)
         throw new Error(result.error || 'No se pudo enviar el correo.');
-      setSentUrl(result.form_url);
+      setSent(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo lanzar el formulario.');
     } finally {
@@ -333,6 +343,40 @@ function LaunchContent() {
         </p>
       </AppLayout>
     );
+
+  if (sent) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-100 p-4">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex w-full max-w-lg flex-col items-center rounded-lg border border-slate-200 bg-white px-8 py-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.12)]"
+        >
+          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+            <Check size={32} strokeWidth={2.5} className="text-emerald-600" />
+          </div>
+          <h1 className="text-2xl font-600 text-slate-950">Formulario enviado</h1>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
+            El enlace personal se envió por correo a {selectedParticipant?.name}.
+          </p>
+          <div className="mt-7 flex w-full items-center justify-between border-t border-slate-200 pt-5">
+            <p className="text-xs text-slate-500">
+              Redirección automática en{' '}
+              <span className="font-600 text-emerald-600">{countdown}</span> segundo
+              {countdown !== 1 ? 's' : ''}
+            </p>
+            <button
+              type="button"
+              onClick={() => router.replace('/formularios')}
+              className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-600 text-white transition-colors hover:bg-emerald-700"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -352,7 +396,7 @@ function LaunchContent() {
                 aria-label={label}
                 aria-current={step === index + 1 ? 'step' : undefined}
                 title={label}
-                disabled={busy || Boolean(sentUrl) || index + 1 >= step}
+                disabled={busy || index + 1 >= step}
                 onClick={() => {
                   setStep((index + 1) as 1 | 2);
                   setError('');
@@ -433,12 +477,10 @@ function LaunchContent() {
         </div>
       </section>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-        <div
-          className={`mx-auto w-full ${form && step === 3 && !sentUrl ? 'max-w-[1180px]' : 'max-w-4xl'}`}
-        >
+        <div className={`mx-auto w-full ${form && step === 3 ? 'max-w-[1180px]' : 'max-w-4xl'}`}>
           <div
             className={
-              form && step === 3 && !sentUrl
+              form && step === 3
                 ? 'pb-8'
                 : 'rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-7'
             }
@@ -507,352 +549,330 @@ function LaunchContent() {
             {form && (
               <>
                 <div className="space-y-5">
-                  {sentUrl ? (
-                    <div className="space-y-4">
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5 text-emerald-800">
-                        <CheckCircle2 className="mb-2" size={25} />
-                        <strong>Formulario enviado por correo</strong>
-                        <p className="mt-1 text-sm">
-                          {selectedParticipant?.name} recibirá el enlace personal.
-                        </p>
-                      </div>
-                      <p className="break-all text-xs text-slate-500">{sentUrl}</p>
-                      <button
-                        type="button"
-                        onClick={() => void navigator.clipboard.writeText(sentUrl)}
-                        className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
-                      >
-                        <Copy size={15} /> Copiar enlace
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      {step === 1 && (
-                        <>
-                          <div>
-                            <h2 className="text-base font-semibold">Participante</h2>
-                            <p className="mt-1 text-sm text-slate-500">
-                              Selecciona una persona para recibir y completar el formulario.
-                            </p>
-                          </div>
-                          {selectedParticipant ? (
-                            <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-4">
-                              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-sm font-semibold text-blue-700">
-                                {selectedParticipant.name.charAt(0).toUpperCase()}
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold text-slate-950">
-                                  {selectedParticipant.name}
-                                </p>
-                                <p className="mt-0.5 truncate text-xs text-slate-500">
-                                  {selectedParticipant.email}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                title="Quitar participante"
-                                aria-label="Quitar participante"
-                                onClick={() => {
-                                  setParticipant(null);
-                                  setSignatureType('');
-                                  setRequireLiveness(false);
-                                }}
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                              <UserPlus size={18} className="shrink-0 text-slate-400" />
-                              No hay un participante seleccionado.
-                            </div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setParticipantTab('contacts');
-                              setParticipantPickerOpen(true);
-                              setError('');
-                            }}
-                            className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 py-2.5 text-sm font-medium text-slate-600 hover:border-primary hover:text-primary"
-                          >
-                            <UserPlus size={16} />{' '}
-                            {selectedParticipant ? 'Cambiar participante' : 'Agregar participante'}
-                          </button>
-                          <div className="border-t border-slate-200 pt-5">
-                            <h3 className="mb-2 text-sm font-semibold">Método de notificación</h3>
-                            <div className="grid gap-2 sm:grid-cols-3">
-                              <span className="flex items-center gap-2 rounded-md border border-primary bg-blue-50 p-3 text-sm text-primary">
-                                <Mail size={16} /> Correo electrónico
-                              </span>
-                              <span className="flex items-center gap-2 rounded-md border border-slate-200 p-3 text-sm text-slate-400">
-                                <Smartphone size={16} /> SMS · Próximamente
-                              </span>
-                              <span className="flex items-center gap-2 rounded-md border border-slate-200 p-3 text-sm text-slate-400">
-                                <Smartphone size={16} /> WhatsApp · Próximamente
-                              </span>
-                            </div>
-                          </div>
-                          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-4 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={requireLiveness}
-                              onChange={(event) => setRequireLiveness(event.target.checked)}
-                              className="mt-0.5 h-4 w-4 accent-primary"
-                            />
-                            <span>
-                              <strong className="block">Solicitar prueba de vida</strong>
-                              <span className="mt-1 block text-xs text-slate-500">
-                                Opcional. Esta solicitud quedará vinculada al participante y a la
-                                firma del formulario.
-                              </span>
+                  <>
+                    {step === 1 && (
+                      <>
+                        <div>
+                          <h2 className="text-base font-semibold">Participante</h2>
+                          <p className="mt-1 text-sm text-slate-500">
+                            Selecciona una persona para recibir y completar el formulario.
+                          </p>
+                        </div>
+                        {selectedParticipant ? (
+                          <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-4">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-sm font-semibold text-blue-700">
+                              {selectedParticipant.name.charAt(0).toUpperCase()}
                             </span>
-                          </label>
-                        </>
-                      )}
-                      {step === 2 && (
-                        <>
-                          <div>
-                            <h2 className="font-semibold">Tipo de firma</h2>
-                            <p className="mt-1 text-sm text-slate-500">
-                              Elige cómo deberá firmar el participante después de completar el
-                              formulario.
-                            </p>
-                          </div>
-                          <div className="space-y-2">
-                            {signatureOptions.map((type) => {
-                              const Icon = signatureIcons[type];
-                              return (
-                                <button
-                                  type="button"
-                                  key={type}
-                                  onClick={() => setSignatureType(type)}
-                                  className={`flex w-full items-center justify-between rounded-lg border p-4 text-left text-sm ${signatureType === type ? 'border-primary bg-blue-50 text-primary' : 'border-slate-200'}`}
-                                >
-                                  <span className="flex items-center gap-3">
-                                    <Icon
-                                      size={18}
-                                      className={
-                                        signatureType === type ? 'text-primary' : 'text-slate-400'
-                                      }
-                                    />
-                                    {signatureLabels[type]}
-                                  </span>
-                                  {signatureType === type && <Check size={16} />}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
-                      {step === 3 && (
-                        <div className="space-y-4">
-                          <div className="flex flex-col gap-4 rounded-lg border border-emerald-200/80 bg-emerald-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="flex min-w-0 items-center gap-3">
-                              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
-                                <CheckCircle2 size={20} />
-                              </span>
-                              <div className="min-w-0">
-                                <h2 className="text-lg font-semibold text-slate-950">
-                                  Formulario listo para enviar
-                                </h2>
-                                <p className="mt-0.5 text-sm text-slate-600">
-                                  Comprueba la información antes de enviar el enlace personal.
-                                </p>
-                              </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-slate-950">
+                                {selectedParticipant.name}
+                              </p>
+                              <p className="mt-0.5 truncate text-xs text-slate-500">
+                                {selectedParticipant.email}
+                              </p>
                             </div>
-                            <div className="flex items-center divide-x divide-emerald-200 text-center">
-                              <div className="px-4 first:pl-0">
-                                <p className="text-base font-semibold tabular-nums text-slate-950">
-                                  1
-                                </p>
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                                  Formulario
-                                </p>
-                              </div>
-                              <div className="px-4 pr-0">
-                                <p className="text-base font-semibold tabular-nums text-slate-950">
-                                  1
-                                </p>
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                                  Participante
-                                </p>
-                              </div>
-                            </div>
+                            <button
+                              type="button"
+                              title="Quitar participante"
+                              aria-label="Quitar participante"
+                              onClick={() => {
+                                setParticipant(null);
+                                setSignatureType('');
+                                setRequireLiveness(false);
+                              }}
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 size={16} />
+                            </button>
                           </div>
-
-                          <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm">
-                            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                              <div>
-                                <h2 className="text-base font-semibold text-slate-950">
-                                  Formulario
-                                </h2>
-                                <p className="mt-0.5 text-xs text-slate-500">
-                                  Contenido que recibirá el participante
-                                </p>
-                              </div>
+                        ) : (
+                          <div className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                            <UserPlus size={18} className="shrink-0 text-slate-400" />
+                            No hay un participante seleccionado.
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setParticipantTab('contacts');
+                            setParticipantPickerOpen(true);
+                            setError('');
+                          }}
+                          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 py-2.5 text-sm font-medium text-slate-600 hover:border-primary hover:text-primary"
+                        >
+                          <UserPlus size={16} />{' '}
+                          {selectedParticipant ? 'Cambiar participante' : 'Agregar participante'}
+                        </button>
+                        <div className="border-t border-slate-200 pt-5">
+                          <h3 className="mb-2 text-sm font-semibold">Método de notificación</h3>
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            <span className="flex items-center gap-2 rounded-md border border-primary bg-blue-50 p-3 text-sm text-primary">
+                              <Mail size={16} /> Correo electrónico
+                            </span>
+                            <span className="flex items-center gap-2 rounded-md border border-slate-200 p-3 text-sm text-slate-400">
+                              <Smartphone size={16} /> SMS · Próximamente
+                            </span>
+                            <span className="flex items-center gap-2 rounded-md border border-slate-200 p-3 text-sm text-slate-400">
+                              <Smartphone size={16} /> WhatsApp · Próximamente
+                            </span>
+                          </div>
+                        </div>
+                        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-4 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={requireLiveness}
+                            onChange={(event) => setRequireLiveness(event.target.checked)}
+                            className="mt-0.5 h-4 w-4 accent-primary"
+                          />
+                          <span>
+                            <strong className="block">Solicitar prueba de vida</strong>
+                            <span className="mt-1 block text-xs text-slate-500">
+                              Opcional. Esta solicitud quedará vinculada al participante y a la
+                              firma del formulario.
+                            </span>
+                          </span>
+                        </label>
+                      </>
+                    )}
+                    {step === 2 && (
+                      <>
+                        <div>
+                          <h2 className="font-semibold">Tipo de firma</h2>
+                          <p className="mt-1 text-sm text-slate-500">
+                            Elige cómo deberá firmar el participante después de completar el
+                            formulario.
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          {signatureOptions.map((type) => {
+                            const Icon = signatureIcons[type];
+                            return (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setSelectedId('');
-                                  setStep(1);
-                                  setError('');
-                                }}
-                                aria-label="Cambiar formulario"
-                                title="Cambiar formulario"
-                                className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+                                key={type}
+                                onClick={() => setSignatureType(type)}
+                                className={`flex w-full items-center justify-between rounded-lg border p-4 text-left text-sm ${signatureType === type ? 'border-primary bg-blue-50 text-primary' : 'border-slate-200'}`}
                               >
-                                <Edit3 size={14} />
+                                <span className="flex items-center gap-3">
+                                  <Icon
+                                    size={18}
+                                    className={
+                                      signatureType === type ? 'text-primary' : 'text-slate-400'
+                                    }
+                                  />
+                                  {signatureLabels[type]}
+                                </span>
+                                {signatureType === type && <Check size={16} />}
                               </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                    {step === 3 && (
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-4 rounded-lg border border-emerald-200/80 bg-emerald-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+                              <CheckCircle2 size={20} />
+                            </span>
+                            <div className="min-w-0">
+                              <h2 className="text-lg font-semibold text-slate-950">
+                                Formulario listo para enviar
+                              </h2>
+                              <p className="mt-0.5 text-sm text-slate-600">
+                                Comprueba la información antes de enviar el enlace personal.
+                              </p>
                             </div>
-                            <div className="flex min-w-0 items-center gap-3 px-5 py-5">
-                              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-primary">
-                                <FileText size={20} />
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold text-slate-950">
-                                  {form.name}
-                                </p>
-                                {form.description && (
-                                  <p className="mt-1 truncate text-xs text-slate-500">
-                                    {form.description}
-                                  </p>
-                                )}
-                              </div>
-                              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                                <CheckCircle2 size={12} /> Publicado
-                              </span>
+                          </div>
+                          <div className="flex items-center divide-x divide-emerald-200 text-center">
+                            <div className="px-4 first:pl-0">
+                              <p className="text-base font-semibold tabular-nums text-slate-950">
+                                1
+                              </p>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                Formulario
+                              </p>
                             </div>
-                          </section>
+                            <div className="px-4 pr-0">
+                              <p className="text-base font-semibold tabular-nums text-slate-950">
+                                1
+                              </p>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                Participante
+                              </p>
+                            </div>
+                          </div>
+                        </div>
 
-                          <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm">
-                            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                              <div>
-                                <h2 className="text-base font-semibold text-slate-950">
-                                  Participante
-                                </h2>
-                                <p className="mt-0.5 text-xs text-slate-500">
-                                  Persona que responderá y firmará el formulario
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setStep(1)}
-                                aria-label="Editar participante"
-                                title="Editar participante"
-                                className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
-                              >
-                                <Edit3 size={14} />
-                              </button>
+                        <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm">
+                          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                            <div>
+                              <h2 className="text-base font-semibold text-slate-950">Formulario</h2>
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                Contenido que recibirá el participante
+                              </p>
                             </div>
-                            <div className="flex items-start gap-3 px-5 py-4">
-                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-xs font-semibold text-blue-700">
-                                {selectedParticipant?.name.charAt(0).toUpperCase() || '?'}
-                              </span>
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-slate-950">
-                                  {selectedParticipant?.name}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedId('');
+                                setStep(1);
+                                setError('');
+                              }}
+                              aria-label="Cambiar formulario"
+                              title="Cambiar formulario"
+                              className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+                            >
+                              <Edit3 size={14} />
+                            </button>
+                          </div>
+                          <div className="flex min-w-0 items-center gap-3 px-5 py-5">
+                            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-primary">
+                              <FileText size={20} />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-slate-950">
+                                {form.name}
+                              </p>
+                              {form.description && (
+                                <p className="mt-1 truncate text-xs text-slate-500">
+                                  {form.description}
                                 </p>
-                                <p className="mt-0.5 break-all text-xs text-slate-500">
-                                  {selectedParticipant?.email}
-                                </p>
-                              </div>
+                              )}
                             </div>
-                            <div className="grid gap-4 border-t border-slate-100 px-5 py-4 sm:grid-cols-3">
-                              <div className="flex items-start gap-2.5">
-                                <Mail size={15} className="mt-0.5 shrink-0 text-slate-400" />
-                                <div>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                                    Notificación
-                                  </p>
-                                  <p className="mt-1 text-sm font-semibold text-slate-800">
-                                    Correo electrónico
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-start gap-2.5">
-                                <ShieldCheck size={15} className="mt-0.5 shrink-0 text-slate-400" />
-                                <div>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                                    Prueba de vida
-                                  </p>
-                                  <p className="mt-1 text-sm font-semibold text-slate-800">
-                                    {requireLiveness ? 'Solicitada' : 'No solicitada'}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-start gap-2.5">
-                                {signatureType &&
-                                  React.createElement(signatureIcons[signatureType], {
-                                    size: 15,
-                                    className: 'mt-0.5 shrink-0 text-slate-400',
-                                  })}
-                                <div>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                                    Firma
-                                  </p>
-                                  <p className="mt-1 text-sm font-semibold text-slate-800">
-                                    {signatureType ? signatureLabels[signatureType] : 'Pendiente'}
-                                  </p>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setStep(2)}
-                                  aria-label="Editar tipo de firma"
-                                  title="Editar tipo de firma"
-                                  className="ml-auto rounded-md p-1 text-slate-400 hover:bg-blue-50 hover:text-primary"
-                                >
-                                  <Edit3 size={14} />
-                                </button>
-                              </div>
-                            </div>
-                          </section>
+                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                              <CheckCircle2 size={12} /> Publicado
+                            </span>
+                          </div>
+                        </section>
 
-                          <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm">
-                            <div className="border-b border-slate-200 px-5 py-4">
+                        <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm">
+                          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                            <div>
                               <h2 className="text-base font-semibold text-slate-950">
-                                Momento del envío
+                                Participante
                               </h2>
                               <p className="mt-0.5 text-xs text-slate-500">
-                                El enlace personal se enviará por correo electrónico.
+                                Persona que responderá y firmará el formulario
                               </p>
                             </div>
-                            <div className="p-5">
-                              <div className="inline-flex items-center gap-2 rounded-md border border-primary bg-blue-50 px-4 py-2.5 text-sm font-semibold text-primary">
-                                <Mail size={16} /> Enviar ahora
+                            <button
+                              type="button"
+                              onClick={() => setStep(1)}
+                              aria-label="Editar participante"
+                              title="Editar participante"
+                              className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-primary"
+                            >
+                              <Edit3 size={14} />
+                            </button>
+                          </div>
+                          <div className="flex items-start gap-3 px-5 py-4">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-xs font-semibold text-blue-700">
+                              {selectedParticipant?.name.charAt(0).toUpperCase() || '?'}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-950">
+                                {selectedParticipant?.name}
+                              </p>
+                              <p className="mt-0.5 break-all text-xs text-slate-500">
+                                {selectedParticipant?.email}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="grid gap-4 border-t border-slate-100 px-5 py-4 sm:grid-cols-3">
+                            <div className="flex items-start gap-2.5">
+                              <Mail size={15} className="mt-0.5 shrink-0 text-slate-400" />
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                                  Notificación
+                                </p>
+                                <p className="mt-1 text-sm font-semibold text-slate-800">
+                                  Correo electrónico
+                                </p>
                               </div>
-                              {hasConfiguredExpiration && (
-                                <label className="mt-4 block text-sm font-medium text-slate-700">
-                                  Vigencia del enlace (horas)
-                                  <input
-                                    type="number"
-                                    min={1 / 60}
-                                    max={720}
-                                    step="any"
-                                    value={effectiveExpirationHours}
-                                    onChange={(event) =>
-                                      setExpirationHours(Number(event.target.value))
-                                    }
-                                    className="mt-1 block h-10 w-36 rounded-md border border-slate-200 px-3"
-                                  />
-                                </label>
-                              )}
-                              <p className="mt-4 text-xs text-slate-500">
-                                El participante podrá responder una sola vez mediante el enlace
-                                enviado a su correo.
-                              </p>
                             </div>
-                          </section>
-                        </div>
-                      )}
-                      {error && (
-                        <p role="alert" className="text-sm text-red-600">
-                          {error}
-                        </p>
-                      )}
-                    </>
-                  )}
+                            <div className="flex items-start gap-2.5">
+                              <ShieldCheck size={15} className="mt-0.5 shrink-0 text-slate-400" />
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                                  Prueba de vida
+                                </p>
+                                <p className="mt-1 text-sm font-semibold text-slate-800">
+                                  {requireLiveness ? 'Solicitada' : 'No solicitada'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-start gap-2.5">
+                              {signatureType &&
+                                React.createElement(signatureIcons[signatureType], {
+                                  size: 15,
+                                  className: 'mt-0.5 shrink-0 text-slate-400',
+                                })}
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                                  Firma
+                                </p>
+                                <p className="mt-1 text-sm font-semibold text-slate-800">
+                                  {signatureType ? signatureLabels[signatureType] : 'Pendiente'}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setStep(2)}
+                                aria-label="Editar tipo de firma"
+                                title="Editar tipo de firma"
+                                className="ml-auto rounded-md p-1 text-slate-400 hover:bg-blue-50 hover:text-primary"
+                              >
+                                <Edit3 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        </section>
+
+                        <section className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm">
+                          <div className="border-b border-slate-200 px-5 py-4">
+                            <h2 className="text-base font-semibold text-slate-950">
+                              Momento del envío
+                            </h2>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              El enlace personal se enviará por correo electrónico.
+                            </p>
+                          </div>
+                          <div className="p-5">
+                            <div className="inline-flex items-center gap-2 rounded-md border border-primary bg-blue-50 px-4 py-2.5 text-sm font-semibold text-primary">
+                              <Mail size={16} /> Enviar ahora
+                            </div>
+                            {hasConfiguredExpiration && (
+                              <label className="mt-4 block text-sm font-medium text-slate-700">
+                                Vigencia del enlace (horas)
+                                <input
+                                  type="number"
+                                  min={1 / 60}
+                                  max={720}
+                                  step="any"
+                                  value={effectiveExpirationHours}
+                                  onChange={(event) =>
+                                    setExpirationHours(Number(event.target.value))
+                                  }
+                                  className="mt-1 block h-10 w-36 rounded-md border border-slate-200 px-3"
+                                />
+                              </label>
+                            )}
+                            <p className="mt-4 text-xs text-slate-500">
+                              El participante podrá responder una sola vez mediante el enlace
+                              enviado a su correo.
+                            </p>
+                          </div>
+                        </section>
+                      </div>
+                    )}
+                    {error && (
+                      <p role="alert" className="text-sm text-red-600">
+                        {error}
+                      </p>
+                    )}
+                  </>
                 </div>
               </>
             )}
@@ -867,21 +887,13 @@ function LaunchContent() {
       <footer className="flex min-h-16 shrink-0 items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-2 lg:px-6">
         <button
           type="button"
-          disabled={busy || Boolean(sentUrl)}
+          disabled={busy}
           onClick={goBack}
           className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
           <ArrowLeft size={16} /> Atrás
         </button>
-        {sentUrl ? (
-          <button
-            type="button"
-            onClick={() => router.push('/formularios')}
-            className="inline-flex h-10 items-center rounded-md bg-primary px-5 text-sm font-medium text-white hover:bg-primary/90"
-          >
-            Volver a formularios
-          </button>
-        ) : step === 3 ? (
+        {step === 3 ? (
           <button
             type="button"
             disabled={busy || !form}
