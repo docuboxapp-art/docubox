@@ -15,6 +15,7 @@ type Schedule = {
   requester_name: string;
   recipient_name: string;
   recipient_email: string;
+  launch_prefill: Record<string, string>;
   signature_type: string;
   require_liveness: boolean;
   expiration_hours: number | null;
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
       const { data: template, error: templateError } = await service.from('form_templates')
         .select('id,name,status,workspace_id,settings,workspaces(name)')
         .eq('id', schedule.template_id).maybeSingle();
-      if (templateError || !template || template.status !== 'published' || template.workspace_id !== schedule.workspace_id || template.settings?.accessMode === 'public')
+      if (templateError || !template || template.status !== 'published' || template.workspace_id !== schedule.workspace_id)
         throw new Error('El formulario ya no está publicado para invitaciones privadas.');
       const resendKey = process.env.RESEND_API_KEY;
       const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
           access_mode: 'private',
           recipient_email: schedule.recipient_email,
           recipient_name: schedule.recipient_name,
+          launch_prefill: schedule.launch_prefill || {},
           signature_type: schedule.signature_type,
           require_liveness: schedule.require_liveness,
           launched_by_user_id: schedule.requested_by,

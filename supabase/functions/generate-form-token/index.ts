@@ -58,6 +58,7 @@ serve(async (req) => {
       require_liveness = false,
       notification_method = 'email',
       expiration_hours = null,
+      launch_prefill = {},
     } = await req.json();
 
     if (!template_id || !recipient_name?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(recipient_email || '').trim()) || notification_method !== 'email') {
@@ -73,6 +74,13 @@ serve(async (req) => {
       );
     }
     const recipientEmail = String(recipient_email).trim().toLowerCase();
+    const allowedPrefill = ['nombre', 'apellido_paterno', 'apellido_materno', 'full_name',
+      'phone', 'rfc', 'curp', 'personalidad_juridica', 'business_name'];
+    const rawPrefill = launch_prefill && typeof launch_prefill === 'object' && !Array.isArray(launch_prefill)
+      ? launch_prefill as Record<string, unknown> : {};
+    const safePrefill = Object.fromEntries(allowedPrefill.map((key) => [key,
+      typeof rawPrefill[key] === 'string' ? rawPrefill[key].trim().slice(0, 160) : ''
+    ]));
 
     const expiration = expiration_hours == null ? null : Number(expiration_hours);
     if (expiration !== null && (!Number.isFinite(expiration) || expiration < 1 / 60 || expiration > 720)) {
@@ -141,6 +149,7 @@ serve(async (req) => {
         access_mode: 'private',
         recipient_email: recipientEmail,
         recipient_name: recipient_name || null,
+        launch_prefill: safePrefill,
         signer_role: signer_role || null,
         signature_type,
         require_liveness,

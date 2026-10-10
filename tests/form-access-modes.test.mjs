@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import ts from 'typescript';
+import { buildFormEmail } from '../supabase/functions/_shared/form-email-template.ts';
 
 const nodeRequire = createRequire(import.meta.url);
 const source = readFileSync('src/lib/forms/claim-public-form.ts', 'utf8');
@@ -47,6 +48,9 @@ function fixture({
       }
       if (table === 'form_public_access_codes')
         return chain({ data: codeExists ? { form_id: formId, code_hash: 'saved-hash' } : null, error: null });
+      if (table === 'form_public_invitees') return chain({ data: {
+        recipient_name: 'Ana invitada', launch_prefill: { nombre: 'Ana', rfc: 'RFC-INVITACION' },
+      }, error: null });
       if (table === 'form_templates') return chain({ data: form, error: null });
       if (table === 'form_tokens')
         return { ...chain({ data: prior, error: null }), insert: async (row) => {
@@ -81,19 +85,29 @@ const previousEnv = {
   key: process.env.SUPABASE_SERVICE_ROLE_KEY,
   gateway: process.env.IDENTITY_VERIFICATION_GATEWAY_URL,
   token: process.env.IDENTITY_VERIFICATION_GATEWAY_TOKEN,
+  resend: process.env.RESEND_API_KEY,
 };
 const previousFetch = globalThis.fetch;
+let deliveredBatch = null;
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
 process.env.IDENTITY_VERIFICATION_GATEWAY_URL = 'https://identity.example.test/verify';
 process.env.IDENTITY_VERIFICATION_GATEWAY_TOKEN = 'test-gateway-token';
-globalThis.fetch = async () => ({ ok: true, json: async () => ({ status: 'VALID', liveness: { passed: true }, verification_id: 'verified-1' }) });
+globalThis.fetch = async (url, options) => {
+  if (url.includes('resend.com')) {
+    deliveredBatch = JSON.parse(options.body);
+    return { ok: true, json: async () => ({ data: [{ id: 'mail-1' }, { id: 'mail-2' }] }) };
+  }
+  return { ok: true, json: async () => ({ status: 'VALID', liveness: { passed: true }, verification_id: 'verified-1' }) };
+};
+process.env.RESEND_API_KEY = 'resend-test-key';
 test.after(() => {
   for (const [key, value] of Object.entries({
     NEXT_PUBLIC_SUPABASE_URL: previousEnv.url,
     SUPABASE_SERVICE_ROLE_KEY: previousEnv.key,
     IDENTITY_VERIFICATION_GATEWAY_URL: previousEnv.gateway,
     IDENTITY_VERIFICATION_GATEWAY_TOKEN: previousEnv.token,
+    RESEND_API_KEY: previousEnv.resend,
   })) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -117,6 +131,8 @@ test('a code activates public access even when the form can also send private in
   assert.equal(current.inserted[0].access_mode, 'public');
   assert.equal(current.inserted[0].liveness_reference, 'verified-1');
   assert.equal(current.inserted[0].signature_type, 'autografa_digital');
+  assert.equal(current.inserted[0].recipient_name, 'Ana invitada');
+  assert.equal(current.inserted[0].launch_prefill.rfc, 'RFC-INVITACION');
 });
 
 test('without an active code, the form cannot be claimed publicly', async () => {
@@ -133,13 +149,16 @@ test('an existing response cannot claim another public link', async () => {
 
 function codeRouteFixture({ existing = false, authorized = true, allowedTypes = ['autografa_digital'] } = {}) {
   const inserts = [];
+  const invitees = [];
   const form = {
     id: formId,
+    name: 'Solicitud',
     status: 'published',
     settings: { accessMode: 'private' },
     created_by: 'owner-1',
     workspace_id: 'workspace-1',
     allowed_signature_types: allowedTypes,
+    workspaces: { name: 'Espacio' },
   };
   const chain = (data) => {
     const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data, error: null }) };
@@ -154,6 +173,10 @@ function codeRouteFixture({ existing = false, authorized = true, allowedTypes = 
           inserts.push(row);
           return { error: null };
         } };
+      if (table === 'form_public_invitees') return { upsert: async (row) => {
+        invitees.push(row); return { error: null };
+      } };
+      if (table === 'user_profiles') return chain({ full_name: 'Luis Lanzador' });
       throw new Error(`Unexpected table: ${table}`);
     },
   };
@@ -176,12 +199,18 @@ function codeRouteFixture({ existing = false, authorized = true, allowedTypes = 
       };
     if (name === '@/lib/templates/publication-server')
       return { resolveTemplatePublicationContext: async () => authorized ? { user: { id: 'owner-1' }, canManageResources: true } : null };
+    if (name === '@/lib/publicAppUrl') return { getPublicAppUrl: () => 'https://docubox.example' };
+    if (name.includes('form-email-template')) return { buildFormEmail };
     throw new Error(`Unexpected import: ${name}`);
   }, exports);
   return {
     exports,
     inserts,
-    request: { headers: new Headers({ Authorization: 'Bearer owner-token' }) },
+    invitees,
+    request: { headers: new Headers({ Authorization: 'Bearer owner-token' }),
+      nextUrl: { origin: 'https://docubox.example' },
+      json: async () => ({ recipient: { name: 'Ana Invitada', email: 'ana@example.com',
+        prefill: { nombre: 'Ana', rfc: 'ANA000000ABC' } } }) },
     context: { params: Promise.resolve({ formId }) },
   };
 }
@@ -200,6 +229,12 @@ test('the launcher activates a code on a private-capable published form', async 
   assert.equal(response.body.code, 'DBX-new-code');
   assert.equal(current.inserts.length, 1);
   assert.equal(current.inserts[0].form_id, formId);
+  assert.equal(response.body.emails_sent, 2);
+  assert.equal(current.invitees[0].recipient_email, 'ana@example.com');
+  assert.equal(deliveredBatch.length, 2);
+  assert.deepEqual(deliveredBatch.map((mail) => mail.to), [['ana@example.com'], ['ana@example.com']]);
+  assert.doesNotMatch(deliveredBatch[0].html, /DBX-new-code/);
+  assert.match(deliveredBatch[1].html, /DBX-new-code/);
 });
 
 test('existing public codes remain stable and require the form owner', async () => {

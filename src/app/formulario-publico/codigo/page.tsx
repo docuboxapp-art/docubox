@@ -1,5 +1,6 @@
+import { Suspense } from 'react';
 import PublicFormCodeEntry from '@/components/forms/PublicFormCodeEntry';
 
 export default function PublicFormCodePage() {
-  return <PublicFormCodeEntry />;
+  return <Suspense fallback={null}><PublicFormCodeEntry /></Suspense>;
 }

@@ -101,3 +101,17 @@ test('the first invitation explains when the launcher sent the form to their own
   assert.match(current.email().html, /tu propia cuenta/);
   assert.match(current.email().subject, /Tienes un formulario por completar/);
 });
+
+test('public invitation and code render as separate messages without revealing the code in the invitation', () => {
+  const options = {
+    recipientName: 'Ana', formName: 'Formulario', workspaceName: 'Espacio',
+    requesterName: 'Luis', formUrl: 'https://docubox.example/formulario-publico/form-1', expiresAt: null,
+  };
+  const invitation = buildFormEmail({ ...options, variant: 'public_invitation' });
+  const code = buildFormEmail({ ...options, variant: 'public_code', accessCode: 'DBX123456789ABCDEF123' });
+  assert.match(invitation, /código de acceso llegará en otro correo/);
+  assert.doesNotMatch(invitation, /DBX123456789ABCDEF123/);
+  assert.match(invitation, /formulario-publico\/form-1/);
+  assert.match(code, /DBX123456789ABCDEF123/);
+  assert.doesNotMatch(code, /formulario-publico\/form-1/);
+});

@@ -44,7 +44,19 @@ type FormChoice = {
   settings: Record<string, unknown> | null;
   allowed_signature_types: SignatureType[] | null;
 };
-type Participant = { id: string; name: string; email: string };
+type Participant = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  rfc?: string;
+  curp?: string;
+  firstName?: string;
+  paternalSurname?: string;
+  maternalSurname?: string;
+  personType?: 'fisica' | 'moral';
+  businessName?: string;
+};
 const signatureLabels: Record<SignatureType, string> = {
   click_sign: 'Click & Sign',
   autografa_digital: 'Firma autógrafa digital',
@@ -60,7 +72,7 @@ const launchSteps = [
   {
     label: 'Acceso y participante',
     icon: User,
-    description: 'Elige cómo se accederá al formulario y, si es privado, quién recibirá el enlace.',
+    description: 'Elige el acceso y los datos del participante que recibirá el formulario.',
   },
   {
     label: 'Firma',
@@ -74,8 +86,8 @@ const launchSteps = [
   },
 ] as const;
 const publicLaunchSteps = [
-  { label: 'Acceso', icon: ShieldCheck, description: 'Elige cómo se compartirá el formulario.' },
-  { label: 'Confirmar código', icon: Send, description: 'Activa el acceso público y comparte el código.' },
+  { label: 'Acceso y participante', icon: ShieldCheck, description: 'Selecciona quién recibirá la invitación y el código.' },
+  { label: 'Confirmar envío', icon: Send, description: 'Envía la invitación y el código en correos separados.' },
 ] as const;
 
 function LaunchContent() {
@@ -93,6 +105,13 @@ function LaunchContent() {
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [manualName, setManualName] = useState('');
   const [manualEmail, setManualEmail] = useState('');
+  const [manualPaternalSurname, setManualPaternalSurname] = useState('');
+  const [manualMaternalSurname, setManualMaternalSurname] = useState('');
+  const [manualPhone, setManualPhone] = useState('');
+  const [manualRfc, setManualRfc] = useState('');
+  const [manualCurp, setManualCurp] = useState('');
+  const [manualPersonType, setManualPersonType] = useState<'fisica' | 'moral'>('fisica');
+  const [manualBusinessName, setManualBusinessName] = useState('');
   const [contactQuery, setContactQuery] = useState('');
   const [participantPickerOpen, setParticipantPickerOpen] = useState(false);
   const [participantTab, setParticipantTab] = useState<'contacts' | 'search'>('contacts');
@@ -143,7 +162,7 @@ function LaunchContent() {
           .order('name'),
         supabase
           .from('contacts')
-          .select('id,nombre,apellido_paterno,apellido_materno,email')
+          .select('id,nombre,apellido_paterno,apellido_materno,email,telefono,rfc,curp')
           .eq('user_id', user.id)
           .order('nombre'),
       ]);
@@ -169,6 +188,12 @@ function LaunchContent() {
               .filter(Boolean)
               .join(' '),
             email: item.email,
+            firstName: item.nombre || '',
+            paternalSurname: item.apellido_paterno || '',
+            maternalSurname: item.apellido_materno || '',
+            phone: item.telefono || '',
+            rfc: item.rfc || '',
+            curp: item.curp || '',
           }))
       );
       if (formResult.error) setError('No se pudieron cargar los formularios publicados.');
@@ -227,16 +252,44 @@ function LaunchContent() {
     setRequireLiveness(false);
     setManualName('');
     setManualEmail('');
+    setManualPaternalSurname('');
+    setManualMaternalSurname('');
+    setManualPhone('');
+    setManualRfc('');
+    setManualCurp('');
+    setManualBusinessName('');
     setParticipantPickerOpen(false);
     setError('');
   };
   const addManualParticipant = () => {
-    if (!manualName.trim() || !emailPattern.test(manualEmail.trim())) {
+    if (!(manualPersonType === 'moral' ? manualBusinessName.trim() : manualName.trim()) || !emailPattern.test(manualEmail.trim())) {
       setError('Escribe el nombre y un correo válido para añadir al participante.');
       return;
     }
-    chooseParticipant({ id: 'new', name: manualName.trim(), email: manualEmail.trim() });
+    const name = manualPersonType === 'moral' ? manualBusinessName.trim() :
+      [manualName, manualPaternalSurname, manualMaternalSurname].map((value) => value.trim()).filter(Boolean).join(' ');
+    chooseParticipant({ id: selectedParticipant?.id || 'new', name, email: manualEmail.trim(), phone: manualPhone.trim(),
+      rfc: manualRfc.trim().toUpperCase(), curp: manualCurp.trim().toUpperCase(),
+      firstName: manualName.trim(), paternalSurname: manualPaternalSurname.trim(),
+      maternalSurname: manualMaternalSurname.trim(), personType: manualPersonType,
+      businessName: manualBusinessName.trim() });
     setShowManualParticipant(false);
+  };
+  const editParticipant = () => {
+    if (!selectedParticipant) return;
+    setManualPersonType(selectedParticipant.personType || 'fisica');
+    setManualName(selectedParticipant.firstName || selectedParticipant.name);
+    setManualPaternalSurname(selectedParticipant.paternalSurname || '');
+    setManualMaternalSurname(selectedParticipant.maternalSurname || '');
+    setManualEmail(selectedParticipant.email);
+    setManualPhone(selectedParticipant.phone || '');
+    setManualRfc(selectedParticipant.rfc || '');
+    setManualCurp(selectedParticipant.curp || '');
+    setManualBusinessName(selectedParticipant.businessName || '');
+    setParticipantTab('search');
+    setShowManualParticipant(true);
+    setParticipantPickerOpen(true);
+    setError('');
   };
   const visibleSteps = accessMode === 'public' ? publicLaunchSteps : launchSteps;
   const currentStepIndex = accessMode === 'public' ? (step === 3 ? 1 : 0) : step - 1;
@@ -251,6 +304,10 @@ function LaunchContent() {
   };
   const advance = () => {
     if (step === 1 && accessMode === 'public') {
+      if (!selectedParticipant || !emailPattern.test(selectedParticipant.email.trim())) {
+        setError('Selecciona un participante con nombre y correo para enviar la invitación y el código.');
+        return;
+      }
       setError('');
       setStep(3);
     } else if (step === 1) next();
@@ -309,10 +366,11 @@ function LaunchContent() {
       setPlatformResults(
         (data.users || [])
           .filter((item: { email?: string }) => item.email)
-          .map((item: { id: string; full_name?: string; email: string }) => ({
+          .map((item: { id: string; full_name?: string; email: string; phone?: string; rfc?: string; curp?: string }) => ({
             id: item.id,
             name: item.full_name || item.email,
             email: item.email,
+            phone: item.phone || '', rfc: item.rfc || '', curp: item.curp || '',
           }))
       );
     } catch (cause) {
@@ -321,9 +379,24 @@ function LaunchContent() {
       setPlatformSearching(false);
     }
   };
+  const participantDetails = () => ({
+    nombre: selectedParticipant?.firstName || '',
+    apellido_paterno: selectedParticipant?.paternalSurname || '',
+    apellido_materno: selectedParticipant?.maternalSurname || '',
+    full_name: selectedParticipant?.name || '',
+    phone: selectedParticipant?.phone || '',
+    rfc: selectedParticipant?.rfc || '',
+    curp: selectedParticipant?.curp || '',
+    personalidad_juridica: selectedParticipant?.personType || 'fisica',
+    business_name: selectedParticipant?.businessName || '',
+  });
   const activatePublicAccess = async () => {
     if (!form || !canLaunchPublicly) {
       setError('Este formulario necesita firma autógrafa digital para activar el acceso público.');
+      return;
+    }
+    if (!selectedParticipant) {
+      setError('Selecciona un participante antes de enviar la invitación y el código.');
       return;
     }
     setBusy(true);
@@ -334,11 +407,16 @@ function LaunchContent() {
       if (!accessToken) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
       const response = await fetch(`/api/formularios/publico/${encodeURIComponent(form.id)}/codigo`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient: {
+          name: selectedParticipant.name,
+          email: selectedParticipant.email,
+          prefill: participantDetails(),
+        } }),
         cache: 'no-store',
       });
       const result = await response.json();
-      if (!response.ok || !result.code)
+      if (!response.ok || !result.code || result.emails_sent !== 2)
         throw new Error(result.error || 'No se pudo activar el acceso público.');
       setPublicAccessInfo({ url: `${window.location.origin}/formulario-publico/${form.id}`, code: result.code });
       setCodeCopied(false);
@@ -385,6 +463,7 @@ function LaunchContent() {
             template_id: form.id,
             recipient_email: selectedParticipant.email,
             recipient_name: selectedParticipant.name,
+            launch_prefill: participantDetails(),
             signature_type: signatureType,
             require_liveness: requireLiveness,
             notification_method: 'email',
@@ -456,9 +535,9 @@ function LaunchContent() {
         <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-7 shadow-xl">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Check size={22} /></span>
-            <div><h1 className="text-xl font-semibold text-slate-950">Acceso público activado</h1><p className="text-sm text-slate-500">{form?.name}</p></div>
+            <div><h1 className="text-xl font-semibold text-slate-950">Invitación y código enviados</h1><p className="text-sm text-slate-500">{form?.name} · {selectedParticipant?.email}</p></div>
           </div>
-          <p className="mt-5 text-sm leading-6 text-slate-600">Comparte este enlace y código. Cada persona deberá iniciar sesión y superar una prueba de vida antes de abrir el formulario.</p>
+          <p className="mt-5 text-sm leading-6 text-slate-600">El participante recibirá el enlace y el código en correos separados. También puedes compartirlos con otros usuarios registrados; cada uno deberá iniciar sesión y superar la prueba de vida.</p>
           <label className="mt-5 block text-sm font-medium text-slate-700">Enlace público<input readOnly value={publicAccessInfo.url} className="mt-1.5 block w-full rounded-md border border-slate-200 px-3 py-2.5 text-sm font-normal" /></label>
           <label className="mt-4 block text-sm font-medium text-slate-700">Código de acceso<input readOnly value={publicAccessInfo.code} className="mt-1.5 block w-full rounded-md border border-slate-200 px-3 py-2.5 font-mono text-sm font-semibold tracking-wide" /></label>
           <p className="mt-3 text-xs text-slate-500">El código permanece disponible para este formulario; volver a lanzarlo públicamente mostrará el mismo código.</p>
@@ -668,7 +747,7 @@ function LaunchContent() {
                           <div className="grid gap-2 sm:grid-cols-2">
                             {([
                               { value: 'private', title: 'Invitación privada', description: 'Envía un enlace personal a un participante por correo.' },
-                              { value: 'public', title: 'Formulario público con código', description: 'Comparte un código. Cada persona inicia sesión y supera una prueba de vida.' },
+                              { value: 'public', title: 'Formulario público con código', description: 'Invita a una persona con dos correos: enlace y código. Podrá registrarse o iniciar sesión antes de la prueba de vida.' },
                             ] as const).map((option) => (
                               <label key={option.value} className={`flex gap-3 rounded-lg border p-4 ${accessMode === option.value ? 'border-primary bg-blue-50/60' : 'border-slate-200 bg-white'} ${option.value === 'public' && !canLaunchPublicly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                                 <input type="radio" name="launch-access-mode" value={option.value} checked={accessMode === option.value} disabled={option.value === 'public' && !canLaunchPublicly} onChange={() => { setAccessMode(option.value); setError(''); }} className="mt-1 accent-primary" />
@@ -679,11 +758,11 @@ function LaunchContent() {
                           {!canLaunchPublicly && <p className="mt-2 text-xs text-amber-700">Para usar un código público, el formulario debe admitir firma autógrafa digital.</p>}
                           <p className="mt-2 text-xs text-slate-500">Una invitación privada no revoca un código público que ya se haya compartido.</p>
                         </fieldset>
-                        {accessMode === 'private' ? <>
+                        <>
                         <div>
                           <h2 className="text-base font-semibold">Participante</h2>
                           <p className="mt-1 text-sm text-slate-500">
-                            Selecciona una persona para recibir y completar el formulario.
+                            Selecciona una persona y precaptura los datos que conozcas. El participante podrá completarlos o corregirlos.
                           </p>
                         </div>
                         {selectedParticipant ? (
@@ -695,10 +774,10 @@ function LaunchContent() {
                               <p className="truncate text-sm font-semibold text-slate-950">
                                 {selectedParticipant.name}
                               </p>
-                              <p className="mt-0.5 truncate text-xs text-slate-500">
-                                {selectedParticipant.email}
-                              </p>
+                              <p className="mt-0.5 truncate text-xs text-slate-500">{selectedParticipant.email}{selectedParticipant.phone ? ` · ${selectedParticipant.phone}` : ''}</p>
+                              {(selectedParticipant.rfc || selectedParticipant.curp) && <p className="mt-0.5 text-xs text-slate-500">{selectedParticipant.rfc && `RFC ${selectedParticipant.rfc}`}{selectedParticipant.rfc && selectedParticipant.curp && ' · '}{selectedParticipant.curp && `CURP ${selectedParticipant.curp}`}</p>}
                             </div>
+                            <button type="button" onClick={editParticipant} className="shrink-0 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-primary">Editar datos</button>
                             <button
                               type="button"
                               title="Quitar participante"
@@ -731,7 +810,7 @@ function LaunchContent() {
                           <UserPlus size={16} />{' '}
                           {selectedParticipant ? 'Cambiar participante' : 'Agregar participante'}
                         </button>
-                        <div className="border-t border-slate-200 pt-5">
+                        {accessMode === 'private' && <><div className="border-t border-slate-200 pt-5">
                           <h3 className="mb-2 text-sm font-semibold">Método de notificación</h3>
                           <div className="grid gap-2 sm:grid-cols-3">
                             <span className="flex items-center gap-2 rounded-md border border-primary bg-blue-50 p-3 text-sm text-primary">
@@ -759,8 +838,9 @@ function LaunchContent() {
                               firma del formulario.
                             </span>
                           </span>
-                        </label>
-                        </> : <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4 text-sm leading-6 text-slate-700">No necesitas elegir un participante. El código se compartirá con quienes deban responder; la prueba de vida será obligatoria antes de acceder.</div>}
+                        </label></>}
+                        {accessMode === 'public' && <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4 text-sm leading-6 text-slate-700">Se enviarán dos correos al participante: la invitación con el enlace y, por separado, el código. Si aún no tiene cuenta, podrá crear una cuenta básica. El código también permite el acceso a otros usuarios registrados que lo reciban; cada persona debe superar la prueba de vida.</div>}
+                        </>
                       </>
                     )}
                     {step === 2 && (
@@ -803,10 +883,10 @@ function LaunchContent() {
                         <div className="space-y-4">
                           <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-5">
                             <h2 className="text-lg font-semibold text-slate-950">Confirma el acceso público</h2>
-                            <p className="mt-1 text-sm leading-6 text-slate-600">Se habilitará un código para <strong>{form.name}</strong>. No se enviará un correo a un participante específico.</p>
+                            <p className="mt-1 text-sm leading-6 text-slate-600">Se habilitará un código para <strong>{form.name}</strong> y se enviarán dos correos separados a <strong>{selectedParticipant?.email}</strong>.</p>
                           </div>
                           <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-700">
-                            <p><strong>Acceso:</strong> enlace y código compartidos por ti.</p>
+                            <p><strong>Acceso:</strong> invitación con enlace y correo separado con código.</p>
                             <p className="mt-2"><strong>Identidad:</strong> cuenta con correo verificado y prueba de vida obligatoria.</p>
                             <p className="mt-2"><strong>Firma:</strong> firma autógrafa digital.</p>
                             <p className="mt-4 text-xs text-slate-500">Si ya activaste un código para este formulario, se mostrará el mismo para conservar los accesos compartidos.</p>
@@ -1041,7 +1121,7 @@ function LaunchContent() {
             onClick={() => void (accessMode === 'public' ? activatePublicAccess() : send())}
             className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
           >
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {accessMode === 'public' ? 'Activar código público' : deliveryMode === 'scheduled' ? 'Programar envío' : 'Confirmar y enviar'}
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {accessMode === 'public' ? 'Enviar invitación y código' : deliveryMode === 'scheduled' ? 'Programar envío' : 'Confirmar y enviar'}
           </button>
         ) : (
           <button
@@ -1291,13 +1371,9 @@ function LaunchContent() {
                     {showManualParticipant && (
                       <div className="mt-3 space-y-3 rounded-lg border border-slate-200 p-4">
                         <div className="grid gap-3 sm:grid-cols-2">
-                          <input
-                            aria-label="Nombre del nuevo participante"
-                            value={manualName}
-                            onChange={(event) => setManualName(event.target.value)}
-                            placeholder="Nombre completo"
-                            className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
-                          />
+                          <select aria-label="Tipo de persona" value={manualPersonType} onChange={(event) => setManualPersonType(event.target.value as 'fisica' | 'moral')} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm">
+                            <option value="fisica">Persona física</option><option value="moral">Persona moral</option>
+                          </select>
                           <input
                             type="email"
                             aria-label="Correo del nuevo participante"
@@ -1307,6 +1383,17 @@ function LaunchContent() {
                             className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
                           />
                         </div>
+                        {manualPersonType === 'fisica' ? <div className="grid gap-3 sm:grid-cols-3">
+                          <input aria-label="Nombre" value={manualName} onChange={(event) => setManualName(event.target.value)} placeholder="Nombre *" className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />
+                          <input aria-label="Apellido paterno" value={manualPaternalSurname} onChange={(event) => setManualPaternalSurname(event.target.value)} placeholder="Apellido paterno" className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />
+                          <input aria-label="Apellido materno" value={manualMaternalSurname} onChange={(event) => setManualMaternalSurname(event.target.value)} placeholder="Apellido materno" className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />
+                        </div> : <input aria-label="Denominación o razón social" value={manualBusinessName} onChange={(event) => setManualBusinessName(event.target.value)} placeholder="Denominación o razón social *" className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />}
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <input type="tel" aria-label="Teléfono" value={manualPhone} onChange={(event) => setManualPhone(event.target.value)} placeholder="Teléfono" className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />
+                          <input aria-label="RFC" value={manualRfc} onChange={(event) => setManualRfc(event.target.value.toUpperCase())} maxLength={13} placeholder="RFC" className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />
+                          {manualPersonType === 'fisica' && <input aria-label="CURP" value={manualCurp} onChange={(event) => setManualCurp(event.target.value.toUpperCase())} maxLength={18} placeholder="CURP" className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />}
+                        </div>
+                        <p className="text-xs text-slate-500">Estos datos se sugerirán al abrir el formulario. La información del perfil del participante tiene prioridad.</p>
                         <button
                           type="button"
                           onClick={addManualParticipant}

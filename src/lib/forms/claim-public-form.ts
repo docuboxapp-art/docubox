@@ -129,6 +129,14 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
   )
     return reply('La firma autógrafa no está habilitada para este formulario.', 409);
 
+  const { data: invitee, error: inviteeError } = await service
+    .from('form_public_invitees')
+    .select('recipient_name,launch_prefill')
+    .eq('form_id', form.id)
+    .eq('recipient_email', user.email.trim().toLowerCase())
+    .maybeSingle();
+  if (inviteeError) return reply('No se pudieron consultar los datos de la invitación.', 503);
+
   const { data: prior, error: priorError } = await service
     .from('form_tokens')
     .select('token,used_at,expires_at,liveness_verified_at')
@@ -181,7 +189,9 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
   if (prior && (!prior.expires_at || new Date(prior.expires_at).getTime() > Date.now())) {
     const { error } = await service
       .from('form_tokens')
-      .update({ liveness_verified_at: verifiedAt, liveness_reference: reference })
+      .update({ liveness_verified_at: verifiedAt, liveness_reference: reference,
+        launch_prefill: invitee?.launch_prefill || {},
+        ...(invitee?.recipient_name ? { recipient_name: invitee.recipient_name } : {}) })
       .eq('token', prior.token)
       .eq('recipient_user_id', user.id)
       .eq('access_mode', 'public');
@@ -203,7 +213,8 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
     access_mode: 'public',
     recipient_user_id: user.id,
     recipient_email: user.email.trim().toLowerCase(),
-    recipient_name: String(user.user_metadata?.full_name || user.email),
+    recipient_name: invitee?.recipient_name || String(user.user_metadata?.full_name || user.email),
+    launch_prefill: invitee?.launch_prefill || {},
     signer_role: 'Participante',
     signature_type: 'autografa_digital',
     require_liveness: false,

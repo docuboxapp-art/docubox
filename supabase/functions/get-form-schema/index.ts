@@ -129,7 +129,7 @@ serve(async (req) => {
     }
 
     // The recipient has already been authenticated and matched to this token.
-    // Never resolve these values from the sender's workspace or token metadata.
+    // Verified profile data takes precedence over launcher-supplied suggestions.
     const fields = Array.isArray(template.schema) ? template.schema : [];
     const hasPersonalFields = fields.some((field) =>
       field && typeof field === 'object' &&
@@ -173,6 +173,8 @@ serve(async (req) => {
         expiresAt: tokenRow.expires_at,
         recipientName: tokenRow.recipient_name || null,
         participantProfile: participantProfile || null,
+        launchPrefill: tokenRow.launch_prefill && typeof tokenRow.launch_prefill === 'object'
+          ? tokenRow.launch_prefill : {},
         signatureType: ['click_sign', 'autografa_digital', 'efirma_sat'].includes(tokenRow.signature_type)
           ? tokenRow.signature_type : 'click_sign',
         requireLiveness: tokenRow.require_liveness === true && !tokenRow.liveness_verified_at,

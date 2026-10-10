@@ -57,6 +57,20 @@ test('missing profile data does not retain template defaults for personal fields
   assert.equal(participantProfileValues(fields, { personalidad_juridica: 'moral', full_name: 'Representante' }).b, '');
 });
 
+test('launcher suggestions fill empty profile fields but never replace participant profile or saved answers', () => {
+  const fields = [
+    { id: 'r', type: 'rfc', defaultValue: 'RFC-DEL-CREADOR' },
+    { id: 'n', type: 'person_first_name' },
+    { id: 'p', type: 'person_last_name' },
+  ];
+  const prefill = { rfc: 'RFC-INVITACION', nombre: 'Nombre invitado', apellido_paterno: 'Apellido invitado' };
+  const initial = initialParticipantFormValues(fields, { nombre: 'Nombre perfil', rfc: '' }, {}, prefill);
+  assert.equal(initial.r, 'RFC-INVITACION');
+  assert.equal(initial.n, 'Nombre perfil');
+  assert.equal(initial.p, 'Apellido invitado');
+  assert.equal(initialParticipantFormValues(fields, { rfc: 'RFC-PERFIL' }, { r: 'RFC-RESPUESTA' }, prefill).r, 'RFC-RESPUESTA');
+});
+
 test('schema endpoint fetches only the authenticated recipient profile after token authorization', async () => {
   let handler;
   const queried = [];

@@ -14,7 +14,7 @@ import FormPreview from '../../formularios/components/FormPreview';
 import { FormWebHeader } from '../../formularios/components/FormWebHeader';
 import { normalizeFormTemplate, type FormField, type FormTemplate, type SignatureType } from '@/lib/forms/schema';
 import { hasFormValue, isFormFieldRequired, isFormFieldVisible } from '@/lib/forms/field-behavior';
-import { initialParticipantFormValues, type ParticipantFormProfile } from '@/lib/forms/participant-profile-prefill';
+import { initialParticipantFormValues, type LaunchParticipantPrefill, type ParticipantFormProfile } from '@/lib/forms/participant-profile-prefill';
 import { formFontFamily } from '@/lib/typography/font-families';
 import { useFormTypography } from '@/hooks/useFormTypography';
 import { createClient } from '@/lib/supabase/client';
@@ -33,6 +33,7 @@ interface RemoteFormSchema {
   recipientName?: string;
   signatureType?: SignatureType;
   participantProfile?: ParticipantFormProfile | null;
+  launchPrefill?: LaunchParticipantPrefill | null;
 }
 
 export default function FormResponsePage() {
@@ -88,7 +89,7 @@ export default function FormResponsePage() {
         });
         setRemoteSchema(data);
         setTemplate(normalized);
-        const initialValues = initialParticipantFormValues(normalized.schema, data.participantProfile);
+        const initialValues = initialParticipantFormValues(normalized.schema, data.participantProfile, {}, data.launchPrefill);
         if (normalized.settings.allowSaveProgress) {
           try {
             const stored = localStorage.getItem(draftKey);
@@ -96,7 +97,7 @@ export default function FormResponsePage() {
             if (draft && (!draft.templateId || draft.templateId === normalized.id)) {
               const allowedIds = new Set(normalized.schema.map((field) => field.id));
               const restored = Object.fromEntries(Object.entries(draft.values || {}).filter(([id]) => allowedIds.has(id)));
-              setValues(initialParticipantFormValues(normalized.schema, data.participantProfile, restored));
+              setValues(initialParticipantFormValues(normalized.schema, data.participantProfile, restored, data.launchPrefill));
               if (Number.isInteger(draft.currentStep) && draft.currentStep >= 0) setCurrentStep(draft.currentStep);
             } else setValues(initialValues);
           } catch { setValues(initialValues); }

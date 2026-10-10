@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const { data: invitation, error } = await service
     .from('form_tokens')
     .select(
-      'recipient_email,recipient_name,expires_at,used_at,access_mode,form_templates(name,status,settings)'
+      'recipient_email,recipient_name,expires_at,used_at,access_mode,form_templates(name,status)'
     )
     .eq('token', token)
     .maybeSingle();
@@ -33,14 +33,12 @@ export async function GET(request: NextRequest) {
   const form = invitation?.form_templates as unknown as {
     name?: string;
     status?: string;
-    settings?: { accessMode?: string };
   } | null;
   if (
     !invitation ||
     invitation.access_mode !== 'private' ||
     !form ||
-    form.status !== 'published' ||
-    form.settings?.accessMode === 'public'
+    form.status !== 'published'
   )
     return NextResponse.json(
       { error: 'La invitación no está disponible.' },

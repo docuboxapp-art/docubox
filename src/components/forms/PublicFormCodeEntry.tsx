@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Camera, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
@@ -9,6 +9,8 @@ import { createClient } from '@/lib/supabase/client';
 
 export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const invitedEmail = searchParams.get('email') || '';
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const [code, setCode] = useState('');
@@ -122,7 +124,10 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
     }
   };
 
-  const returnPath = formId ? `/formulario-publico/${formId}` : '/formulario-publico/codigo';
+  const returnPath = formId ? `/formulario-publico/${formId}${invitedEmail ? `?email=${encodeURIComponent(invitedEmail)}` : ''}` : '/formulario-publico/codigo';
+  const registrationPath = `/formulario-publico/registro?${new URLSearchParams({
+    ...(formId ? { formId } : {}), ...(invitedEmail ? { email: invitedEmail } : {}),
+  }).toString()}`;
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <section className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-7 shadow-sm sm:p-9">
@@ -140,12 +145,11 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
             <Loader2 size={16} className="animate-spin" /> Comprobando tu cuenta…
           </p>
         ) : needsLogin ? (
-          <a
-            href={`/login?redirect=${encodeURIComponent(returnPath)}`}
-            className="mt-6 inline-flex w-full justify-center rounded-md bg-primary px-4 py-3 text-sm font-medium text-white"
-          >
-            Acceder con mi cuenta
-          </a>
+          <div className="mt-6 space-y-3">
+            <a href={`/login?redirect=${encodeURIComponent(returnPath)}${invitedEmail ? `&email=${encodeURIComponent(invitedEmail)}` : ''}`} className="inline-flex w-full justify-center rounded-md bg-primary px-4 py-3 text-sm font-medium text-white">Acceder con mi cuenta</a>
+            <a href={registrationPath} className="inline-flex w-full justify-center rounded-md border border-primary px-4 py-3 text-sm font-medium text-primary">Crear cuenta para responder</a>
+            <p className="text-xs leading-5 text-slate-500">Si recibiste la invitación y aún no tienes cuenta, regístrate con ese mismo correo. Después de verificarlo podrás ingresar el código.</p>
+          </div>
         ) : (
           <>
             <label className="mt-6 block text-sm font-medium text-slate-700">

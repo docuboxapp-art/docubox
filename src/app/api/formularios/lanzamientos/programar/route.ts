@@ -22,6 +22,10 @@ export async function POST(request: NextRequest) {
     const scheduledAt = new Date(String(body.scheduled_at || ''));
     const timezone = String(body.timezone || '');
     const requireLiveness = body.require_liveness;
+    const prefill = body.launch_prefill && typeof body.launch_prefill === 'object' && !Array.isArray(body.launch_prefill)
+      ? Object.fromEntries(['nombre','apellido_paterno','apellido_materno','full_name','phone','rfc','curp','personalidad_juridica','business_name']
+          .map((key) => [key, typeof body.launch_prefill[key] === 'string' ? body.launch_prefill[key].trim().slice(0, 160) : '']))
+      : {};
     if (!recipientName || !emailPattern.test(recipientEmail) || !signatureTypes.includes(signatureType) || typeof requireLiveness !== 'boolean')
       return NextResponse.json({ error: 'Revisa los datos del participante y la firma.' }, { status: 400 });
     if (!isSupportedTimeZone(timezone) || Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() <= Date.now() + 60_000 || scheduledAt.getTime() > Date.now() + 365 * 24 * 60 * 60 * 1000)
@@ -63,6 +67,7 @@ export async function POST(request: NextRequest) {
       requester_name: requesterName,
       recipient_name: recipientName,
       recipient_email: recipientEmail,
+      launch_prefill: prefill,
       signature_type: signatureType,
       require_liveness: requireLiveness,
       expiration_hours: expiration,

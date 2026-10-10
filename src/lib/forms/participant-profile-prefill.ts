@@ -17,6 +17,17 @@ export interface ParticipantFormProfile {
   estado?: string | null;
 }
 
+export interface LaunchParticipantPrefill {
+  nombre?: string;
+  apellido_paterno?: string;
+  apellido_materno?: string;
+  full_name?: string;
+  rfc?: string;
+  curp?: string;
+  business_name?: string;
+  personalidad_juridica?: string;
+}
+
 const profileText = (value?: string | null) => value?.trim() || '';
 
 /** Only documentary fields tied to the authenticated participant receive profile values. */
@@ -54,10 +65,25 @@ export function participantProfileValues(
 export function initialParticipantFormValues(
   fields: FormField[],
   profile: ParticipantFormProfile | null | undefined,
-  savedValues: Record<string, unknown> = {}
+  savedValues: Record<string, unknown> = {},
+  launchPrefill: LaunchParticipantPrefill | null | undefined = {}
 ): Record<string, unknown> {
   const defaults = Object.fromEntries(fields
     .filter((field) => field.defaultValue !== undefined)
     .map((field) => [field.id, field.defaultValue]));
-  return { ...defaults, ...participantProfileValues(fields, profile), ...savedValues };
+  const suggested: Partial<Record<FormField['type'], string>> = {
+    rfc: profileText(launchPrefill?.rfc),
+    curp: profileText(launchPrefill?.curp),
+    business_name: profileText(launchPrefill?.business_name) || profileText(launchPrefill?.full_name),
+    person_first_name: profileText(launchPrefill?.nombre),
+    person_last_name: profileText(launchPrefill?.apellido_paterno),
+    person_second_last_name: profileText(launchPrefill?.apellido_materno),
+  };
+  const suggestedValues = Object.fromEntries(fields
+    .filter((field) => Object.prototype.hasOwnProperty.call(suggested, field.type) && suggested[field.type])
+    .map((field) => [field.id, suggested[field.type]]));
+  const profileDefaults = participantProfileValues(fields, null);
+  const profileValues = Object.fromEntries(Object.entries(participantProfileValues(fields, profile))
+    .filter(([, value]) => typeof value !== 'string' || value.trim().length > 0));
+  return { ...defaults, ...profileDefaults, ...suggestedValues, ...profileValues, ...savedValues };
 }
