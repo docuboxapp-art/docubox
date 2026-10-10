@@ -146,13 +146,14 @@ export default function DocumentsDashboardPage() {
       const currentRequest = ++requestId;
       const { data, error } = await supabase
         .from('form_templates')
-        .select('id,settings')
+        .select('id')
         .eq('workspace_id', workspaceId)
-        .eq('status', 'published');
+        .eq('status', 'published')
+        .limit(1);
       if (active && currentRequest === requestId) {
         setLaunchAvailability({
           workspaceId,
-          hasPublished: !error && Boolean(data?.some((form) => form.settings?.accessMode !== 'public')),
+          hasPublished: !error && Boolean(data?.length),
         });
       }
     };
