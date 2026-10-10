@@ -126,7 +126,7 @@ function LaunchContent() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [accessMode, setAccessMode] = useState<'private' | 'public'>('private');
   const [publicAccessInfo, setPublicAccessInfo] = useState<{ url: string; code: string } | null>(null);
-  const [codeCopied, setCodeCopied] = useState(false);
+  const [copiedPublicField, setCopiedPublicField] = useState<'url' | 'code' | null>(null);
   const [signatureType, setSignatureType] = useState<SignatureType | ''>('');
   const [requireLiveness, setRequireLiveness] = useState(false);
   const [expirationHours, setExpirationHours] = useState<number | null>(null);
@@ -415,11 +415,20 @@ function LaunchContent() {
       if (!response.ok || !result.code || result.emails_sent !== 2)
         throw new Error(result.error || 'No se pudo activar el acceso público.');
       setPublicAccessInfo({ url: `${window.location.origin}/formulario-publico/${form.id}`, code: result.code });
-      setCodeCopied(false);
+      setCopiedPublicField(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo activar el acceso público.');
     } finally {
       setBusy(false);
+    }
+  };
+  const copyPublicValue = async (field: 'url' | 'code', value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedPublicField(field);
+      setError('');
+    } catch {
+      setError('No se pudo copiar. Selecciona el contenido del campo manualmente.');
     }
   };
   const send = async () => {
@@ -534,12 +543,27 @@ function LaunchContent() {
             <div><h1 className="text-xl font-semibold text-slate-950">Invitación y código enviados</h1><p className="text-sm text-slate-500">{form?.name} · {selectedParticipant?.email}</p></div>
           </div>
           <p className="mt-5 text-sm leading-6 text-slate-600">El participante recibirá el enlace y el código en correos separados. También puedes compartirlos con otros usuarios registrados; cada uno deberá iniciar sesión y superar la prueba de vida.</p>
-          <label className="mt-5 block text-sm font-medium text-slate-700">Enlace público<input readOnly value={publicAccessInfo.url} className="mt-1.5 block w-full rounded-md border border-slate-200 px-3 py-2.5 text-sm font-normal" /></label>
-          <label className="mt-4 block text-sm font-medium text-slate-700">Código de acceso<input readOnly value={publicAccessInfo.code} className="mt-1.5 block w-full rounded-md border border-slate-200 px-3 py-2.5 font-mono text-sm font-semibold tracking-wide" /></label>
+          <div className="mt-5">
+            <label htmlFor="public-form-link" className="block text-sm font-medium text-slate-700">Enlace público</label>
+            <div className="relative mt-1.5">
+              <input id="public-form-link" readOnly value={publicAccessInfo.url} className="block w-full rounded-md border border-slate-200 px-3 py-2.5 pr-12 text-sm font-normal" />
+              <button type="button" onClick={() => void copyPublicValue('url', publicAccessInfo.url)} aria-label={copiedPublicField === 'url' ? 'Enlace copiado' : 'Copiar enlace público'} title={copiedPublicField === 'url' ? 'Enlace copiado' : 'Copiar enlace público'} className="absolute inset-y-1 right-1 flex w-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-primary">
+                {copiedPublicField === 'url' ? <Check size={17} /> : <Copy size={17} />}
+              </button>
+            </div>
+          </div>
+          <div className="mt-4">
+            <label htmlFor="public-form-code" className="block text-sm font-medium text-slate-700">Código de acceso</label>
+            <div className="relative mt-1.5">
+              <input id="public-form-code" readOnly value={publicAccessInfo.code} className="block w-full rounded-md border border-slate-200 px-3 py-2.5 pr-12 font-mono text-sm font-semibold tracking-wide" />
+              <button type="button" onClick={() => void copyPublicValue('code', publicAccessInfo.code)} aria-label={copiedPublicField === 'code' ? 'Código copiado' : 'Copiar código de acceso'} title={copiedPublicField === 'code' ? 'Código copiado' : 'Copiar código de acceso'} className="absolute inset-y-1 right-1 flex w-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-primary">
+                {copiedPublicField === 'code' ? <Check size={17} /> : <Copy size={17} />}
+              </button>
+            </div>
+          </div>
           <p className="mt-3 text-xs text-slate-500">El código permanece disponible para este formulario; volver a lanzarlo públicamente mostrará el mismo código.</p>
-          <div className="mt-6 flex flex-wrap justify-end gap-2">
-            <button type="button" onClick={() => router.push('/formularios')} className="rounded-md border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700">Cerrar</button>
-            <button type="button" onClick={() => void navigator.clipboard.writeText(`${publicAccessInfo.url}\nCódigo: ${publicAccessInfo.code}`).then(() => setCodeCopied(true)).catch(() => setError('No se pudo copiar. Selecciona el enlace y el código manualmente.'))} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white"><Copy size={15} /> {codeCopied ? 'Copiado' : 'Copiar enlace y código'}</button>
+          <div className="mt-6 flex justify-end">
+            <button type="button" onClick={() => router.replace('/formularios')} className="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90">Finalizar</button>
           </div>
         </div>
         {error && <BottomNotice message={error} tone="critical" onClose={() => setError('')} />}
