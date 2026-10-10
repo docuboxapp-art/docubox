@@ -52,11 +52,11 @@ function scheduleFixture() {
     if (name === '@/lib/publicAppUrl') return { getPublicAppUrl: () => 'https://docubox.example' };
     throw new Error(`Unexpected import: ${name}`);
   }, exports, process);
-  const request = (scheduledAt) => ({
+  const request = (scheduledAt, signatureType = 'click_sign') => ({
     headers: new Headers({ authorization: 'Bearer user-token' }),
     json: async () => ({
       template_id: 'form-1', recipient_name: 'Ana', recipient_email: 'ANA@example.com',
-      signature_type: 'click_sign', require_liveness: true, expiration_hours: 24,
+      signature_type: signatureType, require_liveness: true, expiration_hours: 24,
       scheduled_at: scheduledAt, timezone: 'America/Chihuahua',
     }),
   });
@@ -80,9 +80,13 @@ test('scheduled launch saves the delivery time without sending or minting a toke
     assert.equal(current.rpcCalls[0][0], 'configure_form_dispatch');
     assert.equal(current.rpcCalls[0][1].p_url, 'https://docubox.example/api/internal/form-launch-dispatch');
 
+    const otherSignature = await current.exports.POST(current.request(scheduledAt, 'efirma_sat'));
+    assert.equal(otherSignature.status, 201);
+    assert.equal(current.inserted[1].signature_type, 'efirma_sat');
+
     const invalid = await current.exports.POST(current.request(new Date(Date.now() - 60_000).toISOString()));
     assert.equal(invalid.status, 400);
-    assert.equal(current.inserted.length, 1);
+    assert.equal(current.inserted.length, 2);
   } finally {
     if (oldResend === undefined) delete process.env.RESEND_API_KEY; else process.env.RESEND_API_KEY = oldResend;
     if (oldCron === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = oldCron;

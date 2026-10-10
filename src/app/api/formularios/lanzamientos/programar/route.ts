@@ -32,18 +32,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Selecciona una fecha y hora futura válida, dentro del próximo año.' }, { status: 400 });
 
     const { data: template, error: templateError } = await userClient.from('form_templates')
-      .select('id,workspace_id,status,settings,allowed_signature_types')
+      .select('id,workspace_id,status,settings')
       .eq('id', templateId).maybeSingle();
     if (templateError || !template) return NextResponse.json({ error: 'Formulario no encontrado.' }, { status: 404 });
     if (template.status !== 'published')
       return NextResponse.json({ error: 'Este formulario no está publicado.' }, { status: 409 });
-    const allowedTypes = template.allowed_signature_types?.length
-      ? template.allowed_signature_types
-      : template.settings?.allowedSignatureTypes?.length
-        ? template.settings.allowedSignatureTypes : signatureTypes;
-    if (!allowedTypes.includes(signatureType))
-      return NextResponse.json({ error: 'El tipo de firma no está permitido en este formulario.' }, { status: 400 });
-
     const expiration = template.settings?.configureLinkExpiration === true ? Number(body.expiration_hours) : null;
     if (expiration !== null && (!Number.isFinite(expiration) || expiration < 1 / 60 || expiration > 720))
       return NextResponse.json({ error: 'La vigencia debe estar entre 1 minuto y 720 horas.' }, { status: 400 });

@@ -296,7 +296,7 @@ test('requiring a signature waits for a manually inserted mandatory field', () =
   });
   assert.equal(inserted.template.schema[0].type, 'signature_block');
   assert.equal(inserted.template.schema[0].required, true);
-  assert.deepEqual(inserted.template.settings.allowedSignatureTypes, []);
+  assert.deepEqual(inserted.template.settings.allowedSignatureTypes, ['click_sign', 'autografa_digital', 'efirma_sat']);
   assert.deepEqual(inserted.template.sections[0].fieldIds, [signature.id]);
   assert.equal(formBuilderReducer(inserted, {
     type: 'ADD_FIELD', payload: { field: { ...signature, id: 'signature-b' } },

@@ -9,13 +9,14 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 
-function fixture(recipientEmail) {
+function fixture(recipientEmail, signatureType = 'click_sign') {
   let handler;
   let storedToken;
   let sentEmail;
   const template = {
     id: 'form-1', name: 'Formulario de prueba', status: 'published',
-    settings: { accessMode: 'private', configureLinkExpiration: false },
+    settings: { accessMode: 'private', configureLinkExpiration: false, allowedSignatureTypes: ['autografa_digital'] },
+    allowed_signature_types: ['autografa_digital'],
     form_schema: { fields: [] }, workspaces: { name: 'Espacio Personal' },
   };
   const userClient = {
@@ -69,7 +70,7 @@ function fixture(recipientEmail) {
       method: 'POST', headers: { Authorization: 'Bearer user-token', 'Content-Type': 'application/json' },
       body: JSON.stringify({
         template_id: 'form-1', recipient_email: recipientEmail, recipient_name: 'Participante',
-        signature_type: 'click_sign', notification_method: 'email',
+        signature_type: signatureType, notification_method: 'email',
       }),
     })),
     token: () => storedToken,
@@ -100,6 +101,15 @@ test('the first invitation explains when the launcher sent the form to their own
   assert.match(current.email().html, /Luis Lanzador \(tú\)/);
   assert.match(current.email().html, /tu propia cuenta/);
   assert.match(current.email().subject, /Tienes un formulario por completar/);
+});
+
+test('a legacy autograph-only setting does not hide launch-time Click & Sign or e.firma SAT', async () => {
+  for (const signatureType of ['click_sign', 'efirma_sat']) {
+    const current = fixture('ana@example.com', signatureType);
+    const response = await current.send();
+    assert.equal(response.status, 200, await response.text());
+    assert.equal(current.token().signature_type, signatureType);
+  }
 });
 
 test('public invitation and code render as separate messages without revealing the code in the invitation', () => {

@@ -112,13 +112,8 @@ serve(async (req) => {
     }
     const requiresSignature = requiresFormSignature(template.settings, template.form_schema?.fields || template.schema || []);
     const validSignatureTypes = ['click_sign', 'autografa_digital', 'efirma_sat'];
-    const allowedSignatureTypes = template.allowed_signature_types?.length
-      ? template.allowed_signature_types
-      : template.settings?.allowedSignatureTypes?.length
-        ? template.settings.allowedSignatureTypes
-        : validSignatureTypes;
-    if (requiresSignature && (!validSignatureTypes.includes(signature_type) || !allowedSignatureTypes.includes(signature_type))) {
-      return new Response(JSON.stringify({ error: 'Selecciona un tipo de firma permitido para este formulario.' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (requiresSignature && !validSignatureTypes.includes(signature_type)) {
+      return new Response(JSON.stringify({ error: 'Selecciona un tipo de firma válido para este formulario.' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
     const resendApiKey = Deno.env.get('RESEND_API_KEY');
     if (!resendApiKey) return new Response(JSON.stringify({ error: 'El envío por correo no está configurado.' }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });

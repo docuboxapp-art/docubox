@@ -216,17 +216,13 @@ function LaunchContent() {
   }, [sent, countdown, router]);
 
   const form = forms.find((item) => item.id === selectedId);
-  const settingTypes = form?.settings?.allowedSignatureTypes;
-  const allowedTypes =
+  const signatureOptions: SignatureType[] = ['click_sign', 'autografa_digital', 'efirma_sat'];
+  const canLaunchPublicly =
     Array.isArray(form?.allowed_signature_types) && form.allowed_signature_types.length
-      ? form.allowed_signature_types
-      : Array.isArray(settingTypes)
-        ? settingTypes
-        : [];
-  const signatureOptions = (
-    allowedTypes?.length ? allowedTypes : ['click_sign', 'autografa_digital', 'efirma_sat']
-  ).filter((type): type is SignatureType => type in signatureLabels);
-  const canLaunchPublicly = signatureOptions.includes('autografa_digital');
+      ? form.allowed_signature_types.includes('autografa_digital')
+      : Array.isArray(form?.settings?.allowedSignatureTypes) && form.settings.allowedSignatureTypes.length
+        ? form.settings.allowedSignatureTypes.includes('autografa_digital')
+        : true;
   const hasConfiguredExpiration = form?.settings?.configureLinkExpiration === true;
   const configuredHours = Number(form?.settings?.expirationHours);
   const defaultHours =

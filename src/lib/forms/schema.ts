@@ -313,7 +313,7 @@ export function createDefaultFormTemplate(): FormTemplate {
       expirationHours: 72,
       allowSaveProgress: true,
       requiresSignature: true,
-      allowedSignatureTypes: [],
+      allowedSignatureTypes: ['click_sign', 'autografa_digital', 'efirma_sat'],
       requireOtp: false,
       pdfSchema: createDefaultPdfSchema(),
     },
