@@ -45,22 +45,60 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedAccountType = accountType === 'empresarial' ? 'empresarial' : 'personal';
-    const normalizedOrganizationName = typeof organizationName === 'string'
-      ? organizationName.trim()
-      : '';
+    const normalizedOrganizationName =
+      typeof organizationName === 'string' ? organizationName.trim() : '';
     const normalizedWorkspaceSlug = normalizeWorkspaceSlug(String(workspaceSlug || ''));
 
     if (normalizedAccountType === 'empresarial' && normalizedOrganizationName.length < 2) {
-      return NextResponse.json({ error: 'El nombre de la organización es requerido' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'El nombre de la organización es requerido' },
+        { status: 400 }
+      );
     }
 
     if (normalizedAccountType === 'empresarial' && !isValidWorkspaceSlug(normalizedWorkspaceSlug)) {
-      return NextResponse.json({ error: 'El identificador del espacio de trabajo no es válido' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'El identificador del espacio de trabajo no es válido' },
+        { status: 400 }
+      );
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+    // A biometric registration must be backed by a completed verification, not
+    // only by identity fields supplied by the browser.
+    if (identityMethod === 'biometrico') {
+      if (!serviceRoleKey || typeof enrollmentSessionId !== 'string' || !enrollmentSessionId) {
+        return NextResponse.json(
+          { error: 'Completa el enrolamiento biométrico.' },
+          { status: 400 }
+        );
+      }
+      const enrollmentClient = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data: verifiedEnrollment, error: enrollmentError } = await enrollmentClient
+        .from('enrollment_results')
+        .select('id,face_match_passed,user_id,created_at')
+        .eq('session_id', enrollmentSessionId)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (
+        enrollmentError ||
+        verifiedEnrollment?.face_match_passed !== true ||
+        verifiedEnrollment.user_id ||
+        Date.now() - new Date(verifiedEnrollment.created_at).getTime() > 60 * 60 * 1000
+      ) {
+        return NextResponse.json(
+          { error: 'No se pudo acreditar la identidad biométrica.' },
+          { status: 422 }
+        );
+      }
+    }
 
     if (normalizedAccountType === 'empresarial' && !serviceRoleKey) {
       return NextResponse.json(
@@ -80,10 +118,16 @@ export async function POST(req: NextRequest) {
         .limit(1)
         .maybeSingle();
       if (availabilityError) {
-        return NextResponse.json({ error: 'No fue posible validar el espacio de trabajo' }, { status: 503 });
+        return NextResponse.json(
+          { error: 'No fue posible validar el espacio de trabajo' },
+          { status: 503 }
+        );
       }
       if (existingWorkspace) {
-        return NextResponse.json({ error: 'El identificador del espacio de trabajo ya está en uso' }, { status: 409 });
+        return NextResponse.json(
+          { error: 'El identificador del espacio de trabajo ya está en uso' },
+          { status: 409 }
+        );
       }
     }
 
@@ -112,7 +156,10 @@ export async function POST(req: NextRequest) {
       });
 
       if (authError) {
-        if (authError.message?.includes('already registered') || authError.message?.includes('already exists')) {
+        if (
+          authError.message?.includes('already registered') ||
+          authError.message?.includes('already exists')
+        ) {
           return NextResponse.json({ error: 'Este correo ya está registrado' }, { status: 409 });
         }
         return NextResponse.json({ error: authError.message }, { status: 400 });
@@ -147,7 +194,11 @@ export async function POST(req: NextRequest) {
       });
 
       if (signUpError) {
-        if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists') || signUpError.message?.includes('User already registered')) {
+        if (
+          signUpError.message?.includes('already registered') ||
+          signUpError.message?.includes('already exists') ||
+          signUpError.message?.includes('User already registered')
+        ) {
           return NextResponse.json({ error: 'Este correo ya está registrado' }, { status: 409 });
         }
         return NextResponse.json({ error: signUpError.message }, { status: 400 });
@@ -164,11 +215,9 @@ export async function POST(req: NextRequest) {
     await new Promise((resolve) => setTimeout(resolve, 800));
 
     // Use service role key for RPC if available, otherwise anon key
-    const supabaseForRpc = createClient(
-      supabaseUrl,
-      serviceRoleKey || anonKey,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    );
+    const supabaseForRpc = createClient(supabaseUrl, serviceRoleKey || anonKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
 
     // Determine if user registered with biometric method
     const isBiometrico = identityMethod === 'biometrico';
@@ -222,7 +271,7 @@ export async function POST(req: NextRequest) {
       phone_verified: false, // stays false — phone verification is inactive
       // Biometric: store enrollment link regardless of active/inactive status
       biometric_verified: isBiometrico && !!enrollmentResultId,
-      biometric_verified_at: (isBiometrico && enrollmentResultId) ? new Date().toISOString() : null,
+      biometric_verified_at: isBiometrico && enrollmentResultId ? new Date().toISOString() : null,
       biometric_source: isBiometrico ? 'enrollment' : null,
       enrollment_result_id: enrollmentResultId || null,
     };
@@ -259,6 +308,37 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // A created account must receive its verification email even if workspace
+    // setup reports a recoverable warning below.
+    const sendVerificationEmail = async () => {
+      try {
+        const siteUrl = req.nextUrl.origin;
+        const normalizedEmail = String(email).trim().toLowerCase();
+        const registrationSignature = serviceRoleKey
+          ? crypto
+              .createHmac('sha256', serviceRoleKey)
+              .update(`${userId}\n${normalizedEmail}`)
+              .digest('hex')
+          : null;
+        await fetch(`${siteUrl}/api/registro/send-verification-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(registrationSignature
+              ? { 'x-docubox-registration-signature': registrationSignature }
+              : {}),
+          },
+          body: JSON.stringify({
+            userId,
+            email: normalizedEmail,
+            fullName: fullName || nombre || '',
+          }),
+        });
+      } catch (emailErr) {
+        console.warn('[registro] Could not send verification email:', emailErr);
+      }
+    };
+
     // Call the setup function to create workspace, subscription, and history
     const { data: setupData, error: setupError } = await supabaseForRpc.rpc(
       'setup_free_workspace_and_subscription',
@@ -291,21 +371,31 @@ export async function POST(req: NextRequest) {
 
     if (setupError) {
       console.error('[registro] setup_free_workspace_and_subscription error:', setupError);
+      await sendVerificationEmail();
       return NextResponse.json({
         success: true,
         userId,
-        warning: 'Usuario creado pero hubo un error al configurar el workspace: ' + setupError.message,
+        warning:
+          'Usuario creado pero hubo un error al configurar el workspace: ' + setupError.message,
       });
     }
 
-    const result = setupData as { success: boolean; workspace_id?: string; subscription_id?: string; error?: string };
+    const result = setupData as {
+      success: boolean;
+      workspace_id?: string;
+      subscription_id?: string;
+      error?: string;
+    };
 
     if (!result?.success) {
       console.error('[registro] setup function returned error:', result?.error);
+      await sendVerificationEmail();
       return NextResponse.json({
         success: true,
         userId,
-        warning: 'Usuario creado pero hubo un error al configurar el workspace: ' + (result?.error || 'desconocido'),
+        warning:
+          'Usuario creado pero hubo un error al configurar el workspace: ' +
+          (result?.error || 'desconocido'),
       });
     }
 
@@ -358,36 +448,10 @@ export async function POST(req: NextRequest) {
         if (auditError) {
           console.warn('[registro] Could not record organization audit event:', auditError);
         }
-
       }
     }
 
-    try {
-      const siteUrl = req.nextUrl.origin;
-      const normalizedEmail = String(email).trim().toLowerCase();
-      const registrationSignature = serviceRoleKey
-        ? crypto
-            .createHmac('sha256', serviceRoleKey)
-            .update(`${userId}\n${normalizedEmail}`)
-            .digest('hex')
-        : null;
-      await fetch(`${siteUrl}/api/registro/send-verification-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(registrationSignature
-            ? { 'x-docubox-registration-signature': registrationSignature }
-            : {}),
-        },
-        body: JSON.stringify({
-          userId,
-          email: normalizedEmail,
-          fullName: fullName || nombre || '',
-        }),
-      });
-    } catch (emailErr) {
-      console.warn('[registro] Could not send verification email:', emailErr);
-    }
+    await sendVerificationEmail();
 
     return NextResponse.json({
       success: true,
