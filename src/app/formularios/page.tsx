@@ -43,6 +43,13 @@ interface FormLaunch {
   used_at: string | null;
 }
 
+interface FormResponseSummary {
+  template_id: string;
+  token_id: string;
+  respondent_email: string | null;
+  submitted_at: string;
+}
+
 interface ScheduledFormLaunch {
   id: string;
   template_id: string;
@@ -78,6 +85,7 @@ export default function FormulariosPage() {
   const supabase = createClient();
   const [forms, setForms] = useState<FormRow[]>([]);
   const [launches, setLaunches] = useState<FormLaunch[]>([]);
+  const [responseSummaries, setResponseSummaries] = useState<FormResponseSummary[]>([]);
   const [scheduledLaunches, setScheduledLaunches] = useState<ScheduledFormLaunch[]>([]);
   const [launchesError, setLaunchesError] = useState(false);
   const [clockTime, setClockTime] = useState(() => Date.now());
@@ -115,11 +123,12 @@ export default function FormulariosPage() {
     const workspaceId = activeWorkspace.id;
     setLoading(true);
     setLaunches([]);
+    setResponseSummaries([]);
     setScheduledLaunches([]);
     setLaunchesError(false);
-    const [{ data: templateData, error }, { data: responseData }, { data: typeData, error: typeError }] = await Promise.all([
+    const [{ data: templateData, error }, { data: responseData, error: responseError }, { data: typeData, error: typeError }] = await Promise.all([
       supabase.from('form_templates').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }),
-      supabase.from('form_responses').select('template_id').eq('workspace_id', workspaceId),
+      supabase.from('form_responses').select('template_id,token_id,respondent_email,submitted_at').eq('workspace_id', workspaceId),
       supabase.from('tipo_documento').select('id, nombre'),
     ]);
     if (requestId !== loadRequestId.current) return;
@@ -161,6 +170,7 @@ export default function FormulariosPage() {
         acc[row.template_id] = (acc[row.template_id] || 0) + 1;
         return acc;
       }, {});
+      setResponseSummaries(responseError ? [] : (responseData || []) as FormResponseSummary[]);
       const typeNames = new Map((typeData || []).map((type: { id: string; nombre: string }) => [type.id, type.nombre]));
       setForms((templateData || []).map((item: any) => ({
         ...item,
@@ -168,6 +178,7 @@ export default function FormulariosPage() {
         typeName: typeNames.get(item.settings?.documentTypeId) || (item.settings?.documentTypeId ? 'Tipo no disponible' : 'Sin clasificar'),
       })));
       if (typeError) setNotice('No se pudieron cargar los tipos de formulario.');
+      if (responseError) setNotice('No se pudieron cargar las respuestas. Actualiza la página para ver las cifras correctas.');
     } else {
       setNotice('No se pudieron cargar los formularios.');
     }
@@ -312,11 +323,21 @@ export default function FormulariosPage() {
   }), [forms, filterCounts, launches]);
   const pendingLaunches = useMemo(() => {
     const unsentTokenIds = new Set(scheduledLaunches.map((schedule) => schedule.token_id).filter(Boolean));
+    const answeredTokenIds = new Set(responseSummaries.map((response) => response.token_id));
+    const latestResponseByRecipient = new Map<string, number>();
+    for (const response of responseSummaries) {
+      if (!response.respondent_email) continue;
+      const key = `${response.template_id}:${response.respondent_email.trim().toLowerCase()}`;
+      const submittedAt = new Date(response.submitted_at).getTime();
+      if (Number.isFinite(submittedAt))
+        latestResponseByRecipient.set(key, Math.max(submittedAt, latestResponseByRecipient.get(key) || 0));
+    }
     return launches.filter((launch) =>
-      !unsentTokenIds.has(launch.id) && !launch.used_at &&
+      !unsentTokenIds.has(launch.id) && !launch.used_at && !answeredTokenIds.has(launch.id) &&
+      (latestResponseByRecipient.get(`${launch.template_id}:${launch.recipient_email.trim().toLowerCase()}`) || 0) < new Date(launch.created_at).getTime() &&
       (!launch.expires_at || new Date(launch.expires_at).getTime() > clockTime)
     );
-  }, [launches, scheduledLaunches, clockTime]);
+  }, [launches, scheduledLaunches, responseSummaries, clockTime]);
   const formNames = useMemo(() => new Map(forms.map((form) => [form.id, form.name])), [forms]);
 
   const managePendingLaunch = async (launch: FormLaunch, action: 'resend' | 'cancel') => {

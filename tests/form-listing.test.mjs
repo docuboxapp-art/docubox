@@ -8,7 +8,7 @@ import ts from 'typescript';
 const require = createRequire(import.meta.url);
 const source = readFileSync('src/app/formularios/page.tsx', 'utf8');
 
-function createListing(initialFavorites = [], description = '', formStatus = 'published', launches = [], transientLaunchFailures = 0) {
+function createListing(initialFavorites = [], description = '', formStatus = 'published', launches = [], transientLaunchFailures = 0, responses = []) {
   const slots = [];
   const effects = [];
   const requests = [];
@@ -64,6 +64,7 @@ function createListing(initialFavorites = [], description = '', formStatus = 'pu
           const data = table === 'form_templates' ? [form]
             : table === 'tipo_documento' ? [{ id: 'type-1', nombre: 'Solicitud de credito' }]
             : table === 'form_tokens' ? launches
+            : table === 'form_responses' ? responses
             : table === 'user_favorites' ? [...savedFavorites].map((item_id) => ({ item_id })) : [];
           return Promise.resolve({ data, error: null, status: 200 }).then(resolve, reject);
         },
@@ -252,6 +253,29 @@ test('form and response summaries start in the requested states and count only a
   assert.deepEqual(elements(tree, (node) => node.props.label && ['Total', 'Publicados', 'Borrador', 'Archivados'].includes(node.props.label)).map((node) => [node.props.label, node.props.value]), [
     ['Total', 1], ['Publicados', 1], ['Borrador', 0], ['Archivados', 0],
   ]);
+});
+
+test('a response after duplicate invitations clears the pending counter for that recipient', async () => {
+  const launches = [
+    { id: 'older', template_id: 'form-1', recipient_email: 'ANA@example.com', recipient_name: 'Ana', created_at: '2026-10-09T10:00:00Z', expires_at: null, used_at: '2026-10-09T12:00:00Z' },
+    { id: 'duplicate', template_id: 'form-1', recipient_email: 'ana@example.com', recipient_name: 'Ana', created_at: '2026-10-09T11:00:00Z', expires_at: null, used_at: null },
+  ];
+  const responses = [{ template_id: 'form-1', token_id: 'older', respondent_email: 'ana@example.com', submitted_at: '2026-10-09T12:00:00Z' }];
+  const listing = createListing([], '', 'published', launches, 0, responses);
+  await listing.settle();
+  const tree = await listing.settle();
+  assert.equal(elements(tree, (node) => node.type === 'button' && node.props['aria-label'] === 'Sin respuestas pendientes').length, 1);
+});
+
+test('a new invitation after a response remains pending', async () => {
+  const launches = [
+    { id: 'newer', template_id: 'form-1', recipient_email: 'ana@example.com', recipient_name: 'Ana', created_at: '2026-10-10T10:00:00Z', expires_at: null, used_at: null },
+  ];
+  const responses = [{ template_id: 'form-1', token_id: 'older', respondent_email: 'ana@example.com', submitted_at: '2026-10-09T12:00:00Z' }];
+  const listing = createListing([], '', 'published', launches, 0, responses);
+  await listing.settle();
+  const tree = await listing.settle();
+  assert.equal(elements(tree, (node) => node.type === 'button' && node.props['aria-label'] === 'Ver 1 respuesta pendiente').length, 1);
 });
 
 test('closed is not an available filter or lifecycle action', async () => {
