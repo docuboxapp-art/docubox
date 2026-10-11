@@ -1213,8 +1213,14 @@ export default function VisorDocumentoPage() {
     nom151LookupComplete && padesBtVerified && nom151Data?.verification_status === 'verified';
   const signedPdfReadyForDownload =
     Boolean(document?.sealed_pdf_path) && finalDeliverableAvailable;
+  const formFinalPdfLoading = Boolean(
+    document?.source_form_response_id && document.estado === 'completado' && !nom151LookupComplete
+  );
   const formFinalPdfPending = Boolean(
-    document?.source_form_response_id && document.estado === 'completado' && !signedPdfReadyForDownload
+    document?.source_form_response_id &&
+      document.estado === 'completado' &&
+      nom151LookupComplete &&
+      !signedPdfReadyForDownload
   );
   const formStampStyle = participationResponses.find((response) => response.firma_completada)
     ?.signature_stamp_style?.trim().toUpperCase() || null;
@@ -4297,7 +4303,7 @@ export default function VisorDocumentoPage() {
   };
 
   const estadoInfo = document
-    ? document.source_form_response_id && document.estado === 'completado' && !signedPdfReadyForDownload
+    ? formFinalPdfPending
       ? { label: 'Firma registrada', color: 'text-amber-700', bg: 'bg-amber-50' }
       : estadoConfig[document.estado] || {
         label: document.estado?.toUpperCase() || '—',
@@ -6106,6 +6112,10 @@ export default function VisorDocumentoPage() {
                 !finalDeliverableAvailable ? (
                 <div className="flex h-full min-h-[360px] flex-col items-center justify-center gap-3 text-slate-500">
                   <p className="text-sm">PDF final pendiente de constancia NOM-151 emitida y verificada.</p>
+                </div>
+              ) : formFinalPdfLoading ? (
+                <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-slate-500" role="status">
+                  Verificando el PDF firmado…
                 </div>
               ) : document.file_url ? (
                 <div className="flex min-h-full min-w-full flex-col items-center gap-3 p-4 md:p-6">
