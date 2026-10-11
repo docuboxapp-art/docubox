@@ -112,9 +112,6 @@ export default function FormInvitationPortal() {
                     </a>
                   )}
                 </div>
-                <a href="/formulario-publico/codigo" className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                  <KeyRound size={16} /> Tengo un código de acceso
-                </a>
                 <p className="mt-5 text-xs text-slate-500">
                   Si ya tienes una cuenta con otro correo, inicia sesión con el correo de la
                   invitación.

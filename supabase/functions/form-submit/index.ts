@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { requiresFormSignature } from '../_shared/form-signature-policy.ts';
 import { getClientIp } from '../_shared/client-ip.ts';
+import { formAccessDenial } from '../_shared/form-access-policy.ts';
 
 declare const Deno: {
   env: {
@@ -57,14 +58,11 @@ serve(async (req) => {
       );
     }
 
-    if (
-      tokenRow.recipient_email?.trim().toLowerCase() !== user.email?.trim().toLowerCase() ||
-      (tokenRow.recipient_user_id && tokenRow.recipient_user_id !== user.id) ||
-      (tokenRow.access_mode === 'public' && tokenRow.recipient_user_id !== user.id)
-    ) {
+    const accessDenial = formAccessDenial(tokenRow, user);
+    if (accessDenial === 'FORBIDDEN') {
       return new Response(JSON.stringify({ error: 'Este enlace pertenece a otra cuenta.', code: 'FORBIDDEN' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    if (tokenRow.access_mode === 'public' && !tokenRow.liveness_verified_at) {
+    if (accessDenial === 'LIVENESS_REQUIRED') {
       return new Response(JSON.stringify({ error: 'La prueba de vida es obligatoria antes de responder.', code: 'LIVENESS_REQUIRED' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 

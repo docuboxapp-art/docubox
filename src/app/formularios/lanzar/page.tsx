@@ -766,8 +766,8 @@ function LaunchContent() {
                           <legend className="mb-2 text-sm font-semibold text-slate-900">Acceso al formulario</legend>
                           <div className="grid gap-2 sm:grid-cols-2">
                             {([
-                              { value: 'private', title: 'Invitación privada', description: 'Envía un enlace personal a un participante por correo.' },
-                              { value: 'public', title: 'Formulario público con código', description: 'Invita a una persona con dos correos: enlace y código. Podrá registrarse o iniciar sesión antes de la prueba de vida.' },
+                              { value: 'private', title: 'Invitación privada', description: 'Solo la persona elegida podrá abrir el enlace con su cuenta y correo verificado.' },
+                              { value: 'public', title: 'Formulario público con código', description: 'Se envían el enlace y el código en correos separados. Quien tenga el código necesitará una cuenta verificada y una prueba de vida.' },
                             ] as const).map((option) => (
                               <label key={option.value} className={`flex gap-3 rounded-lg border p-4 ${accessMode === option.value ? 'border-primary bg-blue-50/60' : 'border-slate-200 bg-white'} ${option.value === 'public' && !canLaunchPublicly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                                 <input type="radio" name="launch-access-mode" value={option.value} checked={accessMode === option.value} disabled={option.value === 'public' && !canLaunchPublicly} onChange={() => { setAccessMode(option.value); setError(''); }} className="mt-1 accent-primary" />
