@@ -230,7 +230,7 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                 value={code}
                 disabled={checkingCode || codeVerified}
                 onChange={(event) => { setCode(event.target.value.toUpperCase()); setCodeVerified(false); setError(''); }}
-                placeholder="DBX-..."
+                placeholder="8 caracteres"
                 className="mt-2 w-full rounded-md border border-slate-200 px-3 py-3 font-mono text-sm uppercase outline-none focus:border-primary disabled:bg-slate-50"
               />
             </label>

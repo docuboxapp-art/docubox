@@ -10,7 +10,7 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const formId = '11111111-1111-4111-8111-111111111111';
-const code = 'DBX-0123456789ABCDEF12';
+const code = 'ABCD2345';
 
 function fixture({ account = true, codeMatches = true, formPublished = true, failures = 0 } = {}) {
   const attempts = [];
@@ -18,6 +18,7 @@ function fixture({ account = true, codeMatches = true, formPublished = true, fai
     const query = {
       select: () => query,
       eq: () => query,
+      or: () => query,
       gte: () => query,
       maybeSingle: async () => result,
       then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
@@ -34,7 +35,7 @@ function fixture({ account = true, codeMatches = true, formPublished = true, fai
           attempts.push(row); return { error: null };
         } };
       if (table === 'form_public_access_codes')
-        return chain({ data: { form_id: formId, code_hash: 'saved-hash' }, error: null });
+        return chain({ data: { form_id: formId, code_lookup: 'lookup', code_hash: 'saved-hash' }, error: null });
       if (table === 'form_templates')
         return chain({ data: { name: 'Solicitud', status: formPublished ? 'published' : 'draft',
           settings: {}, allowed_signature_types: ['autografa_digital'] }, error: null });
@@ -51,7 +52,8 @@ function fixture({ account = true, codeMatches = true, formPublished = true, fai
     if (name === '@/lib/forms/public-access-code') return {
       normalizePublicCode: (value) => String(value).replaceAll('-', ''),
       publicCodeLookup: () => 'lookup',
-      matchesPublicCode: () => codeMatches,
+      isValidPublicCode: () => true,
+      matchesStoredPublicCode: () => codeMatches,
     };
     throw new Error(`Unexpected import: ${name}`);
   }, exports);

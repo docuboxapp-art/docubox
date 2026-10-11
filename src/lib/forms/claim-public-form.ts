@@ -2,7 +2,7 @@ import 'server-only';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { matchesPublicCode, normalizePublicCode, publicCodeLookup } from './public-access-code';
+import { isValidPublicCode, matchesStoredPublicCode, normalizePublicCode, publicCodeLookup } from './public-access-code';
 import {
   captureEncryptionKey,
   decryptCapture,
@@ -75,7 +75,7 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
   const body = await request.json().catch(() => ({}));
   const code = normalizePublicCode(body.code);
   const selfie = normalizeImageBase64(body.selfie);
-  if (!/^DBX[0-9A-F]{18}$/.test(code)) return reply('Ingresa un código de acceso válido.', 400);
+  if (!isValidPublicCode(code)) return reply('Ingresa un código de acceso válido.', 400);
   if (!validImageBase64(selfie)) return reply('Captura una selfie para la prueba de vida.', 400);
   const lookup = publicCodeLookup(code);
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
@@ -92,13 +92,13 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
 
   const { data: access, error: accessError } = await service
     .from('form_public_access_codes')
-    .select('form_id,code_hash')
-    .eq('code_lookup', lookup)
+    .select('form_id,code_lookup,code_hash,legacy_code_lookup,legacy_code_hash')
+    .or(`code_lookup.eq.${lookup},legacy_code_lookup.eq.${lookup}`)
     .maybeSingle();
   if (accessError) return reply('No se pudo comprobar el código.', 503);
   const valid = Boolean(
     access &&
-    matchesPublicCode(code, access.code_hash) &&
+    matchesStoredPublicCode(code, access) &&
     (!expectedFormId || access.form_id === expectedFormId)
   );
   const { error: attemptError } = await service.from('form_public_code_attempts').insert({

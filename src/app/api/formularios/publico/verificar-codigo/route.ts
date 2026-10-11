@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { matchesPublicCode, normalizePublicCode, publicCodeLookup } from '@/lib/forms/public-access-code';
+import { isValidPublicCode, matchesStoredPublicCode, normalizePublicCode, publicCodeLookup } from '@/lib/forms/public-access-code';
 
 export const runtime = 'nodejs';
 const headers = { 'Cache-Control': 'private, no-store, max-age=0' };
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const code = normalizePublicCode(body?.code);
   const formId = typeof body?.formId === 'string' ? body.formId : '';
-  if (!/^DBX[0-9A-F]{18}$/.test(code)) return reply('Ingresa un código de acceso válido.', 400);
+  if (!isValidPublicCode(code)) return reply('Ingresa un código de acceso válido.', 400);
 
   const lookup = publicCodeLookup(code);
   const since = new Date(Date.now() - 15 * 60_000).toISOString();
@@ -34,9 +34,10 @@ export async function POST(request: NextRequest) {
   if ((count || 0) >= 5) return reply('Demasiados intentos. Espera 15 minutos.', 429);
 
   const { data: access, error: accessError } = await service.from('form_public_access_codes')
-    .select('form_id,code_hash').eq('code_lookup', lookup).maybeSingle();
+    .select('form_id,code_lookup,code_hash,legacy_code_lookup,legacy_code_hash')
+    .or(`code_lookup.eq.${lookup},legacy_code_lookup.eq.${lookup}`).maybeSingle();
   if (accessError) return reply('No se pudo comprobar el código.', 503);
-  const valid = Boolean(access && matchesPublicCode(code, access.code_hash) && (!formId || access.form_id === formId));
+  const valid = Boolean(access && matchesStoredPublicCode(code, access) && (!formId || access.form_id === formId));
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   const { error: attemptError } = await service.from('form_public_code_attempts').insert({
     code_lookup: lookup,

@@ -5,6 +5,7 @@ import {
   decryptPublicCode,
   encryptPublicCode,
   hashPublicCode,
+  isLegacyPublicCode,
   publicCodeLookup,
 } from '@/lib/forms/public-access-code';
 import { resolveTemplatePublicationContext } from '@/lib/templates/publication-server';
@@ -70,7 +71,7 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
     return NextResponse.json({ error: 'Habilita la firma autógrafa digital antes de activar el acceso público.' }, { status: 409, headers });
   const { data: existing, error: lookupError } = await service
     .from('form_public_access_codes')
-    .select('code_ciphertext')
+    .select('code_ciphertext,code_lookup,code_hash')
     .eq('form_id', formId)
     .maybeSingle();
   if (lookupError)
@@ -81,20 +82,66 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
   if (!existing && !create)
     return NextResponse.json({ error: 'Este formulario aún no tiene un código público. Actívalo desde Lanzar formulario.' }, { status: 404, headers });
   let code = existing ? decryptPublicCode(existing.code_ciphertext) : createPublicCode();
-  if (!existing) {
-    const { error } = await service.from('form_public_access_codes').insert({
-      form_id: formId,
-      code_lookup: publicCodeLookup(code),
-      code_hash: hashPublicCode(code),
-      code_ciphertext: encryptPublicCode(code),
-    });
-    if (error?.code === '23505') {
-      const { data: concurrent } = await service.from('form_public_access_codes')
+  if (existing && isLegacyPublicCode(code)) {
+    for (let attempt = 0; attempt < 4 && isLegacyPublicCode(code); attempt += 1) {
+      const shorterCode = createPublicCode();
+      const { data: rotated, error: rotationError } = await service
+        .from('form_public_access_codes')
+        .update({
+          code_lookup: publicCodeLookup(shorterCode),
+          code_hash: hashPublicCode(shorterCode),
+          code_ciphertext: encryptPublicCode(shorterCode),
+          legacy_code_lookup: existing.code_lookup,
+          legacy_code_hash: existing.code_hash,
+        })
+        .eq('form_id', formId)
+        .eq('code_lookup', existing.code_lookup)
+        .select('code_ciphertext')
+        .maybeSingle();
+      if (rotated) {
+        code = shorterCode;
+        break;
+      }
+      if (rotationError?.code === '23505') continue;
+      if (rotationError)
+        return NextResponse.json({ error: 'No se pudo actualizar el código.' }, { status: 503, headers });
+      const { data: concurrent, error: concurrentError } = await service.from('form_public_access_codes')
         .select('code_ciphertext').eq('form_id', formId).maybeSingle();
-      if (concurrent) code = decryptPublicCode(concurrent.code_ciphertext);
-      else return NextResponse.json({ error: 'No se pudo recuperar el código.' }, { status: 503, headers });
-    } else if (error)
-      return NextResponse.json({ error: 'No se pudo generar el código.' }, { status: 503, headers });
+      if (concurrentError || !concurrent)
+        return NextResponse.json({ error: 'No se pudo recuperar el código.' }, { status: 503, headers });
+      code = decryptPublicCode(concurrent.code_ciphertext);
+      if (!isLegacyPublicCode(code)) break;
+    }
+    if (isLegacyPublicCode(code))
+      return NextResponse.json({ error: 'No se pudo actualizar el código.' }, { status: 503, headers });
+  }
+  if (!existing) {
+    let stored = false;
+    for (let attempt = 0; attempt < 4 && !stored; attempt += 1) {
+      if (attempt > 0) code = createPublicCode();
+      const { error } = await service.from('form_public_access_codes').insert({
+        form_id: formId,
+        code_lookup: publicCodeLookup(code),
+        code_hash: hashPublicCode(code),
+        code_ciphertext: encryptPublicCode(code),
+      });
+      if (!error) {
+        stored = true;
+      } else if (error.code === '23505') {
+        const { data: concurrent, error: concurrentError } = await service.from('form_public_access_codes')
+          .select('code_ciphertext').eq('form_id', formId).maybeSingle();
+        if (concurrentError)
+          return NextResponse.json({ error: 'No se pudo recuperar el código.' }, { status: 503, headers });
+        if (concurrent) {
+          code = decryptPublicCode(concurrent.code_ciphertext);
+          stored = true;
+        }
+      } else {
+        return NextResponse.json({ error: 'No se pudo generar el código.' }, { status: 503, headers });
+      }
+    }
+    if (!stored)
+      return NextResponse.json({ error: 'No se pudo generar un código único.' }, { status: 503, headers });
   }
   if (!create) return NextResponse.json({ code }, { headers });
 

@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const formId = '11111111-1111-4111-8111-111111111111';
-const publicCode = 'DBX-0123456789ABCDEF12';
+const publicCode = 'ABCD2345';
 
 function fixture({
   accessMode = 'private',
@@ -31,6 +31,7 @@ function fixture({
     const query = {
       select: () => query,
       eq: () => query,
+      or: () => query,
       not: () => query,
       gte: () => query,
       order: () => query,
@@ -47,7 +48,7 @@ function fixture({
         return { ...chain({ count: 0, error: null }), insert: async () => ({ error: null }) };
       }
       if (table === 'form_public_access_codes')
-        return chain({ data: codeExists ? { form_id: formId, code_hash: 'saved-hash' } : null, error: null });
+        return chain({ data: codeExists ? { form_id: formId, code_lookup: 'lookup', code_hash: 'saved-hash' } : null, error: null });
       if (table === 'form_public_invitees') return chain({ data: {
         recipient_name: 'Ana invitada', launch_prefill: { nombre: 'Ana', rfc: 'RFC-INVITACION' },
       }, error: null });
@@ -68,7 +69,7 @@ function fixture({
       return { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } };
     if (name === '@supabase/supabase-js') return { createClient: () => service };
     if (name === './public-access-code')
-      return { normalizePublicCode: (value) => String(value).replaceAll('-', ''), publicCodeLookup: () => 'lookup', matchesPublicCode: () => true };
+      return { normalizePublicCode: (value) => String(value).replaceAll('-', ''), publicCodeLookup: () => 'lookup', isValidPublicCode: () => true, matchesStoredPublicCode: () => true };
     if (name === '@/lib/identity/capture-crypto')
       return { captureEncryptionKey: () => null, normalizeImageBase64: (value) => value, validImageBase64: () => true };
     throw new Error(`Unexpected import: ${name}`);
@@ -149,6 +150,7 @@ test('an existing response cannot claim another public link', async () => {
 
 function codeRouteFixture({ existing = false, authorized = true, allowedTypes = ['autografa_digital'], recipientEmail = 'ana@example.com' } = {}) {
   const inserts = [];
+  const updates = [];
   const invitees = [];
   const form = {
     id: formId,
@@ -169,7 +171,9 @@ function codeRouteFixture({ existing = false, authorized = true, allowedTypes = 
     from: (table) => {
       if (table === 'form_templates') return chain(form);
       if (table === 'form_public_access_codes')
-        return { ...chain(existing ? { code_ciphertext: 'encrypted-existing-code' } : null), insert: async (row) => {
+        return { ...chain(existing ? { code_ciphertext: 'encrypted-existing-code', code_lookup: 'old-lookup', code_hash: 'old-hash' } : null),
+          update: (row) => { updates.push(row); return chain({ code_ciphertext: 'encrypted-new-code' }); },
+          insert: async (row) => {
           inserts.push(row);
           return { error: null };
         } };
@@ -191,11 +195,12 @@ function codeRouteFixture({ existing = false, authorized = true, allowedTypes = 
     if (name === '@supabase/supabase-js') return { createClient: () => service };
     if (name === '@/lib/forms/public-access-code')
       return {
-        createPublicCode: () => 'DBX-new-code',
-        decryptPublicCode: () => 'DBX-existing-code',
+        createPublicCode: () => 'ABCDEFGH',
+        decryptPublicCode: (value) => value === 'encrypted-existing-code' ? 'DBX-0123456789ABCDEF12' : 'ABCDEFGH',
         encryptPublicCode: () => 'encrypted-new-code',
         hashPublicCode: () => 'hash',
         publicCodeLookup: () => 'lookup',
+        isLegacyPublicCode: (value) => value.startsWith('DBX-'),
       };
     if (name === '@/lib/templates/publication-server')
       return { resolveTemplatePublicationContext: async () => authorized ? { user: { id: 'owner-1' }, canManageResources: true } : null };
@@ -206,6 +211,7 @@ function codeRouteFixture({ existing = false, authorized = true, allowedTypes = 
   return {
     exports,
     inserts,
+    updates,
     invitees,
     request: { headers: new Headers({ Authorization: 'Bearer owner-token' }),
       nextUrl: { origin: 'https://docubox.example' },
@@ -225,7 +231,7 @@ test('the launcher activates a code on a private-capable published form', async 
   const current = codeRouteFixture();
   const response = await current.exports.POST(current.request, current.context);
   assert.equal(response.status, 200);
-  assert.equal(response.body.code, 'DBX-new-code');
+  assert.equal(response.body.code, 'ABCDEFGH');
   assert.equal(current.inserts.length, 1);
   assert.equal(current.inserts[0].form_id, formId);
   assert.equal(response.body.emails_sent, 2);
@@ -234,8 +240,8 @@ test('the launcher activates a code on a private-capable published form', async 
   assert.deepEqual(current.invitees[0].launch_prefill, {});
   assert.equal(deliveredBatch.length, 2);
   assert.deepEqual(deliveredBatch.map((mail) => mail.to), [['ana@example.com'], ['ana@example.com']]);
-  assert.doesNotMatch(deliveredBatch[0].html, /DBX-new-code/);
-  assert.match(deliveredBatch[1].html, /DBX-new-code/);
+  assert.doesNotMatch(deliveredBatch[0].html, /ABCDEFGH/);
+  assert.match(deliveredBatch[1].html, /ABCDEFGH/);
   assert.match(deliveredBatch[0].html, /Hola,<\/p>/);
   assert.doesNotMatch(deliveredBatch[0].html, /Hola <strong>Participante<\/strong>/);
 });
@@ -248,9 +254,11 @@ test('an invalid recipient email cannot activate a public code', async () => {
   assert.equal(current.invitees.length, 0);
 });
 
-test('existing public codes remain stable and require the form owner', async () => {
+test('existing long codes become short without discarding the legacy verifier', async () => {
   const existing = codeRouteFixture({ existing: true });
-  assert.equal((await existing.exports.POST(existing.request, existing.context)).body.code, 'DBX-existing-code');
+  assert.equal((await existing.exports.POST(existing.request, existing.context)).body.code, 'ABCDEFGH');
+  assert.equal(existing.updates[0].legacy_code_lookup, 'old-lookup');
+  assert.equal(existing.updates[0].legacy_code_hash, 'old-hash');
   assert.equal(existing.inserts.length, 0);
   const denied = codeRouteFixture({ authorized: false });
   assert.equal((await denied.exports.POST(denied.request, denied.context)).status, 403);
